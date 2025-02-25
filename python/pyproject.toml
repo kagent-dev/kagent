@@ -20,6 +20,8 @@ dependencies = [
   "mcp>=1.2.0",
   "sqlite-vec>=0.1.0",
   "typer",
+  "grpcio>=1.70.0",
+  "kubernetes-client>=0.1.8",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +35,9 @@ test = [
 ]
 lint = [
   "ruff>=0.9.2",
+]
+proto = [
+  "grpcio-tools>=1.70.0",
 ]
 
 [project.scripts]

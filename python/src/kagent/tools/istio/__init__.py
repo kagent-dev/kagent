@@ -1,3 +1,6 @@
+from ._istioambientworkinspect import (
+    WorkloadInspect,
+)
 from ._istioctl import (
     AnalyzeClusterConfig,
     ApplyWaypoint,
@@ -26,4 +29,5 @@ __all__ = [
     "RemoteClusters",
     "WaypointStatus",
     "ZTunnelConfig",
+    "WorkloadInspect",
 ]
