@@ -108,6 +108,15 @@ export interface RoundRobinGroupChatConfig {
   model_client: Component<ModelConfig>;
 }
 
+export interface SocietyOfMindAgentConfig {
+  name: string;
+  team: Component<TeamConfig>;
+  model_client: Component<ModelConfig>;
+  model_context: Component<ChatCompletionContextConfig>;
+  description?: string;
+  model_client_stream?: boolean;
+}
+
 export interface MultimodalWebSurferConfig {
   name: string;
   model_client: Component<ModelConfig>;
@@ -203,7 +212,7 @@ export interface TextMentionTerminationConfig {
 }
 
 // Config type unions based on provider
-export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig;
+export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | SocietyOfMindAgentConfig;
 
 export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | UserProxyAgentConfig;
 

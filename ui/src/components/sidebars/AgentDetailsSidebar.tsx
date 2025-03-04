@@ -1,6 +1,6 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ChevronRight, ChevronLeft, User, FunctionSquare } from "lucide-react";
-import type { Team, AssistantAgentConfig, UserProxyAgentConfig, ToolConfig, Component } from "@/types/datamodel";
+import { ChevronRight, ChevronLeft, FunctionSquare } from "lucide-react";
+import type { Team, AssistantAgentConfig, ToolConfig, Component } from "@/types/datamodel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,6 +11,7 @@ import { getToolDescription, getToolDisplayName, getToolIdentifier, isMcpTool } 
 import { useResponsiveSidebar } from "@/components/sidebars/useResponsiveSidebar";
 import { createTeam } from "@/app/actions/teams";
 import KagentLogo from "../kagent-logo";
+import { findAllAssistantAgents, updateUsersAgent } from "@/lib/agents";
 
 interface AgentDetailsSidebarProps {
   selectedTeam: Team | null;
@@ -94,12 +95,14 @@ export function AgentDetailsSidebar({ selectedTeam }: AgentDetailsSidebarProps) 
 
     setIsUpdating(true);
     try {
-      (selectedTeam.component.config.participants[currentAgentIndex].config as AssistantAgentConfig).system_message = editedSystemPrompt;
+      const updatedTeam = updateUsersAgent(selectedTeam, (agent) => {
+        agent.config.system_message = editedSystemPrompt;
+      });
 
       // Remove the created_at and updated_at variables from the selectedTeam - backend fails as the date/time is not in the correct format (or something)
       // in any case, the backend updates the created_at and updated_at fields automatically anyway
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { created_at, updated_at, ...editedTeam } = selectedTeam;
+      const { created_at, updated_at, ...editedTeam } = updatedTeam;
       await createTeam(editedTeam);
 
       setCurrentSystemPrompt(editedSystemPrompt);
@@ -113,6 +116,8 @@ export function AgentDetailsSidebar({ selectedTeam }: AgentDetailsSidebarProps) 
       setIsUpdating(false);
     }
   };
+
+  const assistantAgents = findAllAssistantAgents(selectedTeam?.component);
 
   return (
     <>
@@ -136,71 +141,50 @@ export function AgentDetailsSidebar({ selectedTeam }: AgentDetailsSidebarProps) 
               ) : (
                 <ScrollArea className="flex-1 px-6 py-6">
                   <div className="space-y-4">
-                    {selectedTeam.component?.config.participants
-                      .filter((a) => !a.label?.startsWith("kagent_"))
-                      .map((participant, index) => {
-                        if (participant.provider === "autogen_agentchat.agents.AssistantAgent") {
-                          const assistantAgent = participant.config as AssistantAgentConfig;
-                          return (
-                            <div key={index} className="text-sm text-white/50">
-                              <div className="flex items-center justify-between">
-                                <h5 className="text-white font-semibold text-lg flex items-center gap-2">
-                                  <KagentLogo className="h-5 w-5" />
-                                  {assistantAgent.name}
-                                </h5>
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Badge variant="outline" className="text-xs text-white/50">
-                                        {assistantAgent.model_client.config.model}
-                                      </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Model agent is using</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
-                              </div>
-                              <p className="mt-4 text-base">{assistantAgent.description}</p>
-                              <div className="mt-4 text-base">
-                                <Button
-                                  variant="link"
-                                  size="sm"
-                                  onClick={() => handleOpenSystemPrompt(assistantAgent.system_message ?? "No system prompt available", index)}
-                                  className="px-0 text-white/80 hover:text-white"
-                                >
-                                  View instructions &rarr;
-                                </Button>
-                              </div>
-
-                              <div className="mt-8">
-                                <h6 className="text-base font-medium text-white/70 flex items-center gap-2 mb-4">
-                                  <FunctionSquare className="h-6 w-6" />
-                                  Available Tools
-                                </h6>
-                                {renderAgentTools(assistantAgent.tools)}
-                              </div>
-                            </div>
-                          );
-                        }
-
-                        const userProxyAgent = participant.config as UserProxyAgentConfig;
-                        return (
-                          <div key={index} className="text-sm text-white/50 p-4 rounded-md bg-[#1A1A1A] border border-[#3A3A3A] hover:bg-[#222] transition-colors">
-                            <div className="flex items-center justify-between">
-                              <h5 className="text-white font-semibold flex items-center gap-2">
-                                <User className="h-4 w-4 text-blue-500" />
-                                {participant.label}
-                              </h5>
-                              <Badge variant="outline" className="text-xs text-white/50">
-                                {participant.label}
-                              </Badge>
-                            </div>
-
-                            <p className="mt-2">{userProxyAgent.description}</p>
+                    {assistantAgents.map((participant, index) => {
+                      const assistantAgent = participant.config as AssistantAgentConfig;
+                      return (
+                        <div key={index} className="text-sm text-white/50">
+                          <div className="flex items-center justify-between">
+                            <h5 className="text-white font-semibold text-lg flex items-center gap-2">
+                              <KagentLogo className="h-5 w-5" />
+                              {participant.label}
+                            </h5>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="text-xs text-white/50">
+                                    {assistantAgent.model_client.config.model}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Model agent is using</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </div>
-                        );
-                      })}
+                          <p className="mt-4 text-base">{assistantAgent.description}</p>
+                          <div className="mt-4 text-base">
+                            <Button
+                              variant="link"
+                              size="sm"
+                              onClick={() => handleOpenSystemPrompt(assistantAgent.system_message ?? "No system prompt available", index)}
+                              className="px-0 text-white/80 hover:text-white"
+                            >
+                              View instructions &rarr;
+                            </Button>
+                          </div>
+
+                          <div className="mt-8">
+                            <h6 className="text-base font-medium text-white/70 flex items-center gap-2 mb-4">
+                              <FunctionSquare className="h-6 w-6" />
+                              Available Tools
+                            </h6>
+                            {renderAgentTools(assistantAgent.tools)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               )}

@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import KagentLogo from "./kagent-logo";
 import { HomeIcon } from "lucide-react";
 

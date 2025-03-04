@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import type { Team } from "@/types/datamodel";
 import { DeleteButton } from "@/components/DeleteAgentButton";
-import { getUsersAgentFromTeam } from "@/lib/utils";
 import KagentLogo from "@/components/kagent-logo";
+import { getUsersAgentFromTeam } from "@/lib/agents";
 
 interface AgentCardProps {
   team: Team;
@@ -17,7 +17,6 @@ export function AgentCard({ team }: AgentCardProps) {
 
   const handleCardClick = () => {
       router.push(`/agents/${team.id}/chat`);
-
   };
 
   return (

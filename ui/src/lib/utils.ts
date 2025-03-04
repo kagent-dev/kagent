@@ -2,7 +2,7 @@ import { LLMCall } from "@/components/chat/LLMCallModal";
 import { FunctionCall, FunctionExecutionResult, ImageContent, TeamResult } from "@/types/datamodel";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { AssistantAgentConfig, Component, Team, TextMessageConfig } from "@/types/datamodel";
+import type { TextMessageConfig } from "@/types/datamodel";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -185,11 +185,3 @@ export const messageUtils = {
     return source === "user";
   },
 };
-
-export function getUsersAgentFromTeam(team: Team): Component<AssistantAgentConfig> {
-  const agent = team.component?.config.participants.find((p) => !p.label?.startsWith("kagent_"));
-  if (!agent) {
-    throw new Error("No agent found in team");
-  }
-  return agent as Component<AssistantAgentConfig>;
-}
