@@ -55,9 +55,25 @@ func GetCmd(c *ishell.Context) {
 				c.Printf("Failed to get run %s: %v\n", resourceName, err)
 				return
 			}
+			c.Println(run.Task.Content)
+			c.Println(run.Messages)
+			c.Println(len(run.Messages))
 			byt, _ := json.MarshalIndent(run, "", "  ")
 			c.Println(string(byt))
 		}
+	case "session":
+		if resourceName == "" {
+			sessionList, err := client.ListSessions(cfg.UserID)
+			if err != nil {
+				c.Printf("Failed to get sessions: %v\n", err)
+				return
+			}
+			if err := printSessions(sessionList); err != nil {
+				c.Printf("Failed to print sessions: %v\n", err)
+				return
+			}
+		}
+
 	case "agent":
 		if resourceName == "" {
 			agentList, err := client.ListTeams(cfg.UserID)
@@ -121,4 +137,19 @@ func printTeams(teams []autogen_client.Team) error {
 	}
 
 	return printOutput(teams, headers, rows)
+}
+
+func printSessions(sessions []autogen_client.Session) error {
+	headers := []string{"#", "ID", "NAME", "TEAM"}
+	rows := make([][]string, len(sessions))
+	for i, session := range sessions {
+		rows[i] = []string{
+			strconv.Itoa(i),
+			strconv.Itoa(session.ID),
+			session.Name,
+			strconv.Itoa(session.TeamID),
+		}
+	}
+
+	return printOutput(sessions, headers, rows)
 }

@@ -75,26 +75,6 @@ Examples:
 	})
 
 	shell.AddCmd(&ishell.Cmd{
-		Name:    "install",
-		Aliases: []string{"i"},
-		Help:    "Install kagent to the current cluster.",
-		Func: func(c *ishell.Context) {
-			cli.InstallCmd(c)
-			c.SetPrompt(cli.BoldBlue("kagent >> "))
-		},
-	})
-
-	shell.AddCmd(&ishell.Cmd{
-		Name:    "uninstall",
-		Aliases: []string{"u"},
-		Help:    "Uninstall kagent from the current cluster.",
-		Func: func(c *ishell.Context) {
-			cli.UninstallCmd(c)
-			c.SetPrompt(cli.BoldBlue("kagent >> "))
-		},
-	})
-
-	shell.AddCmd(&ishell.Cmd{
 		Name:    "version",
 		Aliases: []string{"v"},
 		Help:    "Print the kagent version.",

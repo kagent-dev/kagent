@@ -73,7 +73,7 @@ type Shell interface {
 }
 
 // StartInteractive initiates the interactive session with the server
-func (c *Client) StartInteractive(ctx context.Context, shell Shell, team autogen_client.Team, task string) error {
+func (c *Client) StartInteractive(ctx context.Context, shell Shell, team *autogen_client.Team, task string) error {
 	defer c.conn.Close()
 
 	interrupt := make(chan os.Signal, 1)

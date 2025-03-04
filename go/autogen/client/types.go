@@ -31,7 +31,7 @@ type RunMessage struct {
 	MessageMeta map[string]interface{} `json:"message_meta"`
 	ID          int                    `json:"id"`
 	UserID      *string                `json:"user_id"`
-	Component   TaskMessage            `json:"component"`
+	Config      map[string]interface{} `json:"config"`
 	RunID       string                 `json:"run_id"`
 }
 

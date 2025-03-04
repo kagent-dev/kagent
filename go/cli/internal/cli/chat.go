@@ -44,23 +44,34 @@ func ChatCmd(c *ishell.Context) {
 	}
 
 	client := autogen_client.New(cfg.APIURL, cfg.WSURL)
-	// Get the team based on the input + userID
-	teams, err := client.ListTeams(cfg.UserID)
-	if err != nil {
-		c.Println(err)
-		return
-	}
 
-	teamNames := make([]string, len(teams))
-	for i, team := range teams {
-		if team.Component.Label == nil {
-			continue
+	var team *autogen_client.Team
+	if len(flagSet.Args()) > 0 {
+		teamName := flagSet.Args()[0]
+		team, err = client.GetTeam(cfg.UserID, teamName)
+		if err != nil {
+			c.Println(err)
+			return
 		}
-		teamNames[i] = *team.Component.Label
-	}
+	} else {
+		// Get the teams based on the input + userID
+		teams, err := client.ListTeams(cfg.UserID)
+		if err != nil {
+			c.Println(err)
+			return
+		}
 
-	selectedTeamIdx := c.MultiChoice(teamNames, "Select an agent:")
-	team := teams[selectedTeamIdx]
+		teamNames := make([]string, len(teams))
+		for i, team := range teams {
+			if team.Component.Label == nil {
+				continue
+			}
+			teamNames[i] = *team.Component.Label
+		}
+
+		selectedTeamIdx := c.MultiChoice(teamNames, "Select an agent:")
+		team = &teams[selectedTeamIdx]
+	}
 
 	// Create a random session name
 	sessionName, err := generateRandomString("session-", 5)
