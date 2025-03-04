@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/abiosoft/ishell/v2"
 	"github.com/abiosoft/readline"
 	"github.com/briandowns/spinner"
 	"github.com/fatih/color"
@@ -71,8 +70,6 @@ type Shell interface {
 	Println(val ...interface{})
 	// Printf prints to output using string format.
 	Printf(format string, val ...interface{})
-	// ProgressBar returns a new progress bar
-	ProgressBar() ishell.ProgressBar
 }
 
 // StartInteractive initiates the interactive session with the server
@@ -109,6 +106,8 @@ func (c *Client) StartInteractive(ctx context.Context, shell Shell, team autogen
 		case <-c.done:
 		case <-time.After(time.Second):
 		}
+		return nil
+	case <-c.done:
 		return nil
 	case <-interrupt:
 		stopMsg := StopMessage{
@@ -181,7 +180,6 @@ func (c *Client) handleMessages(shell Shell) {
 				}
 				if s.Active() {
 					s.Stop()
-					shell.Println()
 				}
 				// Do not re-print the user's input, or system message asking for input
 				if textMessage.Source == "user" || textMessage.Source == "system" {
@@ -215,7 +213,6 @@ func (c *Client) handleMessages(shell Shell) {
 
 				if s.Active() {
 					s.Stop()
-					shell.Println()
 				}
 
 				shell.Printf("%s: %s\n", bold_yellow("Event Type"), "ToolCall(s)")
@@ -257,7 +254,6 @@ func (c *Client) handleMessages(shell Shell) {
 			case ContentTypeModelStreaming:
 				if s.Active() {
 					s.Stop()
-					shell.Println()
 				}
 				var modelStreaming ModelStreamingEvent
 				if err := json.Unmarshal(msg.Data, &modelStreaming); err != nil {
@@ -269,10 +265,13 @@ func (c *Client) handleMessages(shell Shell) {
 			}
 
 		case MessageTypeInputRequest:
-			if err := c.handleUserInput(shell, msg.Data); err != nil {
-				shell.Printf("Error handling input: %v\n", err)
-				return
-			}
+			go func() {
+				// TODO: properly handle this error
+				if err := c.handleUserInput(shell, msg.Data); err != nil {
+					shell.Printf("Error handling input: %v\n", err)
+					return
+				}
+			}()
 
 		case MessageTypeResult, MessageTypeCompletion:
 			var msgResult CompletionMessage
@@ -281,7 +280,8 @@ func (c *Client) handleMessages(shell Shell) {
 				continue
 			}
 
-			shell.Printf("\n(%s) Task completed:\n%s", msgResult.Status, msgResult.Data)
+			shell.Printf("Closing session, thank you :)")
+			// shell.Printf("\n(%s) Task completed:\n%s", msgResult.Status, msgResult.Data)
 			return
 		}
 

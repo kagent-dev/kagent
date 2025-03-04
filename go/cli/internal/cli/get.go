@@ -10,11 +10,6 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
-type GetCmdArgs struct {
-	ResourceType string
-	ResourceName string
-}
-
 func GetCmd(c *ishell.Context) {
 	if len(c.Args) == 0 {
 		c.Printf("Usage: get [resource_type] [resource_name]\n")
