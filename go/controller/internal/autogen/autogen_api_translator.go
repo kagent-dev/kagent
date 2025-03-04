@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -58,7 +59,9 @@ func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v
 			Description:          agent.Spec.Description,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
-				StopMessageTermination: &v1alpha1.StopMessageTermination{},
+				TextMentionTermination: &v1alpha1.TextMentionTermination{
+					Text: "TERMINATE",
+				},
 			},
 		},
 	}
@@ -70,7 +73,14 @@ func (a *apiTranslator) TranslateGroupChatForTeam(
 	ctx context.Context,
 	team *v1alpha1.Team,
 ) (*autogen_client.Team, error) {
+	return a.translateGroupChatForTeam(ctx, team, true)
+}
 
+func (a *apiTranslator) translateGroupChatForTeam(
+	ctx context.Context,
+	team *v1alpha1.Team,
+	topLevelTeam bool,
+) (*autogen_client.Team, error) {
 	// get model config
 	roundRobinTeamConfig := team.Spec.RoundRobinTeamConfig
 	selectorTeamConfig := team.Spec.SelectorTeamConfig
@@ -130,6 +140,14 @@ func (a *apiTranslator) TranslateGroupChatForTeam(
 			},
 		}),
 	}
+	modelContext := &api.Component{
+		Provider:      "autogen_core.model_context.UnboundedChatCompletionContext",
+		ComponentType: "chat_completion_context",
+		Version:       makePtr(1),
+		Description:   makePtr("An unbounded chat completion context that keeps a view of the all the messages."),
+		Label:         makePtr("UnboundedChatCompletionContext"),
+		Config:        map[string]interface{}{},
+	}
 
 	var participants []*api.Component
 	for _, agentName := range team.Spec.Participants {
@@ -145,57 +163,32 @@ func (a *apiTranslator) TranslateGroupChatForTeam(
 			return nil, err
 		}
 
-		var tools []*api.Component
-		for _, tool := range agent.Spec.Tools {
-			toolConfig, err := convertToolConfig(tool.Config)
-			if err != nil {
-				return nil, err
-			}
-
-			tool := &api.Component{
-				Provider:      tool.Provider,
-				ComponentType: "tool",
-				Version:       makePtr(1),
-				Config:        api.GenericToolConfig(toolConfig),
-			}
-
-			tools = append(tools, tool)
+		var participant *api.Component
+		if topLevelTeam {
+			participant, err = a.translateSocietyOfMindAgent(
+				ctx,
+				agent,
+				modelClient,
+				modelContext,
+			)
+		} else {
+			participant, err = translateAssistantAgent(
+				agent.Spec,
+				modelClient,
+				modelContext,
+			)
+		}
+		if err != nil {
+			return nil, err
 		}
 
-		sysMsgPtr := makePtr(agent.Spec.SystemMessage)
-		if agent.Spec.SystemMessage == "" {
-			sysMsgPtr = nil
-		}
-		agentProvider := "autogen_agentchat.agents.AssistantAgent"
-		if agent.Spec.Provider != "" {
-			agentProvider = agent.Spec.Provider
-		}
-		participant := &api.Component{
-			Provider:      agentProvider,
-			ComponentType: "agent",
-			Version:       makePtr(1),
-			Description:   makePtr(agent.Spec.Description),
-			Config: api.MustToConfig(&api.AssistantAgentConfig{
-				Name:        agent.Spec.Name,
-				ModelClient: modelClient,
-				Tools:       tools,
-				ModelContext: &api.Component{
-					Provider:      "autogen_core.model_context.UnboundedChatCompletionContext",
-					ComponentType: "chat_completion_context",
-					Version:       makePtr(1),
-				},
-				Description: agent.Spec.Description,
-				// TODO(ilackarms): convert to non-ptr with omitempty?
-				SystemMessage:         sysMsgPtr,
-				ReflectOnToolUse:      false,
-				ToolCallSummaryFormat: "{result}",
-			}),
-		}
 		participants = append(participants, participant)
 	}
 
-	// always add user proxy agent
-	participants = append(participants, userProxyAgent)
+	//  add user proxy agent to top level
+	if topLevelTeam {
+		participants = append(participants, userProxyAgent)
+	}
 
 	if swarmTeamConfig != nil {
 		planningAgent := MakeBuiltinPlanningAgent(
@@ -268,10 +261,119 @@ func (a *apiTranslator) TranslateGroupChatForTeam(
 		return nil, fmt.Errorf("no team config specified")
 	}
 
+	teamConfig.Label = makePtr(team.Name)
+
 	return &autogen_client.Team{
 		Id:        generateIdFromString(team.Name + "-" + team.Namespace),
 		UserID:    GlobalUserID, // always use global id
 		Component: teamConfig,
+	}, nil
+}
+
+// internally we convert all agents to a society-of-mind agent
+func (a *apiTranslator) translateSocietyOfMindAgent(
+	ctx context.Context,
+	agent *v1alpha1.Agent,
+	modelClient, modelContext *api.Component,
+) (*api.Component, error) {
+	// generate an internal round robin "team" for the society of mind agent
+	team := &v1alpha1.Team{
+		ObjectMeta: agent.ObjectMeta,
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Team",
+			APIVersion: "kagent.dev/v1alpha1",
+		},
+		Spec: v1alpha1.TeamSpec{
+			Participants:         []string{agent.Name},
+			Description:          agent.Spec.Description,
+			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
+			TerminationCondition: v1alpha1.TerminationCondition{
+				TextMentionTermination: &v1alpha1.TextMentionTermination{
+					Text: "TERMINATE",
+				},
+			},
+		},
+	}
+
+	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, false)
+	if err != nil {
+		return nil, err
+	}
+
+	teamConfig := make(map[string]interface{})
+	raw, err := json.Marshal(societyOfMindTeam.Component)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(raw, &teamConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.Component{
+		Provider:      "kagent.agents.SocietyOfMindAgent",
+		ComponentType: "agent",
+		Version:       makePtr(1),
+		Label:         makePtr("society_of_mind_agent"),
+		Description:   makePtr("An agent that runs a team of agents"),
+		Config: map[string]interface{}{
+			"team":          teamConfig,
+			"model_client":  modelClient,
+			"model_context": modelContext,
+			"name":          "society_of_mind_agent",
+		},
+	}, nil
+}
+
+func translateAssistantAgent(
+	agentSpec v1alpha1.AgentSpec,
+	modelClient *api.Component,
+	modelContext *api.Component,
+) (*api.Component, error) {
+
+	var tools []*api.Component
+	for _, tool := range agentSpec.Tools {
+		toolConfig, err := convertToolConfig(tool.Config)
+		if err != nil {
+			return nil, err
+		}
+
+		providerParts := strings.Split(tool.Provider, ".")
+		toolLabel := providerParts[len(providerParts)-1]
+
+		tool := &api.Component{
+			Provider:      tool.Provider,
+			ComponentType: "tool",
+			Version:       makePtr(1),
+			Config:        api.GenericToolConfig(toolConfig),
+			Label:         makePtr(toolLabel),
+		}
+
+		tools = append(tools, tool)
+	}
+
+	sysMsgPtr := makePtr(agentSpec.SystemMessage)
+	if agentSpec.SystemMessage == "" {
+		sysMsgPtr = nil
+	}
+
+	return &api.Component{
+		Provider:      "autogen_agentchat.agents.AssistantAgent",
+		ComponentType: "agent",
+		Version:       makePtr(1),
+		Description:   makePtr(agentSpec.Description),
+		Config: api.MustToConfig(&api.AssistantAgentConfig{
+			Name:         agentSpec.Name,
+			ModelClient:  modelClient,
+			Tools:        tools,
+			ModelContext: modelContext,
+			Description:  agentSpec.Description,
+			// TODO(ilackarms): convert to non-ptr with omitempty?
+			SystemMessage:         sysMsgPtr,
+			ReflectOnToolUse:      false,
+			ToolCallSummaryFormat: "{result}",
+		}),
 	}, nil
 }
 
@@ -280,6 +382,10 @@ func convertToolConfig(config map[string]v1alpha1.AnyType) (map[string]interface
 	// see https://github.com/kubernetes-sigs/controller-tools/issues/636 for more info
 	// must unmarshal to interface{} to avoid json.RawMessage
 	convertedConfig := make(map[string]interface{})
+
+	if config == nil {
+		return convertedConfig, nil
+	}
 
 	raw, err := json.Marshal(config)
 	if err != nil {

@@ -30,9 +30,7 @@ type AgentSpec struct {
 	Name          string `json:"name,omitempty"`
 	Description   string `json:"description,omitempty"`
 	SystemMessage string `json:"systemMessage,omitempty"`
-	// +kubebuilder:validation:Optional
-	Provider string `json:"provider,omitempty"`
-	Tools    []Tool `json:"tools,omitempty"`
+	Tools         []Tool `json:"tools,omitempty"`
 }
 
 type Tool struct {
