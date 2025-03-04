@@ -10,6 +10,11 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
+type GetCmdArgs struct {
+	ResourceType string
+	ResourceName string
+}
+
 func GetCmd(c *ishell.Context) {
 	if len(c.Args) == 0 {
 		c.Printf("Usage: get [resource_type] [resource_name]\n")
@@ -108,11 +113,12 @@ func printRuns(runs []autogen_client.Run) error {
 
 func printTeams(teams []autogen_client.Team) error {
 	// Prepare table data
-	headers := []string{"NAME", "CREATED"}
+	headers := []string{"NAME", "ID", "CREATED"}
 	rows := make([][]string, len(teams))
 	for i, team := range teams {
 		rows[i] = []string{
 			*team.Component.Label,
+			strconv.Itoa(team.Id),
 			*team.CreatedAt,
 		}
 	}

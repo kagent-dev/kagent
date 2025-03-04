@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/abiosoft/ishell/v2"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/ws"
+	"github.com/spf13/pflag"
 	"golang.org/x/exp/rand"
 )
 
@@ -26,6 +28,15 @@ func generateRandomString(prefix string, length int) (string, error) {
 }
 
 func ChatCmd(c *ishell.Context) {
+
+	verbose := false
+	flagSet := pflag.NewFlagSet(c.RawArgs[0], pflag.ContinueOnError)
+	flagSet.BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	if err := flagSet.Parse(c.Args); err != nil {
+		c.Printf("Failed to parse flags: %v\n", err)
+		return
+	}
+
 	cfg, err := config.Get()
 	if err != nil {
 		fmt.Printf("Failed to get config: %v\n", err)
@@ -82,6 +93,7 @@ func ChatCmd(c *ishell.Context) {
 	}
 
 	wsConfig := ws.DefaultConfig()
+	wsConfig.Verbose = verbose
 	wsClient, err := ws.NewClient(cfg.WSURL, run.ID, wsConfig)
 	if err != nil {
 		c.Println(err)
@@ -92,5 +104,5 @@ func ChatCmd(c *ishell.Context) {
 	task := c.ReadLine()
 	c.ShowPrompt(true)
 
-	wsClient.StartInteractive(c, team, task)
+	wsClient.StartInteractive(context.Background(), c, team, task)
 }

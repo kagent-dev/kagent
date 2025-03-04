@@ -35,6 +35,7 @@ Examples:
 If no team name is provided, then a list of available teams will be provided to select from.
   `,
 		Func: func(c *ishell.Context) {
+
 			cli.ChatCmd(c)
 			c.SetPrompt(cli.BoldBlue("kagent >> "))
 		},
@@ -63,6 +64,10 @@ Examples:
 		if len(c.Args) > 0 && c.Args[0] == "create" {
 			c.Args = c.Args[1:]
 			cli.CreateCmd(c)
+			c.SetPrompt(cli.BoldBlue("kagent >> "))
+		} else if len(c.Args) > 0 && c.Args[0] == "delete" {
+			c.Args = c.Args[1:]
+			cli.DeleteCmd(c)
 			c.SetPrompt(cli.BoldBlue("kagent >> "))
 		} else {
 			c.Println("Command not found. Type 'help' to see available commands.")
