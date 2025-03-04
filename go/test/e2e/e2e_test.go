@@ -9,7 +9,6 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -27,43 +26,13 @@ var _ = Describe("E2e", func() {
 		// add a team
 		namespace := "team-ns"
 
-		apikeySecret := &v1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-secret",
-				Namespace: namespace,
-			},
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Secret",
-				APIVersion: "v1",
-			},
-			Data: map[string][]byte{
-				apikeySecretKey: []byte(openaiApiKey),
-			},
-		}
-
-		modelConfig := &v1alpha1.ModelConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-model",
-				Namespace: namespace,
-			},
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "AutogenModelConfig",
-				APIVersion: "kagent.dev/v1alpha1",
-			},
-			Spec: v1alpha1.ModelConfigSpec{
-				Model:            "gpt-4o",
-				APIKeySecretName: apikeySecret.Name,
-				APIKeySecretKey:  apikeySecretKey,
-			},
-		}
-
 		planningAgent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "planning-agent",
 				Namespace: namespace,
 			},
 			TypeMeta: metav1.TypeMeta{
-				Kind:       "AutogenAgent",
+				Kind:       "Agent",
 				APIVersion: "kagent.dev/v1alpha1",
 			},
 			Spec: v1alpha1.AgentSpec{
@@ -79,7 +48,7 @@ var _ = Describe("E2e", func() {
 				Namespace: namespace,
 			},
 			TypeMeta: metav1.TypeMeta{
-				Kind:       "AutogenAgent",
+				Kind:       "Agent",
 				APIVersion: "kagent.dev/v1alpha1",
 			},
 			Spec: v1alpha1.AgentSpec{
@@ -120,7 +89,7 @@ var _ = Describe("E2e", func() {
 				Namespace: namespace,
 			},
 			TypeMeta: metav1.TypeMeta{
-				Kind:       "AutogenAgent",
+				Kind:       "Agent",
 				APIVersion: "kagent.dev/v1alpha1",
 			},
 			Spec: v1alpha1.AgentSpec{
@@ -136,7 +105,7 @@ var _ = Describe("E2e", func() {
 				Namespace: namespace,
 			},
 			TypeMeta: metav1.TypeMeta{
-				Kind:       "AutogenTeam",
+				Kind:       "Team",
 				APIVersion: "kagent.dev/v1alpha1",
 			},
 			Spec: v1alpha1.TeamSpec{
@@ -150,7 +119,6 @@ var _ = Describe("E2e", func() {
 				//	ModelConfig:    modelConfig.Name,
 				//	SelectorPrompt: "Please select a team member to help you with your Kubernetes issue.",
 				//},
-				ModelConfig: modelConfig.Name,
 				MagenticOneTeamConfig: &v1alpha1.MagenticOneTeamConfig{
 					MaxStalls: 3,
 					FinalAnswerPrompt: `We are working on the following task:
@@ -173,8 +141,6 @@ The answer should be phrased as if you were speaking to the user.`,
 
 		writeKubeObjects(
 			"manifests/kubeobjects.yaml",
-			apikeySecret,
-			modelConfig,
 			planningAgent,
 			kubeExpert,
 			kubectlUser,

@@ -103,7 +103,7 @@ func (a *apiTranslator) TranslateGroupChatForTeam(
 		a.kube,
 		modelApiKeySecret,
 		modelConfig.Spec.APIKeySecretName,
-		team.Namespace,
+		modelConfig.Namespace,
 	)
 	if err != nil {
 		return nil, err

@@ -49,12 +49,9 @@ spec:
                 items:
                   properties:
                     config:
-                      additionalProperties:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
                       description: 'note: this implementation is due to the kubebuilder
                         limitation https://github.com/kubernetes-sigs/controller-tools/issues/636'
-                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
                     provider:
                       type: string
                   type: object
