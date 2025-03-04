@@ -166,8 +166,12 @@ func (a *apiTranslator) TranslateGroupChatForTeam(
 		if agent.Spec.SystemMessage == "" {
 			sysMsgPtr = nil
 		}
+		agentProvider := "autogen_agentchat.agents.AssistantAgent"
+		if agent.Spec.Provider != "" {
+			agentProvider = agent.Spec.Provider
+		}
 		participant := &api.Component{
-			Provider:      "autogen_agentchat.agents.AssistantAgent",
+			Provider:      agentProvider,
 			ComponentType: "agent",
 			Version:       makePtr(1),
 			Description:   makePtr(agent.Spec.Description),
