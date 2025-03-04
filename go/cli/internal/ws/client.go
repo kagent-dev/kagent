@@ -15,7 +15,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/fatih/color"
 	"github.com/gorilla/websocket"
-	"github.com/jedib0t/go-pretty/table"
+	"github.com/jedib0t/go-pretty/v6/table"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 )
 
