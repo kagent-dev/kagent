@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/abiosoft/ishell/v2"
+	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
@@ -14,8 +15,6 @@ func CreateCmd(c *ishell.Context) {
 		c.Println("Usage: create [resource_type] [file]")
 		return
 	}
-
-	c.Println(c.Args)
 
 	resourceType := c.Args[0]
 	fileName := c.Args[1]
@@ -36,10 +35,15 @@ func CreateCmd(c *ishell.Context) {
 
 	switch resourceType {
 	case "team":
-		var team autogen_client.Team
-		if err := json.Unmarshal(f, &team); err != nil {
+		var cmp api.Component
+		if err := json.Unmarshal(f, &cmp); err != nil {
 			c.Printf("Error unmarshalling team: %v\n", err)
 			return
+		}
+
+		team := autogen_client.Team{
+			Component: &cmp,
+			UserID:    cfg.UserID,
 		}
 		if err := client.CreateTeam(&team); err != nil {
 			c.Printf("Error creating team: %v\n", err)

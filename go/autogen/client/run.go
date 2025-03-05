@@ -1,6 +1,8 @@
 package client
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func (c *Client) CreateRun(req *CreateRunRequest) (*CreateRunResult, error) {
 	var run CreateRunResult
@@ -34,4 +36,10 @@ func (c *Client) ListRuns(userID string) ([]Run, error) {
 		runs = append(runs, sessionRuns.Runs...)
 	}
 	return runs, nil
+}
+
+func (c *Client) GetRunMessages(runID string) ([]*RunMessage, error) {
+	var messages []*RunMessage
+	err := c.doRequest("GET", fmt.Sprintf("/runs/%s/messages", runID), nil, &messages)
+	return messages, err
 }

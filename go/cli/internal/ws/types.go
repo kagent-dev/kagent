@@ -31,12 +31,13 @@ const (
 type ContentType string
 
 const (
-	ContentTypeText              ContentType = "TextMessage"
-	ContentTypeToolCallRequest   ContentType = "ToolCallRequestEvent"
-	ContentTypeToolCallExecution ContentType = "ToolCallExecutionEvent"
-	ContentTypeStop              ContentType = "StopMessage"
-	ContentTypeHandoff           ContentType = "HandoffMessage"
-	ContentTypeModelStreaming    ContentType = "ModelClientStreamingChunkEvent"
+	ContentTypeText                ContentType = "TextMessage"
+	ContentTypeToolCallRequest     ContentType = "ToolCallRequestEvent"
+	ContentTypeToolCallExecution   ContentType = "ToolCallExecutionEvent"
+	ContentTypeStop                ContentType = "StopMessage"
+	ContentTypeHandoff             ContentType = "HandoffMessage"
+	ContentTypeModelStreaming      ContentType = "ModelClientStreamingChunkEvent"
+	ContentTypeLLMCallEventMessage ContentType = "LLMCallEventMessage"
 )
 
 type BaseWebSocketMessage struct {
@@ -71,6 +72,12 @@ type ToolCallExecution struct {
 	Content     []FunctionExecutionResult  `json:"content"`
 	Source      string                     `json:"source"`
 	ModelsUsage autogen_client.ModelsUsage `json:"models_usage"`
+}
+
+type LLMCallEvent struct {
+	Type    ContentType `json:"type"`
+	Content string      `json:"content"`
+	Source  string      `json:"source"`
 }
 
 type ModelStreamingEvent struct {

@@ -36,9 +36,9 @@ kagent = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]
-autogenstudio = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "592344b2bfa2eccbb18de323ad86bcc10557d649" }
-autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "592344b2bfa2eccbb18de323ad86bcc10557d649" }
-autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "592344b2bfa2eccbb18de323ad86bcc10557d649" }
+autogenstudio = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "7026e4ea390e47bdf127d7efc2cae6c468f6ebbf" }
+autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "7026e4ea390e47bdf127d7efc2cae6c468f6ebbf" }
+autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "7026e4ea390e47bdf127d7efc2cae6c468f6ebbf" }
 kagent = { workspace = true }
 
 [tool.ruff]
