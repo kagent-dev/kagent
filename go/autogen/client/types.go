@@ -1,6 +1,9 @@
 package client
 
-import "github.com/kagent-dev/kagent/go/autogen/api"
+import (
+	"github.com/google/uuid"
+	"github.com/kagent-dev/kagent/go/autogen/api"
+)
 
 type Team struct {
 	Component *api.Component `json:"component"`
@@ -29,10 +32,10 @@ type RunMessage struct {
 	Version     *string                `json:"version,omitempty"`
 	SessionID   int                    `json:"session_id"`
 	MessageMeta map[string]interface{} `json:"message_meta"`
-	ID          int                    `json:"id"`
+	ID          uuid.UUID              `json:"id"`
 	UserID      *string                `json:"user_id"`
 	Config      map[string]interface{} `json:"config"`
-	RunID       string                 `json:"run_id"`
+	RunID       uuid.UUID              `json:"run_id"`
 }
 
 type CreateRunRequest struct {
@@ -49,12 +52,12 @@ type SessionRuns struct {
 }
 
 type Run struct {
-	ID         string       `json:"id"`
-	CreatedAt  string       `json:"created_at"`
-	Status     string       `json:"status"`
-	Task       Task         `json:"task"`
-	TeamResult TeamResult   `json:"team_result"`
-	Messages   []RunMessage `json:"messages"`
+	ID         uuid.UUID     `json:"id"`
+	CreatedAt  string        `json:"created_at"`
+	Status     string        `json:"status"`
+	Task       Task          `json:"task"`
+	TeamResult TeamResult    `json:"team_result"`
+	Messages   []*RunMessage `json:"messages"`
 }
 
 type Task struct {

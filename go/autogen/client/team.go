@@ -4,8 +4,8 @@ import (
 	"fmt"
 )
 
-func (c *Client) ListTeams(userID string) ([]Team, error) {
-	var teams []Team
+func (c *Client) ListTeams(userID string) ([]*Team, error) {
+	var teams []*Team
 	err := c.doRequest("GET", fmt.Sprintf("/teams/?user_id=%s", userID), nil, &teams)
 	return teams, err
 }
@@ -22,7 +22,7 @@ func (c *Client) GetTeam(teamLabel string, userID string) (*Team, error) {
 
 	for _, team := range allTeams {
 		if team.Component.Label != nil && *team.Component.Label == teamLabel {
-			return &team, nil
+			return team, nil
 		}
 	}
 

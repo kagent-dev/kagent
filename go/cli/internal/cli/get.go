@@ -97,10 +97,11 @@ func GetCmd(c *ishell.Context) {
 
 }
 
-func printRuns(runs []autogen_client.Run) error {
+func printRuns(runs []*autogen_client.Run) error {
 	headers := []string{"#", "ID", "CONTENT", "MESSAGES", "STATUS", "CREATED"}
 	rows := make([][]string, len(runs))
 	for i, run := range runs {
+
 		// Truncate task content to first 10 characters if possible
 		content := run.Task.Content
 		if len(content) > 10 {
@@ -120,7 +121,7 @@ func printRuns(runs []autogen_client.Run) error {
 	return printOutput(runs, headers, rows)
 }
 
-func printTeams(teams []autogen_client.Team) error {
+func printTeams(teams []*autogen_client.Team) error {
 	// Prepare table data
 	headers := []string{"#", "NAME", "ID", "CREATED"}
 	rows := make([][]string, len(teams))

@@ -70,7 +70,7 @@ func ChatCmd(c *ishell.Context) {
 		}
 
 		selectedTeamIdx := c.MultiChoice(teamNames, "Select an agent:")
-		team = &teams[selectedTeamIdx]
+		team = teams[selectedTeamIdx]
 	}
 
 	// Create a random session name
