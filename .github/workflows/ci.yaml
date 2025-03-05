@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-images:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,4 +15,15 @@ jobs:
 
     - name: Run make build
       run: make build
+      working-directory: ./
+
+  build-cli:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Run make build-cli
+      run: make build-cli
       working-directory: ./
