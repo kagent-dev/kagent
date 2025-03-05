@@ -171,54 +171,10 @@ var _ = Describe("E2e", func() {
 			},
 		}
 
-		//		apiTeam := &v1alpha1.Team{
-		//			ObjectMeta: metav1.ObjectMeta{
-		//				Name:      "kube-team",
-		//				Namespace: namespace,
-		//			},
-		//			TypeMeta: metav1.TypeMeta{
-		//				Kind:       "Team",
-		//				APIVersion: "kagent.dev/v1alpha1",
-		//			},
-		//			Spec: v1alpha1.TeamSpec{
-		//				Participants: []string{
-		//					planningAgent.Name,
-		//					kubectlUser.Name,
-		//					kubeExpert.Name,
-		//				},
-		//				Description: "A team that debugs kubernetes issues.",
-		//				//SelectorTeamConfig: &v1alpha1.SelectorTeamConfig{
-		//				//	ModelConfig:    modelConfig.Name,
-		//				//	SelectorPrompt: "Please select a team member to help you with your Kubernetes issue.",
-		//				//},
-		//				MagenticOneTeamConfig: &v1alpha1.MagenticOneTeamConfig{
-		//					MaxStalls: 3,
-		//					FinalAnswerPrompt: `We are working on the following task:
-		//{task}
-		//
-		//We have completed the task.
-		//
-		//The above messages contain the conversation that took place to complete the task.
-		//
-		//Based on the information gathered, provide the final answer to the original request.
-		//The answer should be phrased as if you were speaking to the user.`,
-		//				},
-		//				TerminationCondition: v1alpha1.TerminationCondition{
-		//					TextMentionTermination: &v1alpha1.TextMentionTermination{Text: "TERMINATE"},
-		//				},
-		//				MaxTurns: 10,
-		//			},
-		//		}
-
 		writeKubeObjects(
 			"manifests/kubeobjects.yaml",
-			//planningAgent,
 			kubeExpert,
-			//kubectlUser,
-			//apiTeam,
 		)
-
-		Expect(true).To(BeTrue())
 	})
 })
 
