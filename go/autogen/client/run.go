@@ -2,6 +2,8 @@ package client
 
 import (
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 func (c *Client) CreateRun(req *CreateRunRequest) (*CreateRunResult, error) {
@@ -44,7 +46,7 @@ func (c *Client) ListRuns(userID string) ([]*Run, error) {
 	return runs, nil
 }
 
-func (c *Client) GetRunMessages(runID string) ([]*RunMessage, error) {
+func (c *Client) GetRunMessages(runID uuid.UUID) ([]*RunMessage, error) {
 	var messages []*RunMessage
 	err := c.doRequest("GET", fmt.Sprintf("/runs/%s/messages", runID), nil, &messages)
 	return messages, err
