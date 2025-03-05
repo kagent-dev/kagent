@@ -55,9 +55,6 @@ func GetCmd(c *ishell.Context) {
 				c.Printf("Failed to get run %s: %v\n", resourceName, err)
 				return
 			}
-			c.Println(run.Task.Content)
-			c.Println(run.Messages)
-			c.Println(len(run.Messages))
 			byt, _ := json.MarshalIndent(run, "", "  ")
 			c.Println(string(byt))
 		}
