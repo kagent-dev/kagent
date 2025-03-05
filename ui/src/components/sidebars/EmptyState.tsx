@@ -1,5 +1,6 @@
-import { Bot, MessageSquare, Users } from "lucide-react";
+import { MessageSquare, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
+import KagentLogo from "../kagent-logo";
 
 const EmptyState = () => (
   <div className="h-full flex flex-col items-center justify-center p-8 text-center">
@@ -23,7 +24,7 @@ const ActionButtons = ({ hasSessions, currentAgentId }: ActionButtonsProps) => {
     <div className="px-2 space-y-4">
       {hasSessions && currentAgentId && (
         <button onClick={() => router.push(`/agents/${currentAgentId}/chat`)} className="w-full flex justify-start items-center text-sm font-normal text-white/80 hover:text-white">
-          <Bot className="mr-3 h-4 w-4 text-violet-500" />
+          <KagentLogo className="mr-3 h-4 w-4" />
           Start a new chat
         </button>
       )}

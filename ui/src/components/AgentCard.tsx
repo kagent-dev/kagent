@@ -1,11 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Bot } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import type { Team } from "@/types/datamodel";
-import { DeleteButton } from "./DeleteAgentButton";
-import { getUsersAgentFromTeam } from "@/lib/utils";
+import { DeleteButton } from "@/components/DeleteAgentButton";
+import KagentLogo from "@/components/kagent-logo";
+import { getUsersAgentFromTeam } from "@/lib/agents";
 
 interface AgentCardProps {
   team: Team;
@@ -17,7 +17,6 @@ export function AgentCard({ team }: AgentCardProps) {
 
   const handleCardClick = () => {
       router.push(`/agents/${team.id}/chat`);
-
   };
 
   return (
@@ -27,7 +26,7 @@ export function AgentCard({ team }: AgentCardProps) {
     >
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
         <CardTitle className="flex items-center gap-2 text-white">
-          <Bot className="h-5 w-5 text-violet-500" />
+          <KagentLogo className="h-5 w-5" />
           {agent.label}
         </CardTitle>
         <DeleteButton 

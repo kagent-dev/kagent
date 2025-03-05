@@ -189,3 +189,6 @@ cython_debug/
 
 go/bin/
 .vscode/settings.json
+
+## Helm
+*.tgz

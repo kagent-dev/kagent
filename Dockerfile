@@ -94,4 +94,7 @@ RUN mkdir -p /app/python/.cache/uv && \
 
 EXPOSE 80
 
+LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
+LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
+
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

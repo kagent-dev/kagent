@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ChevronLeft, ChevronRight, Zap } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { isToday, isYesterday } from "date-fns";
 import { SessionWithRuns, Team } from "@/types/datamodel";
 import { SettingsModal } from "@/components/SettingsModal";
 import { ActionButtons, EmptyState } from "@/components/sidebars/EmptyState";
 import SessionGroup from "@/components/sidebars/SessionGroup";
 import { useResponsiveSidebar } from "@/components/sidebars/useResponsiveSidebar";
+import KagentLogo from "@/components/kagent-logo";
 
 interface SessionsSidebarProps {
   sessions?: SessionWithRuns[];
@@ -120,8 +121,8 @@ export default function SessionsSidebar({ sessions = [], selectedTeam, onDeleteS
 
               <div className="p-4 border-t border-[#3A3A3A] shrink-0">
                 <div className="flex items-center justify-center gap-2 mb-2">
-                  <Zap className="h-5 w-5 text-violet-500" />
-                  <span className="font-semibold text-white">kagent</span>
+                  <KagentLogo className="h-5 w-5" animate={true} />
+                  <span className="font-semibold text-white">kagent.dev</span>
                 </div>
                 <div className="text-xs text-center text-white/50">© {new Date().getFullYear()} Solo.io. All rights reserved.</div>
               </div>

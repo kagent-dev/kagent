@@ -6,23 +6,6 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-.thin-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
-}
-
-.thin-scrollbar::-webkit-scrollbar {
-  height: 4px;
-}
-
-.thin-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.thin-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-}
 
 
 @layer base {
@@ -86,6 +69,7 @@ body {
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
   }

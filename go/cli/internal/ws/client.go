@@ -1,27 +1,35 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
 
+	"github.com/abiosoft/readline"
+	"github.com/briandowns/spinner"
 	"github.com/fatih/color"
 	"github.com/gorilla/websocket"
+	"github.com/jedib0t/go-pretty/v6/table"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 )
 
 // Config holds the WebSocket client configuration
 type Config struct {
-	Origin string // WebSocket origin header
+	Origin  string // WebSocket origin header
+	Verbose bool   // Whether to print verbose output
 }
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() Config {
 	return Config{
-		Origin: "http://localhost:8000",
+		Origin:  "http://localhost:8000",
+		Verbose: false,
 	}
 }
 
@@ -57,7 +65,7 @@ func NewClient(wsURL string, runID string, config Config) (*Client, error) {
 }
 
 type Shell interface {
-	ReadLine() string
+	ReadLineErr() (string, error)
 	// Println prints to output and ends with newline character.
 	Println(val ...interface{})
 	// Printf prints to output using string format.
@@ -65,12 +73,11 @@ type Shell interface {
 }
 
 // StartInteractive initiates the interactive session with the server
-func (c *Client) StartInteractive(ctx Shell, team autogen_client.Team, task string) error {
+func (c *Client) StartInteractive(ctx context.Context, shell Shell, team autogen_client.Team, task string) error {
 	defer c.conn.Close()
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
-	inputTimeout := make(chan struct{})
 
 	// Send initial start message
 	startMsg := StartMessage{
@@ -83,11 +90,11 @@ func (c *Client) StartInteractive(ctx Shell, team autogen_client.Team, task stri
 		return fmt.Errorf("failed to send start message: %v", err)
 	}
 
-	go c.handleMessages(ctx, inputTimeout)
+	go c.handleMessages(shell)
 
 	select {
-	case <-interrupt:
-		fmt.Println("\nReceived interrupt signal. Closing connection...")
+	case <-ctx.Done():
+		fmt.Printf("\nContext cancelled (%s). Stopping task...", ctx.Err())
 		stopMsg := StopMessage{
 			Type:   MessageTypeStop,
 			Reason: "Cancelled by user",
@@ -100,27 +107,28 @@ func (c *Client) StartInteractive(ctx Shell, team autogen_client.Team, task stri
 		case <-time.After(time.Second):
 		}
 		return nil
-
-	case <-inputTimeout:
-		fmt.Println("\nInput timeout exceeded. Stopping task...")
-		return fmt.Errorf("input timeout exceeded")
-
 	case <-c.done:
+		return nil
+	case <-interrupt:
+		stopMsg := StopMessage{
+			Type:   MessageTypeStop,
+			Reason: "Cancelled by user",
+		}
+		if err := c.conn.WriteJSON(stopMsg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error sending stop message: %v\n", err)
+		}
 		return nil
 	}
 }
 
-func getMessageContentType(data json.RawMessage) (ContentType, error) {
-	mapStructure := &map[string]string{}
-	if err := json.Unmarshal(data, mapStructure); err != nil {
-		return "", fmt.Errorf("error parsing message data: %v", err)
-	}
+// Yes, this is AI generated, and so is this comment.
+var thinkingVerbs = []string{"thinking", "processing", "mulling over", "pondering", "reflecting", "evaluating", "analyzing", "synthesizing", "interpreting", "inferring", "deducing", "reasoning", "evaluating", "synthesizing", "interpreting", "inferring", "deducing", "reasoning"}
 
-	typeStr := (*mapStructure)["type"]
-	return ContentType(typeStr), nil
+func getThinkingVerb() string {
+	return thinkingVerbs[rand.Intn(len(thinkingVerbs))]
 }
 
-func (c *Client) handleMessages(ctx Shell, inputTimeout chan struct{}) {
+func (c *Client) handleMessages(shell Shell) {
 	defer close(c.done)
 	bold_yellow := color.New(color.FgYellow, color.Bold).SprintFunc()
 	bold_green := color.New(color.FgGreen, color.Bold).SprintFunc()
@@ -132,16 +140,23 @@ func (c *Client) handleMessages(ctx Shell, inputTimeout chan struct{}) {
 	// This is a map of agent source to whether we are currently streaming from that agent
 	// If we are then we don't want to print the whole TextMessage, but only the content of the ModelStreamingEvent
 	streaming := map[string]bool{}
+	title := getThinkingVerb()
+	s := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
+	s.Suffix = " " + title
+	s.Start()
+	defer s.Stop()
+
 	for {
 		var msg BaseWebSocketMessage
+
 		err := c.conn.ReadJSON(&msg)
 		if err != nil {
-			ctx.Printf("Error reading message: %v\n", err)
+			shell.Printf("Error reading message: %v\n", err)
 			return
 		}
 		switch msg.Type {
 		case MessageTypeError:
-			ctx.Printf("Error: %s\n", msg.Error)
+			shell.Printf("Error: %s\n", msg.Error)
 			return
 
 		case MessageTypeMessage:
@@ -154,120 +169,160 @@ func (c *Client) handleMessages(ctx Shell, inputTimeout chan struct{}) {
 			case ContentTypeText:
 				var textMessage TextMessage
 				if err := json.Unmarshal(msg.Data, &textMessage); err != nil {
-					ctx.Printf("Error parsing message data: %v\n", err)
+					shell.Printf("Error parsing message data: %v\n", err)
 					continue
 				}
 				// If we are streaming from this agent, don't print the whole TextMessage, but only the content of the ModelStreamingEvent
 				if streaming[textMessage.Source] {
 					// reset buffer?
-					ctx.Println()
+					shell.Println()
 					continue
+				}
+				if s.Active() {
+					s.Stop()
 				}
 				// Do not re-print the user's input, or system message asking for input
 				if textMessage.Source == "user" || textMessage.Source == "system" {
+					s.Start()
 					continue
 				}
-				ctx.Printf("%s: %s\n", bold_yellow("Event Type"), contentType)
-				ctx.Printf("%s: %s\n", bold_green("Source"), textMessage.Source)
-				ctx.Println()
-				ctx.Println(textMessage.Content)
-				ctx.Println("----------------------------------")
-				ctx.Println()
+				shell.Printf("%s: %s\n", bold_yellow("Event Type"), contentType)
+				shell.Printf("%s: %s\n", bold_green("Source"), textMessage.Source)
+				shell.Println()
+				shell.Println(textMessage.Content)
+				shell.Println("----------------------------------")
+				shell.Println()
+				s.Suffix = " " + getThinkingVerb()
+				s.Start()
 			case ContentTypeToolCallRequest:
 				var toolCallRequest ToolCallRequest
 				if err := json.Unmarshal(msg.Data, &toolCallRequest); err != nil {
-					ctx.Printf("Error parsing message data: %v\n", err)
+					shell.Printf("Error parsing message data: %v\n", err)
 					continue
 				}
+				// s.Suffix = " " + "calling tools"
 				// Buffer the tool call request until we receive the corresponding tool call execution
 				bufferedToolCallRequest = &toolCallRequest
 
 			case ContentTypeToolCallExecution:
 				var toolCallExecution ToolCallExecution
 				if err := json.Unmarshal(msg.Data, &toolCallExecution); err != nil {
-					ctx.Printf("Error parsing message data: %v\n", err)
+					shell.Printf("Error parsing message data: %v\n", err)
 					continue
 				}
-				ctx.Printf("%s: %s\n", bold_yellow("Event Type"), "ToolCall(s)")
-				ctx.Printf("%s: %s\n", bold_green("Source"), toolCallExecution.Source)
 
-				// For each function execution, find the corresponding tool call request and print them together
-				for i, functionExecution := range toolCallExecution.Content {
-					for _, functionRequest := range bufferedToolCallRequest.Content {
-						if functionExecution.CallID == functionRequest.ID {
-							ctx.Println()
-							ctx.Println("++++++++")
-							ctx.Printf("Tool Call %d: (id: %s)\n", i, functionRequest.ID)
-							ctx.Println()
-							ctx.Printf("%s(%s)\n", functionRequest.Name, functionRequest.Arguments)
-							ctx.Println()
-							ctx.Println(functionExecution.Content)
-							ctx.Println("++++++++")
-							ctx.Println()
-						}
-					}
+				if s.Active() {
+					s.Stop()
 				}
 
-				ctx.Println("----------------------------------")
-				ctx.Println()
+				shell.Printf("%s: %s\n", bold_yellow("Event Type"), "ToolCall(s)")
+				shell.Printf("%s: %s\n", bold_green("Source"), toolCallExecution.Source)
+
+				if c.config.Verbose {
+					// For each function execution, find the corresponding tool call request and print them together
+					for i, functionExecution := range toolCallExecution.Content {
+						for _, functionRequest := range bufferedToolCallRequest.Content {
+							if functionExecution.CallID == functionRequest.ID {
+								shell.Println()
+								shell.Println("++++++++")
+								shell.Printf("Tool Call %d: (id: %s)\n", i, functionRequest.ID)
+								shell.Println()
+								shell.Printf("%s(%s)\n", functionRequest.Name, functionRequest.Arguments)
+								shell.Println()
+								shell.Println(functionExecution.Content)
+								shell.Println("++++++++")
+								shell.Println()
+							}
+						}
+					}
+				} else {
+					tw := table.NewWriter()
+					tw.AppendHeader(table.Row{"#", "Name", "Arguments"})
+					for idx, functionRequest := range bufferedToolCallRequest.Content {
+						tw.AppendRow(table.Row{idx, functionRequest.Name, functionRequest.Arguments})
+					}
+					shell.Println(tw.Render())
+				}
+
+				shell.Println("----------------------------------")
+				shell.Println()
+
+				s.Suffix = " " + getThinkingVerb()
+				s.Start()
 				// Reset the buffered tool call request now that we've received the execution
 				bufferedToolCallRequest = nil
 			case ContentTypeModelStreaming:
+				if s.Active() {
+					s.Stop()
+				}
 				var modelStreaming ModelStreamingEvent
 				if err := json.Unmarshal(msg.Data, &modelStreaming); err != nil {
-					ctx.Printf("Error parsing message data: %v\n", err)
+					shell.Printf("Error parsing message data: %v\n", err)
 					continue
 				}
 				streaming[modelStreaming.Source] = true
-				ctx.Printf(modelStreaming.Content)
+				shell.Printf(modelStreaming.Content)
 			}
 
 		case MessageTypeInputRequest:
-			go c.handleInputTimeout(inputTimeout)
-			if err := c.handleUserInput(ctx, msg.Data); err != nil {
-				ctx.Printf("Error handling input: %v\n", err)
-				return
-			}
+			go func() {
+				// TODO: properly handle this error
+				if err := c.handleUserInput(shell, msg.Data); err != nil {
+					shell.Printf("Error handling input: %v\n", err)
+					return
+				}
+			}()
 
 		case MessageTypeResult, MessageTypeCompletion:
 			var msgResult CompletionMessage
 			if err := json.Unmarshal(msg.Data, &msgResult); err != nil {
-				ctx.Printf("Error parsing message data: %v\n", err)
+				shell.Printf("Error parsing message data: %v\n", err)
 				continue
 			}
 
-			ctx.Printf("\n(%s) Task completed:\n%s", msgResult.Status, msgResult.Data)
+			shell.Printf("Closing session, thank you :)")
+			// shell.Printf("\n(%s) Task completed:\n%s", msgResult.Status, msgResult.Data)
+			return
 		}
 
 	}
 }
 
-func (c *Client) handleInputTimeout(inputTimeout chan struct{}) {
-	timer := time.NewTimer(InputTimeoutDuration)
-	select {
-	case <-timer.C:
-		close(inputTimeout)
-		stopMsg := StopMessage{
-			Type:   MessageTypeStop,
-			Reason: "Input timeout",
-			Code:   4000,
-		}
-		c.conn.WriteJSON(stopMsg)
-	case <-c.done:
-		timer.Stop()
-	}
-}
-
-func (c *Client) handleUserInput(ctx Shell, msg json.RawMessage) error {
+func (c *Client) handleUserInput(shell Shell, msg json.RawMessage) error {
 	var inputRequest InputRequestMessage
 	if err := json.Unmarshal(msg, &inputRequest); err != nil {
 		return fmt.Errorf("error parsing input request: %v", err)
 	}
-	// fmt.Printf("%s: %s\n", inputRequest.Source, inputRequest.Content)
-	input := ctx.ReadLine()
-	inputMsg := InputResponseMessage{
-		Type:     MessageTypeInputResponse,
-		Response: input,
+	for {
+		input, err := shell.ReadLineErr()
+		if err != nil {
+			if errors.Is(err, readline.ErrInterrupt) {
+				// Send stop message when ctrl-c is pressed
+				stopMsg := StopMessage{
+					Type:   MessageTypeStop,
+					Reason: "Ended by user",
+				}
+				return c.conn.WriteJSON(stopMsg)
+			}
+			return fmt.Errorf("error reading input: %v", err)
+		}
+		if input == "exit" {
+			stopMsg := StopMessage{
+				Type:   MessageTypeStop,
+				Reason: "Ended by user",
+			}
+			return c.conn.WriteJSON(stopMsg)
+		}
+		if input == "help" {
+			shell.Println("Available commands:")
+			shell.Println("  help - Show this help")
+			shell.Println("  exit - Exit the program")
+			continue
+		}
+		inputMsg := InputResponseMessage{
+			Type:     MessageTypeInputResponse,
+			Response: input,
+		}
+		return c.conn.WriteJSON(inputMsg)
 	}
-	return c.conn.WriteJSON(inputMsg)
 }

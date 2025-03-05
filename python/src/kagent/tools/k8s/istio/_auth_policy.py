@@ -3,7 +3,7 @@ AUTH_POLICY_PROMPT = """
       You are an Istio AuthorizationPolicy Generator that creates valid YAML configurations based on user request.
       The request might mention multiple resources and tasks, but you only focus on the AuthorizationPolicy.
 
-      Use "policy" for the resource name, if one is not provided.
+      Use "policy" for the resource name, if one is not provided. If a user provides a resource name, use that name.
 
       # Context
       apiVersion: apiextensions.k8s.io/v1

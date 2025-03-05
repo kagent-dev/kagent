@@ -1,0 +1,127 @@
+version: "1.0"
+metadata:
+  description: "Authorization Policy Test Cases"
+  resource_type: "auth_policy"
+  
+test_cases:
+  - name: deny_post_8080
+    input: "Deny requests with POST method on port 8080 on all workloads in the foo namespace"
+    expected_output:
+      apiVersion: security.istio.io/v1
+      kind: AuthorizationPolicy
+      metadata:
+        name: policy
+        namespace: foo
+      spec:
+        action: DENY
+        rules:
+          - to:
+              - operation:
+                  methods:
+                    - POST
+                  ports:
+                    - "8080"
+  
+  - name: allow_get_3000
+    input: "Allow GET requests on port 3000 for service-a in the bar namespace"
+    expected_output:
+      apiVersion: security.istio.io/v1
+      kind: AuthorizationPolicy
+      metadata:
+        name: service-a
+        namespace: bar
+      spec:
+        action: ALLOW
+        rules:
+          - to:
+              - operation:
+                  methods:
+                    - GET
+                  ports:
+                    - "3000"
+  
+  - name: allow_nothing
+    input: "Create an allow nothing policy in the foo namespace"
+    expected_output:
+      apiVersion: security.istio.io/v1
+      kind: AuthorizationPolicy
+      metadata:
+        name: allow-nothing
+        namespace: foo
+      spec: {}
+  
+  - name: allow_nothing_1
+    input: "Deny all requests between the workloads in the foo namespace"
+    expected_output:
+      apiVersion: security.istio.io/v1
+      kind: AuthorizationPolicy
+      metadata:
+        name: allow-nothing
+        namespace: foo
+      spec: {}
+  
+  - name: allow_all
+    input: "Allow all requests in the default namespace"
+    expected_output:
+      apiVersion: security.istio.io/v1
+      kind: AuthorizationPolicy
+      metadata:
+        name: allow-all
+        namespace: default
+      spec:
+        rules:
+          - {}
+  
+  - name: deny_from_namespace
+    input: "Deny requests to customers from foo namespace"
+    expected_output:
+      apiVersion: security.istio.io/v1
+      kind: AuthorizationPolicy
+      metadata:
+        name: policy
+        namespace: default
+      spec:
+        selector:
+          matchLabels:
+            app: customers
+        action: DENY
+        rules:
+          - from:
+              - source:
+                  namespaces:
+                    - foo
+  
+  - name: mtls_strict
+    input: "Enforce mutual TLS (mTLS) communication in namespace bar and deny plaintext communication"
+    expected_output:
+      apiVersion: security.istio.io/v1
+      kind: AuthorizationPolicy
+      metadata:
+        name: policy
+        namespace: bar
+      spec:
+        action: DENY
+        rules:
+          - from:
+              - source:
+                  notPrincipals:
+                    - "*"
+  
+  - name: allow_with_headers
+    input: "Allow requests to the payment service only if the request header X-API-KEY is set to a specific value abc123"
+    expected_output:
+      apiVersion: security.istio.io/v1
+      kind: AuthorizationPolicy
+      metadata:
+        name: policy
+        namespace: default
+      spec:
+        selector:
+          matchLabels:
+            app: payment
+        action: ALLOW
+        rules:
+          - when:
+              - key: request.headers[X-API-KEY]
+                values:
+                  - abc123

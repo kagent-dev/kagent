@@ -123,9 +123,7 @@ class LLMTool(BaseTool, Component[LLMToolConfig]):
             The LLM's response as a string.
         """
         try:
-            return await self._call_llm(
-                args.system_prompt, args.user_message, args.json_output, args.additional_messages, cancellation_token
-            )
+            return await self._call_llm(args.system_prompt, args.user_message, args.json_output, cancellation_token)
         except LLMCallError as e:
             return f"Error: {str(e)}"
         except Exception as e:

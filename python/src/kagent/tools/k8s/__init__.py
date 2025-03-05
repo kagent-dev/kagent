@@ -1,4 +1,5 @@
-from ._generate_resource import GenerateResourceTool, GenerateResourceToolConfig
+from ._generate_resource import GenerateResourceTool, GenerateResourceToolConfig, GenerateResourceToolInput
+from ._resource_types import ResourceTypes
 from ._kubectl import (
     AnnotateResource,
     ApplyManifest,
@@ -43,4 +44,6 @@ __all__ = [
     "Scale",
     "GenerateResourceTool",
     "GenerateResourceToolConfig",
+    "GenerateResourceToolInput",
+    "ResourceTypes",
 ]

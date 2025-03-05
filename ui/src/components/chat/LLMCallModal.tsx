@@ -2,6 +2,7 @@ import React from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageSquare, Bot, User, Info, Terminal, Cpu, Ellipsis } from "lucide-react";
+import KagentLogo from "../kagent-logo";
 
 interface Message {
   content: string;
@@ -47,7 +48,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
   return (
     <div className={`flex gap-3 mb-4 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
       <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-neutral-700">
-        {isSystem ? <Info className="w-4 h-4" /> : isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+        {isSystem ? <Info className="w-4 h-4" /> : isUser ? <User className="w-4 h-4" /> : <KagentLogo className="w-4 h-4" />}
       </div>
       <div className={`flex flex-col max-w-[80%] ${isUser ? "items-end" : "items-start"}`}>
         {message.name && <span className="text-xs text-neutral-400 mb-1">{message.name}</span>}

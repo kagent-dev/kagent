@@ -85,7 +85,7 @@ func GetCmd(c *ishell.Context) {
 }
 
 func printRuns(runs []autogen_client.Run) error {
-	headers := []string{"ID", "CONTENT", "MESSAGES", "STATUS", "CREATED"}
+	headers := []string{"#", "ID", "CONTENT", "MESSAGES", "STATUS", "CREATED"}
 	rows := make([][]string, len(runs))
 	for i, run := range runs {
 		// Truncate task content to first 10 characters if possible
@@ -95,6 +95,7 @@ func printRuns(runs []autogen_client.Run) error {
 		}
 
 		rows[i] = []string{
+			strconv.Itoa(i),
 			run.ID,
 			content,
 			strconv.Itoa(len(run.Messages)),
@@ -108,11 +109,13 @@ func printRuns(runs []autogen_client.Run) error {
 
 func printTeams(teams []autogen_client.Team) error {
 	// Prepare table data
-	headers := []string{"NAME", "CREATED"}
+	headers := []string{"#", "NAME", "ID", "CREATED"}
 	rows := make([][]string, len(teams))
 	for i, team := range teams {
 		rows[i] = []string{
+			strconv.Itoa(i),
 			*team.Component.Label,
+			strconv.Itoa(team.Id),
 			*team.CreatedAt,
 		}
 	}

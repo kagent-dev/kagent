@@ -20,7 +20,9 @@ dependencies = [
   "pyyaml>=6.0.2",
   "mcp>=1.2.0",
   "sqlite-vec>=0.1.0",
-  "typer"
+  "typer",
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.25.3",
 ]
 
 [project.optional-dependencies]
@@ -34,9 +36,9 @@ kagent = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]
-autogenstudio = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "aa5b12fc989d6bf0f209c27378885bb0e6926da8" }
-autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "aa5b12fc989d6bf0f209c27378885bb0e6926da8" }
-autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "aa5b12fc989d6bf0f209c27378885bb0e6926da8" }
+autogenstudio = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "24bb4be9e4e400dacd173549f4127b9fb75740c7" }
+autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "24bb4be9e4e400dacd173549f4127b9fb75740c7" }
+autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "24bb4be9e4e400dacd173549f4127b9fb75740c7" }
 kagent = { workspace = true }
 
 [tool.ruff]
@@ -57,3 +59,11 @@ ignore = ["F401", "E501"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kagent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+python_files = "test_*.py"
+python_functions = "test_*"
+log_cli = true
+log_cli_level = "INFO"

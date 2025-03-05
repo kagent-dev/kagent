@@ -66,11 +66,12 @@ export default function ChatInterface({ selectedAgentTeam, selectedRun, onNewSes
   }, [messages, currentStreamingContent]);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      const newStats = calculateTokenStats(messages);
+    const msgs = selectedRun ? selectedRun.messages : messages
+    if (msgs.length > 0) {
+      const newStats = calculateTokenStats(msgs);
       setTokenStats(newStats);
     }
-  }, [messages]);
+  }, [messages, selectedRun]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -3,7 +3,7 @@
   "component_type": "team",
   "version": 1,
   "component_version": 1,
-  "description": "A kubernetes agent which knows how to do kuberentes things",
+  "description": "A Kubernetes agent which knows how to do Kubernetes things",
   "config": {
     "participants": [
       {
@@ -22,7 +22,7 @@
                   "version": 1,
                   "component_version": 1,
                   "description": "An agent that provides assistance with tool use.",
-                  "label": "AssistantAgent",
+                  "label": "Helm Agent",
                   "config": {
                     "name": "helm_agent",
                     "model_client": {
@@ -125,7 +125,7 @@
                     },
                     "description": "\n    A Kubernetes operations specialist that can:\n    - Manage Helm releases (list, get, upgrade, uninstall)\n    - Handle K8s resources (get, describe, apply)\n    - Search and interpret K8s documentation\n    - Validate configurations and operations\n    Ideal for cluster management, deployment handling, and resource operations.\n    ",
                     "system_message": "\n    You are a Kubernetes expert agent specialized in cluster management and operations. Your primary responsibilities include:\n\n    1. Helm Operations:\n       - Managing Helm releases (list, get details, upgrade, and uninstall)\n       - Understanding Helm chart structures and dependencies\n       - Validating release states and configurations\n\n    2. Kubernetes Resource Management:\n       - Monitoring and managing various Kubernetes resources (Pods, Deployments, Services, etc.)\n       - Analyzing resource configurations and relationships\n       - Applying and validating Kubernetes manifests\n       - Understanding API resource availability and versioning\n\n    3. Documentation and Troubleshooting:\n       - Accessing and interpreting Kubernetes and related project documentation\n       - Providing context-aware recommendations\n       - Identifying potential issues in configurations\n\n    Always follow these principles:\n    - Validate operations before execution\n    - Provide clear explanations for your actions\n    - Consider security implications\n    - Follow Kubernetes best practices\n    - Use appropriate tools based on the context\n\n    When handling tasks:\n    1. First analyze the current state\n    2. Plan your actions\n    3. Execute with appropriate tools\n    4. Verify results\n    5. Report outcomes clearly\n    ",
-                    "model_client_stream": false,
+                    "model_client_stream": true,
                     "reflect_on_tool_use": false,
                     "tool_call_summary_format": "{result}"
                   }
@@ -135,7 +135,7 @@
                 "component_type": "termination",
                 "component_version": 1,
                 "config": {
-                  "source": "k8s_agent"
+                  "source": "helm_agent"
                 },
                 "description": "Terminate the conversation if a specific text is mentioned.",
                 "label": "TextMessageTermination",
@@ -199,5 +199,5 @@
       "version": 1
     }
   },
-  "label": "helm_agent"
+  "label": "Helm Agent"
 }

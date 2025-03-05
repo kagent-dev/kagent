@@ -1,10 +1,17 @@
 # Image configuration
 DOCKER_REGISTRY ?= ghcr.io
 DOCKER_REPO ?= kagent-dev/kagent
-IMAGE_NAME ?= autogenstudio-controller
+IMAGE_NAME ?= controller
 VERSION ?= $(shell git describe --tags --always --dirty)
 IMAGE_TAG ?= $(VERSION)
 IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(IMAGE_NAME):$(IMAGE_TAG)
+
+GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
+BUILD_DATE := $(shell date -u '+%Y-%m-%d')
+
+LDFLAGS := -X github.com/kagent-dev/kagent/go/cli/internal/cli.Version=$(VERSION) \
+           -X github.com/kagent-dev/kagent/go/cli/internal/cli.GitCommit=$(GIT_COMMIT) \
+           -X github.com/kagent-dev/kagent/go/cli/internal/cli.BuildDate=$(BUILD_DATE)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -91,9 +98,25 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 
+bin/kagent-linux-amd64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-amd64 ./cli/cmd/kagent
+
+bin/kagent-linux-arm64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-arm64 ./cli/cmd/kagent
+
+bin/kagent-darwin-amd64:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-amd64 ./cli/cmd/kagent
+
+bin/kagent-darwin-arm64:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-arm64 ./cli/cmd/kagent
+
+bin/kagent-windows-amd64:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-windows-amd64.exe ./cli/cmd/kagent
+
+
+
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+build: bin/kagent-linux-amd64 bin/kagent-linux-arm64 bin/kagent-darwin-amd64 bin/kagent-darwin-arm64 bin/kagent-windows-amd64
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
