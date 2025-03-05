@@ -26,63 +26,6 @@ var _ = Describe("E2e", func() {
 		// add a team
 		namespace := "team-ns"
 
-		//planningAgent := &v1alpha1.Agent{
-		//	ObjectMeta: metav1.ObjectMeta{
-		//		Name:      "planning-agent",
-		//		Namespace: namespace,
-		//	},
-		//	TypeMeta: metav1.TypeMeta{
-		//		Kind:       "Agent",
-		//		APIVersion: "kagent.dev/v1alpha1",
-		//	},
-		//	Spec: v1alpha1.AgentSpec{
-		//		Name:          "planning_agent",
-		//		Description:   "The Planning Agent is responsible for planning and scheduling tasks. The planning agent is also responsible for deciding when the user task has been accomplished and terminating the conversation.",
-		//		SystemMessage: readFileAsString("systemprompts/planning-agent-system-prompt.txt"),
-		//	},
-		//}
-
-		//kubectlUser := &v1alpha1.Agent{
-		//	ObjectMeta: metav1.ObjectMeta{
-		//		Name:      "kubectl-user",
-		//		Namespace: namespace,
-		//	},
-		//	TypeMeta: metav1.TypeMeta{
-		//		Kind:       "Agent",
-		//		APIVersion: "kagent.dev/v1alpha1",
-		//	},
-		//	Spec: v1alpha1.AgentSpec{
-		//		Name:          "kubectl_execution_agent",
-		//		Description:   "The Kubectl User is responsible for running kubectl commands corresponding to user requests.",
-		//		SystemMessage: readFileAsString("systemprompts/kubectl-user-system-prompt.txt"),
-		//		Tools: []v1alpha1.Tool{
-		//			{
-		//				Provider: string(v1alpha1.BuiltinTool_KubectlGetPods),
-		//			},
-		//			{
-		//				Provider: string(v1alpha1.BuiltinTool_KubectlGetServices),
-		//			},
-		//			{
-		//				Provider: string(v1alpha1.BuiltinTool_KubectlApplyManifest),
-		//			},
-		//			{
-		//				Provider: string(v1alpha1.BuiltinTool_KubectlGetResources),
-		//			},
-		//			{
-		//				Provider: string(v1alpha1.BuiltinTool_KubectlGetPodLogs),
-		//			},
-		//			{
-		//				Provider: "kagent.tools.docs.QueryTool",
-		//				Config: map[string]v1alpha1.AnyType{
-		//					"docs_download_url": {
-		//						RawMessage: makeRawMsg("https://doc-sqlite-db.s3.sa-east-1.amazonaws.com"),
-		//					},
-		//				},
-		//			},
-		//		},
-		//	},
-		//}
-
 		kubeExpert := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "kube-expert",
