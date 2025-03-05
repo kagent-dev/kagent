@@ -93,7 +93,6 @@ var _ = Describe("E2e", func() {
 				APIVersion: "kagent.dev/v1alpha1",
 			},
 			Spec: v1alpha1.AgentSpec{
-				Name:          "kubernetes_expert_agent",
 				Description:   "The Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.",
 				SystemMessage: readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
 				Tools: []v1alpha1.Tool{

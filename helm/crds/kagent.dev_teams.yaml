@@ -115,6 +115,13 @@ spec:
                     required:
                     - text
                     type: object
+                  textMessageTermination:
+                    properties:
+                      source:
+                        type: string
+                    required:
+                    - source
+                    type: object
                 type: object
             required:
             - description

@@ -173,6 +173,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			)
 		} else {
 			participant, err = translateAssistantAgent(
+				agent.Name,
 				agent.Spec,
 				modelClient,
 				modelContext,
@@ -288,8 +289,8 @@ func (a *apiTranslator) translateSocietyOfMindAgent(
 			Description:          agent.Spec.Description,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
-				TextMentionTermination: &v1alpha1.TextMentionTermination{
-					Text: "TERMINATE",
+				TextMessageTermination: &v1alpha1.TextMessageTermination{
+					Source: convertToPythonIdentifier(agent.Name),
 				},
 			},
 		},
@@ -327,6 +328,7 @@ func (a *apiTranslator) translateSocietyOfMindAgent(
 }
 
 func translateAssistantAgent(
+	agentName string,
 	agentSpec v1alpha1.AgentSpec,
 	modelClient *api.Component,
 	modelContext *api.Component,
@@ -364,7 +366,7 @@ func translateAssistantAgent(
 		Version:       makePtr(1),
 		Description:   makePtr(agentSpec.Description),
 		Config: api.MustToConfig(&api.AssistantAgentConfig{
-			Name:         agentSpec.Name,
+			Name:         convertToPythonIdentifier(agentName),
 			ModelClient:  modelClient,
 			Tools:        tools,
 			ModelContext: modelContext,
@@ -426,6 +428,9 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 	if terminationCondition.StopMessageTermination != nil {
 		conditionsSet++
 	}
+	if terminationCondition.TextMessageTermination != nil {
+		conditionsSet++
+	}
 	if conditionsSet != 1 {
 		return nil, fmt.Errorf("exactly one termination condition must be set")
 	}
@@ -449,6 +454,16 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 			//ComponentVersion: 1,
 			Config: api.MustToConfig(&api.TextMentionTerminationConfig{
 				Text: makePtr(terminationCondition.TextMentionTermination.Text),
+			}),
+		}, nil
+	case terminationCondition.TextMessageTermination != nil:
+		return &api.Component{
+			Provider:      "kagent.terminations.TextMessageTermination",
+			ComponentType: "termination",
+			Version:       makePtr(1),
+			//ComponentVersion: 1,
+			Config: api.MustToConfig(&api.TextMessageTerminationConfig{
+				Source: makePtr(terminationCondition.TextMessageTermination.Source),
 			}),
 		}, nil
 	case terminationCondition.OrTermination != nil:
@@ -497,4 +512,8 @@ func fetchObjKube(ctx context.Context, kube client.Client, obj client.Object, ob
 		return err
 	}
 	return nil
+}
+
+func convertToPythonIdentifier(name string) string {
+	return strings.ReplaceAll(name, "-", "_")
 }

@@ -36,6 +36,18 @@ func (c *TextMentionTerminationConfig) FromConfig(config map[string]interface{})
 	return fromConfig(c, config)
 }
 
+type TextMessageTerminationConfig struct {
+	Source *string `json:"source"`
+}
+
+func (c *TextMessageTerminationConfig) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *TextMessageTerminationConfig) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
+
 type MaxMessageTerminationConfig struct {
 	MaxMessages *int `json:"max_messages"`
 }

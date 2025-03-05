@@ -41,8 +41,6 @@ spec:
             properties:
               description:
                 type: string
-              name:
-                type: string
               systemMessage:
                 type: string
               tools:
