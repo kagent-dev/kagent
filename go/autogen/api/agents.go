@@ -50,3 +50,21 @@ func (c *MultiModalWebSurferConfig) ToConfig() (map[string]interface{}, error) {
 func (c *MultiModalWebSurferConfig) FromConfig(config map[string]interface{}) error {
 	return fromConfig(c, config)
 }
+
+type SocietyOfMindAgentConfig struct {
+	Name              string     `json:"name"`
+	Team              *Component `json:"team,omitempty"`
+	ModelClient       *Component `json:"model_client,omitempty"`
+	Description       *string    `json:"description,omitempty"`
+	Instruction       *string    `json:"instruction,omitempty"`
+	ResponsePrompt    *string    `json:"response_prompt,omitempty"`
+	ModelClientStream bool       `json:"model_client_stream,omitempty"`
+}
+
+func (c *SocietyOfMindAgentConfig) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *SocietyOfMindAgentConfig) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}

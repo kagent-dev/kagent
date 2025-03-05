@@ -59,9 +59,7 @@ func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v
 			Description:          agent.Spec.Description,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
-				TextMentionTermination: &v1alpha1.TextMentionTermination{
-					Text: "TERMINATE",
-				},
+				StopMessageTermination: &v1alpha1.StopMessageTermination{},
 			},
 		},
 	}
@@ -301,29 +299,17 @@ func (a *apiTranslator) translateSocietyOfMindAgent(
 		return nil, err
 	}
 
-	teamConfig := make(map[string]interface{})
-	raw, err := json.Marshal(societyOfMindTeam.Component)
-	if err != nil {
-		return nil, err
-	}
-
-	err = json.Unmarshal(raw, &teamConfig)
-	if err != nil {
-		return nil, err
-	}
-
 	return &api.Component{
 		Provider:      "kagent.agents.SocietyOfMindAgent",
 		ComponentType: "agent",
 		Version:       makePtr(1),
 		Label:         makePtr("society_of_mind_agent"),
 		Description:   makePtr("An agent that runs a team of agents"),
-		Config: map[string]interface{}{
-			"team":          teamConfig,
-			"model_client":  modelClient,
-			"model_context": modelContext,
-			"name":          "society_of_mind_agent",
-		},
+		Config: api.MustToConfig(&api.SocietyOfMindAgentConfig{
+			Team:        societyOfMindTeam.Component,
+			ModelClient: modelClient,
+			Name:        "society_of_mind_agent",
+		}),
 	}, nil
 }
 

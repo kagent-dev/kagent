@@ -77,7 +77,6 @@ var _ = Describe("AutogenClient", func() {
 				Namespace: namespace,
 			},
 			Spec: v1alpha1.AgentSpec{
-				Name:          "test-participant1",
 				Description:   "a test participant",
 				SystemMessage: "You are a test participant",
 				Tools:         nil,
@@ -90,7 +89,6 @@ var _ = Describe("AutogenClient", func() {
 				Namespace: namespace,
 			},
 			Spec: v1alpha1.AgentSpec{
-				Name:          "test-participant2",
 				Description:   "a test participant",
 				SystemMessage: "You are a test participant",
 				Tools:         nil,
