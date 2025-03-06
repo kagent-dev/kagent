@@ -46,6 +46,17 @@ RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/s
     && chmod +x kubectl \
     && mv kubectl /usr/local/bin/
 
+# Install Istio
+RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.25.0 TARGET_ARCH=x86_64 sh - \
+    && mv istio-1.25.0/bin/istioctl /usr/local/bin/istioctl \
+    && rm -rf istio-1.25.0
+
+# Install Helm
+RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+    && chmod 700 get_helm.sh \
+    && ./get_helm.sh \
+    && rm get_helm.sh
+
 # Create groups and users
 RUN groupadd -g 1001 nodejs \
     && groupadd -g 1002 pythongroup \
