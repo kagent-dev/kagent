@@ -56,8 +56,6 @@ release-controller: build-controller
 build-ui:
 	# Build the combined UI and backend image
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS)  -t $(UI_IMG) -f ui/Dockerfile ./ui
-	# Tag with latest for convenience
-	docker tag $(UI_IMG) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):latest
 
 .PHONY: release-ui
 release-ui: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
@@ -67,8 +65,6 @@ release-ui: build-ui
 .PHONY: build-app
 build-app:
 	$(DOCKER_BUILDER)  build $(DOCKER_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
-	# Tag with latest for convenience
-	docker tag $(APP_IMG) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):latest
 
 .PHONY: release-app
 release-app: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
