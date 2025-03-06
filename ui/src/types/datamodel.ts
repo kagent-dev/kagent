@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type ComponentType = "team" | "agent" | "model" | "tool" | "termination";
+export type ComponentType = "team" | "agent" | "model" | "tool" | "termination" | "chat_completion_context";
 
 export interface Component<T extends ComponentConfig> {
   provider: string;
@@ -211,6 +211,10 @@ export interface TextMentionTerminationConfig {
   text: string;
 }
 
+export interface TextMessageTerminationConfig {
+  source: string;
+}
+
 // Config type unions based on provider
 export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | SocietyOfMindAgentConfig;
 
@@ -222,7 +226,7 @@ export type ToolConfig = FunctionToolConfig | MCPToolConfig | BuiltInToolConfig;
 
 export type ChatCompletionContextConfig = UnboundedChatCompletionContextConfig;
 
-export type TerminationConfig = OrTerminationConfig | MaxMessageTerminationConfig | TextMentionTerminationConfig;
+export type TerminationConfig = OrTerminationConfig | MaxMessageTerminationConfig | TextMentionTerminationConfig | TextMessageTerminationConfig;
 
 export type ComponentConfig = TeamConfig | AgentConfig | ModelConfig | ToolConfig | TerminationConfig | ChatCompletionContextConfig;
 

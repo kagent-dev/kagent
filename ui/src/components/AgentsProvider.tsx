@@ -5,7 +5,7 @@ import { getTeams, createTeam } from "@/app/actions/teams";
 import { Team, Component, ToolConfig } from "@/types/datamodel";
 import { getBuiltInTools } from "@/app/actions/tools";
 import { BaseResponse, Model } from "@/lib/types";
-import { createTeamConfig, transformToAgentConfig } from "@/lib/agents";
+import { createTeamConfig } from "@/lib/agents";
 import { isIdentifier } from "@/lib/utils";
 
 interface ValidationErrors {
@@ -126,8 +126,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         return { success: false, error: "Validation failed", data: {} as Team };
       }
 
-      const agentConfig = transformToAgentConfig(agentData);
-      const teamConfig = await createTeamConfig(agentConfig);
+      const teamConfig = await createTeamConfig(agentData);
       const result = await createTeam(teamConfig);
 
       if (result.success) {

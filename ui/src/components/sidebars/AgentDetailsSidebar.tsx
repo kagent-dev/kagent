@@ -1,5 +1,5 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ChevronRight, ChevronLeft, FunctionSquare } from "lucide-react";
+import { ChevronRight, ChevronLeft, FunctionSquare, Clipboard } from "lucide-react";
 import type { Team, AssistantAgentConfig, ToolConfig, Component } from "@/types/datamodel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -145,11 +145,33 @@ export function AgentDetailsSidebar({ selectedTeam }: AgentDetailsSidebarProps) 
                       const assistantAgent = participant.config as AssistantAgentConfig;
                       return (
                         <div key={index} className="text-sm text-white/50">
-                          <div className="flex items-center justify-between">
-                            <h5 className="text-white font-semibold text-lg flex items-center gap-2">
-                              <KagentLogo className="h-5 w-5" />
-                              {participant.label}
-                            </h5>
+                          <div className="flex items-start  flex-col space-y-2">
+                            <div className="flex items-center justify-between w-full">
+                              <div className="inline-flex justify-center items-center gap-2">
+                                <KagentLogo className="h-5 w-5" />
+                                <h5 className="text-white font-semibold text-base">{participant.label}</h5>
+                              </div>
+                              <div>
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="link"
+                                        size="sm"
+                                        onClick={async () => await navigator.clipboard.writeText(JSON.stringify(selectedTeam))}
+                                        className="px-0 text-white/80 hover:text-white"
+                                      >
+                                        <Clipboard className="h-4 w-4 mr-2" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Copy JSON representation</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                            </div>
+
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -158,7 +180,7 @@ export function AgentDetailsSidebar({ selectedTeam }: AgentDetailsSidebarProps) 
                                   </Badge>
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                  <p>Model agent is using</p>
+                                  <p>The model agent is using</p>
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
