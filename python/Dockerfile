@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:debian-slim AS final
+FROM ghcr.io/astral-sh/uv:0.6.4-debian-slim@sha256:40aaa04efd0074d3f07c6ad6ff922d32d0dea339c5888c1d22d7db0fa3b1e954 AS final
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -11,22 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     ca-certificates \
-    nginx \
-    supervisor \
-    gnupg \
-    python3 \
-    python3-pip \
-    python3-venv \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
-    && apt-get install -y nodejs \
     && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3 /usr/bin/python
+    && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    uv --version
+RUN uv python install 3.12
 
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
@@ -47,7 +36,7 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 # Create groups and users
 RUN groupadd -g 1002 pythongroup \
     && useradd -u 1002 -g pythongroup -s /bin/bash -m python \
-    && mkdir -p /app/python /app/ui /run/nginx \
+    && mkdir -p /app/python \
     && chown -R python:pythongroup /app/python
 
 # Set up Python backend

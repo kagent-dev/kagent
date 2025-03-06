@@ -11,6 +11,8 @@ APP_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+DOCKER_BUILDER ?= docker
+DOCKER_BUILD_ARGS ?=
 
 # Check if OPENAI_API_KEY is set
 check-openai-key:
@@ -43,31 +45,38 @@ controller-manifests:
 
 .PHONY: build-controller
 build-controller: controller-manifests
-	make -C go docker-build
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
-.PHONY: push-controller
-push-controller:
-	docker push $(CONTROLLER_IMG)
+.PHONY: release-controller
+release-controller: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
+release-controller: DOCKER_BUILDER = docker buildx
+release-controller: build-controller
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: build-ui
 build-ui:
 	# Build the combined UI and backend image
-	docker build -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(UI_IMG) -f ui/Dockerfile ./ui
 	# Tag with latest for convenience
 	docker tag $(UI_IMG) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):latest
 
-.PHONY: push-ui
-push-ui:
-	docker push $(UI_IMG)
+.PHONY: release-ui
+release-ui: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
+release-ui: DOCKER_BUILDER = docker buildx
+release-ui: build-ui
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(UI_IMG) -f ui/Dockerfile ./ui
 
 .PHONY: build-app
 build-app:
-	docker build -t $(APP_IMG) -f python/Dockerfile ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(APP_IMG) -f python/Dockerfile ./python
+	# Tag with latest for convenience
 	docker tag $(APP_IMG) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):latest
 
-.PHONY: push-app
-push-app:
-	docker push $(APP_IMG)
+.PHONY: release-app
+release-app: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
+release-app: DOCKER_BUILDER = docker buildx
+release-app: build-app
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(APP_IMG) -f python/Dockerfile ./python
 
 .PHONY: kind-load-docker-images
 kind-load-docker-images: build

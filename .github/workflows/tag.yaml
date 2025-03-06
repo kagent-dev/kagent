@@ -44,8 +44,7 @@ jobs:
         else
           export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
         fi
-        make build-${{ matrix.image }}
-        make push-${{ matrix.image }}
+        DOCKER_BUILD_ARGS="--push" make build-${{ matrix.image }}
   push-helm-chart:
     runs-on: ubuntu-latest
     permissions:
