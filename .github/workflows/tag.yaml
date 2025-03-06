@@ -37,6 +37,9 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: 'Build Images'
+      env:
+        DOCKER_BUILD_ARGS: "--push --platform linux/amd64,linux/arm64"
+        DOCKER_BUILDER: "docker buildx"
       run: |
         # if workflow_dispatch is used, use the version input
         if [ -n "${{ github.event.inputs.version }}" ]; then
@@ -44,7 +47,7 @@ jobs:
         else
           export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
         fi
-        DOCKER_BUILD_ARGS="--push" make build-${{ matrix.image }}
+        make build-${{ matrix.image }}
   push-helm-chart:
     runs-on: ubuntu-latest
     permissions:
