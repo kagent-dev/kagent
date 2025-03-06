@@ -45,18 +45,17 @@ controller-manifests:
 
 .PHONY: build-controller
 build-controller: controller-manifests
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) build  $(DOCKER_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: release-controller
 release-controller: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
 release-controller: DOCKER_BUILDER = docker buildx
 release-controller: build-controller
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: build-ui
 build-ui:
 	# Build the combined UI and backend image
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS)  -t $(UI_IMG) -f ui/Dockerfile ./ui
 	# Tag with latest for convenience
 	docker tag $(UI_IMG) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):latest
 
@@ -64,11 +63,10 @@ build-ui:
 release-ui: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
 release-ui: DOCKER_BUILDER = docker buildx
 release-ui: build-ui
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(UI_IMG) -f ui/Dockerfile ./ui
 
 .PHONY: build-app
 build-app:
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(APP_IMG) -f python/Dockerfile ./python
+	$(DOCKER_BUILDER)  build $(DOCKER_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
 	# Tag with latest for convenience
 	docker tag $(APP_IMG) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):latest
 
@@ -76,7 +74,6 @@ build-app:
 release-app: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
 release-app: DOCKER_BUILDER = docker buildx
 release-app: build-app
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) build -t $(APP_IMG) -f python/Dockerfile ./python
 
 .PHONY: kind-load-docker-images
 kind-load-docker-images: build
