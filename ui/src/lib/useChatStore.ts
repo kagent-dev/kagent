@@ -106,7 +106,7 @@ const useChatStore = create<ChatState>((set, get) => ({
     ) {
       const systemMessage = {
         config: messageConfig,
-        session_id: session.id,
+        session_id: session.id!,
         run_id: run.id,
         message_meta: {},
       };
@@ -122,14 +122,17 @@ const useChatStore = create<ChatState>((set, get) => ({
     }
 
     // Check if this is a streaming chunk or complete message
-    const isStreamingChunk = messageUtils.isStreamingContent(messageConfig)
+    const isStreamingChunk = message.type === "message_chunk";
 
     if (isStreamingChunk) {
       // If this is a new streaming message (different source)
       if (!state.currentStreamingMessage || state.currentStreamingMessage.config.source !== messageConfig.source) {
         // Create new streaming message
         const newStreamingMessage = {
-          config: messageConfig,
+          config: {
+            ...messageConfig,
+            content: [String(messageConfig.content)],
+          },
           session_id: session.id,
           run_id: run.id,
           message_meta: {},
@@ -140,24 +143,51 @@ const useChatStore = create<ChatState>((set, get) => ({
         });
       } else {
         // Append to existing streaming content
-        set((state) => ({
-          currentStreamingContent: state.currentStreamingContent + messageConfig.content,
-        }));
+        set((state) => {
+          const updatedContent = state.currentStreamingContent + String(messageConfig.content);
+
+          // Update the currentStreamingMessage's content
+          const updatedStreamingMessage = {
+            ...state.currentStreamingMessage!,
+            config: {
+              ...state.currentStreamingMessage!.config,
+              content: [updatedContent],
+            },
+          };
+
+          return {
+            currentStreamingContent: updatedContent,
+            currentStreamingMessage: updatedStreamingMessage,
+          };
+        });
       }
     } else {
       // For non-streaming/complete messages
-      const completeMessage = {
-        config: messageConfig,
-        session_id: session.id,
-        run_id: run.id,
-        message_meta: {},
-      };
-
       set((state) => {
-        const updatedMessages = [...state.messages, completeMessage];
+        // If there was a streaming message in progress, replace it with the complete message
+        const finalMessages = state.currentStreamingMessage
+          ? [
+              ...state.messages.filter((m) => m !== state.currentStreamingMessage),
+              {
+                config: messageConfig,
+                session_id: session.id!,
+                run_id: run.id,
+                message_meta: {},
+              },
+            ]
+          : [
+              ...state.messages,
+              {
+                config: messageConfig,
+                session_id: session.id!,
+                run_id: run.id,
+                message_meta: {},
+              },
+            ];
+
         const updatedRun = {
           ...run,
-          messages: updatedMessages,
+          messages: finalMessages,
           status: message.status || run.status,
         };
 
@@ -171,7 +201,7 @@ const useChatStore = create<ChatState>((set, get) => ({
         );
 
         return {
-          messages: updatedMessages,
+          messages: finalMessages,
           run: updatedRun,
           sessions: updatedSessions,
           currentStreamingContent: "",

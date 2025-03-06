@@ -135,7 +135,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
                     <FunctionSquare className={`h-4 w-4 ${isMcpTool(tool) ? "text-blue-400" : "text-yellow-500"}`} />
                     <div className="inline-flex flex-col space-y-1">
                       <span className="text-white">{displayName}</span>
-                      <span className="text-white/50">{displayDescription}</span>
+                      <span className="text-white/50 max-w-2xl">{displayDescription}</span>
                       {isMcpTool(tool) && <span className="text-blue-400/70 text-xs">MCP Tool</span>}
                     </div>
                   </div>

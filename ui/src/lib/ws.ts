@@ -84,6 +84,7 @@ export function setupWebSocket(runId: string, handlers: WebSocketHandlers, initi
         try {
           const message = JSON.parse(event.data) as WebSocketMessage;
           switch (message.type) {
+            case "message_chunk":
             case "message":
             case "result":
             case "completion":

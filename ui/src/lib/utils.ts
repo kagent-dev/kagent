@@ -160,10 +160,6 @@ export const messageUtils = {
     return typeof content === "object" && content !== null && "content" in content && "type" in content && content.type === "TextMessage";
   },
 
-  isStreamingContent(content: unknown): boolean{
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ModelClientStreamingChunkEvent";
-  },
-
   isUserTextMessageContent(content: unknown): content is TextMessageConfig {
     return messageUtils.isTextMessageContent(content) && content.source === "user";
   },

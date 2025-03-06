@@ -1,3 +1,4 @@
+"use client";
 import { MessageSquare, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import KagentLogo from "../kagent-logo";
@@ -23,7 +24,13 @@ const ActionButtons = ({ hasSessions, currentAgentId }: ActionButtonsProps) => {
   return (
     <div className="px-2 space-y-4">
       {hasSessions && currentAgentId && (
-        <button onClick={() => router.push(`/agents/${currentAgentId}/chat`)} className="w-full flex justify-start items-center text-sm font-normal text-white/80 hover:text-white">
+        <button
+          onClick={() => {
+            router.push(`/agents/${currentAgentId}/chat`);
+            router.refresh();
+          }}
+          className="w-full flex justify-start items-center text-sm font-normal text-white/80 hover:text-white"
+        >
           <KagentLogo className="mr-3 h-4 w-4" />
           Start a new chat
         </button>

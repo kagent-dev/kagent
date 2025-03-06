@@ -28,7 +28,7 @@ const components = {
   },
 };
 
-export const TruncatableText = memo(({ content, isJson = false, className = "", jsonThreshold = 1000, textThreshold = 500, showFullscreen = true, isStreaming = false }: TruncatableTextProps) => {
+export const TruncatableText = memo(({ content, isJson = false, className = "", jsonThreshold = 1000, textThreshold = 1500, showFullscreen = true, isStreaming = false }: TruncatableTextProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const threshold = isJson ? jsonThreshold : textThreshold;
 
