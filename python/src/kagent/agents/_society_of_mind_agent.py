@@ -6,20 +6,35 @@ from autogen_agentchat.messages import (
     AgentEvent,
     BaseChatMessage,
     ChatMessage,
+    HandoffMessage,
     ModelClientStreamingChunkEvent,
     TextMessage,
+    ToolCallExecutionEvent,
+    ToolCallRequestEvent,
+    ToolCallSummaryMessage,
 )
-from autogen_agentchat.state import SocietyOfMindAgentState
+from autogen_agentchat.state import BaseState
 from autogen_core import CancellationToken, Component, ComponentModel
+from autogen_core.model_context import ChatCompletionContext, UnboundedChatCompletionContext
 from autogen_core.models import (
+    AssistantMessage,
     ChatCompletionClient,
     CreateResult,
+    FunctionExecutionResultMessage,
     LLMMessage,
     SystemMessage,
     UserMessage,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing_extensions import Self
+
+
+class SocietyOfMindAgentState(BaseState):
+    """State for a Society of Mind agent."""
+
+    inner_team_state: Mapping[str, Any] = Field(default_factory=dict)
+    model_context_state: Mapping[str, Any] = Field(default_factory=dict)
+    type: str = Field(default="SocietyOfMindAgentState")
 
 
 class SocietyOfMindAgentConfig(BaseModel):
@@ -28,11 +43,11 @@ class SocietyOfMindAgentConfig(BaseModel):
     name: str
     team: ComponentModel
     model_client: ComponentModel
+    model_context: ComponentModel
     description: str | None = None
     instruction: str | None = None
     response_prompt: str | None = None
     model_client_stream: bool = False
-    response_json_type: BaseModel | None = None
 
 
 class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
@@ -104,9 +119,7 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
     messages when generating a response using the model. It assumes the role of
     'system'."""
 
-    DEFAULT_RESPONSE_PROMPT = (
-        "Output a standalone response to the original request, without mentioning any of the intermediate discussion."
-    )
+    DEFAULT_RESPONSE_PROMPT = "Output a standalone response to the original request, summarizing the tools used to address the request, as well as highlighting important parts of the result"
     """str: The default response prompt to use when generating a response using
     the inner team's messages. It assumes the role of 'system'."""
 
@@ -118,24 +131,20 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
         name: str,
         team: Team,
         model_client: ChatCompletionClient,
+        model_context: ChatCompletionContext | None = None,
         *,
         description: str = DEFAULT_DESCRIPTION,
         instruction: str = DEFAULT_INSTRUCTION,
         response_prompt: str = DEFAULT_RESPONSE_PROMPT,
         model_client_stream: bool = False,
-        response_json_type: BaseModel | None = None,
     ) -> None:
         super().__init__(name=name, description=description)
         self._team = team
         self._model_client = model_client
+        self._model_context = model_context or UnboundedChatCompletionContext()
         self._instruction = instruction
         self._response_prompt = response_prompt
         self._model_client_stream = model_client_stream
-        self._response_json_type = response_json_type
-
-        # TODO: Add this to state, and load it on reset.
-        # Also try to upstream this.
-        self._context: list[ChatMessage] = []
 
     @property
     def produced_message_types(self) -> Sequence[type[ChatMessage]]:
@@ -153,16 +162,22 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
     async def on_messages_stream(
         self, messages: Sequence[ChatMessage], cancellation_token: CancellationToken
     ) -> AsyncGenerator[AgentEvent | ChatMessage | Response, None]:
-        # Add the messages to the context.
-        for message in messages:
-            self._context.append(message)
-        task = self._context
-
         # Run the team of agents.
         result: TaskResult | None = None
         inner_messages: List[AgentEvent | ChatMessage] = []
         count = 0
-        async for inner_msg in self._team.run_stream(task=self._context, cancellation_token=cancellation_token):
+        context = await self._model_context.get_messages()
+        task = list(messages)
+        if len(context) > 0:
+            message = HandoffMessage(
+                content="Here are the relevant previous messages.",
+                source=self.name,
+                target="",
+                context=context,
+            )
+            task = [message] + list(messages)
+
+        async for inner_msg in self._team.run_stream(task=task, cancellation_token=cancellation_token):
             if isinstance(inner_msg, TaskResult):
                 result = inner_msg
             else:
@@ -175,14 +190,8 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
                     # Skip the model client streaming chunk events.
                     continue
 
-                # TODO: Filter out the messages that are just context, they break the next step.
-                # We want the summary to be a pure function of the inner messages.
-
                 inner_messages.append(inner_msg)
         assert result is not None
-
-        # Filter out the task messages from the inner messages.
-        # inner_messages = inner_messages[current_context_length:]
 
         if len(inner_messages) == 0:
             yield Response(
@@ -191,13 +200,25 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
         else:
             # Generate a response using the model client.
             llm_messages: List[LLMMessage] = [SystemMessage(content=self._instruction)]
-            llm_messages.extend(
-                [
-                    UserMessage(content=message.content, source=message.source)
-                    for message in inner_messages
-                    if isinstance(message, BaseChatMessage)
-                ]
-            )
+            # Add the messages to the context, as well as create context for the summary of the tool calls.
+            for message in inner_messages:
+                if isinstance(message, TextMessage):
+                    await self._model_context.add_message(
+                        AssistantMessage(content=message.content, source=message.source)
+                    )
+                    llm_messages.append(UserMessage(content=message.content, source=message.source))
+                elif isinstance(message, ToolCallSummaryMessage):
+                    await self._model_context.add_message(
+                        AssistantMessage(content=message.content, source=message.source)
+                    )
+                    llm_messages.append(UserMessage(content=message.content, source=message.source))
+                elif isinstance(message, ToolCallExecutionEvent):
+                    await self._model_context.add_message(FunctionExecutionResultMessage(content=message.content))
+                elif isinstance(message, ToolCallRequestEvent):
+                    await self._model_context.add_message(
+                        AssistantMessage(content=message.content, source=message.source)
+                    )
+            ## TODO: Explain to the model that the inner are in order summaries of tool calls and their outputs.
             llm_messages.append(SystemMessage(content=self._response_prompt))
             if self._model_client_stream:
                 model_result: CreateResult | None = None
@@ -205,8 +226,8 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
                 async for chunk in self._model_client.create_stream(
                     llm_messages,
                     cancellation_token=cancellation_token,
-                    json_output=self._response_json_type is not None,
-                    extra_create_args={"response_format": self._response_json_type},
+                    # json_output=self._response_json_type is not None,
+                    # extra_create_args={"response_format": self._response_json_type},
                 ):
                     if isinstance(chunk, CreateResult):
                         model_result = chunk
@@ -216,7 +237,7 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
                         raise RuntimeError(f"Invalid chunk type: {type(chunk)}")
                 assert isinstance(model_result, CreateResult)
                 assert isinstance(model_result.content, str)
-                self._context.append(TextMessage(source=self.name, content=model_result.content))
+                await self._model_context.add_message(AssistantMessage(content=model_result.content, source=self.name))
                 yield Response(
                     chat_message=TextMessage(
                         source=self.name, content=model_result.content, models_usage=model_result.usage
@@ -227,11 +248,11 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
                 completion = await self._model_client.create(
                     messages=llm_messages,
                     cancellation_token=cancellation_token,
-                    json_output=self._response_json_type is not None,
-                    extra_create_args={"response_format": self._response_json_type},
+                    # json_output=self._response_json_type is not None,
+                    # extra_create_args={"response_format": self._response_json_type},
                 )
                 assert isinstance(completion.content, str)
-                self._context.append(TextMessage(source=self.name, content=completion.content))
+                await self._model_context.add_message(AssistantMessage(content=completion.content, source=self.name))
                 yield Response(
                     chat_message=TextMessage(
                         source=self.name, content=completion.content, models_usage=completion.usage
@@ -247,11 +268,13 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
 
     async def save_state(self) -> Mapping[str, Any]:
         team_state = await self._team.save_state()
-        state = SocietyOfMindAgentState(inner_team_state=team_state)
+        model_context_state = await self._model_context.save_state()
+        state = SocietyOfMindAgentState(inner_team_state=team_state, model_context_state=model_context_state)
         return state.model_dump()
 
     async def load_state(self, state: Mapping[str, Any]) -> None:
         society_of_mind_state = SocietyOfMindAgentState.model_validate(state)
+        await self._model_context.load_state(society_of_mind_state.model_context_state)
         await self._team.load_state(society_of_mind_state.inner_team_state)
 
     def _to_config(self) -> SocietyOfMindAgentConfig:
@@ -259,24 +282,25 @@ class SocietyOfMindAgent(BaseChatAgent, Component[SocietyOfMindAgentConfig]):
             name=self.name,
             team=self._team.dump_component(),
             model_client=self._model_client.dump_component(),
+            model_context=self._model_context.dump_component(),
             description=self.description,
             instruction=self._instruction,
             response_prompt=self._response_prompt,
             model_client_stream=self._model_client_stream,
-            response_json_type=self._response_json_type,
         )
 
     @classmethod
     def _from_config(cls, config: SocietyOfMindAgentConfig) -> Self:
         model_client = ChatCompletionClient.load_component(config.model_client)
+        model_context = ChatCompletionContext.load_component(config.model_context)
         team = Team.load_component(config.team)
         return cls(
             name=config.name,
             team=team,
             model_client=model_client,
+            model_context=model_context,
             description=config.description or cls.DEFAULT_DESCRIPTION,
             instruction=config.instruction or cls.DEFAULT_INSTRUCTION,
             response_prompt=config.response_prompt or cls.DEFAULT_RESPONSE_PROMPT,
             model_client_stream=config.model_client_stream,
-            response_json_type=config.response_json_type,
         )

@@ -50,9 +50,22 @@ func CreateCmd(c *ishell.Context) {
 			c.Printf("Error getting team: %v\n", err)
 			return
 		}
+
+		var team *autogen_client.Team
+
 		if existingTeam != nil {
+			team = existingTeam
+			team.Component = &cmp
+			team.CreatedAt = nil
+			team.UpdatedAt = nil
+			// Update the existing team
 			c.Printf("A team with the name %s already exists\n", *cmp.Label)
-			return
+			c.Println("Updating team")
+		} else {
+			team = &autogen_client.Team{
+				Component: &cmp,
+				UserID:    cfg.UserID,
+			}
 		}
 
 		req := autogen_client.ValidationRequest{
@@ -75,11 +88,7 @@ func CreateCmd(c *ishell.Context) {
 			}
 			return
 		}
-		team := autogen_client.Team{
-			Component: &cmp,
-			UserID:    cfg.UserID,
-		}
-		if err := client.CreateTeam(&team); err != nil {
+		if err := client.CreateTeam(team); err != nil {
 			c.Printf("Error creating team: %v\n", err)
 			return
 		}

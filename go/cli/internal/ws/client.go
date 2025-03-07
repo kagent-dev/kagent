@@ -13,10 +13,10 @@ import (
 
 	"github.com/abiosoft/readline"
 	"github.com/briandowns/spinner"
-	"github.com/fatih/color"
 	"github.com/gorilla/websocket"
 	"github.com/jedib0t/go-pretty/v6/table"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
 // Config holds the WebSocket client configuration
@@ -130,8 +130,6 @@ func getThinkingVerb() string {
 
 func (c *Client) handleMessages(shell Shell) {
 	defer close(c.done)
-	bold_yellow := color.New(color.FgYellow, color.Bold).SprintFunc()
-	bold_green := color.New(color.FgGreen, color.Bold).SprintFunc()
 
 	// Tool call requests and executions are sent as separate messages, but we should print them together
 	// so if we receive a tool call request, we buffer it until we receive the corresponding tool call execution
@@ -145,6 +143,8 @@ func (c *Client) handleMessages(shell Shell) {
 	s.Suffix = " " + title
 	s.Start()
 	defer s.Stop()
+
+	usage := &autogen_client.ModelsUsage{}
 
 	for {
 		var msg BaseWebSocketMessage
@@ -167,7 +167,6 @@ func (c *Client) handleMessages(shell Shell) {
 			_ = json.Unmarshal(msg.Data, mapStructure)
 			typeStr := (*mapStructure)["type"]
 			contentType := ContentType(typeStr)
-
 			switch contentType {
 			case ContentTypeText:
 				var textMessage TextMessage
@@ -175,6 +174,7 @@ func (c *Client) handleMessages(shell Shell) {
 					shell.Printf("Error parsing message data: %v\n", err)
 					continue
 				}
+				usage.Add(&textMessage.ModelsUsage)
 				// If we are streaming from this agent, don't print the whole TextMessage, but only the content of the ModelStreamingEvent
 				if streaming[textMessage.Source] {
 					// reset buffer?
@@ -189,8 +189,8 @@ func (c *Client) handleMessages(shell Shell) {
 					s.Start()
 					continue
 				}
-				shell.Printf("%s: %s\n", bold_yellow("Event Type"), contentType)
-				shell.Printf("%s: %s\n", bold_green("Source"), textMessage.Source)
+				shell.Printf("%s: %s\n", config.BoldYellow("Event Type"), contentType)
+				shell.Printf("%s: %s\n", config.BoldGreen("Source"), textMessage.Source)
 				shell.Println()
 				shell.Println(textMessage.Content)
 				shell.Println("----------------------------------")
@@ -203,6 +203,7 @@ func (c *Client) handleMessages(shell Shell) {
 					shell.Printf("Error parsing message data: %v\n", err)
 					continue
 				}
+				usage.Add(&toolCallRequest.ModelsUsage)
 				// s.Suffix = " " + "calling tools"
 				// Buffer the tool call request until we receive the corresponding tool call execution
 				bufferedToolCallRequest = &toolCallRequest
@@ -213,13 +214,14 @@ func (c *Client) handleMessages(shell Shell) {
 					shell.Printf("Error parsing message data: %v\n", err)
 					continue
 				}
+				usage.Add(&toolCallExecution.ModelsUsage)
 
 				if s.Active() {
 					s.Stop()
 				}
 
-				shell.Printf("%s: %s\n", bold_yellow("Event Type"), "ToolCall(s)")
-				shell.Printf("%s: %s\n", bold_green("Source"), toolCallExecution.Source)
+				shell.Printf("%s: %s\n", config.BoldYellow("Event Type"), "ToolCall(s)")
+				shell.Printf("%s: %s\n", config.BoldGreen("Source"), toolCallExecution.Source)
 
 				if c.config.Verbose {
 					// For each function execution, find the corresponding tool call request and print them together
@@ -263,6 +265,7 @@ func (c *Client) handleMessages(shell Shell) {
 					shell.Printf("Error parsing message data: %v\n", err)
 					continue
 				}
+				usage.Add(&modelStreaming.ModelsUsage)
 				streaming[modelStreaming.Source] = true
 				shell.Printf(modelStreaming.Content)
 			case ContentTypeLLMCallEventMessage:
@@ -280,7 +283,7 @@ func (c *Client) handleMessages(shell Shell) {
 			}
 			go func() {
 				// TODO: properly handle this error
-				if err := c.handleUserInput(shell, msg.Data); err != nil {
+				if err := c.handleUserInput(shell, msg.Data, usage); err != nil {
 					shell.Printf("Error handling input: %v\n", err)
 					return
 				}
@@ -300,12 +303,13 @@ func (c *Client) handleMessages(shell Shell) {
 	}
 }
 
-func (c *Client) handleUserInput(shell Shell, msg json.RawMessage) error {
+func (c *Client) handleUserInput(shell Shell, msg json.RawMessage, usage *autogen_client.ModelsUsage) error {
 	var inputRequest InputRequestMessage
 	if err := json.Unmarshal(msg, &inputRequest); err != nil {
 		return fmt.Errorf("error parsing input request: %v", err)
 	}
 	for {
+		shell.Printf("\n%s: %s\n", config.BoldYellow("Usage"), usage.String())
 		input, err := shell.ReadLineErr()
 		if err != nil {
 			if errors.Is(err, readline.ErrInterrupt) {

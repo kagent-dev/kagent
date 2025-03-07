@@ -6,6 +6,7 @@ import (
 
 	"github.com/abiosoft/ishell/v2"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
 func GetAgentCmd(c *ishell.Context) {
@@ -13,8 +14,8 @@ func GetAgentCmd(c *ishell.Context) {
 	if len(c.Args) > 0 {
 		resourceName = c.Args[0]
 	}
-	client := GetClient(c)
-	cfg := GetCfg(c)
+	client := config.GetClient(c)
+	cfg := config.GetCfg(c)
 
 	if resourceName == "" {
 		agentList, err := client.ListTeams(cfg.UserID)
@@ -42,8 +43,8 @@ func GetRunCmd(c *ishell.Context) {
 	if len(c.Args) > 0 {
 		resourceName = c.Args[0]
 	}
-	client := GetClient(c)
-	cfg := GetCfg(c)
+	client := config.GetClient(c)
+	cfg := config.GetCfg(c)
 	if resourceName == "" {
 		runList, err := client.ListRuns(cfg.UserID)
 		if err != nil {
@@ -71,8 +72,8 @@ func GetSessionCmd(c *ishell.Context) {
 	if len(c.Args) > 0 {
 		resourceName = c.Args[0]
 	}
-	client := GetClient(c)
-	cfg := GetCfg(c)
+	client := config.GetClient(c)
+	cfg := config.GetCfg(c)
 	if resourceName == "" {
 		sessionList, err := client.ListSessions(cfg.UserID)
 		if err != nil {

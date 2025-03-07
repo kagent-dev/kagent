@@ -56,9 +56,10 @@ type StartMessage struct {
 }
 
 type TextMessage struct {
-	Type    MessageType `json:"type"`
-	Content string      `json:"content"`
-	Source  string      `json:"source"`
+	Type        MessageType                `json:"type"`
+	Content     string                     `json:"content"`
+	Source      string                     `json:"source"`
+	ModelsUsage autogen_client.ModelsUsage `json:"models_usage"`
 }
 
 type ToolCallRequest struct {
@@ -82,9 +83,10 @@ type LLMCallEvent struct {
 }
 
 type ModelStreamingEvent struct {
-	Type    MessageType `json:"type"`
-	Content string      `json:"content"`
-	Source  string      `json:"source"`
+	Type        MessageType                `json:"type"`
+	Content     string                     `json:"content"`
+	Source      string                     `json:"source"`
+	ModelsUsage autogen_client.ModelsUsage `json:"models_usage"`
 }
 
 type FunctionExecutionResult struct {

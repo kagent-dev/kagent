@@ -1019,11 +1019,8 @@ dependencies = [
     { name = "autogenstudio" },
     { name = "mcp" },
     { name = "openai" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "ruff" },
     { name = "sqlite-vec" },
     { name = "tiktoken" },
     { name = "typer" },
@@ -1033,6 +1030,13 @@ dependencies = [
 jupyter-executor = [
     { name = "ipykernel" },
     { name = "nbclient" },
+]
+lint = [
+    { name = "ruff" },
+]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
@@ -1045,11 +1049,11 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.2.0" },
     { name = "nbclient", marker = "extra == 'jupyter-executor'", specifier = ">=0.10.2" },
     { name = "openai", specifier = "==1.60.0" },
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "pytest-asyncio", specifier = ">=0.25.3" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.25.3" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "ruff", specifier = ">=0.9.2" },
+    { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.9.2" },
     { name = "sqlite-vec", specifier = ">=0.1.0" },
     { name = "tiktoken", specifier = "==0.8.0" },
     { name = "typer" },

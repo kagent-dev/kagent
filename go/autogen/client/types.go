@@ -1,6 +1,8 @@
 package client
 
 import (
+	"fmt"
+
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/autogen/api"
 )
@@ -17,6 +19,15 @@ type Team struct {
 type ModelsUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+}
+
+func (m *ModelsUsage) Add(other *ModelsUsage) {
+	m.PromptTokens += other.PromptTokens
+	m.CompletionTokens += other.CompletionTokens
+}
+
+func (m *ModelsUsage) String() string {
+	return fmt.Sprintf("Prompt Tokens: %d, Completion Tokens: %d", m.PromptTokens, m.CompletionTokens)
 }
 
 type TaskMessage struct {

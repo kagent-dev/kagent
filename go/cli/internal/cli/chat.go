@@ -125,7 +125,7 @@ func ChatCmd(c *ishell.Context) {
 		session = existingSessions[selectedSessionIdx-1]
 	}
 
-	promptStr := BoldGreen(fmt.Sprintf("%s--%s> ", *team.Component.Label, session.Name))
+	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", *team.Component.Label, session.Name))
 	c.SetPrompt(promptStr)
 
 	run, err := client.CreateRun(&autogen_client.CreateRunRequest{
