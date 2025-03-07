@@ -31,6 +31,8 @@ interface AgentsContextType {
   tools: Component<ToolConfig>[];
   refreshTeams: () => Promise<void>;
   createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Team>>;
+  updateAgent: (id: string, agentData: AgentFormData) => Promise<BaseResponse<Team>>;
+  getAgentById: (id: string) => Promise<Team | null>;
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
 }
 
@@ -113,6 +115,33 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     return errors;
   };
 
+  // Get agent by ID function
+  const getAgentById = async (id: string): Promise<Team | null> => {
+    try {
+      // First ensure we have the latest teams data
+      const { data: teams } = await getTeams();
+      if (!teams) {
+        console.error("Failed to get teams");
+        setError("Failed to get teams");
+        return null;
+      }
+
+      // Find the team/agent with the matching ID
+      const agent = teams.find((team) => String(team.id) === id);
+
+      if (!agent) {
+        console.warn(`Agent with ID ${id} not found`);
+        return null;
+      }
+
+      return agent;
+    } catch (error) {
+      console.error("Error getting agent by ID:", error);
+      setError(error instanceof Error ? error.message : "Failed to get agent");
+      return null;
+    }
+  };
+
   // Agent creation logic moved from the component
   const createNewAgent = async (agentData: AgentFormData) => {
     try {
@@ -132,9 +161,59 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       return result;
     } catch (error) {
       console.error("Error creating agent:", error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : "Failed to create agent" 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to create agent",
+      };
+    }
+  };
+
+  // Update existing agent
+  const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Team>> => {
+    try {
+      const errors = validateAgentData(agentData);
+      if (Object.keys(errors).length > 0) {
+        return { success: false, error: "Validation failed", data: {} as Team };
+      }
+
+      // Get existing agent/team
+      const existingTeam = await getAgentById(id);
+      if (!existingTeam) {
+        return { success: false, error: `Agent with ID ${id} not found`, data: {} as Team };
+      }
+
+      // Two approaches for updating:
+      // 1. Create a completely new team config (safer but might lose some custom configurations)
+      // 2. Update the existing team in-place (preserves all settings but more complex)
+
+      // We'll use approach #1 for simplicity while ensuring the ID is preserved
+      const teamConfig = await createTeamConfig({
+        ...agentData,
+      });
+
+      // Add the original ID to ensure we're updating the existing record
+      teamConfig.component.label = existingTeam.component.label;
+      teamConfig.component.description = agentData.description;
+
+      // Preserve the original team ID
+      if (existingTeam.id) {
+        teamConfig.id = existingTeam.id;
+      }
+
+      // Use the same createTeam endpoint for updates
+      const result = await createTeam(teamConfig);
+
+      if (result.success) {
+        // Refresh teams to get the updated one
+        await fetchTeams();
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Error updating agent:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to update agent",
       };
     }
   };
@@ -152,7 +231,9 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     tools,
     refreshTeams: fetchTeams,
     createNewAgent,
-    validateAgentData
+    updateAgent,
+    getAgentById,
+    validateAgentData,
   };
 
   return <AgentsContext.Provider value={value}>{children}</AgentsContext.Provider>;

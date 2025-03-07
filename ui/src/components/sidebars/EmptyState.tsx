@@ -1,7 +1,6 @@
 "use client";
-import { MessageSquare, Users } from "lucide-react";
+import { MessageCircleMore, MessageSquare } from "lucide-react";
 import { useRouter } from "next/navigation";
-import KagentLogo from "../kagent-logo";
 import { SidebarMenuButton } from "../ui/sidebar";
 
 const EmptyState = () => (
@@ -26,14 +25,10 @@ const ActionButtons = ({ hasSessions, currentAgentId }: ActionButtonsProps) => {
     <div className="px-2 space-y-4">
       {hasSessions && currentAgentId && (
         <SidebarMenuButton onClick={() => router.push(`/agents/${currentAgentId}/chat`)}>
-          <KagentLogo className="mr-3 h-4 w-4" />
+          <MessageCircleMore className="mr-3 h-4 w-4" />
           <span>Start a new chat</span>
         </SidebarMenuButton>
       )}
-      <SidebarMenuButton onClick={() => router.push(`/`)}>
-        <Users className="mr-3 h-4 w-4" />
-        <span>Switch Agent</span>
-        </SidebarMenuButton>
     </div>
   );
 };

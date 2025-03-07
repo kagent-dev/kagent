@@ -10,6 +10,7 @@ import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from "../ui/sideb
 import { getChatData } from "@/app/actions/chat";
 import { LoadingState } from "../LoadingState";
 import { deleteSession } from "@/app/actions/sessions";
+import { AgentSwitcher } from "./AgentSwitcher";
 
 interface SessionsSidebarProps {
   agentId: string;
@@ -91,7 +92,6 @@ export default function SessionsSidebar({ agentId }: SessionsSidebarProps) {
   }, [sessions]);
 
   const hasNoSessions = !groupedSessions.today.length && !groupedSessions.yesterday.length && !groupedSessions.older.length;
-  const totalSessions = sessions.length;
 
   if (!selectedTeam) {
     return <LoadingState />;
@@ -100,9 +100,7 @@ export default function SessionsSidebar({ agentId }: SessionsSidebarProps) {
   return (
     <Sidebar side="left" collapsible="offcanvas">
       <SidebarHeader>
-        <h3>Chat History </h3>
-        <span className="text-xs">{totalSessions} chats</span>
-      </SidebarHeader>
+        <AgentSwitcher selectedTeam={selectedTeam} />      </SidebarHeader>
       <SidebarContent>
         <div className={`flex-1 flex flex-col min-h-0`}>
           {!hasNoSessions && (

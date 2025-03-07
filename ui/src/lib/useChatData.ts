@@ -6,7 +6,6 @@ import { fetchApi } from "@/app/actions/utils";
 interface UseChatDataProps {
   agentId: string;
   chatId?: string;
-  userId: string;
 }
 
 interface ChatData {
@@ -23,7 +22,7 @@ interface ChatActions {
   handleViewRun: (sessionId: number, runId: string) => Promise<void>;
 }
 
-export function useChatData({ agentId, chatId, userId }: UseChatDataProps): [ChatData, ChatActions] {
+export function useChatData({ agentId, chatId }: UseChatDataProps): [ChatData, ChatActions] {
   const router = useRouter();
   const [data, setData] = useState<ChatData>({
     agent: null,
@@ -93,7 +92,7 @@ export function useChatData({ agentId, chatId, userId }: UseChatDataProps): [Cha
     };
 
     fetchData();
-  }, [agentId, chatId, userId, router]);
+  }, [agentId, chatId, router]);
 
   const actions: ChatActions = {
     handleNewSession: async (newSession: Session, newRun?: Run) => {
