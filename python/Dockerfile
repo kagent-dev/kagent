@@ -46,7 +46,7 @@ COPY .python-version .
 COPY uv.lock .
 COPY src src
 COPY README.md .
-RUN uv sync --all-extras && \
+RUN uv sync && \
     chown -R python:pythongroup /app/python
 
 # Generate tools and agents
@@ -61,9 +61,9 @@ RUN chown -R python:pythongroup /app/python && \
 RUN mkdir -p /app/python/.cache/uv && \
     chown -R python:pythongroup /app/python/.cache
 
-EXPOSE 80
+EXPOSE 8081
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
-LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
+LABEL org.opencontainers.image.description="Kagent app is the apiserver for running agents."
 
 CMD ["uv", "run", "autogenstudio", "ui", "--host", "0.0.0.0", "--port", "8081"]

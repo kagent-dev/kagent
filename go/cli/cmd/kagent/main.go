@@ -87,7 +87,7 @@ Examples:
 
 	getCmd.AddCmd(&ishell.Cmd{
 		Name:    "session",
-		Aliases: []string{"s"},
+		Aliases: []string{"s", "sessions"},
 		Help:    "get a session.",
 		LongHelp: `get a session.
 
@@ -101,7 +101,7 @@ Examples:
 
 	getCmd.AddCmd(&ishell.Cmd{
 		Name:    "run",
-		Aliases: []string{"r"},
+		Aliases: []string{"r", "runs"},
 		Help:    "get a run.",
 		LongHelp: `get a run.
 
@@ -115,7 +115,7 @@ Examples:
 
 	getCmd.AddCmd(&ishell.Cmd{
 		Name:    "agent",
-		Aliases: []string{"a"},
+		Aliases: []string{"a", "agents"},
 		Help:    "get an agent.",
 		LongHelp: `get an agent.
 

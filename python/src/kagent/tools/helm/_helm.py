@@ -157,7 +157,7 @@ def _upgrade_release(
 upgrade_release = FunctionTool(
     _upgrade_release,
     description="""
-This command upgrades a release to a new version of a chart.
+This command upgrades or installs a release to a new version of a chart.
 
 The upgrade arguments must be a release and chart. The chart
 argument can be either: a chart reference('example/mariadb'), a path to a chart directory,
@@ -215,6 +215,36 @@ Usage:
 
 
 Uninstall, UninstallConfig = create_typed_fn_tool(helm_uninstall, "kagent.tools.helm.Uninstall", "Uninstall")
+
+
+def _repo_update() -> str:
+    return _run_helm_command("repo update")
+
+
+helm_repo_update = FunctionTool(
+    _repo_update,
+    description="""
+This command updates the local helm repositories.
+""",
+    name="helm_repo_update",
+)
+
+RepoUpdate, RepoUpdateConfig = create_typed_fn_tool(helm_repo_update, "kagent.tools.helm.RepoUpdate", "RepoUpdate")
+
+
+def _repo_add(name: Annotated[str, "The name of the repository"], url: Annotated[str, "The url of the repository"]):
+    return _run_helm_command(f"repo add {name} {url}")
+
+
+helm_repo_add = FunctionTool(
+    _repo_add,
+    description="""
+This command adds a repository to the local helm repositories.
+""",
+    name="helm_repo_add",
+)
+
+RepoAdd, RepoAddConfig = create_typed_fn_tool(helm_repo_add, "kagent.tools.helm.RepoAdd", "RepoAdd")
 
 
 def _run_helm_command(command: str) -> str:

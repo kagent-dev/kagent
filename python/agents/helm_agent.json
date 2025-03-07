@@ -74,6 +74,24 @@
                         "config": {}
                       },
                       {
+                        "provider": "kagent.tools.helm.RepoAdd",
+                        "component_type": "tool",
+                        "version": 1,
+                        "component_version": 1,
+                        "description": "This command adds a repository to the local helm repositories.",
+                        "label": "RepoAdd",
+                        "config": {}
+                      },
+                      {
+                        "provider": "kagent.tools.helm.RepoUpdate",
+                        "component_type": "tool",
+                        "version": 1,
+                        "component_version": 1,
+                        "description": "This command updates the local helm repositories",
+                        "label": "RepoUpdate",
+                        "config": {}
+                      },
+                      {
                         "provider": "kagent.tools.k8s.GetResources",
                         "component_type": "tool",
                         "version": 1,
