@@ -235,7 +235,7 @@ export const createAgentStructure = async (formData: AgentFormData): Promise<Com
 /**
  * Creates a complete Team object ready to be saved to the database
  */
-export const createTeamConfig = async (formData: AgentFormData): Promise<{ user_id: string; version: number; component: Component<TeamConfig> }> => {
+export const createTeamConfig = async (formData: AgentFormData): Promise<{ id?: number, user_id: string; version: number; component: Component<TeamConfig> }> => {
   const teamComponent = await createAgentStructure(formData);
 
   const userId = await getCurrentUserId();

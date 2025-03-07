@@ -1,43 +1,20 @@
 "use client";
-import { ReactNode, use, useEffect, useState } from "react";
-import { Run, Session, SessionWithRuns, Team } from "@/types/datamodel";
+import { ReactNode, use } from "react";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { getChatData } from "@/app/actions/chat";
 import { LoadingState } from "@/components/LoadingState";
+import { useChatData } from "@/lib/useChatData";
 
 export default function ChatLayout({ params, children }: { params: Promise<{ id: string }>; children: ReactNode }) {
   const { id } = use(params);
-  const [chatData, setChatData] = useState<{
-    agent: Team;
-    sessions: SessionWithRuns[];
-    viewState: {
-      session: Session;
-      run: Run;
-    } | null;
-  }>();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const data = await getChatData(id, null);
-      if (data.agent) {
-        setChatData(
-          data as {
-            agent: Team;
-            sessions: SessionWithRuns[];
-            viewState: {
-              session: Session;
-              run: Run;
-            } | null;
-          }
-        );
-      }
-    };
-    fetchData();
-  }, [id]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [chatData, _] = useChatData({
+    agentId: id,
+  });
 
-  if (!chatData) {
+  if (chatData.isLoading || !chatData.agent) {
     return <LoadingState />;
   }
 

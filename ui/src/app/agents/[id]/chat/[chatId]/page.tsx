@@ -1,61 +1,25 @@
 "use client";
-import { use, useEffect, useState } from "react";
-import { getChatData } from "@/app/actions/chat";
+import { use } from "react";
 import { LoadingState } from "@/components/LoadingState";
-import { Team, SessionWithRuns, Run, Session } from "@/types/datamodel";
-import { useRouter } from "next/navigation";
-import useChatStore from "@/lib/useChatStore";
 import ChatInterface from "@/components/chat/ChatInterface";
+import { useChatData } from "@/lib/useChatData"; // Adjust path as needed
+import { useSessionActions } from "@/lib/useSessionActions";
 
-export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
-  const router = useRouter();
-  const { initializeNewChat } = useChatStore();
+export default function ChatPageView({ params }: { params: Promise<{ id: string; chatId: string }> }) {
+  const { id, chatId } = use(params);
+  const [chatData, chatActions] = useChatData({
+    agentId: id,
+    chatId,
+  });
 
-  const { id } = use(params);
-  const [chatData, setChatData] = useState<{
-    agent: Team;
-    sessions: SessionWithRuns[];
-    viewState: {
-      session: Session;
-      run: Run;
-    } | null;
-  }>();
+  const { createNewSession } = useSessionActions({
+    agentId: id,
+    handleNewSession: chatActions.handleNewSession,
+  });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const data = await getChatData(id, null);
-      if (data.agent) {
-        setChatData(
-          data as {
-            agent: Team;
-            sessions: SessionWithRuns[];
-            viewState: {
-              session: Session;
-              run: Run;
-            } | null;
-          }
-        );
-      }
-    };
-    fetchData();
-  }, [id]);
-
-  const onNewSession = async () => {
-    try {
-      await initializeNewChat(parseInt(id));
-      const { session } = useChatStore.getState();
-
-      if (session?.id) {
-        router.push(`/agents/${id}/chat/${session.id}`);
-      }
-    } catch (error) {
-      console.error("Error creating new session:", error);
-    }
-  };
-
-  if (!chatData) {
+  if (chatData.isLoading || !chatData.agent) {
     return <LoadingState />;
   }
 
-  return <ChatInterface selectedAgentTeam={chatData.agent} onNewSession={onNewSession} selectedRun={chatData.viewState?.run} selectedSession={chatData.viewState?.session} />;
+  return <ChatInterface selectedAgentTeam={chatData.agent} onNewSession={createNewSession} selectedRun={chatData.viewState?.run} selectedSession={chatData.viewState?.session} />;
 }
