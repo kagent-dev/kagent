@@ -1,4 +1,6 @@
-FROM ghcr.io/astral-sh/uv:0.6.4-debian-slim@sha256:40aaa04efd0074d3f07c6ad6ff922d32d0dea339c5888c1d22d7db0fa3b1e954 AS final
+FROM ghcr.io/astral-sh/uv:0.6.5-debian-slim AS final
+
+ARG TARGETARCH
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -23,7 +25,7 @@ RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/s
     && mv kubectl /usr/local/bin/
 
 # Install Istio
-RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.25.0 TARGET_ARCH=x86_64 sh - \
+RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.25.0 TARGET_ARCH=$TARGETARCH sh - \
     && mv istio-1.25.0/bin/istioctl /usr/local/bin/istioctl \
     && rm -rf istio-1.25.0
 
