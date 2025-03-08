@@ -1,3 +1,4 @@
+"use client";
 import { AgentGrid } from "@/components/AgentGrid";
 import { Plus } from "lucide-react";
 import KagentLogo from "@/components/kagent-logo";
@@ -5,14 +6,38 @@ import Link from "next/link";
 import { ErrorState } from "./ErrorState";
 import { getTeams } from "@/app/actions/teams";
 import { Button } from "./ui/button";
+import { useEffect, useState } from "react";
+import { Team } from "@/types/datamodel";
+import { LoadingState } from "./LoadingState";
 
-export default async function AgentList() {
-  const teamsResult = await getTeams();
-  if (teamsResult.error) {
-    return <ErrorState message={teamsResult.error} />;
+export default function AgentList() {
+  const [hasError, setHasError] = useState(false);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTeams = async () => {
+      setLoading(true);
+      const teamsResult = await getTeams();
+      if (teamsResult.error) {
+        setHasError(true);
+      }
+
+      if (teamsResult.data) {
+        setTeams(teamsResult.data);
+      }
+      setLoading(false);
+    };
+    fetchTeams();
+  }, []);
+
+  if (hasError) {
+    return <ErrorState message="Failed to load agents" />;
   }
 
-  const teams = teamsResult.data;
+  if (loading) {
+    return <LoadingState />;
+  }
 
   return (
     <div className="mt-12 mx-auto max-w-6xl px-6">

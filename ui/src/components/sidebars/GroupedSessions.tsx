@@ -78,7 +78,7 @@ export default function GroupedSessions({ agentId }: { agentId: string }) {
 
   const hasNoSessions = !groupedSessions.today.length && !groupedSessions.yesterday.length && !groupedSessions.older.length;
 
-  if (hasNoSessions) {
+  if (hasNoSessions || sessions.length === 0) {
     <EmptyState />;
   }
   return (

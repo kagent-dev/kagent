@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Team, Session, Run, GetSessionRunsResponse, SessionWithRuns } from "@/types/datamodel";
+import { Team, Session, Run, SessionWithRuns } from "@/types/datamodel";
 import { useRouter } from "next/navigation";
-import { fetchApi } from "@/app/actions/utils";
+import { getTeam } from "@/app/actions/teams";
+import { deleteSession, getSessionRuns, getSessions } from "@/app/actions/sessions";
 
 interface UseChatDataProps {
   agentId: string;
@@ -38,17 +39,30 @@ export function useChatData({ agentId, chatId }: UseChatDataProps): [ChatData, C
         setData((prev) => ({ ...prev, isLoading: true, error: null }));
 
         // Fetch agent details
-        const agentData = await fetchApi<Team>(`/teams/${agentId}`);
+        const agentData = await getTeam(agentId);
+        if (!agentData.success || !agentData.data) {
+          setData((prev) => ({ ...prev, isLoading: false, error: "Agent not found" }));
+          return;
+        }
 
         // Always fetch sessions for this agent
-        const response = await fetchApi<Session[]>(`/sessions`);
-        const agentSessions = response.filter((session) => session.team_id === parseInt(agentId));
+        const sessionsData = await getSessions();
+        if (!sessionsData.success || !sessionsData.data) {
+          setData((prev) => ({ ...prev, isLoading: false, error: "Error fetching sessions" }));
+          return;
+        }
+
+        const agentSessions = sessionsData.data.filter((session) => session.team_id === parseInt(agentId));
 
         // Fetch runs for each session
         const sessionsWithRuns = await Promise.all(
           agentSessions.map(async (session) => {
-            const { runs } = await fetchApi<GetSessionRunsResponse>(`/sessions/${session.id}/runs`);
-            return { session, runs };
+            const sessionRuns = await getSessionRuns(String(session.id));
+            if (!sessionRuns.success || !sessionRuns.data) {
+              return { session, runs: [] };
+            }
+
+            return { session, runs: sessionRuns.data };
           })
         );
 
@@ -62,7 +76,7 @@ export function useChatData({ agentId, chatId }: UseChatDataProps): [ChatData, C
           }
 
           setData({
-            agent: agentData,
+            agent: agentData.data,
             sessions: sessionsWithRuns,
             viewState: {
               session: session.session,
@@ -74,7 +88,7 @@ export function useChatData({ agentId, chatId }: UseChatDataProps): [ChatData, C
         } else {
           // If no chatId, just set the sessions without viewState
           setData({
-            agent: agentData,
+            agent: agentData.data,
             sessions: sessionsWithRuns,
             viewState: null,
             isLoading: false,
@@ -103,14 +117,18 @@ export function useChatData({ agentId, chatId }: UseChatDataProps): [ChatData, C
         setData((prev) => ({ ...prev, isLoading: true }));
 
         // Fetch the runs for the new session
-        const { runs } = await fetchApi<GetSessionRunsResponse>(`/sessions/${newSession.id}/runs`);
+        const sessionsResponse = await getSessionRuns(String(newSession.id));
+        if (!sessionsResponse.success || !sessionsResponse.data) {
+          setData((prev) => ({ ...prev, isLoading: false }));
+          return;
+        }
 
         setData((prev) => ({
           ...prev,
           sessions: [
             {
               session: newSession,
-              runs: newRun ? [newRun, ...runs] : runs,
+              runs: newRun ? [newRun, ...sessionsResponse.data!] : sessionsResponse.data!,
             },
             ...prev.sessions,
           ],
@@ -130,9 +148,7 @@ export function useChatData({ agentId, chatId }: UseChatDataProps): [ChatData, C
       try {
         setData((prev) => ({ ...prev, isLoading: true }));
 
-        await fetchApi(`/sessions/${sessionId}`, {
-          method: "DELETE",
-        });
+        await deleteSession(sessionId);
 
         setData((prev) => ({
           ...prev,
