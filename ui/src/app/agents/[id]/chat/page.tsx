@@ -1,30 +1,20 @@
-"use client";
-import { use } from "react";
-import { LoadingState } from "@/components/LoadingState";
+import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
+import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import ChatInterface from "@/components/chat/ChatInterface";
-import { useChatData } from "@/lib/useChatData"; // Adjust path as needed
-import { useSessionActions } from "@/lib/useSessionActions";
 
-export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
-    
-  const [chatData, chatActions] = useChatData({
-    agentId: id,
-  });
-
-  const { createNewSession } = useSessionActions({
-    agentId: id,
-    handleNewSession: chatActions.handleNewSession
-  });
-
-  if (chatData.isLoading || !chatData.agent) {
-    return <LoadingState />;
-  }
+export default async function ChatLayout({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
 
   return (
-    <ChatInterface 
-      selectedAgentTeam={chatData.agent} 
-      onNewSession={createNewSession} 
-    />
+    <SidebarProvider>
+      <SessionsSidebar agentId={id} />
+      <main className="w-full max-w-6xl mx-auto">
+        <ChatInterface
+          selectedTeamId={id}
+        />
+      </main>
+      <AgentDetailsSidebar selectedTeamId={id} />
+    </SidebarProvider>
   );
 }

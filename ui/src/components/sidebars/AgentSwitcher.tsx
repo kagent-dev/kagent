@@ -11,15 +11,28 @@ import { Team } from "@/types/datamodel";
 import { getUsersAgentFromTeam } from "@/lib/agents";
 import KagentLogo from "../kagent-logo";
 import { useRouter } from "next/navigation";
+import { getChatData } from "@/app/actions/chat";
 
 interface AgentSwitcherProps {
-  selectedTeam: Team;
+  agentId: string;
 }
 
-export function AgentSwitcher({ selectedTeam }: AgentSwitcherProps) {
+export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
   const router = useRouter();
   const { isMobile } = useSidebar();
   const [agents, setAgents] = useState<Team[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+
+  useEffect(() => {
+    const fetchSessions = async () => {
+      const data = await getChatData(agentId, null);
+
+      if (data.agent) {
+        setSelectedTeam(data.agent);
+      }
+    };
+    fetchSessions();
+  }, [agentId]);
 
   useEffect(() => {
     const fetchTeams = async () => {

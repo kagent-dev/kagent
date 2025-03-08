@@ -11,12 +11,11 @@ type ApiOptions = RequestInit & {
 
 export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const userId = await getCurrentUserId();
+  // Ensure path starts with a slash
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${getBackendUrl()}${cleanPath}`;
+  const urlWithUser = url.includes("?") ? `${url}&user_id=${userId}` : `${url}?user_id=${userId}`;
   try {
-    // Ensure path starts with a slash
-    const cleanPath = path.startsWith("/") ? path : `/${path}`;
-    const url = `${getBackendUrl()}${cleanPath}`;
-    const urlWithUser = url.includes("?") ? `${url}&user_id=${userId}` : `${url}?user_id=${userId}`;
-
     const response = await fetch(urlWithUser, {
       ...options,
       headers: {
@@ -28,7 +27,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
     });
 
     if (!response.ok) {
-      const errorMessage = `Request failed with status ${response.status}`;
+      const errorMessage = `Request failed with status ${response.status}. ${url}`;
       throw new Error(errorMessage);
     }
 
@@ -46,10 +45,10 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
     return jsonResponse?.data || jsonResponse;
   } catch (error) {
     if (error instanceof TypeError && error.message === "Failed to fetch") {
-      throw new Error(`Network error - Could not reach backend server`);
+      throw new Error(`Network error - Could not reach backend server. ${url}`);
     }
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("Request timed out - server took too long to respond");
+      throw new Error(`Request timed out - server took too long to respond. ${url}`);
     }
 
     console.error("Error in fetchApi:", {
@@ -59,6 +58,6 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
     });
 
     // Include more error details for debugging
-    throw new Error(`Failed to fetch: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(`Failed to fetch (${url}): ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 }

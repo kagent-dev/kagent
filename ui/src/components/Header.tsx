@@ -17,13 +17,15 @@ export function Header() {
             <Button variant="link" className="text-secondary-foreground" asChild>
               <Link href="/agents">My Agents</Link>
             </Button>
-            <Button variant="link" className="text-secondary-foreground" asChild>
+            <Button variant="link" className="text-secondary-foreground " asChild>
               <Link href={"https://github.com/kagent-dev/kagent"} target="_blank">Contribute</Link>
             </Button>
-            <Button variant="link" className="text-secondary-foreground" asChild>
+            <Button variant="link" className="text-secondary-foreground " asChild>
               <Link href={"https://discord.gg/Fu3k65f2k3"}>Join the community</Link>
             </Button>
+            <div className="">
             <ThemeToggle />
+            </div>
             <Button variant={"default"} asChild>
               <Link href="/agents/new">
                 <Plus className="h-4 w-4 mr-2" />
