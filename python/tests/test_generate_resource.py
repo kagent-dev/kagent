@@ -7,7 +7,8 @@ import pytest
 import yaml
 from autogen_core import CancellationToken
 
-from ..tools.k8s import GenerateResourceTool, GenerateResourceToolConfig, GenerateResourceToolInput, ResourceTypes
+from kagent.tools.k8s import GenerateResourceTool, GenerateResourceToolConfig, GenerateResourceToolInput, ResourceTypes
+
 from ._test_result import GenerateResourceTestResult
 from ._yaml_comparer import YAMLComparer
 
@@ -58,7 +59,7 @@ def tool_config():
         logger.warning("No OpenAI API key found. Tests will be skipped.")
         pytest.skip("No OpenAI API key found")
 
-    return GenerateResourceToolConfig(model="gpt-4o-mini", openai_api_key=api_key)
+    return GenerateResourceToolConfig(model="gpt-4o-mini", openai_api_key=api_key, temperature=0.1)
 
 
 # Load all test cases from the the TEST_CASES folder

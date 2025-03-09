@@ -109,8 +109,6 @@ class GenerateResourceTestResult:
                     if len(diff_lines) > 5:
                         logger.info("     ...")
 
-                logger.info()
-
         # Identify and highlight failing tests
         failing_tests = [r for r in cls.results if r["similarity_score"] < similarity_threshold]
         if failing_tests:
