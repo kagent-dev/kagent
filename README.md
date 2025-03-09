@@ -1,77 +1,27 @@
 # kagent
 
-This repo is a monorepo for all work related to kagent.
+kagent is a kubernetes native framework for building AI agents. Kubernets is the most popular orchestration platform for running workloads, and kagent makes it easy to build, deploy and manage AI agents in kubernetes. The kagent framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
-## kagent tools
+The core concepts of the kagent framework are:
 
-The kagent/MCP tools are located in the `python` directory. For more information, see the [README](python/README.md).
+- **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools, and a model configuration.
+- **Tools**: Tools are any external tool that can be used by an agent. They are defined as kubernetes custom resources and can be used by multiple agents.
 
-## Kubernets controller
-
-The controller is located in the `go` directory. For more information, see the [README](go/README.md).
-
-## kagent UI
-
-The UI is located in the `ui` directory. For more information, see the [README](ui/README.md).
-
-## Examples
-
-The examples are located in the `examples` directory. For more information, see the [README](examples/README.md).
-
-## How to run everything locally
-
-Running outside Kubernetes:
+All of the above are defined as kubernetes custom resources, which makes them easy to manage and modify.
 
 
-1. Run the backend from the `python` folder:
 
-```bash
-uv sync --all-extras
+## Quick start
 
-# Run the autogen backend
-uv run autogenstudio ui
-```
-
-If you get an error that looks like this:
-
-```
-Smudge error: Error downloading...
-```
-
-Set the `GIT_LFS_SKIP_SMUDGE=1` variable and then run sync command.
-
-2. Run the frontend from the `ui` folder:
-
-```bash
-npm install
-
-npm run dev
-```
-
-## How to run everything in Kubernetes
-
-1. Create a cluster:
-
-```shell
-make create-kind-cluster
-```
-
-2. Set your OPENAI_API_KEY:
-
-```shell
-export OPENAI_API_KEY=your-openai-api-key
-```
-
-3. Build images, load them into kind cluster and deploy everything using Helm:
-
-```shell
-make helm-install
+1. Install helm, and kubectl.
+2. Install the helm chart: `helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent`
+3. Port-forward the UI: `kubectl port-forward svc/kagent-ui 8080:80`
 
 
-To access the UI, port-forward to the app service:
+## Local development
 
-```shell
-kubectl port-forward svc/app 8001:80
-```
+For instructions on how to run everything locally, see the [DEVELOPMENT.md](DEVELOPMENT.md) file.
 
-Then open your browser and go to `http://localhost:8001`.
+## Contributing
+
+For instructions on how to contribute to the kagent project, see the [CONTRIBUTION.md](CONTRIBUTION.md) file.
