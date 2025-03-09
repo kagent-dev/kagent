@@ -1,12 +1,6 @@
-FROM ghcr.io/astral-sh/uv:0.6.5-debian-slim AS final
+FROM ghcr.io/astral-sh/uv:0.6.5-debian-slim AS builder 
 
 ARG TARGETARCH
-
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    UV_SYSTEM_PYTHON=1 \
-    PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/sbin:/bin:/root/.cargo/bin"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -16,8 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-
-RUN uv python install 3.12
 
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$TARGETARCH/kubectl" \
@@ -35,6 +27,27 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && ./get_helm.sh \
     && rm get_helm.sh
 
+FROM ghcr.io/astral-sh/uv:0.6.5-debian-slim AS final
+
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
+COPY --from=builder /usr/local/bin/istioctl /usr/local/bin/istioctl
+COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/sbin:/bin:/root/.cargo/bin"
+
+RUN uv python install 3.12
+
 # Create groups and users
 RUN groupadd -g 1002 pythongroup \
     && useradd -u 1002 -g pythongroup -s /bin/bash -m python \
@@ -48,7 +61,7 @@ COPY .python-version .
 COPY uv.lock .
 COPY src src
 COPY README.md .
-RUN uv sync && \
+RUN uv sync --frozen && \
     chown -R python:pythongroup /app/python
 
 # Generate tools and agents
