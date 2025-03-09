@@ -30,6 +30,7 @@ jobs:
         run: uv run ruff check
 
       - name: Run ruff format check
+        working-directory: ./python
         run: |
           if ! uv run ruff format --diff .; then
             echo "Ruff formatting issues detected. Please run 'uv run ruff format' locally to fix formatting issues."
