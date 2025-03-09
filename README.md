@@ -30,9 +30,6 @@ Kagent has 3 core components:
 - **CLI**: The CLI is a command line tool that allows you to manage the agents and tools.
 
 
-
-
-
 ## Quick start
 
 1. Install helm, and kubectl.

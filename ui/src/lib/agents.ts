@@ -171,7 +171,7 @@ export const createInnerTeam = (assistantAgent: Component<AssistantAgentConfig>,
 /**
  * Creates a TaskAgent that wraps the inner team
  */
-export const createTaskAgent = (innerTeam: Component<TeamConfig>, modelClient: Component<ModelConfig>): Component<TaskAgentConfig> => {
+export const createTaskAgent = (innerTeam: Component<TeamConfig>): Component<TaskAgentConfig> => {
   return {
     provider: "kagent.agents.TaskAgent",
     component_type: "agent",
@@ -182,9 +182,7 @@ export const createTaskAgent = (innerTeam: Component<TeamConfig>, modelClient: C
     config: {
       name: "society_of_mind_agent",
       team: innerTeam,
-      model_client: modelClient,
       model_context: createModelContext(),
-      model_client_stream: true,
     },
   };
 };
@@ -192,7 +190,7 @@ export const createTaskAgent = (innerTeam: Component<TeamConfig>, modelClient: C
 /**
  * Creates the outer team with the TaskAgent and the user proxy
  */
-export const createOuterTeam = (label: string, societyOfMindAgent: Component<TaskAgentConfig>, modelClient: Component<ModelConfig>): Component<RoundRobinGroupChatConfig> => {
+export const createOuterTeam = (label: string, taskAgent: Component<TaskAgentConfig>, modelClient: Component<ModelConfig>): Component<RoundRobinGroupChatConfig> => {
   const userProxyAgent = createUserProxyAgent();
 
   return {
@@ -200,10 +198,10 @@ export const createOuterTeam = (label: string, societyOfMindAgent: Component<Tas
     component_type: "team",
     version: 1,
     component_version: 1,
-    description: societyOfMindAgent.config.team.description,
+    description: taskAgent.config.team.description,
     label: label,
     config: {
-      participants: [societyOfMindAgent, userProxyAgent],
+      participants: [taskAgent, userProxyAgent],
       termination_condition: createTextTerminationCondition("TERMINATE"),
       model_client: modelClient,
     },
@@ -224,7 +222,7 @@ export const createAgentStructure = async (formData: AgentFormData): Promise<Com
   const innerTeam = createInnerTeam(innerAgent, modelClient);
 
   // Create the TaskAgent that wraps the inner team
-  const societyOfMindAgent = createTaskAgent(innerTeam, modelClient);
+  const societyOfMindAgent = createTaskAgent(innerTeam);
 
   // Create the outer team with the TaskAgent and user proxy
   const outerTeam = createOuterTeam(formData.name, societyOfMindAgent, modelClient);

@@ -111,10 +111,8 @@ export interface RoundRobinGroupChatConfig {
 export interface TaskAgentConfig {
   name: string;
   team: Component<TeamConfig>;
-  model_client: Component<ModelConfig>;
   model_context: Component<ChatCompletionContextConfig>;
   description?: string;
-  model_client_stream?: boolean;
 }
 
 export interface MultimodalWebSurferConfig {
@@ -216,9 +214,9 @@ export interface TextMessageTerminationConfig {
 }
 
 // Config type unions based on provider
-export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | TaskAgentConfig;
+export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | TaskAgentConfig
 
-export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | UserProxyAgentConfig;
+export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | UserProxyAgentConfig | TaskAgentConfig;
 
 export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig;
 
