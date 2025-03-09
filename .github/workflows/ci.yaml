@@ -51,4 +51,4 @@ jobs:
 
       - name: Run tests
         working-directory: ./python
-        run: uv run pytest tests/test_load_agents.py
+        run: uv run pytest tests

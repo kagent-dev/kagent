@@ -1,3 +1,3 @@
-from ._society_of_mind_agent import TaskAgent
+from ._task_agent import TaskAgent
 
 __all__ = ["TaskAgent"]
