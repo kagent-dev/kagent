@@ -53,6 +53,8 @@ jobs:
         fi
         make build-${{ matrix.image }}
   push-helm-chart:
+    needs:
+    - push-images
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -81,7 +83,8 @@ jobs:
     # Only run release after images and helm chart are pushed
     # In the future we can take the chart from the helm action,
     # and build the CLI beforehand.
-    needs: [push-images, push-helm-chart]
+    needs:
+    - push-helm-chart
     runs-on: ubuntu-latest
     permissions:
       contents: write

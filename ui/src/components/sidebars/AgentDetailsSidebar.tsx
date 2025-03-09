@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Team, AssistantAgentConfig, ToolConfig, Component } from "@/types/datamodel";
 import { SystemPromptEditor } from "./SystemPromptEditor"; // Import the new component
 import { getToolDescription, getToolDisplayName, getToolIdentifier, isMcpTool } from "@/lib/data";
-import { createTeam } from "@/app/actions/teams";
+import { createTeam, getTeam } from "@/app/actions/teams";
 import { findAllAssistantAgents, updateUsersAgent } from "@/lib/agents";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSubItem } from "../ui/sidebar";
 import { AgentActions } from "./AgentActions";
@@ -14,16 +14,26 @@ import { useRouter } from "next/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface AgentDetailsSidebarProps {
-  selectedTeam: Team | null;
+  selectedTeamId: string;
 }
 
-export function AgentDetailsSidebar({ selectedTeam }: AgentDetailsSidebarProps) {
+export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps) {
   const router = useRouter();
   const [isSystemPromptOpen, setIsSystemPromptOpen] = useState(false);
   const [currentSystemPrompt, setCurrentSystemPrompt] = useState("");
-
-  // Keep track of the current agent for updating
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [currentAgentIndex, setCurrentAgentIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    const fetchTeam = async () => {
+      const teamData = await getTeam(selectedTeamId);
+      if (teamData && teamData.data) {
+        setSelectedTeam(teamData.data);
+      }
+    }
+
+    fetchTeam();
+  }, [selectedTeamId]);
 
   const renderAgentTools = (tools: Component<ToolConfig>[] = []) => {
     if (tools.length === 0) {

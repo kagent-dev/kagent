@@ -1,7 +1,6 @@
-"use client";
 import { MessageCircleMore, MessageSquare } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { SidebarMenuButton } from "../ui/sidebar";
+import Link from "next/link";
 
 const EmptyState = () => (
   <div className="h-full flex flex-col items-center justify-center p-8 text-center">
@@ -19,15 +18,15 @@ interface ActionButtonsProps {
   currentAgentId?: number;
 }
 const ActionButtons = ({ hasSessions, currentAgentId }: ActionButtonsProps) => {
-  const router = useRouter();
-
   return (
     <div className="px-2 space-y-4">
       {hasSessions && currentAgentId && (
-        <SidebarMenuButton onClick={() => router.push(`/agents/${currentAgentId}/chat`)}>
-          <MessageCircleMore className="mr-3 h-4 w-4" />
-          <span>Start a new chat</span>
-        </SidebarMenuButton>
+        <Link href={`/agents/${currentAgentId}/chat`}>
+          <SidebarMenuButton>
+            <MessageCircleMore className="mr-3 h-4 w-4" />
+            <span>Start a new chat</span>
+          </SidebarMenuButton>
+        </Link>
       )}
     </div>
   );

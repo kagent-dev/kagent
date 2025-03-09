@@ -2,17 +2,16 @@
 
 import type React from "react";
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, ArrowRightFromLine, ArrowBigUp, AlertTriangle, CheckCircle, MessageSquare, StopCircle, X, MessageSquarePlus } from "lucide-react";
+import { ArrowLeft, ArrowRightFromLine, ArrowBigUp, AlertTriangle, CheckCircle, MessageSquare, StopCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Team, Message, RunStatus, Session, Run } from "@/types/datamodel";
+import type { Message, RunStatus, Session, Run } from "@/types/datamodel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import useChatStore from "@/lib/useChatStore";
 import { ChatStatus } from "@/lib/ws";
 import StreamingMessage from "./StreamingMessage";
-import { SidebarTrigger } from "../ui/sidebar";
-import { findAllAssistantAgents } from "@/lib/agents";
+import NoMessagesState from "./NoMessagesState";
 
 interface TokenStats {
   total: number;
@@ -38,13 +37,13 @@ function calculateTokenStats(messages: Message[]): TokenStats {
 }
 
 interface ChatInterfaceProps {
-  selectedAgentTeam?: Team | null;
+  selectedTeamId: string;
   selectedSession?: Session | null;
   selectedRun?: Run | null;
   onNewSession?: () => void;
 }
 
-export default function ChatInterface({ selectedAgentTeam, selectedRun, onNewSession }: ChatInterfaceProps) {
+export default function ChatInterface({ selectedTeamId, selectedRun, onNewSession }: ChatInterfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
   const [tokenStats, setTokenStats] = useState<TokenStats>({
@@ -78,7 +77,7 @@ export default function ChatInterface({ selectedAgentTeam, selectedRun, onNewSes
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!message.trim() || !selectedAgentTeam?.id) {
+    if (!message.trim() || !selectedTeamId) {
       return;
     }
 
@@ -86,7 +85,7 @@ export default function ChatInterface({ selectedAgentTeam, selectedRun, onNewSes
     setMessage("");
 
     try {
-      await sendUserMessage(currentMessage, selectedAgentTeam.id);
+      await sendUserMessage(currentMessage, Number(selectedTeamId));
     } catch (error) {
       console.error("Error sending message:", error);
       setMessage(currentMessage);
@@ -158,7 +157,7 @@ export default function ChatInterface({ selectedAgentTeam, selectedRun, onNewSes
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (message.trim() && selectedAgentTeam) {
+      if (message.trim() && selectedTeamId) {
         handleSendMessage(e);
       }
     }
@@ -173,31 +172,12 @@ export default function ChatInterface({ selectedAgentTeam, selectedRun, onNewSes
   // Should we show the streaming message?
   const showStreamingMessage = !selectedRun && currentStreamingContent && currentStreamingMessage;
 
-    const assistantAgents = findAllAssistantAgents(selectedAgentTeam?.component);
-  
-
   return (
     <div className="w-full h-screen flex flex-col justify-center min-w-full items-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">
-        <div>
-          <SidebarTrigger />
-        </div>
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
           <div className="flex flex-col space-y-5">
-            {displayMessages.length === 0 && !showStreamingMessage && (
-              <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-                <MessageSquarePlus className="mb-4 h-8 w-8 text-violet-500" />
-                <h3 className="mb-2 text-xl font-medium">Ready to start chatting?</h3>
-                <p className="text-base">
-                  Begin a new conversation with <span className="font-medium text-primary">{assistantAgents[0].label}</span>
-                </p>
-                {onNewSession && (
-                  <Button onClick={onNewSession} className="mt-4">
-                    Start New Chat
-                  </Button>
-                )}
-              </div>
-            )}
+            {displayMessages.length === 0 && !showStreamingMessage && <NoMessagesState onNewSession={onNewSession} />}
             {displayMessages.map((msg, index) => (
               <ChatMessage key={`${msg.run_id}-${msg.config.source}-${index}`} message={msg} run={actualRun} />
             ))}
@@ -249,7 +229,7 @@ export default function ChatInterface({ selectedAgentTeam, selectedRun, onNewSes
 
           <div className="flex items-center justify-end gap-2 mt-4">
             {canSendMessage && (
-              <Button type="submit" className={""} disabled={!selectedAgentTeam || !message.trim()}>
+              <Button type="submit" className={""} disabled={!message.trim()}>
                 Send
                 <ArrowBigUp className="h-4 w-4 ml-2" />
               </Button>

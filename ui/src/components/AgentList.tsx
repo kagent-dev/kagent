@@ -1,85 +1,62 @@
 "use client";
-
 import { AgentGrid } from "@/components/AgentGrid";
-import { Button } from "@/components/ui/button";
-import { Team } from "@/types/datamodel";
-import { Plus, RefreshCw } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { useAgents } from "@/components/AgentsProvider";
+import { Plus } from "lucide-react";
 import KagentLogo from "@/components/kagent-logo";
+import Link from "next/link";
+import { ErrorState } from "./ErrorState";
+import { getTeams } from "@/app/actions/teams";
+import { Button } from "./ui/button";
+import { useEffect, useState } from "react";
+import { Team } from "@/types/datamodel";
+import { LoadingState } from "./LoadingState";
 
-interface AgentListProps {
-  teams: Team[];
-}
+export default function AgentList() {
+  const [hasError, setHasError] = useState(false);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [loading, setLoading] = useState(true);
 
-const AgentCardSkeleton = () => {
-  return (
-    <div className=" border rounded-lg animate-pulse">
-      <div className="p-6 pb-2">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-5 w-5 rounded-full "></div>
-            <div className="h-5 w-32 bg-gray-100 rounded"></div>
-          </div>
-          <div className="h-8 w-8 bg-gray-100 rounded-md"></div>
-        </div>
-      </div>
-      <div className="px-6 py-4">
-        <div className="h-4 w-full bg-gray-100 rounded mb-2"></div>
-        <div className="h-4 w-4/5 bg-gray-100 rounded mb-6"></div>
-        <div className="mt-4 flex items-center">
-          <div className="h-3 w-40 bg-gray-100 rounded"></div>
-        </div>
-      </div>
-    </div>
-  );
-};
+  useEffect(() => {
+    const fetchTeams = async () => {
+      setLoading(true);
+      const teamsResult = await getTeams();
+      if (teamsResult.error) {
+        setHasError(true);
+      }
 
-const AgentGridSkeleton = () => {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {Array(1)
-        .fill(0)
-        .map((_, index) => (
-          <AgentCardSkeleton key={index} />
-        ))}
-    </div>
-  );
-};
+      if (teamsResult.data) {
+        setTeams(teamsResult.data);
+      }
+      setLoading(false);
+    };
+    fetchTeams();
+  }, []);
 
-export default function AgentList({ teams }: AgentListProps) {
-  const router = useRouter();
-  const { refreshTeams, loading } = useAgents();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  if (hasError) {
+    return <ErrorState message="Failed to load agents" />;
+  }
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await refreshTeams();
-    setIsRefreshing(false);
-  };
+  if (loading) {
+    return <LoadingState />;
+  }
 
   return (
     <div className="mt-12 mx-auto max-w-6xl px-6">
       <div className="flex justify-between items-center mb-8">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Agents</h1>
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-          </Button>
         </div>
       </div>
 
-      {loading ? (
-        <AgentGridSkeleton />
-      ) : teams?.length === 0 ? (
+      {teams?.length === 0 ? (
         <div className="text-center py-12">
           <KagentLogo className="h-16 w-16 mx-auto mb-4" />
           <h3 className="text-lg font-medium  mb-2">No agents yet</h3>
           <p className=" mb-6">Create your first agent to get started</p>
-          <Button onClick={() => router.push("/agents/new")} className="bg-violet-500 hover:bg-violet-600">
-            <Plus className="h-4 w-4 mr-2" />
-            Create New Agent
+          <Button className="bg-violet-500 hover:bg-violet-600" asChild>
+            <Link href={"/agents/new"}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create New Agent
+            </Link>
           </Button>
         </div>
       ) : (

@@ -23,9 +23,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <html lang="en" className="">
           <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-              <Header />
-              <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
-              <Footer />
+                <Header />
+                <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
+                <Footer />
             </ThemeProvider>
           </body>
         </html>
