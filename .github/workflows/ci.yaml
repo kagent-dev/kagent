@@ -30,7 +30,7 @@ jobs:
       run: make build-${{ matrix.image }}
       working-directory: ./
 
-  test:
+  python-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

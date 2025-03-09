@@ -108,7 +108,7 @@ export interface RoundRobinGroupChatConfig {
   model_client: Component<ModelConfig>;
 }
 
-export interface SocietyOfMindAgentConfig {
+export interface TaskAgentConfig {
   name: string;
   team: Component<TeamConfig>;
   model_client: Component<ModelConfig>;
@@ -216,7 +216,7 @@ export interface TextMessageTerminationConfig {
 }
 
 // Config type unions based on provider
-export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | SocietyOfMindAgentConfig;
+export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | TaskAgentConfig;
 
 export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | UserProxyAgentConfig;
 

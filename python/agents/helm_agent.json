@@ -185,7 +185,7 @@
         },
         "description": "An agent which runs a team of agents",
         "label": "society_of_mind_agent",
-        "provider": "kagent.agents.SocietyOfMindAgent",
+        "provider": "kagent.agents.TaskAgent",
         "version": 1
       },
       {

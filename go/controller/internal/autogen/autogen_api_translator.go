@@ -161,10 +161,9 @@ func (a *apiTranslator) translateGroupChatForTeam(
 
 		var participant *api.Component
 		if topLevelTeam {
-			participant, err = a.translateSocietyOfMindAgent(
+			participant, err = a.translateTaskAgent(
 				ctx,
 				agent,
-				modelClient,
 				modelContext,
 			)
 		} else {
@@ -267,10 +266,10 @@ func (a *apiTranslator) translateGroupChatForTeam(
 }
 
 // internally we convert all agents to a society-of-mind agent
-func (a *apiTranslator) translateSocietyOfMindAgent(
+func (a *apiTranslator) translateTaskAgent(
 	ctx context.Context,
 	agent *v1alpha1.Agent,
-	modelClient, modelContext *api.Component,
+	modelContext *api.Component,
 ) (*api.Component, error) {
 	// generate an internal round robin "team" for the society of mind agent
 	team := &v1alpha1.Team{
@@ -297,15 +296,15 @@ func (a *apiTranslator) translateSocietyOfMindAgent(
 	}
 
 	return &api.Component{
-		Provider:      "kagent.agents.SocietyOfMindAgent",
+		Provider:      "kagent.agents.TaskAgent",
 		ComponentType: "agent",
 		Version:       makePtr(1),
 		Label:         makePtr("society_of_mind_agent"),
 		Description:   makePtr("An agent that runs a team of agents"),
-		Config: api.MustToConfig(&api.SocietyOfMindAgentConfig{
-			Team:        societyOfMindTeam.Component,
-			ModelClient: modelClient,
-			Name:        "society_of_mind_agent",
+		Config: api.MustToConfig(&api.TaskAgentConfig{
+			Team:         societyOfMindTeam.Component,
+			Name:         "society_of_mind_agent",
+			ModelContext: modelContext,
 		}),
 	}, nil
 }

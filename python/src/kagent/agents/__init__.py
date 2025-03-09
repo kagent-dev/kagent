@@ -1,3 +1,3 @@
-from ._society_of_mind_agent import SocietyOfMindAgent
+from ._society_of_mind_agent import TaskAgent
 
-__all__ = ["SocietyOfMindAgent"]
+__all__ = ["TaskAgent"]

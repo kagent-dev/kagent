@@ -8,7 +8,7 @@
   "config": {
     "participants": [
       {
-        "provider": "kagent.agents.SocietyOfMindAgent",
+        "provider": "kagent.agents.TaskAgent",
         "component_type": "agent",
         "version": 1,
         "component_version": 1,
