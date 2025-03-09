@@ -153,5 +153,7 @@ func ChatCmd(c *ishell.Context) {
 		return
 	}
 	c.ShowPrompt(true)
-	wsClient.StartInteractive(context.Background(), c, team, task)
+	if err := wsClient.StartInteractive(context.Background(), c, team, task); err != nil {
+		c.Println(err)
+	}
 }
