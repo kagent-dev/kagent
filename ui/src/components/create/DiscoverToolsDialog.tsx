@@ -5,12 +5,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Terminal, Globe } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, Terminal, Globe, HelpCircle, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { discoverMCPTools } from "@/app/actions/tools";
 import { Component, Tool, ToolConfig } from "@/types/datamodel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 
 interface DiscoverToolsDialogProps {
   open: boolean;
@@ -63,8 +65,8 @@ export const DiscoverToolsDialog = ({ open, onOpenChange, onShowSelectTools }: D
 
     try {
       return JSON.parse(input);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (e) {
-      console.error(e);
       // If not valid JSON, try to parse KEY=VALUE format
       const lines = input.split("\n").filter((line) => line.trim());
       for (const line of lines) {
@@ -176,97 +178,152 @@ export const DiscoverToolsDialog = ({ open, onOpenChange, onShowSelectTools }: D
     }
   };
 
+  const FieldLabel = ({ htmlFor, required = false, children, tooltip }: { htmlFor: string; required?: boolean; children: React.ReactNode; tooltip?: string }) => (
+    <div className="flex items-center gap-1">
+      <Label htmlFor={htmlFor} className="text-sm font-medium">
+        {children}
+      </Label>
+      {required && <span className="text-red-500">*</span>}
+      {tooltip && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p>{tooltip}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+    </div>
+  );
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>Discover MCP Tools</DialogTitle>
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) handleClose();
+      }}
+    >
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+        <DialogHeader className="pb-4 border-b">
+          <DialogTitle className="text-xl flex items-center gap-2">
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20">
+              MCP
+            </Badge>
+            Discover Tools
+          </DialogTitle>
         </DialogHeader>
 
         <div className="py-4">
+          {/* Quick setup guide */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-medium mb-2">Discovery Configuration</h3>
+            </div>
+            <p className="text-muted-foreground text-sm">Configure how to discover available MCP tools using either a command-line interface or a URL endpoint.</p>
+          </div>
+
           <Tabs defaultValue="command" value={activeTab} onValueChange={(value) => setActiveTab(value as "command" | "url")} className="w-full">
-            <TabsList className="w-full">
-              <TabsTrigger value="command" className="flex-1 data-[state=active]:text-primary">
-                <Terminal className="h-4 w-4 mr-2" />
-                Command
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="command" className="flex items-center gap-2">
+                <Terminal className="h-4 w-4" />
+                Command Line
               </TabsTrigger>
-              <TabsTrigger value="url" className="flex-1 data-[state=active]:text-primary">
-                <Globe className="h-4 w-4 mr-2" />
-                URL
+              <TabsTrigger value="url" className="flex items-center gap-2">
+                <Globe className="h-4 w-4" />
+                URL Endpoint
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="command" className="mt-4 space-y-4">
+            <TabsContent value="command" className="mt-6 space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="command">
-                  Command <span className="text-red-500">*</span>
-                </Label>
-                <Input id="command" placeholder="e.g. npx, uvx, uv" value={command} onChange={(e) => setCommand(e.target.value)} />
+                <FieldLabel htmlFor="command" required={true} tooltip="The command to execute for MCP tool discovery">
+                  Command
+                </FieldLabel>
+                <Input id="command" placeholder="e.g. npx, uvx, uv" value={command} onChange={(e) => setCommand(e.target.value)} className="font-mono" />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="args">Arguments (one per line or as JSON array)</Label>
-                <Input id="args" placeholder="e.g. mcp-server-kubernetes" value={args} onChange={(e) => setArgs(e.target.value)} />
+                <FieldLabel htmlFor="args" tooltip="Arguments to pass to the command, one per line or as a JSON array">
+                  Arguments
+                </FieldLabel>
+                <Input id="args" placeholder="e.g. mcp-server-kubernetes" value={args} onChange={(e) => setArgs(e.target.value)} className="font-mono" />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="env">Environment Variables (KEY=VALUE format or JSON)</Label>
-                <textarea
+                <FieldLabel htmlFor="env" tooltip="Environment variables in KEY=VALUE format or as a JSON object">
+                  Environment Variables
+                </FieldLabel>
+                <Textarea
                   id="env"
                   placeholder="API_KEY=your_key_here&#10;DEBUG=true"
                   value={envVars}
                   onChange={(e) => setEnvVars(e.target.value)}
-                  className="w-full min-h-[100px] rounded-md border px-3 py-2 text-sm"
+                  className="w-full min-h-[100px] font-mono text-sm"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="stderr">Stderr Handling</Label>
-                <Select value={stderrType} onValueChange={(value) => setStderrType(value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selected stderr handling" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="inherit">inherit</SelectItem>
-                    <SelectItem value="pipe">pipe</SelectItem>
-                    <SelectItem value="ignore">ignore</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="stderr" tooltip="How to handle standard error output from the command">
+                    Stderr Handling
+                  </FieldLabel>
+                  <Select value={stderrType} onValueChange={(value) => setStderrType(value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select stderr handling" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="inherit">inherit</SelectItem>
+                      <SelectItem value="pipe">pipe</SelectItem>
+                      <SelectItem value="ignore">ignore</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="cwd">Working Directory (optional)</Label>
-                <Input id="cwd" placeholder="e.g. /path/to/working/directory" value={cwd} onChange={(e) => setCwd(e.target.value)} />
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="cwd" tooltip="Working directory for the command (optional)">
+                    Working Directory
+                  </FieldLabel>
+                  <Input id="cwd" placeholder="e.g. /path/to/working/directory" value={cwd} onChange={(e) => setCwd(e.target.value)} className="font-mono" />
+                </div>
               </div>
             </TabsContent>
 
-            <TabsContent value="url" className="mt-4 space-y-4">
+            <TabsContent value="url" className="mt-6 space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="url">
-                  URL <span className="text-red-500">*</span>
-                </Label>
-                <Input id="url" placeholder="https://example.com/mcp-tools" value={url} onChange={(e) => setUrl(e.target.value)} />
+                <FieldLabel htmlFor="url" required={true} tooltip="The URL endpoint for MCP tool discovery">
+                  URL
+                </FieldLabel>
+                <Input id="url" placeholder="https://example.com/mcp-tools" value={url} onChange={(e) => setUrl(e.target.value)} className="font-mono" />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="headers">Headers (KEY=VALUE format or JSON)</Label>
+                <FieldLabel htmlFor="headers" tooltip="HTTP headers in KEY=VALUE format or as a JSON object">
+                  Headers
+                </FieldLabel>
                 <Textarea
                   id="headers"
                   placeholder="Authorization=Bearer token&#10;Content-Type=application/json"
                   value={headers}
                   onChange={(e) => setHeaders(e.target.value)}
-                  className="w-full min-h-[100px] rounded-md px-3 py-2 text-sm"
+                  className="w-full min-h-[100px] font-mono text-sm"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="timeout">Timeout (seconds)</Label>
+                  <FieldLabel htmlFor="timeout" tooltip="Connection timeout in seconds">
+                    Timeout (seconds)
+                  </FieldLabel>
                   <Input id="timeout" type="number" min="1" step="1" placeholder="5" value={timeout} onChange={(e) => setTimeout(e.target.value)} />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="sse_read_timeout">SSE Read Timeout (seconds)</Label>
+                  <FieldLabel htmlFor="sse_read_timeout" tooltip="Server-Sent Events read timeout in seconds">
+                    SSE Read Timeout (seconds)
+                  </FieldLabel>
                   <Input id="sse_read_timeout" type="number" min="1" step="1" placeholder="300" value={sseReadTimeout} onChange={(e) => setSseReadTimeout(e.target.value)} />
                 </div>
               </div>
@@ -274,27 +331,32 @@ export const DiscoverToolsDialog = ({ open, onOpenChange, onShowSelectTools }: D
           </Tabs>
 
           {error && (
-            <Alert variant="destructive" className="mt-4">
+            <Alert variant="destructive" className="mt-6">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
         </div>
 
-        <DialogFooter>
-          <div className="flex justify-end gap-2 w-full">
-            <Button variant="ghost" onClick={handleClose} disabled={isDiscovering}>
-              Cancel
-            </Button>
-            <Button className="bg-violet-500 hover:bg-violet-600" onClick={discoverTools} disabled={isDiscovering}>
-              {isDiscovering ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Discovering...
-                </>
-              ) : (
-                "Discover Tools"
-              )}
-            </Button>
+        <DialogFooter className="mt-2 pt-4 border-t">
+          <div className="flex justify-between w-full items-center">
+            <div className="text-xs text-muted-foreground">{activeTab === "command" ? "Discovers tools by executing a local command" : "Discovers tools by querying a remote endpoint"}</div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleClose} disabled={isDiscovering}>
+                Cancel
+              </Button>
+              <Button className="bg-violet-500 hover:bg-violet-600 text-white min-w-[140px]" onClick={discoverTools} disabled={isDiscovering}>
+                {isDiscovering ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Discovering...
+                  </>
+                ) : (
+                  "Discover Tools"
+                )}
+              </Button>
+            </div>
           </div>
         </DialogFooter>
       </DialogContent>

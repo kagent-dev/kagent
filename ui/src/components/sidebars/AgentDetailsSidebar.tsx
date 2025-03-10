@@ -10,7 +10,6 @@ import { findAllAssistantAgents, updateUsersAgent } from "@/lib/agents";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "../ui/sidebar";
 import { AgentActions } from "./AgentActions";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
-import { useRouter } from "next/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "../LoadingState";
 
@@ -19,7 +18,6 @@ interface AgentDetailsSidebarProps {
 }
 
 export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps) {
-  const router = useRouter();
   const [isSystemPromptOpen, setIsSystemPromptOpen] = useState(false);
   const [currentSystemPrompt, setCurrentSystemPrompt] = useState("");
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -132,9 +130,9 @@ export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps
                   </SidebarGroup>
                   <SidebarGroup>
                     <AgentActions
+                      agentId={selectedTeam?.id ?? 0}
                       onViewInstructions={() => handleOpenSystemPrompt(assistantAgent.system_message ?? "No system prompt available", index)}
                       onCopyJson={() => navigator.clipboard.writeText(JSON.stringify(assistantAgent, null, 2))}
-                      onEdit={() => router.push(`/agents/new?edit=true&id=${selectedTeam?.id}`)}
                     />
                   </SidebarGroup>
                   <SidebarGroup className="group-data-[collapsible=icon]:hidden">

@@ -3,14 +3,15 @@
 import { ChevronsUpDown, Clipboard, Edit2, Text } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
+import Link from "next/link";
 
 interface AgentActionsProps {
   onViewInstructions?: () => void;
-  onEdit?: () => void;
   onCopyJson?: () => void;
+  agentId: number;
 }
 
-export function AgentActions({ onViewInstructions, onEdit, onCopyJson }: AgentActionsProps) {
+export function AgentActions({ onViewInstructions, onCopyJson, agentId }: AgentActionsProps) {
   const { isMobile } = useSidebar();
 
   return (
@@ -39,9 +40,11 @@ export function AgentActions({ onViewInstructions, onEdit, onCopyJson }: AgentAc
                 <Text />
                 View instructions
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={onEdit}>
-                <Edit2 />
-                Edit...
+              <DropdownMenuItem asChild>
+                <Link href={`/agents/new?edit=true&id=${agentId}`}>
+                  <Edit2 />
+                  Edit...
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onCopyJson}>
                 <Clipboard />
