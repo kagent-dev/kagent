@@ -22,9 +22,6 @@ interface ChatState {
   loadChat: (chatId: string) => Promise<void>;
   cleanup: () => void;
   handleWebSocketMessage: (message: WebSocketMessage) => void;
-  setSessions: (sessions: SessionWithRuns[]) => void;
-  addSession: (session: Session, runs: Run[]) => void;
-  removeSession: (sessionId: number) => void;
 }
 
 const useChatStore = create<ChatState>((set, get) => ({
@@ -39,25 +36,12 @@ const useChatStore = create<ChatState>((set, get) => ({
   currentStreamingContent: "",
   currentStreamingMessage: null,
 
-  setSessions: (sessions) => set({ sessions }),
-
-  addSession: (session, runs) =>
-    set((state) => ({
-      sessions: [{ session, runs }, ...state.sessions],
-    })),
-
-  removeSession: (sessionId) =>
-    set((state) => ({
-      sessions: state.sessions.filter((s) => s.session.id !== sessionId),
-    })),
-
   initializeNewChat: async (agentId) => {
     try {
       // Clean up any existing websocket
       get().cleanup();
       const { team, session, run } = await startNewChat(agentId);
       // Add the new session to sessions list
-      get().addSession(session, [run]);
       set({
         team,
         session,
@@ -301,11 +285,6 @@ const useChatStore = create<ChatState>((set, get) => ({
       get().cleanup();
 
       const { session, run, team, messages } = await loadExistingChat(chatId);
-
-      // Update sessions list
-      if (session && run) {
-        get().addSession(session, [run]);
-      }
 
       const initialStatus: ChatStatus = run.status === "error" || run.status === "timeout" ? "error" : "ready";
 

@@ -3,15 +3,16 @@
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Team, AssistantAgentConfig, ToolConfig, Component } from "@/types/datamodel";
-import { SystemPromptEditor } from "./SystemPromptEditor"; // Import the new component
+import { SystemPromptEditor } from "./SystemPromptEditor";
 import { getToolDescription, getToolDisplayName, getToolIdentifier, isMcpTool } from "@/lib/data";
 import { createTeam, getTeam } from "@/app/actions/teams";
 import { findAllAssistantAgents, updateUsersAgent } from "@/lib/agents";
-import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSubItem } from "../ui/sidebar";
+import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "../ui/sidebar";
 import { AgentActions } from "./AgentActions";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { useRouter } from "next/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { LoadingState } from "../LoadingState";
 
 interface AgentDetailsSidebarProps {
   selectedTeamId: string;
@@ -23,17 +24,29 @@ export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps
   const [currentSystemPrompt, setCurrentSystemPrompt] = useState("");
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [currentAgentIndex, setCurrentAgentIndex] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchTeam = async () => {
-      const teamData = await getTeam(selectedTeamId);
-      if (teamData && teamData.data) {
-        setSelectedTeam(teamData.data);
+      setLoading(true);
+      try {
+        const teamData = await getTeam(selectedTeamId);
+        if (teamData && teamData.data) {
+          setSelectedTeam(teamData.data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch team:", error);
+      } finally {
+        setLoading(false);
       }
-    }
+    };
 
     fetchTeam();
   }, [selectedTeamId]);
+
+  if (loading) {
+    return <LoadingState />;
+  }
 
   const renderAgentTools = (tools: Component<ToolConfig>[] = []) => {
     if (tools.length === 0) {
@@ -62,9 +75,7 @@ export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <SidebarMenuSubItem>
-                    <span className="text-sm text-muted-foreground flex px-2">{displayDescription}</span>
-                  </SidebarMenuSubItem>
+                  <span className="text-sm text-muted-foreground flex px-2">{displayDescription}</span>
                 </CollapsibleContent>
               </SidebarMenuItem>
             </Collapsible>

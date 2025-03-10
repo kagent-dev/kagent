@@ -23,7 +23,6 @@ export async function getBuiltInTools(): Promise<BaseResponse<Component<ToolConf
 }
 
 export async function discoverMCPTools(payload: DiscoverToolsRequest): Promise<BaseResponse<Tool[]>> {
-  console.log("Discovering tools with payload:", JSON.stringify(payload));
   try {
     const response = await fetchApi<Tool[]>(`/tools/discover`, {
       method: "POST",

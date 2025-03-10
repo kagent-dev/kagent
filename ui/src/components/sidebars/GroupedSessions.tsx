@@ -2,20 +2,32 @@
 import { useEffect, useMemo, useState } from "react";
 import SessionGroup from "./SessionGroup";
 import { SessionWithRuns } from "@/types/datamodel";
-import { getChatData } from "@/app/actions/chat";
 import { isToday, isYesterday } from "date-fns";
-import { deleteSession } from "@/app/actions/sessions";
 import { EmptyState } from "./EmptyState";
+import { getSessions, getSessionRuns, deleteSession } from "@/app/actions/sessions";
+import { LoadingState } from "../LoadingState";
 
 export default function GroupedSessions({ agentId }: { agentId: string }) {
   const [sessions, setSessions] = useState<SessionWithRuns[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchSessions = async () => {
-      const data = await getChatData(agentId, null);
-      if (data.sessions) {
-        setSessions(data.sessions);
+      setLoading(true);
+      const sessions = await getSessions();
+      if (!sessions.success || !sessions.data) {
+        throw new Error("Failed to get sessions");
       }
+
+      const agentSessions = sessions.data.filter((session) => String(session.team_id) === agentId);
+      const sessionsWithRuns = await Promise.all(
+        agentSessions.map(async (session) => {
+          const runs = await getSessionRuns(String(session.id));
+          return { session, runs: runs.data || [] };
+        })
+      );
+      setSessions(sessionsWithRuns);
+      setLoading(false);
     };
     fetchSessions();
   }, [agentId]);
@@ -68,19 +80,19 @@ export default function GroupedSessions({ agentId }: { agentId: string }) {
       await deleteSession(sessionId);
     } catch (error) {
       console.error("Error deleting session:", error);
-    } finally {
-      const data = await getChatData(agentId, null);
-      if (data.sessions) {
-        setSessions(data.sessions);
-      }
     }
   };
+
+  if (loading) {
+    return <LoadingState />
+  }
 
   const hasNoSessions = !groupedSessions.today.length && !groupedSessions.yesterday.length && !groupedSessions.older.length;
 
   if (hasNoSessions || sessions.length === 0) {
-    <EmptyState />;
+    return <EmptyState />;
   }
+
   return (
     <>
       {groupedSessions.today.length > 0 && <SessionGroup title="Today" sessions={groupedSessions.today} agentId={Number(agentId)} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />}

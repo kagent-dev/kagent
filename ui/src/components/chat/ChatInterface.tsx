@@ -2,48 +2,27 @@
 
 import type React from "react";
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, ArrowRightFromLine, ArrowBigUp, AlertTriangle, CheckCircle, MessageSquare, StopCircle, X } from "lucide-react";
+import { ArrowBigUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Message, RunStatus, Session, Run } from "@/types/datamodel";
+import type { Session, Run } from "@/types/datamodel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import useChatStore from "@/lib/useChatStore";
-import { ChatStatus } from "@/lib/ws";
 import StreamingMessage from "./StreamingMessage";
 import NoMessagesState from "./NoMessagesState";
-
-interface TokenStats {
-  total: number;
-  input: number;
-  output: number;
-}
-
-function calculateTokenStats(messages: Message[]): TokenStats {
-  return messages.reduce(
-    (stats, message) => {
-      const usage = message.config?.models_usage;
-      if (usage) {
-        return {
-          total: stats.total + (usage.prompt_tokens + usage.completion_tokens),
-          input: stats.input + usage.prompt_tokens,
-          output: stats.output + usage.completion_tokens,
-        };
-      }
-      return stats;
-    },
-    { total: 0, input: 0, output: 0 }
-  );
-}
+import TokenStatsDisplay, { calculateTokenStats } from "./TokenStats";
+import { TokenStats } from "@/lib/types";
+import StatusDisplay from "./StatusDisplay";
+import Link from "next/link";
 
 interface ChatInterfaceProps {
   selectedTeamId: string;
   selectedSession?: Session | null;
   selectedRun?: Run | null;
-  onNewSession?: () => void;
 }
 
-export default function ChatInterface({ selectedTeamId, selectedRun, onNewSession }: ChatInterfaceProps) {
+export default function ChatInterface({ selectedTeamId, selectedRun }: ChatInterfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
   const [tokenStats, setTokenStats] = useState<TokenStats>({
@@ -98,62 +77,6 @@ export default function ChatInterface({ selectedTeamId, selectedRun, onNewSessio
     setMessage("");
   };
 
-  const getStatusDisplay = (chatStatus: ChatStatus, runStatus?: RunStatus) => {
-    switch (chatStatus) {
-      case "error":
-        return (
-          <div className=" text-xs justify-center items-center flex">
-            <AlertTriangle size={16} className="mr-2 text-red-500" />
-            {run?.error_message || "An error occurred"}
-          </div>
-        );
-
-      case "ready":
-      default:
-        // If run status is available and indicates a completed state, show that instead
-        if (runStatus) {
-          switch (runStatus) {
-            case "complete":
-              return (
-                <div className=" text-xs justify-center items-center flex">
-                  <CheckCircle size={16} className="mr-2 text-green-500" />
-                  Task completed
-                </div>
-              );
-            case "error":
-            case "timeout":
-              return (
-                <div className=" text-xs justify-center items-center flex">
-                  <AlertTriangle size={16} className="mr-2 text-red-500" />
-                  {run?.error_message || "An error occurred"}
-                </div>
-              );
-            case "stopped":
-              return (
-                <div className=" text-xs justify-center items-center flex">
-                  <StopCircle size={16} className="mr-2 text-orange-500" />
-                  Task was stopped
-                </div>
-              );
-            default:
-              return (
-                <div className=" text-xs justify-center items-center flex">
-                  <MessageSquare size={16} className="mr-2" />
-                  Ready
-                </div>
-              );
-          }
-        }
-
-        return (
-          <div className=" text-xs justify-center items-center flex">
-            <MessageSquare size={16} className="mr-2 text-white" />
-            Ready
-          </div>
-        );
-    }
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
@@ -177,7 +100,7 @@ export default function ChatInterface({ selectedTeamId, selectedRun, onNewSessio
       <div className="flex-1 w-full overflow-hidden relative">
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
           <div className="flex flex-col space-y-5">
-            {displayMessages.length === 0 && !showStreamingMessage && <NoMessagesState onNewSession={onNewSession} />}
+            {displayMessages.length === 0 && !showStreamingMessage && <NoMessagesState agentId={selectedTeamId} />}
             {displayMessages.map((msg, index) => (
               <ChatMessage key={`${msg.run_id}-${msg.config.source}-${index}`} message={msg} run={actualRun} />
             ))}
@@ -200,21 +123,8 @@ export default function ChatInterface({ selectedTeamId, selectedRun, onNewSessio
 
       <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
         <div className="flex items-center justify-between mb-4">
-          {getStatusDisplay(status, runStatus)}
-          <div className="flex items-center gap-2 text-xs">
-            <span>Usage: </span>
-            <span>{tokenStats.total}</span>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1">
-                <ArrowLeft className="h-3 w-3" />
-                <span>{tokenStats.input}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <ArrowRightFromLine className="h-3 w-3" />
-                <span>{tokenStats.output}</span>
-              </div>
-            </div>
-          </div>
+          <StatusDisplay chatStatus={status} errorMessage={actualRun?.error_message || selectedRun?.error_message} />
+          <TokenStatsDisplay stats={tokenStats} />
         </div>
 
         <form onSubmit={handleSendMessage}>
@@ -235,9 +145,11 @@ export default function ChatInterface({ selectedTeamId, selectedRun, onNewSessio
               </Button>
             )}
 
-            {(runStatus === "complete" || runStatus === "error" || runStatus === "stopped") && onNewSession && (
-              <Button onClick={onNewSession} className="bg-violet-500 hover:bg-violet-600" type="button">
+            {(runStatus === "complete" || runStatus === "error" || runStatus === "stopped") && (
+              <Button className="bg-violet-500 hover:bg-violet-600" asChild>
+                <Link href={`/agents/${selectedTeamId}/chat`}>
                 Start New Chat
+                </Link>
               </Button>
             )}
 

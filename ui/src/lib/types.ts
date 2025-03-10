@@ -69,3 +69,9 @@ export interface BaseResponse<T> {
   data?: T;
   error?: string;
 }
+
+export interface TokenStats {
+  total: number;
+  input: number;
+  output: number;
+}

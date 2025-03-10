@@ -1,26 +1,34 @@
 "use client";
-import { use } from "react";
+import { use, useEffect, useState } from "react";
 import { LoadingState } from "@/components/LoadingState";
 import ChatInterface from "@/components/chat/ChatInterface";
-import { useChatData } from "@/lib/useChatData"; // Adjust path as needed
-import { useSessionActions } from "@/lib/useSessionActions";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import useChatStore from "@/lib/useChatStore";
 
 export default function ChatPageView({ params }: { params: Promise<{ id: string; chatId: string }> }) {
   const { id, chatId } = use(params);
-  const [chatData, chatActions] = useChatData({
-    agentId: id,
-    chatId,
-  });
+  const { loadChat, run, session } = useChatStore();
+  const [loading, setLoading] = useState(true);
 
-  const { createNewSession } = useSessionActions({
-    agentId: id,
-    handleNewSession: chatActions.handleNewSession,
-  });
+  useEffect(() => {
+    const loadData = async (chatId: string) => {
+      try {
+        await loadChat(chatId);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  if (chatData.isLoading || !chatData.agent) {
+    if (chatId) {
+      loadData(chatId);
+    }
+  }, [chatId, loadChat]);
+
+  if (loading) {
     return <LoadingState />;
   }
 
@@ -28,7 +36,7 @@ export default function ChatPageView({ params }: { params: Promise<{ id: string;
     <SidebarProvider>
       <SessionsSidebar agentId={id} />
       <main className="w-full max-w-6xl mx-auto">
-        <ChatInterface selectedTeamId={id} onNewSession={createNewSession} selectedRun={chatData.viewState?.run} selectedSession={chatData.viewState?.session} />;
+        <ChatInterface selectedTeamId={id} selectedRun={run} selectedSession={session} />;
       </main>
       <AgentDetailsSidebar selectedTeamId={id} />
     </SidebarProvider>
