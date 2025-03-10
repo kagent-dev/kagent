@@ -147,51 +147,100 @@ const useChatStore = create<ChatState>((set, get) => ({
       }
     } else {
       // For non-streaming/complete messages
+
+      // First check if this is the completion of a message we were streaming
+      const isCompletionOfStreamingMessage = state.currentStreamingMessage && state.currentStreamingMessage.config.source === messageConfig.source;
+
       set((state) => {
-        // If there was a streaming message in progress, replace it with the complete message
-        const finalMessages = state.currentStreamingMessage
-          ? [
-              ...state.messages.filter((m) => m !== state.currentStreamingMessage),
-              {
-                config: messageConfig,
-                session_id: session.id!,
-                run_id: run.id,
-                message_meta: {},
-              },
-            ]
-          : [
-              ...state.messages,
-              {
-                config: messageConfig,
-                session_id: session.id!,
-                run_id: run.id,
-                message_meta: {},
-              },
-            ];
+        // If this is completing a streaming message, replace the streaming state with the final message
+        // but don't add it to the messages array yet
+        if (isCompletionOfStreamingMessage) {
+          const updatedRun = {
+            ...run,
+            status: message.status || run.status,
+          };
 
-        const updatedRun = {
-          ...run,
-          messages: finalMessages,
-          status: message.status || run.status,
-        };
+          return {
+            run: updatedRun,
+            // Don't touch messages array yet
+            currentStreamingContent: "",
+            currentStreamingMessage: {
+              // Update the streaming message to its final form
+              config: messageConfig,
+              session_id: session.id!,
+              run_id: run.id,
+              message_meta: {},
+            },
+          };
+        } else {
+          // This is a new complete message (not related to streaming)
+          const finalMessage = {
+            config: messageConfig,
+            session_id: session.id!,
+            run_id: run.id,
+            message_meta: {},
+          };
 
-        const updatedSessions = state.sessions.map((s) =>
-          s.session.id === session.id
-            ? {
-                ...s,
-                runs: s.runs.map((r) => (r.id === run.id ? updatedRun : r)),
-              }
-            : s
-        );
+          const finalMessages = [...state.messages, finalMessage];
 
-        return {
-          messages: finalMessages,
-          run: updatedRun,
-          sessions: updatedSessions,
-          currentStreamingContent: "",
-          currentStreamingMessage: null,
-        };
+          const updatedRun = {
+            ...run,
+            messages: finalMessages,
+            status: message.status || run.status,
+          };
+
+          const updatedSessions = state.sessions.map((s) =>
+            s.session.id === session.id
+              ? {
+                  ...s,
+                  runs: s.runs.map((r) => (r.id === run.id ? updatedRun : r)),
+                }
+              : s
+          );
+
+          return {
+            messages: finalMessages,
+            run: updatedRun,
+            sessions: updatedSessions,
+          };
+        }
       });
+
+      // IMPORTANT: If this was a completion of a streaming message, add it to messages in a separate update
+      // This ensures the UI has time to process the clearing of streaming state
+      if (isCompletionOfStreamingMessage) {
+        // Small delay to allow React to process the streaming state change
+        setTimeout(() => {
+          set((state) => {
+            const finalMessage = state.currentStreamingMessage;
+
+            if (!finalMessage) return state; // Safety check
+
+            const finalMessages = [...state.messages, finalMessage];
+
+            const updatedRun = {
+              ...state.run!,
+              messages: finalMessages,
+            };
+
+            const updatedSessions = state.sessions.map((s) =>
+              s.session.id === session.id
+                ? {
+                    ...s,
+                    runs: s.runs.map((r) => (r.id === updatedRun.id ? updatedRun : r)),
+                  }
+                : s
+            );
+
+            return {
+              messages: finalMessages,
+              run: updatedRun,
+              sessions: updatedSessions,
+              currentStreamingMessage: null, // Now fully clear the streaming message
+            };
+          });
+        }, 10); // Small delay, just enough for React to process the first update
+      }
     }
   },
 
