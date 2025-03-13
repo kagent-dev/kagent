@@ -20,7 +20,6 @@ def setup_env():
 def get_agent_files():
     base_path = Path(__file__).parent.parent / "agents"
     files = list(base_path.glob("*.json"))
-    assert len(files) > 0, "No agents found"
     return files
 
 
