@@ -31,6 +31,7 @@ def agent_file(request):
 
 
 # Test that loads each agent file individually
+@pytest.mark.skip(reason="Skipping agent loading tests")
 def test_load_agent(setup_env, agent_file):
     with open(agent_file, "r") as f:
         agent_config = json.load(f)

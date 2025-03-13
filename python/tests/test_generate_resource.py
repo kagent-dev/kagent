@@ -7,6 +7,8 @@ import pytest
 import yaml
 from autogen_core import CancellationToken
 
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+
 from kagent.tools.k8s import GenerateResourceTool, GenerateResourceToolConfig, GenerateResourceToolInput, ResourceTypes
 
 from ._test_result import GenerateResourceTestResult
@@ -59,7 +61,9 @@ def tool_config():
         logger.warning("No OpenAI API key found. Tests will be skipped.")
         pytest.skip("No OpenAI API key found")
 
-    return GenerateResourceToolConfig(model="gpt-4o-mini", openai_api_key=api_key, temperature=0.1)
+    client = OpenAIChatCompletionClient(api_key=api_key, model="gpt-4o-mini", temperature=0.1)
+
+    return GenerateResourceToolConfig(model_client=client.dump_component())
 
 
 # Load all test cases from the the TEST_CASES folder
