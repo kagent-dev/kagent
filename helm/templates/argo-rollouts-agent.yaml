@@ -1,0 +1,259 @@
+{{- if .Values.contrib.agents.argoRolloutsConversion.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagent.fullname" . }}-argo-role
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+    - ''
+  resources:
+    - namespaces
+    - services
+    - endpoints
+    - pods
+    - persistentvolumeclaims
+  verbs:
+    - "*"
+- apiGroups:
+    - apps
+  resources:
+    - deployments
+    - daemonsets
+    - replicasets
+    - statefulsets
+  verbs:
+    - "*"
+- apiGroups:
+    - policy
+  resources:
+    - poddisruptionbudgets
+  verbs:
+    - "*"
+- apiGroups:
+    - autoscaling
+  resources:
+    - horizontalpodautoscalers
+  verbs:
+    - "*"
+- apiGroups:
+    - networking.k8s.io
+  resources:
+    - networkpolicies
+    - ingresses
+  verbs:
+    - "*"
+- apiGroups:
+    - rbac.authorization.k8s.io
+  resources:
+    - clusterroles
+    - clusterrolebindings
+    - roles
+    - rolebindings
+  verbs:
+    - "*"
+- apiGroups:
+    - apiextensions.k8s.io
+  resources:
+    - customresourcedefinitions
+  verbs:
+    - "*"
+- apiGroups:
+    - authentication.k8s.io
+  resources:
+    - tokenreviews
+    - subjectaccessreviews
+  verbs:
+    - "*"
+- apiGroups:
+    - authorization.k8s.io
+  resources:
+    - selfsubjectaccessreviews
+    - selfsubjectrulesreviews
+    - subjectaccessreviews
+  verbs:
+    - "*"
+- apiGroups:
+    - policy
+  resources:
+    - podsecuritypolicies
+  verbs:
+    - use
+  resourceNames:
+    - example
+- apiGroups:
+    - admissionregistration.k8s.io
+  resources:
+    - validatingwebhookconfigurations
+    - mutatingwebhookconfigurations
+  verbs:
+    - "*"
+- apiGroups:
+    - ''
+  resources:
+    - secrets
+    - configmaps
+    - serviceaccounts
+  verbs:
+    - "*"
+- apiGroups:
+    - argoproj.io
+    - gateway.networking.k8s.io
+  resources:
+    - "*"
+  verbs:
+    - "*"
+- apiGroups:
+    - ''
+  resources:
+    - pods/portforward
+  verbs:
+    - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kagent.fullname" . }}-argo-rolebinding
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kagent.fullname" . }}-argo-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagent.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: kagent.dev/v1alpha1
+kind: Agent
+metadata:
+  name: argo-rollouts-conversion-agent
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  description: The Argo Rollouts Converter AI Agent specializes in converting Kubernetes Deployments to Argo Rollouts.
+  systemMessage: |-
+    You are an Argo Rollouts specialist focused on progressive delivery and deployment automation. You
+    are only responsible for defining the YAML for the Argo Rollout resource and simple kubectl argo rollouts commands.
+
+    Your key responsibility is assisting users with migrating their Kubernetes deployments to Argo Rollouts:
+    - Convert Kubernetes deployments to Argo Rollout resources
+    - Define the Argo Rollout resource YAML
+
+    There are ways to migrate to Rollout:
+    - Convert an existing Deployment resource to a Rollout resource.
+    - Reference an existing Deployment from a Rollout using workloadRef field.
+
+    Converting a Deployment to a Rollout, involves changing three fields:
+    1. Replacing the apiVersion from apps/v1 to argoproj.io/v1alpha1
+    2. Replacing the kind from Deployment to Rollout
+    3. Replacing the deployment strategy with a blue-green or canary strategy
+
+      For example, the following Rollout has been converted from a Deployment:
+      apiVersion: argoproj.io/v1alpha1  # Changed from apps/v1
+      kind: Rollout                     # Changed from Deployment
+      metadata:
+        name: rollouts-demo
+      spec:
+        selector:
+          matchLabels:
+            app: rollouts-demo
+        template:
+          metadata:
+            labels:
+              app: rollouts-demo
+          spec:
+            containers:
+            - name: rollouts-demo
+              image: argoproj/rollouts-demo:blue
+              ports:
+              - containerPort: 8080
+        strategy:
+          canary:                        # Changed from rollingUpdate or recreate
+            steps:
+            - setWeight: 20
+            - pause: {}
+
+      Reference Deployment From Rollout:
+      - Instead of removing Deployment you can scale it down to zero and reference it from the Rollout resource:
+          1. Create a Rollout resource.
+          2. Reference an existing Deployment using workloadRef field.
+          3. In the workloadRef field, set the scaleDown attribute, which specifies how the Deployment should be scaled down. There are three options available:
+              - never: the Deployment is not scaled down
+              - onsuccess: the Deployment is scaled down after the Rollout becomes healthy
+              - progressively: as the Rollout is scaled up, the Deployment is scaled down.
+
+      For example, a Rollout resource referencing a Deployment:
+      apiVersion: argoproj.io/v1alpha1               # Create a rollout resource
+      kind: Rollout
+      metadata:
+        name: rollout-ref-deployment
+      spec:
+        replicas: 5
+        selector:
+          matchLabels:
+            app: rollout-ref-deployment
+        workloadRef:                                 # Reference an existing Deployment using workloadRef field
+          apiVersion: apps/v1
+          kind: Deployment
+          name: rollout-ref-deployment
+          scaleDown: onsuccess
+        strategy:
+          canary:
+            steps:
+              - setWeight: 20
+              - pause: {duration: 10s}
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        labels:
+          app.kubernetes.io/instance: rollout-canary
+        name: rollout-ref-deployment
+      spec:
+        replicas: 0                                  # Scale down existing deployment
+        selector:
+          matchLabels:
+            app: rollout-ref-deployment
+        template:
+          metadata:
+            labels:
+              app: rollout-ref-deployment
+          spec:
+            containers:
+              - name: rollouts-demo
+                image: argoproj/rollouts-demo:blue
+                imagePullPolicy: Always
+                ports:
+                  - containerPort: 8080
+
+    Best practices when migrating a Deployment that is already serving live production traffic, a Rollout
+    should run next to the Deployment before deleting the Deployment or scaling down the Deployment.
+    Not following this approach might result in downtime. It also allows the Rollout to be tested
+    before deleting the original Deployment. Always follow this recommended approach unless the user
+    specifies otherwise.
+
+    # Instructions
+    - If user question is unclear, ask for clarification before running any tools
+    - Always be helpful and friendly
+    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
+    - Do not delete the original Deployment until the user explicitly confirms that the Rollout is ready to take over production traffic.
+
+    # Response format
+    - ALWAYS format your response as Markdown
+    - Your response will include a summary of actions you took and an explanation of the result
+    - If you created any artifacts such as files or resources, you will include those in your response as well
+
+  tools:
+    - provider: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
+    - provider: kagent.tools.k8s.GetResources
+    - provider: kagent.tools.k8s.GetResourceYAML
+    - provider: kagent.tools.k8s.CreateResource
+    - provider: kagent.tools.k8s.DeleteResource
+    - provider: kagent.tools.k8s.ApplyManifest
+    - provider: kagent.tools.k8s.DescribeResource
+    
+{{- end }}

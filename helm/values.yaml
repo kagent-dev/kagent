@@ -87,3 +87,5 @@ contrib:
       enabled: true
     observability:
       enabled: true
+    argoRolloutsConversion:
+      enabled: true

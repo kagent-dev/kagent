@@ -13,6 +13,7 @@ UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 DOCKER_BUILDER ?= docker
 DOCKER_BUILD_ARGS ?=
+KIND_CLUSTER_NAME ?= kagent
 
 # Check if OPENAI_API_KEY is set
 check-openai-key:
@@ -26,7 +27,7 @@ check-openai-key:
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
-	kind create cluster --name autogen
+	kind create cluster --name $(KIND_CLUSTER_NAME)
 
 .PHONY: build
 build: build-controller build-ui build-app
@@ -73,9 +74,9 @@ release-app: build-app
 
 .PHONY: kind-load-docker-images
 kind-load-docker-images: build
-	kind load docker-image --name autogen $(CONTROLLER_IMG)
-	kind load docker-image --name autogen $(UI_IMG)
-	kind load docker-image --name autogen $(APP_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(CONTROLLER_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(UI_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(APP_IMG)
 
 .PHONY: helm-version
 helm-version:
