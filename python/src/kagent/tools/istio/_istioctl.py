@@ -1,10 +1,9 @@
-from enum import Enum
 from typing import Annotated, List, Optional
 
 from autogen_core.tools import FunctionTool
 
 from .._utils import create_typed_fn_tool
-from ..common.shell import run_command
+from ..common import run_command
 
 
 async def _ztunnel_config(

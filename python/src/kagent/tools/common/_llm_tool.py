@@ -1,11 +1,8 @@
 import logging
-import os
-from typing import Optional
 
-from autogen_core import CancellationToken, Component
-from autogen_core.models import SystemMessage, UserMessage
+from autogen_core import CancellationToken, Component, ComponentModel
+from autogen_core.models import ChatCompletionClient, SystemMessage, UserMessage
 from autogen_core.tools import BaseTool
-from autogen_ext.models.openai import OpenAIChatCompletionClient
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -14,11 +11,7 @@ logger = logging.getLogger(__name__)
 class LLMToolConfig(BaseModel):
     """Configuration for the LLMTool."""
 
-    model: str = Field(default="gpt-4o", description="The model to use for the LLM.")
-    openai_api_key: Optional[str] = Field(
-        None, description="OpenAI API key. If not provided, will look for it in environment variables."
-    )
-    temperature: float = Field(0.0, description="Temperature for the model's output.")
+    model_client: ComponentModel
 
 
 class LLMToolInput(BaseModel):
@@ -51,8 +44,7 @@ class LLMTool(BaseTool, Component[LLMToolConfig]):
     component_provider_override = "kagent.tools.common.LLMTool"
 
     def __init__(self, config: LLMToolConfig) -> None:
-        self.config = config
-        self._model_client = self._create_model_client()
+        self._model_client = ChatCompletionClient.load_component(config.model_client)
 
         super().__init__(
             args_type=LLMToolInput,
@@ -61,26 +53,12 @@ class LLMTool(BaseTool, Component[LLMToolConfig]):
             description="Call an LLM with custom system and user prompts.",
         )
 
-    def _create_model_client(self) -> OpenAIChatCompletionClient:
-        """
-        Create an OpenAI model client with the configured settings.
-
-        Returns:
-            OpenAIChatCompletionClient: The OpenAI model client.
-        """
-        api_key = self.config.openai_api_key or os.environ.get("OPENAI_API_KEY") or ""
-        return OpenAIChatCompletionClient(
-            model=self.config.model,
-            api_key=api_key,
-            temperature=self.config.temperature,
-        )
-
     async def _call_llm(
         self,
         system_prompt: str,
         user_message: str,
+        cancellation_token: CancellationToken,
         json_output: bool = False,
-        cancellation_token: CancellationToken = None,
     ) -> str:
         """
         Asynchronously calls the LLM with the provided system prompt and user message.
@@ -101,11 +79,12 @@ class LLMTool(BaseTool, Component[LLMToolConfig]):
             if cancellation_token and cancellation_token.is_cancelled():
                 raise Exception("Operation cancelled")
 
-            logger.debug(f"Calling LLM with model: {self.config.model}")
             result = await self._model_client.create(
                 messages=[SystemMessage(content=system_prompt), UserMessage(content=user_message, source="user")],
                 json_output=json_output,
             )
+            # This should always be a string since we're not passing tools, but we'll assert it to be safe
+            assert isinstance(result.content, str)
             return result.content
         except Exception as e:
             logger.error(f"Error calling LLM: {str(e)}")
@@ -123,7 +102,7 @@ class LLMTool(BaseTool, Component[LLMToolConfig]):
             The LLM's response as a string.
         """
         try:
-            return await self._call_llm(args.system_prompt, args.user_message, args.json_output, cancellation_token)
+            return await self._call_llm(args.system_prompt, args.user_message, cancellation_token, args.json_output)
         except LLMCallError as e:
             return f"Error: {str(e)}"
         except Exception as e:
@@ -131,7 +110,7 @@ class LLMTool(BaseTool, Component[LLMToolConfig]):
             return f"Unexpected error: {str(e)}"
 
     def _to_config(self) -> LLMToolConfig:
-        return self.config
+        return LLMToolConfig(model_client=self._model_client.dump_component())
 
     @classmethod
     def _from_config(cls, config: LLMToolConfig) -> "LLMTool":
