@@ -57,7 +57,7 @@ export OPENAI_API_KEY=your-openai-api-key
 
 ```shell
 make helm-install
-
+```
 
 To access the UI, port-forward to the app service:
 
