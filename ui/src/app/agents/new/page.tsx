@@ -83,7 +83,7 @@ function AgentPageContent() {
 
               if (assistantAgent) {
                 // Populate form with existing agent data from the assistant agent
-                setName(assistantAgent.label || "");
+                setName(assistantAgent.label || assistantAgent.config.name || "");
                 setDescription(assistantAgent.description || "");
                 setSystemPrompt(assistantAgent.config.system_message || "");
 
