@@ -120,7 +120,7 @@ Only project maintainers can create releases. The process is:
 
 ### Community
 
-- Join our [Discord server](https://discord.gg/kagent) for discussions
+- Join our [Discord server](https://discord.gg/Fu3k65f2k3) for discussions
 - Participate in community calls (scheduled on our website)
 - Help answer questions in GitHub issues
 - Review pull requests from other contributors
