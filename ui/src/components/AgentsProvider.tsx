@@ -95,7 +95,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const validateAgentData = (data: Partial<AgentFormData>): ValidationErrors => {
     const errors: ValidationErrors = {};
 
-    if (data.name !== undefined) {1
+    if (data.name !== undefined) {
       if (!data.name.trim()) {
         errors.name = "Agent name is required";
       } // we only check that it's required as this will be the label -- the name is created from the label
