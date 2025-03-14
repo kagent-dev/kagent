@@ -42,7 +42,7 @@ lint = [
 ]
 
 [project.scripts]
-kagent = "kagent.cli:run"
+kagent-engine = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]

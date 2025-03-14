@@ -94,4 +94,4 @@ EXPOSE 8081
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
 LABEL org.opencontainers.image.description="Kagent app is the apiserver for running agents."
 
-CMD ["uv", "run", "kagent", "serve", "--host", "0.0.0.0", "--port", "8081"]
+CMD ["uv", "run", "kagent-engine", "serve", "--host", "0.0.0.0", "--port", "8081"]
