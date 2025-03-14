@@ -30,6 +30,15 @@ spec:
     - provider: kagent.tools.k8s.GetResources
     - provider: kagent.tools.k8s.GetAvailableAPIResources
     - provider: kagent.tools.prometheus.QueryTool
+      config:
+        base_url: {{ .Values.contrib.agents.observability.prometheus.url }}
+        username: {{ .Values.contrib.agents.observability.prometheus.username }}
+        password: {{ .Values.contrib.agents.observability.prometheus.password }}
     - provider: kagent.tools.prometheus.GeneratePromQLTool
     - provider: kagent.tools.grafana.DashboardManagementTool
+      config:
+        base_url: {{ .Values.contrib.agents.observability.grafana.url }}
+        username: {{ .Values.contrib.agents.observability.grafana.username }}
+        password: {{ .Values.contrib.agents.observability.grafana.password }}
+        api_key: {{ .Values.contrib.agents.observability.grafana.apiKey }}
 {{- end }}

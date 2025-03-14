@@ -17,6 +17,15 @@ import (
 
 const GlobalUserID = "admin@kagent.dev"
 
+var (
+	// hard-coded array of tools that require a model client
+	// this is automatically populated from the parent agent's model client
+	toolsProvidersRequiringModelClient = []string{
+		"kagent.tools.prometheus.GeneratePromQLTool",
+		"kagent.tools.k8s.GenerateResourceTool",
+	}
+)
+
 type ApiTranslator interface {
 	TranslateGroupChatForTeam(
 		ctx context.Context,
@@ -330,6 +339,12 @@ func translateAssistantAgent(
 		if err != nil {
 			return nil, err
 		}
+		// special case where we put the model client in the tool config
+		if toolNeedsModelClient(tool.Provider) {
+			if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
+				return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
+			}
+		}
 
 		providerParts := strings.Split(tool.Provider, ".")
 		toolLabel := providerParts[len(providerParts)-1]
@@ -375,7 +390,7 @@ func translateAssistantAgent(
 	}, nil
 }
 
-func convertToolConfig(config map[string]v1alpha1.AnyType) (map[string]interface{}, error) {
+func convertToolConfig(config interface{}) (map[string]interface{}, error) {
 	// convert to map[string]interface{} to allow kubebuilder schemaless validation
 	// see https://github.com/kubernetes-sigs/controller-tools/issues/636 for more info
 	// must unmarshal to interface{} to avoid json.RawMessage
@@ -505,4 +520,29 @@ func fetchObjKube(ctx context.Context, kube client.Client, obj client.Object, ob
 
 func convertToPythonIdentifier(name string) string {
 	return strings.ReplaceAll(name, "-", "_")
+}
+
+func toolNeedsModelClient(provider string) bool {
+	for _, p := range toolsProvidersRequiringModelClient {
+		if p == provider {
+			return true
+		}
+	}
+	return false
+}
+
+func addModelClientToConfig(
+	modelClient *api.Component,
+	toolConfig *map[string]interface{},
+) error {
+	if *toolConfig == nil {
+		*toolConfig = make(map[string]interface{})
+	}
+	modelClientConfig, err := convertToolConfig(modelClient.Config)
+	if err != nil {
+		return err
+	}
+
+	(*toolConfig)["model_client"] = modelClientConfig
+	return nil
 }
