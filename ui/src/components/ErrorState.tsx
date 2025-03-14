@@ -20,7 +20,7 @@ export function ErrorState({ message, showHomeButton = true }: ErrorStateProps) 
           <h2 className="text-red-500 font-semibold text-lg text-center py-2">Error Encountered</h2>
 
           <div className="border-t pt-4 mb-4">
-            <p className="text-white/70 font-medium mb-2 font-mono">{message}</p>
+            <p className="font-medium mb-2 font-mono">{message}</p>
           </div>
 
           {showHomeButton && (

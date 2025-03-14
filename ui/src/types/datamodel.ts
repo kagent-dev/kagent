@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type ComponentType = "team" | "agent" | "model" | "tool" | "termination" | "chat_completion_context";
+export type ComponentType = "team" | "agent" | "model" | "tool" | "termination" | "chat_completion_context" | "mcp_server";
 
 export interface Component<T extends ComponentConfig> {
   provider: string;
@@ -85,6 +85,12 @@ export interface MCPTool {
 export interface MCPToolConfig {
   server_params: any; // StdioServerParameters | SseServerParams equivalent
   tool: MCPTool;
+}
+
+
+// Configuration for the MCP server
+export interface MCPServerConfig {
+  server_params: any; // StdioServerParameters | SseServerParams equivalent
 }
 
 export interface BuiltInToolConfig {
@@ -239,6 +245,12 @@ export interface DBModel {
 
 export interface Tool extends DBModel {
   component: Component<ToolConfig>;
+}
+
+export interface MCPServer extends DBModel {
+  last_connected: string | null;
+  is_active: boolean;
+  component: Component<MCPServerConfig>;
 }
 
 export interface Message extends DBModel {

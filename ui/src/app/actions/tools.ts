@@ -4,7 +4,7 @@ import { BaseResponse, DiscoverToolsRequest } from "@/lib/types";
 import { fetchApi } from "./utils";
 import { Component, Tool, ToolConfig } from "@/types/datamodel";
 
-export async function getBuiltInTools(): Promise<BaseResponse<Component<ToolConfig>[]>> {
+export async function getTools(): Promise<BaseResponse<Component<ToolConfig>[]>> {
   try {
     const response = await fetchApi<Tool[]>("/tools");
 

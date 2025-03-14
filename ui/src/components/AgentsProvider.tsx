@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getTeams, createTeam } from "@/app/actions/teams";
 import { Team, Component, ToolConfig } from "@/types/datamodel";
-import { getBuiltInTools } from "@/app/actions/tools";
+import { getTools } from "@/app/actions/tools";
 import { BaseResponse, Model } from "@/lib/types";
 import { createTeamConfig } from "@/lib/agents";
 
@@ -77,7 +77,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const fetchTools = async () => {
     try {
       setLoading(true);
-      const response = await getBuiltInTools();
+      const response = await getTools();
       if (response.success && response.data) {
         setTools(response.data);
         setError("");
