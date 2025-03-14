@@ -132,8 +132,7 @@ class QueryTool(BaseTool, Component[Config]):
     def __init__(self, config: Config) -> None:
         # Initialize SQLite downloader with base S3 URL and product mapping if override is not provided
         self.db_downloader = SQLiteDownloader(
-            base_url=config.docs_download_url
-            or os.environ.get("DB_BASE_URL", DEFAULT_DB_URL),
+            base_url=config.docs_download_url or os.environ.get("DB_BASE_URL", DEFAULT_DB_URL),
             product_map=PRODUCT_DB_MAP,
         )
         # Initialize OpenAI with API key from config
