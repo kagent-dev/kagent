@@ -50,7 +50,7 @@ export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps
     if (tools.length === 0) {
       return (
         <SidebarMenu>
-          <div className="text-sm italic">No tools available</div>;
+          <div className="text-sm italic">No tools available</div>
         </SidebarMenu>
       );
     }
