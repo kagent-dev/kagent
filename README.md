@@ -2,9 +2,9 @@
   <img src="img/icon.svg" alt="Autogen Framework" width="500">
 </div>
 
-#
+---
 
-**kagent** is a kubernetes native framework for building AI agents. Kubernets is the most popular orchestration platform for running workloads, and **kagent** makes it easy to build, deploy and manage AI agents in kubernetes. The **kagent** framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
+**kagent** is a kubernetes native framework for building AI agents. Kubernetes is the most popular orchestration platform for running workloads, and **kagent** makes it easy to build, deploy and manage AI agents in kubernetes. The **kagent** framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
 <div align="center">
   <img src="img/hero.png" alt="Autogen Framework" width="500">
@@ -28,8 +28,6 @@ All of the above are defined as kubernetes custom resources, which makes them ea
 
 ## Architecture
 
-
-
 The kagent framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
 <div align="center">
@@ -42,7 +40,6 @@ Kagent has 4 core components:
 - **UI**: The UI is a web UI that allows you to manage the agents and tools.
 - **Engine**: The engine is a Python application that runs the agents and tools. The engine is built using [Autogen](https://github.com/microsoft/autogen).
 - **CLI**: The CLI is a command line tool that allows you to manage the agents and tools.
-
 
 ## Quick start
 
@@ -71,7 +68,6 @@ Kagent has 4 core components:
   - [ ] Tool Discovery
   - [ ] Expose built-in tools as MCP server
 
-
 ## Local development
 
 For instructions on how to run everything locally, see the [DEVELOPMENT.md](DEVELOPMENT.md) file.
@@ -79,5 +75,3 @@ For instructions on how to run everything locally, see the [DEVELOPMENT.md](DEVE
 ## Contributing
 
 For instructions on how to contribute to the kagent project, see the [CONTRIBUTION.md](CONTRIBUTION.md) file.
-
-
