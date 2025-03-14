@@ -103,9 +103,9 @@ export const createUserProxyAgent = (): Component<UserProxyAgentConfig> => {
     version: 1,
     component_version: 1,
     description: "An agent that represents a user.",
-    label: "kagent_user",
+    label: "user_proxy",
     config: {
-      name: "kagent_user",
+      name: "user_proxy",
       description: "Human user",
     },
   };
