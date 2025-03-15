@@ -7,23 +7,24 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
-import { Component, MCPServer, ToolConfig } from "@/types/datamodel";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, isCommandMcpTool } from "@/lib/data";
+import { Component, MCPServer, MCPServerConfig, Tool,   ToolConfig } from "@/types/datamodel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { getTools } from "../actions/tools";
+import { bulkSaveTools, getTools } from "../actions/tools";
 import { DiscoverToolsDialog } from "@/components/create/DiscoverToolsDialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { deleteServer, getServers, refreshServerTools } from "../actions/servers";
+import { createServer, deleteServer, getServers, refreshServerTools } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-
-type Tool = Component<ToolConfig>;
+import { SseServerParams, StdioServerParameters } from "@/lib/types";
+import { create } from "domain";
 
 
 // Extract category from tool identifier (e.g., "istio" from "kagent.tools.istio.RemoteClusters")
 const getToolCategory = (tool: Tool): string => {
-  const providerId = getToolIdentifier(tool);
+    const component = tool.component;
+  const providerId = getToolIdentifier(component);
   const parts = providerId.split(".");
   
   if (parts.length >= 3 && parts[0] === "kagent" && parts[1] === "tools") {
@@ -31,8 +32,8 @@ const getToolCategory = (tool: Tool): string => {
   }
   
   // Handle other patterns
-  if (tool.provider) {
-    const providerParts = tool.provider.split(".");
+  if (component.provider) {
+    const providerParts = component.provider.split(".");
     if (providerParts.length >= 3) {
       return providerParts[2]; // Try to extract category from provider
     }
@@ -98,11 +99,11 @@ export default function ToolsPage() {
       
       // Fetch servers first
       const serversResponse = await getServers();
-      if (serversResponse.status && serversResponse.data) {
+      if (serversResponse.success && serversResponse.data) {
         setServers(serversResponse.data);
         
         // Expand all servers by default
-        setExpandedServers(new Set(serversResponse.data.map(server => server.id)));
+        setExpandedServers(new Set(serversResponse.data.map(server => server.id).filter(id => id !== undefined) as number[]));
       } else {
         console.error("Failed to fetch servers:", serversResponse);
       }
@@ -136,21 +137,15 @@ export default function ToolsPage() {
       // Check for duplicates
       const newTools = discoveredTools.filter(
         newTool => !allTools.some(existingTool => 
-          getToolIdentifier(existingTool) === getToolIdentifier(newTool)
+          getToolIdentifier(existingTool.component) === getToolIdentifier(newTool.component)
         )
       );
       
       if (newTools.length > 0) {
-        // Make API call to save the tools
-        const response = await fetch('/api/tools/bulk', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(newTools),
-        });
+        const response = await bulkSaveTools(newTools);
+
         
-        if (!response.ok) {
+        if (!response.success) {
           throw new Error('Failed to save tools');
         }
         
@@ -253,23 +248,17 @@ export default function ToolsPage() {
   };
 
   // Handle adding a new server
-  const handleAddServer = async (server: Partial<McpServer>) => {
+  const handleAddServer = async (server: MCPServerConfig) => {
     try {
       setIsLoading(true);
       setError(null);
       
       // API call to create server
-      const response = await fetch('/api/servers', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(server),
-      });
+      const response = await createServer(server);
+
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to add server');
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to add server');
       }
       
       setSuccess("Server added successfully");
@@ -293,10 +282,10 @@ export default function ToolsPage() {
     // Search matching
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
-      getToolDisplayName(tool)?.toLowerCase().includes(searchLower) ||
-      getToolDescription(tool)?.toLowerCase().includes(searchLower) ||
-      tool.provider?.toLowerCase().includes(searchLower) ||
-      getToolIdentifier(tool)?.toLowerCase().includes(searchLower);
+      getToolDisplayName(tool.component)?.toLowerCase().includes(searchLower) ||
+      getToolDescription(tool.component)?.toLowerCase().includes(searchLower) ||
+      tool.component.provider?.toLowerCase().includes(searchLower) ||
+      getToolIdentifier(tool.component)?.toLowerCase().includes(searchLower);
     
     // Category matching
     const toolCategory = getToolCategory(tool);
@@ -318,9 +307,12 @@ export default function ToolsPage() {
   // Group tools by server
   const toolsByServer: Record<number, Tool[]> = {};
   servers.forEach(server => {
+
+    if (server.id){
     toolsByServer[server.id] = allTools.filter(tool => {
       return tool.server_id === server.id;
     });
+}
   });
 
   // Filter handlers
@@ -450,16 +442,16 @@ export default function ToolsPage() {
                             return aName.localeCompare(bName);
                           })
                           .map((tool) => (
-                            <div key={getToolIdentifier(tool)} className="p-4 border rounded-md hover:bg-secondary/5 transition-colors">
+                            <div key={getToolIdentifier(tool.component)} className="p-4 border rounded-md hover:bg-secondary/5 transition-colors">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex items-start gap-2">
                                   <FunctionSquare className="h-5 w-5 text-blue-500 mt-0.5" />
                                   <div>
-                                    <div className="font-medium">{getToolDisplayName(tool)}</div>
-                                    <div className="text-sm text-muted-foreground mt-1">{getToolDescription(tool)}</div>
+                                    <div className="font-medium">{getToolDisplayName(tool.component)}</div>
+                                    <div className="text-sm text-muted-foreground mt-1">{getToolDescription(tool.component)}</div>
                                     <div className="text-xs text-muted-foreground mt-2 flex items-center">
                                       <Server className="h-3 w-3 mr-1" />
-                                      {servers.find(s => s.id === tool.server_id)?.component.label || "Unknown server"}
+                                      {servers.find(s => s.id === tool.server_id)?.component.label || "Built-in tool"}
                                     </div>
                                   </div>
                                 </div>
@@ -472,7 +464,7 @@ export default function ToolsPage() {
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="left" className="max-w-sm">
-                                      <p className="font-mono text-xs">{getToolIdentifier(tool)}</p>
+                                      <p className="font-mono text-xs">{getToolIdentifier(tool.component)}</p>
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
@@ -500,7 +492,6 @@ export default function ToolsPage() {
         {/* Servers Tab Content */}
         <TabsContent value="servers" className="mt-0">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-semibold">Connected MCP Servers</h2>
             <Button onClick={() => setShowAddServer(true)} className="border-blue-500 text-blue-600 hover:bg-blue-50" variant="outline">
               <Plus className="h-4 w-4 mr-2" />
               Add Server
@@ -514,16 +505,20 @@ export default function ToolsPage() {
             </div>
           ) : servers.length > 0 ? (
             <div className="space-y-4">
-              {servers.map((server) => (
-                <div key={server.id} className="border rounded-md overflow-hidden">
+              {servers.map((server) => {
+                if (!server.id) return null;
+                console.log(JSON.stringify(server));
+
+                const serverId: number = server.id;
+                return <div key={server.id} className="border rounded-md overflow-hidden">
                   {/* Server Header */}
                   <div className="bg-secondary/10 p-4">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleServerExpansion(server.id)}>
-                        {expandedServers.has(server.id) ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+                      <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleServerExpansion(serverId)}>
+                        {expandedServers.has(serverId) ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
 
                         <div className="flex items-center gap-2">
-                          {server.component.config.type === "command" ? (
+                          {isCommandMcpTool(server) ? (
                             <Terminal className="h-5 w-5 text-violet-500" />
                           ) : (
                             <Globe className="h-5 w-5 text-green-500" />
@@ -531,9 +526,9 @@ export default function ToolsPage() {
                           <div>
                             <div className="font-medium">{server.component.label || server.component.provider}</div>
                             <div className="text-xs text-muted-foreground flex items-center gap-2">
-                              <span className="font-mono">{server.component.config.details}</span>
+                              <span className="font-mono">{server.component.config.name}</span>
                               <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                                {(toolsByServer[server.id] || []).length} tool{(toolsByServer[server.id] || []).length !== 1 ? "s" : ""}
+                                {(toolsByServer[serverId] || []).length} tool{(toolsByServer[serverId] || []).length !== 1 ? "s" : ""}
                               </Badge>
                               {server.last_connected && (
                                 <span className="text-xs text-muted-foreground">
@@ -549,7 +544,7 @@ export default function ToolsPage() {
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          onClick={() => handleRefreshServer(server.id)} 
+                          onClick={() => handleRefreshServer(serverId)} 
                           className="h-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                           disabled={isRefreshing === server.id}
                         >
@@ -570,11 +565,7 @@ export default function ToolsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => alert("Edit server functionality would go here")}>
-                              <Settings className="h-4 w-4 mr-2" />
-                              Edit Server
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-600" onClick={() => setShowConfirmDelete(server.id)}>
+                            <DropdownMenuItem className="text-red-600" onClick={() => setShowConfirmDelete(serverId)}>
                               <Trash2 className="h-4 w-4 mr-2" />
                               Remove Server
                             </DropdownMenuItem>
@@ -585,24 +576,24 @@ export default function ToolsPage() {
                   </div>
 
                   {/* Server Tools List */}
-                  {expandedServers.has(server.id) && (
+                  {expandedServers.has(serverId) && (
                     <div className="p-4">
-                      {(toolsByServer[server.id] || []).length > 0 ? (
+                      {(toolsByServer[serverId] || []).length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {toolsByServer[server.id]
+                          {toolsByServer[serverId]
                             .sort((a, b) => {
-                              const aName = getToolDisplayName(a) || "";
-                              const bName = getToolDisplayName(b) || "";
+                              const aName = getToolDisplayName(a.component) || "";
+                              const bName = getToolDisplayName(b.component) || "";
                               return aName.localeCompare(bName);
                             })
                             .map((tool) => (
-                              <div key={getToolIdentifier(tool)} className="p-3 border rounded-md hover:bg-secondary/5 transition-colors">
+                              <div key={getToolIdentifier(tool.component)} className="p-3 border rounded-md hover:bg-secondary/5 transition-colors">
                                 <div className="flex items-start gap-2">
                                   <FunctionSquare className="h-4 w-4 text-blue-500 mt-0.5" />
                                   <div>
-                                    <div className="font-medium text-sm">{getToolDisplayName(tool)}</div>
-                                    <div className="text-xs text-muted-foreground mt-1">{getToolDescription(tool)}</div>
-                                    <div className="text-xs text-muted-foreground mt-1 font-mono">{getToolIdentifier(tool)}</div>
+                                    <div className="font-medium text-sm">{getToolDisplayName(tool.component)}</div>
+                                    <div className="text-xs text-muted-foreground mt-1">{getToolDescription(tool.component)}</div>
+                                    <div className="text-xs text-muted-foreground mt-1 font-mono">{getToolIdentifier(tool.component)}</div>
                                   </div>
                                 </div>
                               </div>
@@ -615,8 +606,8 @@ export default function ToolsPage() {
                             <Button 
                               variant="outline" 
                               size="sm" 
-                              onClick={() => handleRefreshServer(server.id)} 
-                              disabled={isRefreshing === server.id}
+                              onClick={() => handleRefreshServer(serverId)} 
+                              disabled={isRefreshing === serverId}
                               className="text-blue-600"
                             >
                               Refresh to discover tools
@@ -627,7 +618,7 @@ export default function ToolsPage() {
                     </div>
                   )}
                 </div>
-              ))}
+})}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-[200px] text-center p-4 border rounded-lg bg-secondary/5">

@@ -1,4 +1,4 @@
-import { Component, MCPToolConfig, ToolConfig } from "@/types/datamodel";
+import { Component, MCPServer, MCPServerConfig, MCPToolConfig, ToolConfig } from "@/types/datamodel";
 import type { Model } from "./types";
 
 // TODO: Could also come from the backend
@@ -19,7 +19,15 @@ export const isMcpTool = (content: unknown): content is MCPToolConfig => {
   return true;
 };
 
+export const isCommandMcpTool = (mcpServer: MCPServer): boolean => {
+
+console.log("mcpServer", mcpServer);
+
+const mcpServerConfig = mcpServer.component.config;
+  return "command" in mcpServerConfig.server_params;
+}
+
 // All MCP tools have the same label & description, so the actual tool name is stored in the config
 export const getToolDisplayName = (tool: Component<ToolConfig>) => (isMcpTool(tool) ? (tool.config as MCPToolConfig).tool.name : tool.label);
 export const getToolDescription = (tool: Component<ToolConfig>) => (isMcpTool(tool) ? (tool.config as MCPToolConfig).tool.description : tool.description);
-export const getToolIdentifier = (tool: Component<ToolConfig>): string =>  (isMcpTool(tool) ? (tool.config as MCPToolConfig).tool.name : `${tool.provider}::${getToolDisplayName(tool)}`);
+export const getToolIdentifier = (tool: Component<ToolConfig>): string => (isMcpTool(tool) ? (tool.config as MCPToolConfig).tool.name : `${tool.provider}::${getToolDisplayName(tool)}`);
