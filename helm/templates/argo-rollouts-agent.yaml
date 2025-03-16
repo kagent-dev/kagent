@@ -236,17 +236,6 @@ spec:
     before deleting the original Deployment. Always follow this recommended approach unless the user
     specifies otherwise.
 
-    # Instructions
-    - If user question is unclear, ask for clarification before running any tools
-    - Always be helpful and friendly
-    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
-    - Do not delete the original Deployment until the user explicitly confirms that the Rollout is ready to take over production traffic.
-
-    # Response format
-    - ALWAYS format your response as Markdown
-    - Your response will include a summary of actions you took and an explanation of the result
-    - If you created any artifacts such as files or resources, you will include those in your response as well
-
   tools:
     - provider: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
     - provider: kagent.tools.k8s.GetResources

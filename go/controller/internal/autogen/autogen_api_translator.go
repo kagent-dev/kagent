@@ -20,6 +20,13 @@ const (
 
 	// suffix applied to all system prompts:
 	defaultSystemMessageSuffix = `
+# Instructions
+    - If user question is unclear, ask for clarification before running any tools
+    - Always be helpful and friendly
+    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
+    - Do not delete the original Deployment until the user explicitly confirms that the Rollout is ready to take over production traffic.
+
+
 # Response format:
     - ALWAYS format your response as Markdown
     - Your response will include a summary of actions you took and an explanation of the result
