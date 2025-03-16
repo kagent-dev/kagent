@@ -50,6 +50,14 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.openai.secretName }}
                   key: {{ .Values.openai.secretKey }}
+            - name: OTEL_TRACING_ENABLED
+              value: {{ .Values.otel.tracing.enabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+              value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
+              value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.service.ports.app.targetPort }}

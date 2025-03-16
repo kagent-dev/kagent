@@ -3,11 +3,6 @@ from autogen_core import CancellationToken
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel
 
-from kagent.tools.argo._argo_crds import (
-    ArgoCRDTool,
-    ArgoCRDToolConfig,
-    ArgoCRDToolInput,
-)
 from kagent.tools.argo._argo_rollouts_k8sgw_installation import (
     check_plugin_logs,
     verify_gateway_plugin,
@@ -19,11 +14,13 @@ from kagent.tools.argo._kubectl_argo_rollouts import (
     verify_argo_rollouts_controller_install,
     verify_kubectl_plugin_install,
 )
-from kagent.tools.helm._helm import helm_list, helm_uninstall, helm_upgrade
-from kagent.tools.istio._istio_crds import (
-    IstioCRDTool,
-    IstioCRDToolConfig,
-    IstioCRDToolInput,
+from kagent.tools.helm._helm import (
+    helm_get_release,
+    helm_list_releases,
+    helm_repo_add,
+    helm_repo_update,
+    helm_uninstall,
+    upgrade_release,
 )
 from kagent.tools.istio._istioctl import (
     analyze_cluster_configuration,
@@ -218,13 +215,6 @@ def argo():
     mcp.add_tool(promote_rollout._func, promote_rollout.name, promote_rollout.description)
     mcp.add_tool(set_rollout_image._func, set_rollout_image.name, set_rollout_image.description)
 
-    cfg = ArgoCRDToolConfig(model="gpt-4o-mini", openai_api_key=None)
-
-    def argo_crd_tool(input: ArgoCRDToolInput):
-        return ArgoCRDTool(cfg).run_json(input.model_dump(), CancellationToken())
-
-    mcp.add_tool(argo_crd_tool, ArgoCRDTool(cfg).name, ArgoCRDTool(cfg).description)
-
     mcp.run()
 
 
@@ -247,13 +237,6 @@ def istio():
     mcp.add_tool(ztunnel_config._func, ztunnel_config.name, ztunnel_config.description)
     mcp.add_tool(proxy_status._func, proxy_status.name, proxy_status.description)
     mcp.add_tool(remote_clusters._func, remote_clusters.name, remote_clusters.description)
-
-    cfg = IstioCRDToolConfig(model="gpt-4o-mini", openai_api_key=None)
-
-    def istio_crd_tool(input: IstioCRDToolInput):
-        return IstioCRDTool(cfg).run_json(input.model_dump(), CancellationToken())
-
-    mcp.add_tool(istio_crd_tool, IstioCRDTool(cfg).name, IstioCRDTool(cfg).description)
 
     mcp.run()
 
@@ -287,15 +270,45 @@ def k8s():
 
 @app.command()
 def helm():
-    mcp.add_tool(helm_list._func, helm_list.name, helm_list.description)
-    mcp.add_tool(helm_upgrade._func, helm_upgrade.name, helm_upgrade.description)
+    mcp.add_tool(helm_list_releases._func, helm_list_releases.name, helm_list_releases.description)
+    mcp.add_tool(helm_get_release._func, helm_get_release.name, helm_get_release.description)
     mcp.add_tool(helm_uninstall._func, helm_uninstall.name, helm_uninstall.description)
+    mcp.add_tool(upgrade_release._func, upgrade_release.name, upgrade_release.description)
+    mcp.add_tool(helm_repo_add._func, helm_repo_add.name, helm_repo_add.description)
+    mcp.add_tool(helm_repo_update._func, helm_repo_update.name, helm_repo_update.description)
     mcp.run()
 
 
+@app.command()
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8081,
+):
+    import logging
+    import os
+
+    from autogenstudio.cli import ui
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry.instrumentation.openai import OpenAIInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    logging.basicConfig(level=logging.INFO)
+    tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
+    if tracing_enabled:
+        logging.info("Enabling tracing")
+        tracer_provider = TracerProvider(resource=Resource({"service.name": "kagent"}))
+        processor = BatchSpanProcessor(OTLPSpanExporter())
+        tracer_provider.add_span_processor(processor)
+        trace.set_tracer_provider(tracer_provider)
+        HTTPXClientInstrumentor().instrument()
+        OpenAIInstrumentor().instrument()
+
+    ui(host=host, port=port)
+
+
 def run():
-    app()
-
-
-if __name__ == "__main__":
     app()

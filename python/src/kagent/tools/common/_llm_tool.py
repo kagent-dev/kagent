@@ -1,8 +1,10 @@
 import logging
+import os
 
 from autogen_core import CancellationToken, Component, ComponentModel
 from autogen_core.models import ChatCompletionClient, SystemMessage, UserMessage
 from autogen_core.tools import BaseTool
+from autogen_ext.models.openai import OpenAIChatCompletionClient
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -11,7 +13,12 @@ logger = logging.getLogger(__name__)
 class LLMToolConfig(BaseModel):
     """Configuration for the LLMTool."""
 
-    model_client: ComponentModel
+    model_client: ComponentModel = Field(
+        default_factory=lambda: OpenAIChatCompletionClient(
+            model="gpt-4o-mini",
+        ).dump_component(),
+        description="The model client to use for the LLM. If not provided, the default model client will be used.",
+    )
 
 
 class LLMToolInput(BaseModel):

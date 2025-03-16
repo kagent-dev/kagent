@@ -110,7 +110,7 @@ class QueryInput(BaseModel):
         description="The search query to use for finding relevant documentation. Be specific and include relevant keywords."
     )
     product_name: str = Field(
-        description="The name of the product to search within. Examples include: 'istio', 'kubernetes', 'prometheus', 'argo cd', 'argo rollouts', 'helm', 'gateway-api', 'gloo-gateway', 'gloo-edge', 'otel', 'cilium'."
+        description=f"The name of the product to search within. Examples include: {', '.join(PRODUCT_DB_MAP.keys())}"
     )
     version: Optional[str] = Field(
         default=None,
@@ -127,23 +127,27 @@ class QueryTool(BaseTool, Component[Config]):
     component_type = "tool"
     component_config_schema = Config
     component_provider_override = "kagent.tools.docs.QueryTool"
-    _description = """Searches a vector database for relevant documentation related to various software projects."""
+    _description = f"Searches a vector database for relevant documentation related to one of these projects: {', '.join(PRODUCT_DB_MAP.keys())}"
 
     def __init__(self, config: Config) -> None:
         # Initialize SQLite downloader with base S3 URL and product mapping if override is not provided
         self.db_downloader = SQLiteDownloader(
-            base_url=config.docs_download_url
-            or os.environ.get("DB_BASE_URL", "https://doc-sqlite-db.s3.sa-east-1.amazonaws.com"),
+            base_url=config.docs_download_url or os.environ.get("DB_BASE_URL", DEFAULT_DB_URL),
             product_map=PRODUCT_DB_MAP,
         )
         # Initialize OpenAI with API key from config
-        self.openai = OpenAI(api_key=config.openai_api_key)
+        api_key = config.openai_api_key or os.environ.get("OPENAI_API_KEY")
+        self.openai = OpenAI(api_key=api_key)
         self.config: Config = config
 
         super().__init__(QueryInput, BaseModel, "query_tool", description=self._description)
 
     async def run(self, args: QueryInput, cancellation_token: CancellationToken) -> Any:
         db_path = self.config.docs_base_path
+
+        if cancellation_token.is_cancelled():
+            raise Exception("Operation cancelled")
+
         if db_path == "":
             try:
                 db_path = self.db_downloader.download_if_needed(args.product_name)

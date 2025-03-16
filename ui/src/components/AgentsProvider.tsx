@@ -6,6 +6,7 @@ import { Team, Component, ToolConfig } from "@/types/datamodel";
 import { getBuiltInTools } from "@/app/actions/tools";
 import { BaseResponse, Model } from "@/lib/types";
 import { createTeamConfig } from "@/lib/agents";
+import { isIdentifier } from "@/lib/utils";
 
 interface ValidationErrors {
   name?: string;
@@ -98,6 +99,9 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       if (!data.name.trim()) {
         errors.name = "Agent name is required";
       } // we only check that it's required as this will be the label -- the name is created from the label
+      else if (!isIdentifier(data.name)) {
+        errors.name = "Agent name must not contain special characters";
+      }
     }
 
     if (data.description !== undefined && !data.description.trim()) {

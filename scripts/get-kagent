@@ -103,7 +103,7 @@ checkDesiredVersion() {
     local latest_release_url="https://api.github.com/repos/kagent-dev/kagent/releases/latest"
     local latest_release_response=""
     if [ "${HAS_CURL}" == "true" ]; then
-      latest_release_response=$( curl --header "Authorization: Bearer $GITHUB_TOKEN" -L --silent --show-error --fail "$latest_release_url" 2>&1 || true )
+      latest_release_response=$( curl -L --silent --show-error --fail "$latest_release_url" 2>&1 || true )
     elif [ "${HAS_WGET}" == "true" ]; then
       latest_release_response=$( wget "$latest_release_url" -q -O - 2>&1 || true )
     fi
@@ -140,13 +140,13 @@ downloadFile() {
   KAGENT_DIST="kagent-$OS-$ARCH"
   DOWNLOAD_URL="https://github.com/kagent-dev/kagent/releases/download/$TAG/$KAGENT_DIST"
   CHECKSUM_URL="$DOWNLOAD_URL.sha256"
-  KAGENT_TMP_ROOT="$(mktemp -dt kagent -installer-XXXXXX)"
+  KAGENT_TMP_ROOT="$(mktemp -dt kagent-installer-XXXXXX)"
   KAGENT_TMP_FILE="$KAGENT_TMP_ROOT/$KAGENT_DIST"
   KAGENT_SUM_FILE="$KAGENT_TMP_ROOT/$KAGENT_DIST.sha256"
   echo "Downloading $DOWNLOAD_URL"
   if [ "${HAS_CURL}" == "true" ]; then
-    curl --header "Authorization: Bearer $GITHUB_TOKEN" -SsL "$CHECKSUM_URL" -o "$KAGENT_SUM_FILE"
-    curl --header "Authorization: Bearer $GITHUB_TOKEN" -SsL "$DOWNLOAD_URL" -o "$KAGENT_TMP_FILE"
+    curl -SsL "$CHECKSUM_URL" -o "$KAGENT_SUM_FILE"
+    curl -SsL "$DOWNLOAD_URL" -o "$KAGENT_TMP_FILE"
   elif [ "${HAS_WGET}" == "true" ]; then
     wget -q -O "$KAGENT_SUM_FILE" "$CHECKSUM_URL"
     wget -q -O "$KAGENT_TMP_FILE" "$DOWNLOAD_URL"
@@ -164,12 +164,9 @@ verifyFile() {
 
 # installFile installs the kagent binary.
 installFile() {
-  KAGENT_TMP="$KAGENT_TMP_ROOT/$BINARY_NAME"
-  mkdir -p "$KAGENT_TMP"
-  tar xf "$KAGENT_TMP_FILE" -C "$KAGENT_TMP"
-  KAGENT_TMP_BIN="$KAGENT_TMP/$OS-$ARCH/kagent"
   echo "Preparing to install $BINARY_NAME into ${KAGENT_INSTALL_DIR}"
-  runAsRoot cp "$KAGENT_TMP_BIN" "$KAGENT_INSTALL_DIR/$BINARY_NAME"
+  runAsRoot chmod +x "$KAGENT_TMP_ROOT/$BINARY_NAME-$OS-$ARCH"
+  runAsRoot cp "$KAGENT_TMP_ROOT/$BINARY_NAME-$OS-$ARCH" "$KAGENT_INSTALL_DIR/$BINARY_NAME"
   echo "$BINARY_NAME installed into $KAGENT_INSTALL_DIR/$BINARY_NAME"
 }
 
@@ -177,7 +174,7 @@ installFile() {
 verifyChecksum() {
   printf "Verifying checksum... "
   local sum=$(openssl sha1 -sha256 ${KAGENT_TMP_FILE} | awk '{print $2}')
-  local expected_sum=$(cat ${KAGENT_SUM_FILE})
+  local expected_sum=$(cat ${KAGENT_SUM_FILE} | awk '{print $1}')
   if [ "$sum" != "$expected_sum" ]; then
     echo "SHA sum of ${KAGENT_TMP_FILE} does not match. Aborting."
     exit 1

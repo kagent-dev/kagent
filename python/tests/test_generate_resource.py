@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 import yaml
 from autogen_core import CancellationToken
-
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 
 from kagent.tools.k8s import GenerateResourceTool, GenerateResourceToolConfig, GenerateResourceToolInput, ResourceTypes

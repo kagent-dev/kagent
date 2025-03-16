@@ -1,5 +1,5 @@
 apiVersion: v2
 name: kagent
-description: A Helm chart for KAgent, built with AutogenStudio
+description: A Helm chart for KAgent, built with Autogen
 type: application
 version: ${VERSION}
