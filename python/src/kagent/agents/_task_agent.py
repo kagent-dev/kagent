@@ -18,19 +18,14 @@ from autogen_core import CancellationToken, Component, ComponentModel
 from autogen_core.model_context import ChatCompletionContext, UnboundedChatCompletionContext
 from autogen_core.models import (
     AssistantMessage,
-    ChatCompletionClient,
-    CreateResult,
     FunctionExecutionResultMessage,
-    LLMMessage,
-    SystemMessage,
-    UserMessage,
 )
 from pydantic import BaseModel, Field
 from typing_extensions import Self
 
 
 class TaskAgentState(BaseState):
-    """State for a Society of Mind agent."""
+    """State for a Task agent."""
 
     inner_team_state: Mapping[str, Any] = Field(default_factory=dict)
     model_context_state: Mapping[str, Any] = Field(default_factory=dict)
@@ -65,7 +60,7 @@ class TaskAgent(BaseChatAgent, Component[TaskAgentConfig]):
     component_provider_override = "kagent.agents.TaskAgent"
 
     DEFAULT_DESCRIPTION = "An agent that uses an inner team of agents to generate responses."
-    """str: The default description for a SocietyOfMindAgent."""
+    """str: The default description for a TaskAgent."""
 
     def __init__(
         self,
@@ -155,9 +150,9 @@ class TaskAgent(BaseChatAgent, Component[TaskAgentConfig]):
         return state.model_dump()
 
     async def load_state(self, state: Mapping[str, Any]) -> None:
-        society_of_mind_state = TaskAgentState.model_validate(state)
-        await self._model_context.load_state(society_of_mind_state.model_context_state)
-        await self._team.load_state(society_of_mind_state.inner_team_state)
+        task_agent_state = TaskAgentState.model_validate(state)
+        await self._model_context.load_state(task_agent_state.model_context_state)
+        await self._team.load_state(task_agent_state.inner_team_state)
 
     def _to_config(self) -> TaskAgentConfig:
         return TaskAgentConfig(

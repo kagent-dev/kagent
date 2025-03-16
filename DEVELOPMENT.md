@@ -20,7 +20,7 @@ Running outside Kubernetes:
 uv sync --all-extras
 
 # Run the autogen backend
-uv run autogenstudio ui
+uv run kagent-engine serve
 ```
 
 If you get an error that looks like this:

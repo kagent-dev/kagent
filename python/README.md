@@ -26,7 +26,7 @@ uv sync --all-extras
 ## Running the engine
 
 ```bash
-uv run autogenstudio ui
+uv run kagent-engine serve
 ```
 
 ## Testing

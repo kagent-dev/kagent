@@ -23,6 +23,12 @@ func GetAgentCmd(c *ishell.Context) {
 			c.Printf("Failed to get agents: %v\n", err)
 			return
 		}
+
+		if len(agentList) == 0 {
+			c.Println("No agents found")
+			return
+		}
+
 		if err := printTeams(agentList); err != nil {
 			c.Printf("Failed to print agents: %v\n", err)
 			return
@@ -49,6 +55,11 @@ func GetRunCmd(c *ishell.Context) {
 		runList, err := client.ListRuns(cfg.UserID)
 		if err != nil {
 			c.Printf("Failed to get runs: %v\n", err)
+			return
+		}
+
+		if len(runList) == 0 {
+			c.Println("No runs found")
 			return
 		}
 
@@ -80,6 +91,12 @@ func GetSessionCmd(c *ishell.Context) {
 			c.Printf("Failed to get sessions: %v\n", err)
 			return
 		}
+
+		if len(sessionList) == 0 {
+			c.Println("No sessions found")
+			return
+		}
+
 		if err := printSessions(sessionList); err != nil {
 			c.Printf("Failed to print sessions: %v\n", err)
 			return

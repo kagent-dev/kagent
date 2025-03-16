@@ -447,7 +447,7 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 		}, nil
 	case terminationCondition.TextMessageTermination != nil:
 		return &api.Component{
-			Provider:      "kagent.terminations.TextMessageTermination",
+			Provider:      "autogen_agentchat.conditions.TextMessageTermination",
 			ComponentType: "termination",
 			Version:       makePtr(1),
 			//ComponentVersion: 1,
