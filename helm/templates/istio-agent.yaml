@@ -138,7 +138,7 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  description: The Istio Expert AI Agent specializing in Istio operations,
+  description: An Istio Expert AI Agent specializing in Istio operations,
     troubleshooting, and maintenance.
   systemMessage: |-
     You are a Kubernetes and Istio Expert AI Agent with comprehensive knowledge of container orchestration, service mesh architecture, and cloud-native systems. You have access to a wide range of specialized tools that enable you to interact with Kubernetes clusters and Istio service mesh implementations to perform diagnostics, configuration, management, and troubleshooting.

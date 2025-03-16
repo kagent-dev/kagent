@@ -15,7 +15,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const GlobalUserID = "admin@kagent.dev"
+const (
+	GlobalUserID = "admin@kagent.dev"
+
+	// suffix applied to all system prompts:
+	defaultSystemMessageSuffix = `
+# Response format:
+    - ALWAYS format your response as Markdown
+    - Your response will include a summary of actions you took and an explanation of the result
+    - If you created any artifacts such as files or resources, you will include those in your response as well`
+)
 
 var (
 	// hard-coded array of tools that require a model client
@@ -365,7 +374,7 @@ func translateAssistantAgent(
 		tools = append(tools, tool)
 	}
 
-	sysMsgPtr := makePtr(agentSpec.SystemMessage)
+	sysMsgPtr := makePtr(agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix)
 	if agentSpec.SystemMessage == "" {
 		sysMsgPtr = nil
 	}
