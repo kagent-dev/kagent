@@ -40,21 +40,8 @@ jobs:
   e2e-test:
     env:
       VERSION: v0.0.1-test
-    needs: build
     runs-on: ubuntu-latest
     steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v4
-      with:
-        path: ${{ runner.temp }}
-
-    - name: Load image
-      run: |
-        docker load --input ${{ runner.temp }}/controller.tar
-        docker load --input ${{ runner.temp }}/ui.tar
-        docker load --input ${{ runner.temp }}/app.tar
-        docker image ls -a
-
     - name: Checkout repository
       uses: actions/checkout@v4
 
