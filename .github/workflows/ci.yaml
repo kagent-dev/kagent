@@ -47,6 +47,14 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         path: ${{ runner.temp }}
+
+    - name: Load image
+      run: |
+        docker load --input ${{ runner.temp }}/controller.tar
+        docker load --input ${{ runner.temp }}/ui.tar
+        docker load --input ${{ runner.temp }}/app.tar
+        docker image ls -a
+
     - name: Checkout repository
       uses: actions/checkout@v4
 
