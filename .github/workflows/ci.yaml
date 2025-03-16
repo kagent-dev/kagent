@@ -47,7 +47,6 @@ jobs:
         cluster_name: kagent
 
     - name: Install Kagent
-      uses: actions/setup-kubectl@v4
       run: make helm-install
       env:
         OPENAI_API_KEY: sk-fake-openai-api-key
