@@ -81,11 +81,22 @@ securityContext: {}
 
 contrib:
   agents:
+    k8s:
+      enabled: true
     istio:
       enabled: true
     helm:
       enabled: true
     observability:
+      prometheus:
+        url: ""
+        username: ""
+        password: ""
+      grafana:
+        url: ""
+        username: ""
+        password: ""
+        apiKey: ""
       enabled: true
     argoRolloutsConversion:
       enabled: true

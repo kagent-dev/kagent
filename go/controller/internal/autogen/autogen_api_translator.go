@@ -15,7 +15,32 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const GlobalUserID = "admin@kagent.dev"
+const (
+	GlobalUserID = "admin@kagent.dev"
+
+	// suffix applied to all system prompts:
+	defaultSystemMessageSuffix = `
+# Instructions
+    - If user question is unclear, ask for clarification before running any tools
+    - Always be helpful and friendly
+    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
+    - Do not delete the original Deployment until the user explicitly confirms that the Rollout is ready to take over production traffic.
+
+
+# Response format:
+    - ALWAYS format your response as Markdown
+    - Your response will include a summary of actions you took and an explanation of the result
+    - If you created any artifacts such as files or resources, you will include those in your response as well`
+)
+
+var (
+	// hard-coded array of tools that require a model client
+	// this is automatically populated from the parent agent's model client
+	toolsProvidersRequiringModelClient = []string{
+		"kagent.tools.prometheus.GeneratePromQLTool",
+		"kagent.tools.k8s.GenerateResourceTool",
+	}
+)
 
 type ApiTranslator interface {
 	TranslateGroupChatForTeam(
@@ -330,6 +355,12 @@ func translateAssistantAgent(
 		if err != nil {
 			return nil, err
 		}
+		// special case where we put the model client in the tool config
+		if toolNeedsModelClient(tool.Provider) {
+			if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
+				return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
+			}
+		}
 
 		providerParts := strings.Split(tool.Provider, ".")
 		toolLabel := providerParts[len(providerParts)-1]
@@ -350,7 +381,7 @@ func translateAssistantAgent(
 		tools = append(tools, tool)
 	}
 
-	sysMsgPtr := makePtr(agentSpec.SystemMessage)
+	sysMsgPtr := makePtr(agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix)
 	if agentSpec.SystemMessage == "" {
 		sysMsgPtr = nil
 	}
@@ -375,7 +406,7 @@ func translateAssistantAgent(
 	}, nil
 }
 
-func convertToolConfig(config map[string]v1alpha1.AnyType) (map[string]interface{}, error) {
+func convertToolConfig(config interface{}) (map[string]interface{}, error) {
 	// convert to map[string]interface{} to allow kubebuilder schemaless validation
 	// see https://github.com/kubernetes-sigs/controller-tools/issues/636 for more info
 	// must unmarshal to interface{} to avoid json.RawMessage
@@ -505,4 +536,29 @@ func fetchObjKube(ctx context.Context, kube client.Client, obj client.Object, ob
 
 func convertToPythonIdentifier(name string) string {
 	return strings.ReplaceAll(name, "-", "_")
+}
+
+func toolNeedsModelClient(provider string) bool {
+	for _, p := range toolsProvidersRequiringModelClient {
+		if p == provider {
+			return true
+		}
+	}
+	return false
+}
+
+func addModelClientToConfig(
+	modelClient *api.Component,
+	toolConfig *map[string]interface{},
+) error {
+	if *toolConfig == nil {
+		*toolConfig = make(map[string]interface{})
+	}
+	modelClientConfig, err := convertToolConfig(modelClient.Config)
+	if err != nil {
+		return err
+	}
+
+	(*toolConfig)["model_client"] = modelClientConfig
+	return nil
 }
