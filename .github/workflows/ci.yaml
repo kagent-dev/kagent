@@ -34,6 +34,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        path: ${{ runner.temp }}
     - name: Checkout repository
       uses: actions/checkout@v4
 
