@@ -7,6 +7,8 @@ on:
 
 jobs:
   build:
+    env:
+      VERSION: v0.0.1-test
     strategy:
       matrix:
         image:
@@ -36,6 +38,8 @@ jobs:
         path: ${{ runner.temp }}/${{ matrix.image }}.tar
 
   e2e-test:
+    env:
+      VERSION: v0.0.1-test
     needs: build
     runs-on: ubuntu-latest
     steps:
