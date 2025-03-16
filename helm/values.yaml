@@ -81,6 +81,8 @@ securityContext: {}
 
 contrib:
   agents:
+    k8s:
+      enabled: true
     istio:
       enabled: true
     helm:
