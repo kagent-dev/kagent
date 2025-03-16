@@ -43,8 +43,8 @@ jobs:
 
     - name: Create k8s Kind Cluster
       uses: helm/kind-action@v1
-        with:
-          cluster_name: kagent
+      with:
+        cluster_name: kagent
 
     - name: Install Kagent
       uses: actions/setup-kubectl@v4
