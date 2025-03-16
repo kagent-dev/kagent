@@ -25,12 +25,13 @@ jobs:
       uses: docker/setup-buildx-action@v3
     - name: Run make build
       env:
-        DOCKER_BUILD_ARGS: "--platform linux/amd64,linux/arm64"
+        DOCKER_BUILD_ARGS: "--platform linux/amd64,linux/arm64 --output type=tar,dest=${{ runner.temp }}/${{ matrix.image }}.tar"
         DOCKER_BUILDER: "docker buildx"
       run: make build-${{ matrix.image }}
       working-directory: ./
 
   e2e-test:
+    needs: build
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
