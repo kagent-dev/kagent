@@ -16,6 +16,15 @@ type Team struct {
 	Id        int            `json:"id,omitempty"`
 }
 
+type Tool struct {
+	Id        *int          `json:"id,omitempty"`
+	Component api.Component `json:"component"`
+	CreatedAt *string       `json:"created_at,omitempty"`
+	UpdatedAt *string       `json:"updated_at,omitempty"`
+	UserID    *string       `json:"user_id,omitempty"`
+	Version   *string       `json:"version,omitempty"`
+}
+
 type ModelsUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`

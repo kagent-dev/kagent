@@ -158,6 +158,20 @@ Examples:
 		Func: cli.GetAgentCmd,
 	})
 
+	getCmd.AddCmd(&ishell.Cmd{
+		Name:    "tool",
+		Aliases: []string{"t", "tools"},
+		Help:    "get a tool.",
+		LongHelp: `get a tool.
+
+If no resource name is provided, then a list of available resources will be returned.
+Examples:
+  get tool [tool_name]
+  get tool
+  `,
+		Func: cli.GetToolCmd,
+	})
+
 	shell.AddCmd(getCmd)
 
 	shell.NotFound(func(c *ishell.Context) {
