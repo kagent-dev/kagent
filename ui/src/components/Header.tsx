@@ -15,7 +15,7 @@ export function Header() {
 
   return (
     <nav className="py-4 md:py-8">
-      <div className="max-w-4xl mx-auto px-4 md:px-6">
+      <div className="max-w-5xl mx-auto px-4 md:px-6">
         <div className="flex justify-between items-center">
           <Link href="/">
             <KAgentLogoWithText className="h-5" />
@@ -34,6 +34,9 @@ export function Header() {
           <div className="hidden md:flex items-center space-x-6 lg:space-x-8">
             <Button variant="link" className="text-secondary-foreground" asChild>
               <Link href="/agents">My Agents</Link>
+            </Button>
+            <Button variant="link" className="text-secondary-foreground" asChild>
+              <Link href="/tools">Tools</Link>
             </Button>
             <Button variant="link" className="text-secondary-foreground" asChild>
               <Link href="https://github.com/kagent-dev/kagent" target="_blank">Contribute</Link>
@@ -59,6 +62,9 @@ export function Header() {
             <div className="flex flex-col space-y-3">
               <Button variant="link" className="text-secondary-foreground justify-start px-1" asChild>
                 <Link href="/agents">My Agents</Link>
+              </Button>
+              <Button variant="link" className="text-secondary-foreground justify-start px-1" asChild>
+                <Link href="/tools">Tools</Link>
               </Button>
               <Button variant="link" className="text-secondary-foreground justify-start px-1" asChild>
                 <Link href="https://github.com/kagent-dev/kagent" target="_blank">Contribute</Link>

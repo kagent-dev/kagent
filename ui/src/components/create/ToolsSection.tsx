@@ -2,12 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogTitle, DialogHeader, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Plus, FunctionSquare, X, Settings2, Download } from "lucide-react";
+import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState } from "react";
 import { getToolDescription, getToolDisplayName, getToolIdentifier, isMcpTool } from "@/lib/data";
 import { Label } from "../ui/label";
-import { DiscoverToolsDialog } from "./DiscoverToolsDialog";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import { Component, ToolConfig } from "@/types/datamodel";
 
@@ -20,10 +19,8 @@ interface ToolsSectionProps {
 
 export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubmitting }: ToolsSectionProps) => {
   const [showToolSelector, setShowToolSelector] = useState(false);
-  const [showDiscoverTools, setShowDiscoverTools] = useState(false);
   const [configTool, setConfigTool] = useState<Component<ToolConfig> | null>(null);
   const [showConfig, setShowConfig] = useState(false);
-  const [discoveredToolsForSelection, setDiscoveredToolsForSelection] = useState<Component<ToolConfig>[]>([]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleConfigSave = (toolProvider: string, newConfig: any) => {
@@ -39,7 +36,6 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   const handleToolSelect = (newSelectedTools: Component<ToolConfig>[]) => {
     setSelectedTools(newSelectedTools);
     setShowToolSelector(false);
-    setDiscoveredToolsForSelection([]);
   };
 
   const handleRemoveTool = (tool: Component<ToolConfig>) => {
@@ -47,19 +43,9 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     setSelectedTools(updatedTools);
   };
 
-  const handleShowSelectTools = (discoveredTools: Component<ToolConfig>[]) => {
-    // This will be called from the DiscoverToolsDialog when tools are found
-    const newTools = discoveredTools.filter((tool) => !selectedTools.some((selected) => getToolIdentifier(selected) === getToolIdentifier(tool)));
-
-    if (newTools.length > 0) {
-      setDiscoveredToolsForSelection(newTools);
-      setShowToolSelector(true);
-    }
-  };
-
   const renderConfigDialog = () => {
     if (!configTool) return null;
-    const configObj = configTool?.config;;
+    const configObj = configTool?.config;
 
     if (Object.keys(configObj).length === 0) {
       return null;
@@ -71,7 +57,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
           <DialogHeader>
             <DialogTitle>Configure {getToolDisplayName(configTool)}</DialogTitle>
             <DialogDescription>
-              Confingure the settings for <span className="text-primary">{getToolDisplayName(configTool)}</span>. These settings will be used when the tool is executed.
+              Configure the settings for <span className="text-primary">{getToolDisplayName(configTool)}</span>. These settings will be used when the tool is executed.
             </DialogDescription>
           </DialogHeader>
 
@@ -172,38 +158,22 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     </div>
   );
 
-  // Calculate available tools for selection
-  const availableToolsForSelection =
-    discoveredToolsForSelection.length > 0 ? [...allTools, ...discoveredToolsForSelection.filter((dTool) => !allTools.some((aTool) => aTool.provider === dTool.provider))] : allTools;
-
   return (
     <div className="space-y-4">
       {selectedTools.length > 0 && (
         <div className="flex justify-between items-center">
           <h3 className="text-sm font-medium">Selected Tools</h3>
-          <div className="flex gap-2">
-            <Button
-              onClick={() => setShowDiscoverTools(true)}
-              disabled={isSubmitting}
-              variant="outline"
-              className="border bg-transparent "
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Discover MCP Tools
-            </Button>
-            <Button
-              onClick={() => {
-                setDiscoveredToolsForSelection([]);
-                setShowToolSelector(true);
-              }}
-              disabled={isSubmitting}
-              variant="outline"
-              className="border bg-transparent"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Tools
-            </Button>
-          </div>
+          <Button
+            onClick={() => {
+              setShowToolSelector(true);
+            }}
+            disabled={isSubmitting}
+            variant="outline"
+            className="border bg-transparent"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Tools
+          </Button>
         </div>
       )}
 
@@ -214,24 +184,17 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
               <FunctionSquare className="h-12 w-12  mb-4" />
               <h4 className="text-lg font-medium  mb-2">No tools selected</h4>
               <p className="text-muted-foreground text-sm mb-4">Add tools to enhance your agent</p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button
-                  onClick={() => {
-                    setDiscoveredToolsForSelection([]);
-                    setShowToolSelector(true);
-                  }}
-                  disabled={isSubmitting}
-                  variant="default"
-                  className="flex items-center"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Tools
-                </Button>
-                <Button onClick={() => setShowDiscoverTools(true)} disabled={isSubmitting} variant="secondary" className="flex items-center">
-                  <Download className="h-4 w-4 mr-2" />
-                  Discover MCP Tools
-                </Button>
-              </div>
+              <Button
+                onClick={() => {
+                  setShowToolSelector(true);
+                }}
+                disabled={isSubmitting}
+                variant="default"
+                className="flex items-center"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Tools
+              </Button>
             </CardContent>
           </Card>
         ) : (
@@ -239,17 +202,8 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
         )}
       </ScrollArea>
 
-
       {renderConfigDialog()}
-      <DiscoverToolsDialog open={showDiscoverTools} onOpenChange={setShowDiscoverTools} onShowSelectTools={handleShowSelectTools} />
-      <SelectToolsDialog
-        open={showToolSelector}
-        onOpenChange={setShowToolSelector}
-        availableTools={availableToolsForSelection}
-        selectedTools={selectedTools}
-        onToolsSelected={handleToolSelect}
-        initialSelection={discoveredToolsForSelection}
-      />
+      <SelectToolsDialog open={showToolSelector} onOpenChange={setShowToolSelector} availableTools={allTools} selectedTools={selectedTools} onToolsSelected={handleToolSelect} />
     </div>
   );
 };

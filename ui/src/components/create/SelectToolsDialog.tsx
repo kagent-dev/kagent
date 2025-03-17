@@ -32,10 +32,9 @@ interface SelectToolsDialogProps {
   availableTools: Tool[];
   selectedTools: Tool[];
   onToolsSelected: (tools: Tool[]) => void;
-  initialSelection?: Tool[];
 }
 
-export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, initialSelection = [] }) => {
+export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected }) => {
   // State hooks
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
@@ -51,21 +50,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     if (open) {
       const initialTools = [...selectedTools];
 
-      // Handle newly discovered tools
-      if (initialSelection.length > 0) {
-        setNewlyDiscoveredTools(initialSelection);
-
-        // Add new tools to selection if not already included
-        for (const newTool of initialSelection) {
-          const newToolId = getToolIdentifier(newTool);
-          if (!initialTools.some((t) => getToolIdentifier(t) === newToolId)) {
-            initialTools.push(newTool);
-          }
-        }
-      } else {
-        setNewlyDiscoveredTools([]);
-      }
-
+      setNewlyDiscoveredTools([]);
       setLocalSelectedTools(initialTools);
       setSearchTerm("");
 
@@ -87,17 +72,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         categories[category] = true;
       });
       setExpandedCategories(categories);
-
-      // Set initial tab
-      setActiveTab(initialSelection.length > 0 ? "new" : "all");
+      setActiveTab("all");
     }
-  }, [open, selectedTools, initialSelection, availableTools]);
+  }, [open, selectedTools, availableTools]);
 
   // Filter tools based on search, tab, and provider selections
   const filteredTools = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
 
+    console.log('availableTools', availableTools)
     return availableTools.filter((tool) => {
+      console.log('getToolDisplayName(tool)', getToolDisplayName(tool))
       // Search matching
       const matchesSearch =
         getToolDisplayName(tool)?.toLowerCase().includes(searchLower) ||
