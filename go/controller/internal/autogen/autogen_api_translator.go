@@ -385,7 +385,7 @@ func translateAssistantAgent(
 		sysMsgPtr = nil
 	}
 
-	assistantAgent := &api.Component{
+	return &api.Component{
 		Provider:      "autogen_agentchat.agents.AssistantAgent",
 		ComponentType: "agent",
 		Version:       makePtr(1),
@@ -402,11 +402,7 @@ func translateAssistantAgent(
 			ModelClientStream:     true,
 			ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
 		}),
-	}
-
-	byt, _ := json.MarshalIndent(assistantAgent, "", "  ")
-	fmt.Println("assistantAgent", string(byt))
-	return assistantAgent, nil
+	}, nil
 }
 
 func convertToolConfig(config map[string]v1alpha1.AnyType) (map[string]interface{}, error) {
