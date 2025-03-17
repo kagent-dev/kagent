@@ -80,9 +80,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   const filteredTools = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
 
-    console.log('availableTools', availableTools)
     return availableTools.filter((tool) => {
-      console.log('getToolDisplayName(tool)', getToolDisplayName(tool))
       // Search matching
       const matchesSearch =
         getToolDisplayName(tool)?.toLowerCase().includes(searchLower) ||
