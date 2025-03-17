@@ -65,7 +65,7 @@ Kagent has 4 core components:
   - [ ] Debugging/Time travel
   - [ ] Guided Learning
 - [ ] [Runtime/Engine improvements:](https://github.com/kagent-dev/kagent/issues/132)
-  - [ ] Mutli-Agent support
+  - [ ] Multi-Agent support
   - [ ] True Graph Execution
   - [ ] Workflows
   - [ ] Multiple LLM Provider support

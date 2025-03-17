@@ -28,6 +28,7 @@ PRODUCT_DB_MAP = {
     "gloo-edge": "gloo-edge.db",
     "otel": "otel.db",
     "cilium": "cilium.db",
+    "istio ambient mesh": "ambient.db",
 }
 
 

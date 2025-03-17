@@ -35,6 +35,7 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		"--namespace",
 		cfg.Namespace,
 		"--create-namespace",
+		"--wait",
 		"--set",
 		"openai.apiKey=" + os.Getenv("OPENAI_API_KEY"),
 	}
