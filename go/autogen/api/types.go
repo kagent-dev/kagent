@@ -14,6 +14,14 @@ type Component struct {
 	Config           map[string]interface{} `json:"config"`
 }
 
+func (c *Component) ToConfig() (map[string]interface{}, error) {
+	if c == nil {
+		return nil, nil
+	}
+
+	return toConfig(c)
+}
+
 func MustToConfig(c ComponentConfig) map[string]interface{} {
 	config, err := c.ToConfig()
 	if err != nil {

@@ -56,9 +56,11 @@ jobs:
         cluster_name: kagent
 
     - name: Install Kagent
-      run: make helm-install
       env:
         OPENAI_API_KEY: sk-fake-openai-api-key
+      run: |
+        make helm-install
+        kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
     
   python-test:
     runs-on: ubuntu-latest

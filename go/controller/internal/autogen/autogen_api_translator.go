@@ -369,16 +369,15 @@ func translateAssistantAgent(
 		if tool.Description != "" {
 			description = makePtr(tool.Description)
 		}
-		tool := &api.Component{
+
+		tools = append(tools, &api.Component{
 			Provider:      tool.Provider,
 			Description:   description,
 			ComponentType: "tool",
 			Version:       makePtr(1),
 			Config:        api.GenericToolConfig(toolConfig),
 			Label:         makePtr(toolLabel),
-		}
-
-		tools = append(tools, tool)
+		})
 	}
 
 	sysMsgPtr := makePtr(agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix)
@@ -386,7 +385,7 @@ func translateAssistantAgent(
 		sysMsgPtr = nil
 	}
 
-	return &api.Component{
+	assistantAgent := &api.Component{
 		Provider:      "autogen_agentchat.agents.AssistantAgent",
 		ComponentType: "agent",
 		Version:       makePtr(1),
@@ -403,10 +402,14 @@ func translateAssistantAgent(
 			ModelClientStream:     true,
 			ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
 		}),
-	}, nil
+	}
+
+	byt, _ := json.MarshalIndent(assistantAgent, "", "  ")
+	fmt.Println("assistantAgent", string(byt))
+	return assistantAgent, nil
 }
 
-func convertToolConfig(config interface{}) (map[string]interface{}, error) {
+func convertToolConfig(config map[string]v1alpha1.AnyType) (map[string]interface{}, error) {
 	// convert to map[string]interface{} to allow kubebuilder schemaless validation
 	// see https://github.com/kubernetes-sigs/controller-tools/issues/636 for more info
 	// must unmarshal to interface{} to avoid json.RawMessage
@@ -554,11 +557,12 @@ func addModelClientToConfig(
 	if *toolConfig == nil {
 		*toolConfig = make(map[string]interface{})
 	}
-	modelClientConfig, err := convertToolConfig(modelClient.Config)
+
+	cfg, err := modelClient.ToConfig()
 	if err != nil {
 		return err
 	}
 
-	(*toolConfig)["model_client"] = modelClientConfig
+	(*toolConfig)["model_client"] = cfg
 	return nil
 }

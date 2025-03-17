@@ -90,9 +90,13 @@ func (in *AgentSpec) DeepCopyInto(out *AgentSpec) {
 	*out = *in
 	if in.Tools != nil {
 		in, out := &in.Tools, &out.Tools
-		*out = make([]Tool, len(*in))
+		*out = make([]*Tool, len(*in))
 		for i := range *in {
-			(*in)[i].DeepCopyInto(&(*out)[i])
+			if (*in)[i] != nil {
+				in, out := &(*in)[i], &(*out)[i]
+				*out = new(Tool)
+				(*in).DeepCopyInto(*out)
+			}
 		}
 	}
 }

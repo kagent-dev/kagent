@@ -88,6 +88,7 @@ helm-install: helm-version check-openai-key kind-load-docker-images
 	helm upgrade --install kagent helm/ \
 		--namespace kagent \
 		--create-namespace \
+		--wait \
 		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
 		--set app.image.tag=$(APP_IMAGE_TAG) \

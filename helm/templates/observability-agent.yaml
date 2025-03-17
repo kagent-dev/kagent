@@ -80,14 +80,14 @@ spec:
     - provider: kagent.tools.k8s.GetAvailableAPIResources
     - provider: kagent.tools.prometheus.QueryTool
       config:
-        base_url: {{ .Values.contrib.agents.observability.prometheus.url }}
-        username: {{ .Values.contrib.agents.observability.prometheus.username }}
-        password: {{ .Values.contrib.agents.observability.prometheus.password }}
+        base_url: {{ .Values.contrib.agents.observability.prometheus.url | default "prometheus.kagent:9090" | quote }}
+        username: {{ .Values.contrib.agents.observability.prometheus.username | default "" | quote }}
+        password: {{ .Values.contrib.agents.observability.prometheus.password | default "" | quote }}
     - provider: kagent.tools.prometheus.GeneratePromQLTool
     - provider: kagent.tools.grafana.DashboardManagementTool
       config:
-        base_url: {{ .Values.contrib.agents.observability.grafana.url }}
-        username: {{ .Values.contrib.agents.observability.grafana.username }}
-        password: {{ .Values.contrib.agents.observability.grafana.password }}
-        api_key: {{ .Values.contrib.agents.observability.grafana.apiKey }}
+        base_url: {{ .Values.contrib.agents.observability.grafana.url | default "grafana.kagent:3000" | quote }}
+        username: {{ .Values.contrib.agents.observability.grafana.username | default "" | quote }}
+        password: {{ .Values.contrib.agents.observability.grafana.password | default "" | quote }}
+        api_key: {{ .Values.contrib.agents.observability.grafana.apiKey | default "" | quote }}
 {{- end }}

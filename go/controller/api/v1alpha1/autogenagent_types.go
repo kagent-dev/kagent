@@ -32,7 +32,7 @@ type AgentSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
-	Tools []Tool `json:"tools,omitempty"`
+	Tools []*Tool `json:"tools,omitempty"`
 }
 
 type Tool struct {

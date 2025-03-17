@@ -46,10 +46,10 @@ kagent-engine = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]
-autogenstudio = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "21acedd4a97579a2194514746039e2198fe95104" }
-autogen-agentchat = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-agentchat", rev = "21acedd4a97579a2194514746039e2198fe95104" }
-autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "21acedd4a97579a2194514746039e2198fe95104" }
-autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "21acedd4a97579a2194514746039e2198fe95104" }
+autogenstudio = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "2f804d74ff68b2d020fe6b68526c33abecb72c07" }
+autogen-agentchat = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-agentchat", rev = "2f804d74ff68b2d020fe6b68526c33abecb72c07" }
+autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "2f804d74ff68b2d020fe6b68526c33abecb72c07" }
+autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "2f804d74ff68b2d020fe6b68526c33abecb72c07" }
 kagent = { workspace = true }
 
 [tool.ruff]

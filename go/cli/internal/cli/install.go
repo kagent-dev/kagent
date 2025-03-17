@@ -49,7 +49,28 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		return
 	}
 	s.Stop()
-	c.Println("kagent installed successfully")
+	c.Println("kagent release created successfully")
+
+	args = []string{
+		"rollout",
+		"status",
+		"deployment",
+		"-n",
+		cfg.Namespace,
+		"kagent",
+	}
+	cmd = exec.CommandContext(ctx, "helm", args...)
+	s.Suffix = " Installing kagent"
+	s.Start()
+
+	if byt, err := cmd.CombinedOutput(); err != nil {
+		s.Stop()
+		c.Println("Error installing kagent: ", string(byt))
+		return
+	}
+	s.Stop()
+	c.Println("kagent running successfully :)")
+
 }
 
 func UninstallCmd(ctx context.Context, c *ishell.Context) {
