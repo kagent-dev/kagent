@@ -31,11 +31,11 @@ jobs:
         DOCKER_BUILDER: "docker buildx"
       run: make build-${{ matrix.image }}
       working-directory: ./
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{matrix.image}}.tar
-        path: ${{ runner.temp }}
+    # - name: Upload artifact
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: ${{matrix.image}}.tar
+    #     path: ${{ runner.temp }}
 
   e2e-test:
     env:
