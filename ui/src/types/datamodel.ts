@@ -1,9 +1,6 @@
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-import { SseServerParams, StdioServerParameters } from "@/lib/types";
-
-export type ComponentType = "team" | "agent" | "model" | "tool" | "termination" | "chat_completion_context" | "mcp_server";
+export type ComponentType = "team" | "agent" | "model" | "tool" | "termination" | "chat_completion_context" | "tool_server";
 
 export interface Component<T extends ComponentConfig> {
   provider: string;
@@ -86,15 +83,39 @@ export interface MCPTool {
 }
 
 export interface MCPToolConfig {
-  server_params: StdioServerParameters | SseServerParams
+  server_params: StdioMcpServerConfig | SseMcpServerConfig
   tool: MCPTool;
 }
 
 
-// Configuration for the MCP server
-export interface MCPServerConfig {
-  name?: string;
-  server_params: StdioServerParameters | SseServerParams
+export interface StdioMcpServerConfig {
+  /**
+   * The executable to run to start the server.
+   */
+  command: string;
+  /**
+   * Command line arguments to pass to the executable.
+   */
+  args?: string[];
+  /**
+   * The environment to use when spawning the process.
+   */
+  env?: Record<string, string>;
+  /**
+   * How to handle stderr of the child process.
+   */
+  stderr?: string | number;
+  /**
+   * The working directory to use when spawning the process.
+   */
+  cwd?: string;
+}
+
+export interface SseMcpServerConfig {
+  url: string;
+  headers?: Record<string, any>;
+  timeout?: number;
+  sse_read_timeout?: number;
 }
 
 export interface BuiltInToolConfig {
@@ -232,11 +253,13 @@ export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig;
 
 export type ToolConfig = FunctionToolConfig | MCPToolConfig | BuiltInToolConfig;
 
+export type ToolServerConfig = StdioMcpServerConfig | SseMcpServerConfig;
+
 export type ChatCompletionContextConfig = UnboundedChatCompletionContextConfig;
 
 export type TerminationConfig = OrTerminationConfig | MaxMessageTerminationConfig | TextMentionTerminationConfig | TextMessageTerminationConfig;
 
-export type ComponentConfig = TeamConfig | AgentConfig | ModelConfig | ToolConfig | TerminationConfig | ChatCompletionContextConfig;
+export type ComponentConfig = TeamConfig | AgentConfig | ModelConfig | ToolConfig | TerminationConfig | ChatCompletionContextConfig | ToolServerConfig;
 
 // DB Models
 export interface DBModel {
@@ -252,10 +275,10 @@ export interface Tool extends DBModel {
   server_id?: number; 
 }
 
-export interface MCPServer extends DBModel {
+export interface ToolServer extends DBModel {
   last_connected: string | null;
   is_active: boolean;
-  component: Component<MCPServerConfig>;
+  component: Component<ToolServerConfig>;
 }
 
 export interface Message extends DBModel {

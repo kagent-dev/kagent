@@ -1,18 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AlertCircle, Server, Globe, Terminal, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
+import {  Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, isCommandMcpTool } from "@/lib/data";
-import { MCPServer, MCPServerConfig, Tool } from "@/types/datamodel";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
+import { ToolServer, Tool, ToolServerConfig, Component } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers, refreshServerTools } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { getTools } from "../actions/tools";
 import Link from "next/link";
+import { toast } from "sonner";
 
 // Format date function
 const formatDate = (dateString: string | null): string => {
@@ -35,12 +35,10 @@ const formatDate = (dateString: string | null): string => {
 
 export default function ServersPage() {
   // State for servers and tools
-  const [servers, setServers] = useState<MCPServer[]>([]);
+  const [servers, setServers] = useState<ToolServer[]>([]);
   const [tools, setTools] = useState<Tool[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [expandedServers, setExpandedServers] = useState<Set<number>>(new Set());
 
   // Dialog states
@@ -56,7 +54,6 @@ export default function ServersPage() {
   const fetchData = async () => {
     try {
       setIsLoading(true);
-      setError(null);
 
       // Fetch servers
       const serversResponse = await getServers();
@@ -65,7 +62,7 @@ export default function ServersPage() {
         setExpandedServers(new Set(serversResponse.data.map((server) => server.id).filter((id) => id !== undefined) as number[]));
       } else {
         console.error("Failed to fetch servers:", serversResponse);
-        setError(serversResponse.error || "Failed to fetch servers data.");
+        toast.error(serversResponse.error || "Failed to fetch servers data.");
       }
 
       // Fetch tools for server association
@@ -75,7 +72,7 @@ export default function ServersPage() {
       }
     } catch (error) {
       console.error("Error fetching data:", error);
-      setError("An error occurred while fetching data.");
+      toast.error("An error occurred while fetching data.");
     } finally {
       setIsLoading(false);
     }
@@ -98,25 +95,20 @@ export default function ServersPage() {
   const handleRefreshServer = async (serverId: number) => {
     try {
       setIsRefreshing(serverId);
-      setError(null);
 
       const response = await refreshServerTools(serverId);
 
-      if (response.status) {
-        setSuccess(response.message || "Server refreshed successfully");
+      if (response) {
+        toast.success("Tools refreshed successfully");
         fetchData();
       } else {
-        setError(response.message || "Failed to refresh server");
+        toast.error("Failed to refresh tools");
       }
     } catch (error) {
       console.error("Error refreshing server:", error);
-      setError(`Failed to refresh server: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error("Failed to refresh server");
     } finally {
       setIsRefreshing(null);
-      setTimeout(() => {
-        setError(null);
-        setSuccess(null);
-      }, 5000);
     }
   };
 
@@ -124,34 +116,28 @@ export default function ServersPage() {
   const handleDeleteServer = async (serverId: number) => {
     try {
       setIsLoading(true);
-      setError(null);
 
       const response = await deleteServer(serverId);
 
       if (response.success) {
-        setSuccess("Server deleted successfully");
+        toast.success("Server deleted successfully");
         fetchData();
       } else {
-        setError(response.error || "Failed to delete server");
+        toast.error(response.error || "Failed to delete server");
       }
     } catch (error) {
       console.error("Error deleting server:", error);
-      setError(`Failed to delete server: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error("Failed to delete server");
     } finally {
       setIsLoading(false);
       setShowConfirmDelete(null);
-      setTimeout(() => {
-        setError(null);
-        setSuccess(null);
-      }, 5000);
     }
   };
 
   // Handle adding a new server
-  const handleAddServer = async (server: MCPServerConfig) => {
+  const handleAddServer = async (server: Component<ToolServerConfig>) => {
     try {
       setIsLoading(true);
-      setError(null);
 
       const response = await createServer(server);
 
@@ -159,18 +145,14 @@ export default function ServersPage() {
         throw new Error(response.error || "Failed to add server");
       }
 
-      setSuccess("Server added successfully");
+      toast.success("Server added successfully");
       setShowAddServer(false);
       fetchData();
     } catch (error) {
       console.error("Error adding server:", error);
-      setError(`Failed to add server: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(`Failed to add server: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setIsLoading(false);
-      setTimeout(() => {
-        setError(null);
-        setSuccess(null);
-      }, 5000);
     }
   };
 
@@ -186,7 +168,7 @@ export default function ServersPage() {
     <div className="mt-12 mx-auto max-w-6xl px-6">
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold">MCP Servers</h1>
+          <h1 className="text-2xl font-bold">Tool Servers</h1>
           <Link href="/tools" className="text-blue-600 hover:text-blue-800 text-sm">
             View Tools Library →
           </Link>
@@ -198,23 +180,6 @@ export default function ServersPage() {
           </Button>
         )}
       </div>
-
-      {/* Alerts */}
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert variant="default" className="mb-6 bg-green-50 border-green-200 text-green-800">
-          <AlertCircle className="h-4 w-4 text-green-500" />
-          <AlertTitle>Success</AlertTitle>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {isLoading ? (
         <div className="flex flex-col items-center justify-center h-[200px] border rounded-lg bg-secondary/5">
@@ -235,11 +200,11 @@ export default function ServersPage() {
                     <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleServerExpansion(serverId)}>
                       {expandedServers.has(serverId) ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                       <div className="flex items-center gap-2">
-                        {isCommandMcpTool(server) ? <Terminal className="h-5 w-5 text-violet-500" /> : <Globe className="h-5 w-5 text-green-500" />}
+                        <Globe className="h-5 w-5 text-green-500" />
                         <div>
                           <div className="font-medium">{server.component.label || server.component.provider}</div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
-                            <span className="font-mono">{server.component.config.name}</span>
+                            <span className="font-mono">{server.component.label}</span>
                             <Badge variant="outline" className="bg-blue-50 text-blue-700">
                               {(toolsByServer[serverId] || []).length} tool{(toolsByServer[serverId] || []).length !== 1 ? "s" : ""}
                             </Badge>
@@ -328,7 +293,7 @@ export default function ServersPage() {
         <div className="flex flex-col items-center justify-center h-[300px] text-center p-4 border rounded-lg bg-secondary/5">
           <Server className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
           <h3 className="font-medium text-lg">No servers connected</h3>
-          <p className="text-muted-foreground mt-1 mb-4">Add an MCP server to discover and use tools.</p>
+          <p className="text-muted-foreground mt-1 mb-4">Add a tool server to discover and use tools.</p>
           <Button onClick={() => setShowAddServer(true)} className="bg-blue-500 hover:bg-blue-600 text-white">
             <Plus className="h-4 w-4 mr-2" />
             Add Server

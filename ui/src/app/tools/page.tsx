@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
-import { MCPServer, Tool } from "@/types/datamodel";
+import { ToolServer, Tool } from "@/types/datamodel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getTools } from "../actions/tools";
@@ -37,7 +37,7 @@ const getToolCategory = (tool: Tool): string => {
 export default function ToolsPage() {
   // State for tools
   const [tools, setTools] = useState<Tool[]>([]);
-  const [servers, setServers] = useState<MCPServer[]>([]);
+  const [servers, setServers] = useState<ToolServer[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +130,7 @@ export default function ToolsPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Tools Library</h1>
         <Link href="/servers" className="text-blue-600 hover:text-blue-800 text-sm">
-          Manage MCP Servers →
+          Manage tool servers →
         </Link>
       </div>
 
@@ -221,7 +221,7 @@ export default function ToolsPage() {
                                 <div className="text-sm text-muted-foreground mt-1">{getToolDescription(tool.component)}</div>
                                 <div className="text-xs text-muted-foreground mt-2 flex items-center">
                                   <Server className="h-3 w-3 mr-1" />
-                                  {servers.find((s) => s.id === tool.server_id)?.component.config.name || "Built-in tool"}
+                                  {servers.find((s) => s.id === tool.server_id)?.component.label || "Built-in tool"}
                                 </div>
                               </div>
                             </div>

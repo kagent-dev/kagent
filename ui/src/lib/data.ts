@@ -1,4 +1,4 @@
-import { Component, MCPServer, MCPToolConfig, ToolConfig } from "@/types/datamodel";
+import { Component, MCPToolConfig, ToolConfig } from "@/types/datamodel";
 import type { Model } from "./types";
 
 // TODO: Could also come from the backend
@@ -17,11 +17,6 @@ export const isMcpTool = (content: unknown): content is MCPToolConfig => {
   if (!server_params || typeof server_params !== "object" || !tool || typeof tool !== "object") return false;
 
   return true;
-};
-
-export const isCommandMcpTool = (mcpServer: MCPServer): boolean => {
-  const mcpServerConfig = mcpServer.component.config;
-  return "command" in mcpServerConfig.server_params;
 };
 
 // All MCP tools have the same label & description, so the actual tool name is stored in the config

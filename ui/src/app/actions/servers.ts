@@ -1,18 +1,18 @@
-import { MCPServer, MCPServerConfig } from "@/types/datamodel";
+import { Component, ToolServer, ToolServerConfig } from "@/types/datamodel";
 import { fetchApi, getCurrentUserId } from "./utils";
 import { BaseResponse } from "@/lib/types";
 
 /**
- * Fetches all MCP servers
+ * Fetches all tool servers
  * @returns Promise with server data
  */
-export async function getServers(): Promise<BaseResponse<MCPServer[]>> {
-  const response = await fetchApi<MCPServer[]>("/mcp");
+export async function getServers(): Promise<BaseResponse<ToolServer[]>> {
+  const response = await fetchApi<ToolServer[]>("/toolservers");
 
   if (!response) {
     return {
       success: false,
-      error: "Failed to get MCP servers. Please try again.",
+      error: "Failed to get tool servers. Please try again.",
       data: [],
     };
   }
@@ -29,21 +29,11 @@ export async function getServers(): Promise<BaseResponse<MCPServer[]>> {
  * @returns Promise with refresh result
  */
 export async function refreshServerTools(serverId: number) {
-  const response = await fetchApi(`/mcp/${serverId}/refresh`, {
+  const response = await fetchApi(`/toolservers/${serverId}/refresh`, {
     method: "POST",
   });
 
-  if (!response) {
-    return {
-      status: false,
-      message: "Failed to refresh server. Please try again.",
-    };
-  }
-
-  return {
-    status: true,
-    message: "Server tools refreshed successfully.",
-  };
+  return response;
 }
 
 /**
@@ -53,7 +43,7 @@ export async function refreshServerTools(serverId: number) {
  */
 export async function deleteServer(serverId: number) {
   try {
-    await fetchApi(`/mcp/${serverId}`, {
+    await fetchApi(`/toolservers/${serverId}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
@@ -62,8 +52,8 @@ export async function deleteServer(serverId: number) {
 
     return { success: true };
   } catch (error) {
-    console.error("Error deleting MCP server:", error);
-    return { success: false, error: "Failed to delete MCP server. Please try again." };
+    console.error("Error deleting tool server:", error);
+    return { success: false, error: "Failed to delete tool server. Please try again." };
   }
 }
 
@@ -72,18 +62,16 @@ export async function deleteServer(serverId: number) {
  * @param serverData Server data to create
  * @returns Promise with create result
  */
-export async function createServer(serverData: MCPServerConfig): Promise<BaseResponse<MCPServer>> {
+export async function createServer(serverData: Component<ToolServerConfig>): Promise<BaseResponse<ToolServer>> {
   const userId = await getCurrentUserId();
   const data = {
     user_id: userId,
     component: {
-      config: {
-        ...serverData,
-      },
+      ...serverData,
     },
   };
 
-  const response = await fetchApi<MCPServer>("/mcp", {
+  const response = await fetchApi<ToolServer>("/toolservers", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
