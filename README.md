@@ -58,7 +58,7 @@ Kagent has 4 core components:
   ```
 3. Port-forward the UI: 
   ```bash
-  kubectl port-forward svc/kagent-ui 8080:80
+  kubectl port-forward svc/kagent 8080:80
   ```
 Then open [http://localhost:8080](http://localhost:8080) in your browser.
 
