@@ -46,11 +46,22 @@ Kagent has 4 core components:
 - **Engine**: The engine is a Python application that runs the agents and tools. The engine is built using [Autogen](https://github.com/microsoft/autogen).
 - **CLI**: The CLI is a command line tool that allows you to manage the agents and tools.
 
-## Quick start
+## Quick Start
 
-1. Install helm, and kubectl.
-2. Install the helm chart: `helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent`
-3. Port-forward the UI: `kubectl port-forward svc/kagent-ui 8080:80`
+1. Install prerequisites:
+  - [Helm](https://helm.sh/docs/intro/install/)
+  - [kubectl](https://kubernetes.io/docs/tasks/tools/)
+
+2. Install the kagent Helm chart:
+  ```bash
+  helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent --set openai.apiKey="your-api-key-here"
+  ```
+3. Port-forward the UI: 
+  ```bash
+  kubectl port-forward svc/kagent-ui 8080:80
+  ```
+Then open [http://localhost:8080](http://localhost:8080) in your browser.
+
 
 ## Roadmap
 
