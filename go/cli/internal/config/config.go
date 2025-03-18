@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
@@ -31,12 +32,16 @@ func Init() error {
 	viper.SetConfigFile(configFile)
 	viper.SetConfigType("yaml")
 
+	pflag.StringVar(&configFile, "config", configFile, "config file (default is $HOME/.kagent/config.yaml)")
+
 	// Set default values
 	viper.SetDefault("api_url", "http://localhost:8081/api")
 	viper.SetDefault("ws_url", "ws://localhost:8081/api/ws")
 	viper.SetDefault("user_id", "admin@kagent.dev")
 	viper.SetDefault("output_format", "table")
 	viper.SetDefault("namespace", "kagent")
+
+	viper.MustBindEnv("USER_ID")
 
 	if err := viper.ReadInConfig(); err != nil {
 		// If config file doesn't exist, create it with defaults

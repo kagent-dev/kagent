@@ -12,13 +12,14 @@ interface AgentCardProps {
 export function AgentCard({ team }: AgentCardProps) {
   const agent = getUsersAgentFromTeam(team);
 
+
   return (
     <Link href={`/agents/${team.id}/chat`}>
       <Card className={`transition-colors cursor-pointer hover:border-violet-500`}>
         <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
           <CardTitle className="flex items-center gap-2">
             <KagentLogo className="h-5 w-5" />
-            {agent.label}
+            {agent.label || agent.config.name}
           </CardTitle>
           <DeleteButton teamId={String(team.id)} />
         </CardHeader>

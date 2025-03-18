@@ -15,7 +15,32 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const GlobalUserID = "admin@kagent.dev"
+const (
+	GlobalUserID = "admin@kagent.dev"
+
+	// suffix applied to all system prompts:
+	defaultSystemMessageSuffix = `
+# Instructions
+    - If user question is unclear, ask for clarification before running any tools
+    - Always be helpful and friendly
+    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
+    - Do not delete the original Deployment until the user explicitly confirms that the Rollout is ready to take over production traffic.
+
+
+# Response format:
+    - ALWAYS format your response as Markdown
+    - Your response will include a summary of actions you took and an explanation of the result
+    - If you created any artifacts such as files or resources, you will include those in your response as well`
+)
+
+var (
+	// hard-coded array of tools that require a model client
+	// this is automatically populated from the parent agent's model client
+	toolsProvidersRequiringModelClient = []string{
+		"kagent.tools.prometheus.GeneratePromQLTool",
+		"kagent.tools.k8s.GenerateResourceTool",
+	}
+)
 
 type ApiTranslator interface {
 	TranslateGroupChatForTeam(
@@ -133,8 +158,12 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
 				Model:  modelConfig.Spec.Model,
 				APIKey: makePtr(string(modelApiKey)),
+				// By default, we include usage in the stream
+				// If we aren't streaming this may break, but I think we're good for now
+				StreamOptions: &api.StreamOptions{
+					IncludeUsage: true,
+				},
 			},
-			BaseURL: makePtr("http://host.docker.internal:8089/api/account/profile"),
 		}),
 	}
 	modelContext := &api.Component{
@@ -273,6 +302,9 @@ func (a *apiTranslator) translateTaskAgent(
 	modelContext *api.Component,
 ) (*api.Component, error) {
 	// generate an internal round robin "team" for the society of mind agent
+	meta := agent.ObjectMeta.DeepCopy()
+	// This is important so we don't output this message in the CLI/UI
+	meta.Name = "society-of-mind-team"
 	team := &v1alpha1.Team{
 		ObjectMeta: agent.ObjectMeta,
 		TypeMeta: metav1.TypeMeta{
@@ -323,6 +355,12 @@ func translateAssistantAgent(
 		if err != nil {
 			return nil, err
 		}
+		// special case where we put the model client in the tool config
+		if toolNeedsModelClient(tool.Provider) {
+			if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
+				return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
+			}
+		}
 
 		providerParts := strings.Split(tool.Provider, ".")
 		toolLabel := providerParts[len(providerParts)-1]
@@ -331,19 +369,18 @@ func translateAssistantAgent(
 		if tool.Description != "" {
 			description = makePtr(tool.Description)
 		}
-		tool := &api.Component{
+
+		tools = append(tools, &api.Component{
 			Provider:      tool.Provider,
 			Description:   description,
 			ComponentType: "tool",
 			Version:       makePtr(1),
 			Config:        api.GenericToolConfig(toolConfig),
 			Label:         makePtr(toolLabel),
-		}
-
-		tools = append(tools, tool)
+		})
 	}
 
-	sysMsgPtr := makePtr(agentSpec.SystemMessage)
+	sysMsgPtr := makePtr(agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix)
 	if agentSpec.SystemMessage == "" {
 		sysMsgPtr = nil
 	}
@@ -362,7 +399,8 @@ func translateAssistantAgent(
 			// TODO(ilackarms): convert to non-ptr with omitempty?
 			SystemMessage:         sysMsgPtr,
 			ReflectOnToolUse:      false,
-			ToolCallSummaryFormat: "{result}",
+			ModelClientStream:     true,
+			ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
 		}),
 	}, nil
 }
@@ -439,7 +477,7 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 		}, nil
 	case terminationCondition.TextMessageTermination != nil:
 		return &api.Component{
-			Provider:      "kagent.terminations.TextMessageTermination",
+			Provider:      "autogen_agentchat.conditions.TextMessageTermination",
 			ComponentType: "termination",
 			Version:       makePtr(1),
 			//ComponentVersion: 1,
@@ -497,4 +535,30 @@ func fetchObjKube(ctx context.Context, kube client.Client, obj client.Object, ob
 
 func convertToPythonIdentifier(name string) string {
 	return strings.ReplaceAll(name, "-", "_")
+}
+
+func toolNeedsModelClient(provider string) bool {
+	for _, p := range toolsProvidersRequiringModelClient {
+		if p == provider {
+			return true
+		}
+	}
+	return false
+}
+
+func addModelClientToConfig(
+	modelClient *api.Component,
+	toolConfig *map[string]interface{},
+) error {
+	if *toolConfig == nil {
+		*toolConfig = make(map[string]interface{})
+	}
+
+	cfg, err := modelClient.ToConfig()
+	if err != nil {
+		return err
+	}
+
+	(*toolConfig)["model_client"] = cfg
+	return nil
 }

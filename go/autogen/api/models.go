@@ -22,14 +22,19 @@ type CreateArgumentsConfig struct {
 	User             *string            `json:"user,omitempty"`
 }
 
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
+}
+
 type BaseOpenAIClientConfig struct {
 	// Base OpenAI fields
-	Model             string      `json:"model"`
-	APIKey            *string     `json:"api_key,omitempty"`
-	Timeout           *int        `json:"timeout,omitempty"`
-	MaxRetries        *int        `json:"max_retries,omitempty"`
-	ModelCapabilities interface{} `json:"model_capabilities,omitempty"`
-	ModelInfo         *ModelInfo  `json:"model_info,omitempty"`
+	Model             string         `json:"model"`
+	APIKey            *string        `json:"api_key,omitempty"`
+	Timeout           *int           `json:"timeout,omitempty"`
+	MaxRetries        *int           `json:"max_retries,omitempty"`
+	ModelCapabilities interface{}    `json:"model_capabilities,omitempty"`
+	ModelInfo         *ModelInfo     `json:"model_info,omitempty"`
+	StreamOptions     *StreamOptions `json:"stream_options,omitempty"`
 	CreateArgumentsConfig
 }
 

@@ -1,3 +1,14 @@
+# Development
+
+To understand how to develop for kagent, It's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
+
+When making changes to `kagent`, the most important thing is to figure out which piece of the project is affected by the change, and then make the change in the appropriate folder. Each piece of the project has its own README with more information about how to setup the development environment and run that piece of the project.
+
+- [python](python): Contains the code for the autogen engine.
+- [go](go): Contains the code for the kubernetes controller, and the CLI.
+- [ui](ui): Contains the code for the web UI.
+
+
 ## How to run everything locally
 
 Running outside Kubernetes:
@@ -9,7 +20,7 @@ Running outside Kubernetes:
 uv sync --all-extras
 
 # Run the autogen backend
-uv run autogenstudio ui
+uv run kagent-engine serve
 ```
 
 If you get an error that looks like this:
@@ -46,7 +57,7 @@ export OPENAI_API_KEY=your-openai-api-key
 
 ```shell
 make helm-install
-
+```
 
 To access the UI, port-forward to the app service:
 

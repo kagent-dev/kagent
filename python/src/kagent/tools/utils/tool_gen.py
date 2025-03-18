@@ -85,7 +85,17 @@ def create_dummy_args(model_fields: dict[str, FieldInfo]):
             dummy_args[field_name] = next(iter(field_type))
         elif inspect.isclass(field_type) and issubclass(field_type, BaseModel):
             # For nested Pydantic models, recursively create dummy values
-            if hasattr(field_type, "model_fields"):
+            if field_info.annotation is not None and field_info.annotation.__name__ == "ComponentModel":
+                dummy_args[field_name] = {
+                    "provider": "<YourProviderHere",
+                    "component_version": 1,
+                    "version": 1,
+                    "component_type": "model",
+                    "description": "A description of the model",
+                    "label": "<YourLabelHere>",
+                    "config": {},
+                }
+            elif hasattr(field_type, "model_fields"):
                 nested_args = create_dummy_args(field_type.model_fields)
                 dummy_args[field_name] = field_type(**nested_args)
             else:
@@ -214,6 +224,8 @@ def main(args=None) -> None:
             all_config.extend(tools)
         except Exception as e:
             logging.error(f"Error processing directory {dir_name}: {e}")
+            # This was causing docker build to silently not fail
+            raise e
 
     # Write to the output file
     with open(file_path, "w") as f:

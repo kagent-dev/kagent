@@ -1,6 +1,19 @@
-# kagent
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kagent-dev/kagent/main/img/icon-dark.svg" alt="kagent" width="400">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kagent-dev/kagent/main/img/icon-light.svg" alt="kagent" width="400">
+    <img alt="kagent" src="https://raw.githubusercontent.com/kagent-dev/kagent/main/img/icon-light.svg">
+  </picture>
+</div>
 
-kagent is a kubernetes native framework for building AI agents. Kubernets is the most popular orchestration platform for running workloads, and kagent makes it easy to build, deploy and manage AI agents in kubernetes. The kagent framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
+
+---
+
+**kagent** is a kubernetes native framework for building AI agents. Kubernetes is the most popular orchestration platform for running workloads, and **kagent** makes it easy to build, deploy and manage AI agents in kubernetes. The **kagent** framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
+
+<div align="center">
+  <img src="img/hero.png" alt="Autogen Framework" width="500">
+</div>
 
 ## Core Concepts
 
@@ -22,19 +35,33 @@ All of the above are defined as kubernetes custom resources, which makes them ea
 
 The kagent framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
-Kagent has 3 core components:
+<div align="center">
+  <img src="img/arch.png" alt="Autogen Framework" width="500">
+</div>
+
+Kagent has 4 core components:
 
 - **Controller**: The controller is a kubernetes controller that watches the kagent custom resources and creates the necessary resources to run the agents.
 - **UI**: The UI is a web UI that allows you to manage the agents and tools.
 - **Engine**: The engine is a Python application that runs the agents and tools. The engine is built using [Autogen](https://github.com/microsoft/autogen).
 - **CLI**: The CLI is a command line tool that allows you to manage the agents and tools.
 
+## Quick Start
 
-## Quick start
+1. Install prerequisites:
+  - [Helm](https://helm.sh/docs/intro/install/)
+  - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 
-1. Install helm, and kubectl.
-2. Install the helm chart: `helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent`
-3. Port-forward the UI: `kubectl port-forward svc/kagent-ui 8080:80`
+2. Install the kagent Helm chart:
+  ```bash
+  helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent --set openai.apiKey="your-api-key-here"
+  ```
+3. Port-forward the UI: 
+  ```bash
+  kubectl port-forward svc/kagent-ui 8080:80
+  ```
+Then open [http://localhost:8080](http://localhost:8080) in your browser.
+
 
 ## Roadmap
 
@@ -49,14 +76,13 @@ Kagent has 3 core components:
   - [ ] Debugging/Time travel
   - [ ] Guided Learning
 - [ ] [Runtime/Engine improvements:](https://github.com/kagent-dev/kagent/issues/132)
-  - [ ] Mutli-Agent support
+  - [ ] Multi-Agent support
   - [ ] True Graph Execution
   - [ ] Workflows
   - [ ] Multiple LLM Provider support
 - [ ] [Tools:](https://github.com/kagent-dev/kagent/issues/133)
   - [ ] Tool Discovery
   - [ ] Expose built-in tools as MCP server
-
 
 ## Local development
 

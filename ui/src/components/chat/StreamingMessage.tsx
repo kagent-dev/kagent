@@ -13,7 +13,7 @@ export default function StreamingMessage({ message }: StreamingMessageProps) {
   const { content: messageContent, source } = message.config;
 
   // TODO: Decide at some point what we want to filter out
-  if (source === "system" || source === "kagent_user" || source === "society_of_mind_agent") {
+  if (source === "system" || source === "user_proxy" || source === "society_of_mind_agent") {
     return null;
   }
 

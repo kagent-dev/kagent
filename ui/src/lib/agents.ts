@@ -103,9 +103,9 @@ export const createUserProxyAgent = (): Component<UserProxyAgentConfig> => {
     version: 1,
     component_version: 1,
     description: "An agent that represents a user.",
-    label: "kagent_user",
+    label: "user_proxy",
     config: {
-      name: "kagent_user",
+      name: "user_proxy",
       description: "Human user",
     },
   };
@@ -142,7 +142,7 @@ export const createInnerAssistantAgent = (formData: AgentFormData, modelClient: 
  */
 export const createInnerTeam = (assistantAgent: Component<AssistantAgentConfig>, modelClient: Component<ModelConfig>): Component<RoundRobinGroupChatConfig> => {
   const textTermination: Component<TextMessageTerminationConfig> = {
-    provider: "kagent.terminations.TextMessageTermination",
+    provider: "autogen_agentchat.conditions.TextMessageTermination",
     component_type: "termination",
     version: 1,
     component_version: 1,

@@ -101,8 +101,8 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 
-	flag.StringVar(&autogenStudioBaseURL, "autogen-base-url", "http://127.0.0.1:80/api", "The base url of the Autogen Studio server.")
-	flag.StringVar(&autogenStudioWsURL, "autogen-ws-url", "ws://127.0.0.1:80/api/ws", "The base url of the Autogen Studio websocket server.")
+	flag.StringVar(&autogenStudioBaseURL, "autogen-base-url", "http://127.0.0.1:8081/api", "The base url of the Autogen Studio server.")
+	flag.StringVar(&autogenStudioWsURL, "autogen-ws-url", "ws://127.0.0.1:8081/api/ws", "The base url of the Autogen Studio websocket server.")
 
 	flag.StringVar(&defaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
 	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", podNamespace, "The namespace of the default model config.")

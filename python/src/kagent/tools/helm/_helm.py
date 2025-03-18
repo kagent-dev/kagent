@@ -3,7 +3,7 @@ from typing import Annotated, Optional
 from autogen_core.tools import FunctionTool
 
 from .._utils import create_typed_fn_tool
-from ..common.shell import run_command
+from ..common import run_command
 
 
 def _helm_list_releases(

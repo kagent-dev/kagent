@@ -23,6 +23,12 @@ func GetAgentCmd(c *ishell.Context) {
 			c.Printf("Failed to get agents: %v\n", err)
 			return
 		}
+
+		if len(agentList) == 0 {
+			c.Println("No agents found")
+			return
+		}
+
 		if err := printTeams(agentList); err != nil {
 			c.Printf("Failed to print agents: %v\n", err)
 			return
@@ -49,6 +55,11 @@ func GetRunCmd(c *ishell.Context) {
 		runList, err := client.ListRuns(cfg.UserID)
 		if err != nil {
 			c.Printf("Failed to get runs: %v\n", err)
+			return
+		}
+
+		if len(runList) == 0 {
+			c.Println("No runs found")
 			return
 		}
 
@@ -80,6 +91,12 @@ func GetSessionCmd(c *ishell.Context) {
 			c.Printf("Failed to get sessions: %v\n", err)
 			return
 		}
+
+		if len(sessionList) == 0 {
+			c.Println("No sessions found")
+			return
+		}
+
 		if err := printSessions(sessionList); err != nil {
 			c.Printf("Failed to print sessions: %v\n", err)
 			return
@@ -100,6 +117,41 @@ func GetSessionCmd(c *ishell.Context) {
 	}
 }
 
+func GetToolCmd(c *ishell.Context) {
+	var resourceName string
+	if len(c.Args) > 0 {
+		resourceName = c.Args[0]
+	}
+	client := config.GetClient(c)
+	cfg := config.GetCfg(c)
+	if resourceName == "" {
+		toolList, err := client.ListTools(cfg.UserID)
+		if err != nil {
+			c.Printf("Failed to get tools: %v\n", err)
+			return
+		}
+		if err := printTools(toolList); err != nil {
+			c.Printf("Failed to print tools: %v\n", err)
+			return
+		}
+	}
+}
+
+func printTools(tools []*autogen_client.Tool) error {
+	headers := []string{"#", "ID", "PROVIDER", "LABEL", "CREATED"}
+	rows := make([][]string, len(tools))
+	for i, tool := range tools {
+		rows[i] = []string{
+			strconv.Itoa(i),
+			strconv.Itoa(*tool.Id),
+			tool.Component.Provider,
+			*tool.Component.Label,
+			*tool.CreatedAt,
+		}
+	}
+
+	return printOutput(tools, headers, rows)
+}
 func printRuns(runs []*autogen_client.Run) error {
 	headers := []string{"#", "ID", "CONTENT", "MESSAGES", "STATUS", "CREATED"}
 	rows := make([][]string, len(runs))

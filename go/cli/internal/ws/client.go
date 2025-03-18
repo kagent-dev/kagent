@@ -41,7 +41,7 @@ type Client struct {
 }
 
 // NewClient creates a new WebSocket client and establishes connection
-func NewClient(wsURL string, runID string, config Config) (*Client, error) {
+func NewClient(wsURL string, runID int, config Config) (*Client, error) {
 	// Set the required headers for the WebSocket connection
 	headers := http.Header{}
 	headers.Add("Origin", config.Origin)
@@ -52,7 +52,7 @@ func NewClient(wsURL string, runID string, config Config) (*Client, error) {
 		EnableCompression: true,
 	}
 
-	conn, _, err := dialer.Dial(wsURL+"/runs/"+runID, headers)
+	conn, _, err := dialer.Dial(fmt.Sprintf("%s/runs/%d", wsURL, runID), headers)
 	if err != nil {
 		return nil, fmt.Errorf("websocket connection failed: %v", err)
 	}

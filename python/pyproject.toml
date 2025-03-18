@@ -19,8 +19,13 @@ dependencies = [
   "pyyaml>=6.0.2",
   "mcp>=1.2.0",
   "sqlite-vec>=0.1.0",
-  "typer",
+  "typer>=0.15.2",
   "numpy>=2.2.3",
+  "opentelemetry-api>=1.30.0",
+  "opentelemetry-sdk>=1.30.0",
+  "opentelemetry-exporter-otlp-proto-grpc>=1.30.0",
+  "opentelemetry-instrumentation-openai>= 0.38.0",
+  "opentelemetry-instrumentation-httpx >= 0.51.0",
 ]
 
 [project.optional-dependencies]
@@ -37,7 +42,7 @@ lint = [
 ]
 
 [project.scripts]
-kagent = "kagent.cli:run"
+kagent-engine = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]

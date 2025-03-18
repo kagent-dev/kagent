@@ -1,10 +1,4 @@
-# Image configuration
-DOCKER_REGISTRY ?= ghcr.io
-DOCKER_REPO ?= kagent-dev/kagent
-IMAGE_NAME ?= controller
 VERSION ?= $(shell git describe --tags --always --dirty)
-IMAGE_TAG ?= $(VERSION)
-IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(IMAGE_NAME):$(IMAGE_TAG)
 
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
@@ -19,31 +13,6 @@ GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
-
-# Setting SHELL to bash allows bash commands to be executed by recipes.
-# Options are set to exit when a recipe line exits non-zero or a piped command fails.
-SHELL = /usr/bin/env bash -o pipefail
-.SHELLFLAGS = -ec
-
-.PHONY: all
-all: build
-
-##@ General
-
-# The help target prints out all targets with their descriptions organized
-# beneath their categories. The categories are represented by '##@' and the
-# target descriptions by '##'. The awk command is responsible for reading the
-# entire set of makefiles included in this invocation, looking for lines of the
-# file as xyz: ## something, and then pretty-format the target and help. Then,
-# if there's a line with ##@ something, that gets pretty-printed as a category.
-# More info on the usage of ANSI control characters for terminal formatting:
-# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
-# More info on the awk command:
-# http://linuxcommand.org/lc3_adv_awk.php
-
-.PHONY: help
-help: ## Display this help.
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 ##@ Development
 
@@ -63,26 +32,6 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-.PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
-
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# Prometheus and CertManager are installed by default; skip with:
-# - PROMETHEUS_INSTALL_SKIP=true
-# - CERT_MANAGER_INSTALL_SKIP=true
-.PHONY: test-e2e
-test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	@command -v kind >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
-	@kind get clusters | grep -q 'kind' || { \
-		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
-		exit 1; \
-	}
-	go test ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -101,35 +50,35 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 bin/kagent-linux-amd64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-amd64 ./cli/cmd/kagent
 
-bin/kagent-linux-amd64-sha256: bin/kagent-linux-amd64
+bin/kagent-linux-amd64.sha256: bin/kagent-linux-amd64
 	sha256sum bin/kagent-linux-amd64 > bin/kagent-linux-amd64.sha256
 
 bin/kagent-linux-arm64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-arm64 ./cli/cmd/kagent
 
-bin/kagent-linux-arm64-sha256: bin/kagent-linux-arm64
+bin/kagent-linux-arm64.sha256: bin/kagent-linux-arm64
 	sha256sum bin/kagent-linux-arm64 > bin/kagent-linux-arm64.sha256
 
 bin/kagent-darwin-amd64:
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-amd64 ./cli/cmd/kagent
 
-bin/kagent-darwin-amd64-sha256: bin/kagent-darwin-amd64
+bin/kagent-darwin-amd64.sha256: bin/kagent-darwin-amd64
 	sha256sum bin/kagent-darwin-amd64 > bin/kagent-darwin-amd64.sha256
 
 bin/kagent-darwin-arm64:
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-arm64 ./cli/cmd/kagent
 
-bin/kagent-darwin-arm64-sha256: bin/kagent-darwin-arm64
+bin/kagent-darwin-arm64.sha256: bin/kagent-darwin-arm64
 	sha256sum bin/kagent-darwin-arm64 > bin/kagent-darwin-arm64.sha256
 
-bin/kagent-windows-amd64:
+bin/kagent-windows-amd64.exe:
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-windows-amd64.exe ./cli/cmd/kagent
 
-bin/kagent-windows-amd64-sha256: bin/kagent-windows-amd64
-	sha256sum bin/kagent-windows-amd64.exe > bin/kagent-windows-amd64.sha256
+bin/kagent-windows-amd64.exe.sha256: bin/kagent-windows-amd64.exe
+	sha256sum bin/kagent-windows-amd64.exe > bin/kagent-windows-amd64.exe.sha256
 
 .PHONY: build
-build: bin/kagent-linux-amd64-sha256 bin/kagent-linux-arm64-sha256 bin/kagent-darwin-amd64-sha256 bin/kagent-darwin-arm64-sha256 bin/kagent-windows-amd64-sha256
+build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-darwin-amd64.sha256 bin/kagent-darwin-arm64.sha256 bin/kagent-windows-amd64.exe.sha256
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

@@ -5,7 +5,7 @@ from autogen_core import CancellationToken, Component
 from autogen_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from ..common.llm_tool import LLMCallError, LLMTool, LLMToolConfig, LLMToolInput
+from ..common import LLMCallError, LLMTool, LLMToolConfig, LLMToolInput
 from ._prompt_registry import get_system_prompt
 from ._resource_types import ResourceTypes
 
@@ -60,7 +60,7 @@ class GenerateResourceTool(BaseTool, Component[GenerateResourceToolConfig]):
         self,
         policy_description: str,
         resource_type: ResourceTypes,
-        cancellation_token: Optional[CancellationToken] = None,
+        cancellation_token: CancellationToken,
     ) -> str:
         """
         Asynchronously generates a resource YAML based on the

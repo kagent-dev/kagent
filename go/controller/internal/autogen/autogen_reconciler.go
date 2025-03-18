@@ -3,6 +3,7 @@ package autogen
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -31,6 +32,7 @@ type autogenReconciler struct {
 	autogenClient *autogen_client.Client
 
 	defaultModelConfig types.NamespacedName
+	upsertLock         sync.Mutex
 }
 
 func NewAutogenReconciler(
@@ -72,16 +74,18 @@ func (a *autogenReconciler) ReconcileAutogenAgent(ctx context.Context, req ctrl.
 
 func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha1.Agent, err error) error {
 	var (
-		status metav1.ConditionStatus
-		reason string
+		status  metav1.ConditionStatus
+		message string
+		reason  string
 	)
 	if err != nil {
 		status = metav1.ConditionFalse
-		reason = err.Error()
+		message = err.Error()
+		reason = "AgentReconcileFailed"
 		reconcileLog.Error(err, "failed to reconcile agent", "agent", agent)
 	} else {
 		status = metav1.ConditionTrue
-		reason = ""
+		reason = "AgentReconciled"
 	}
 	agent.Status = v1alpha1.AgentStatus{
 		ObservedGeneration: agent.Generation,
@@ -90,6 +94,7 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 			Status:             status,
 			LastTransitionTime: metav1.Now(),
 			Reason:             reason,
+			Message:            message,
 		}},
 	}
 
@@ -129,16 +134,18 @@ func (a *autogenReconciler) ReconcileAutogenModelConfig(ctx context.Context, req
 
 func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha1.ModelConfig, err error) error {
 	var (
-		status metav1.ConditionStatus
-		reason string
+		status  metav1.ConditionStatus
+		message string
+		reason  string
 	)
 	if err != nil {
 		status = metav1.ConditionFalse
-		reason = err.Error()
+		message = err.Error()
+		reason = "ModelConfigReconcileFailed"
 		reconcileLog.Error(err, "failed to reconcile model config", "modelConfig", modelConfig)
 	} else {
 		status = metav1.ConditionTrue
-		reason = ""
+		reason = "ModelConfigReconciled"
 	}
 	modelConfig.Status = v1alpha1.ModelConfigStatus{
 		ObservedGeneration: modelConfig.Generation,
@@ -147,6 +154,7 @@ func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, mode
 			Status:             status,
 			LastTransitionTime: metav1.Now(),
 			Reason:             reason,
+			Message:            message,
 		}},
 	}
 
@@ -168,16 +176,18 @@ func (a *autogenReconciler) ReconcileAutogenTeam(ctx context.Context, req ctrl.R
 
 func (a *autogenReconciler) reconcileTeamStatus(ctx context.Context, team *v1alpha1.Team, err error) error {
 	var (
-		status metav1.ConditionStatus
-		reason string
+		status  metav1.ConditionStatus
+		message string
+		reason  string
 	)
 	if err != nil {
 		status = metav1.ConditionFalse
-		reason = err.Error()
+		message = err.Error()
 		reconcileLog.Error(err, "failed to reconcile team", "team", team)
+		reason = "TeamReconcileFailed"
 	} else {
 		status = metav1.ConditionTrue
-		reason = ""
+		reason = "TeamReconciled"
 	}
 	team.Status = v1alpha1.TeamStatus{
 		ObservedGeneration: team.Generation,
@@ -186,6 +196,7 @@ func (a *autogenReconciler) reconcileTeamStatus(ctx context.Context, team *v1alp
 			Status:             status,
 			LastTransitionTime: metav1.Now(),
 			Reason:             reason,
+			Message:            message,
 		}},
 	}
 
@@ -257,6 +268,9 @@ func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1al
 }
 
 func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
+	// lock to prevent races
+	a.upsertLock.Lock()
+	defer a.upsertLock.Unlock()
 	// validate the team
 	req := autogen_client.ValidationRequest{
 		Component: team.Component,
@@ -279,6 +293,7 @@ func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
 		if err != nil {
 			return fmt.Errorf("failed to delete existing team %s: %v", *team.Component.Label, err)
 		}
+		team.Id = existingTeam.Id
 	}
 
 	return a.autogenClient.CreateTeam(team)

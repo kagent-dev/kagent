@@ -32,7 +32,7 @@ See the [DEVELOPMENT.md](DEVELOPMENT.md) file for more information.
 #### Coding Standards
 
 - **Go Code**:
-  - Follow the [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
+  - Follow the [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments)
   - Run `make lint` before submitting your changes
   - Ensure all tests pass with `make test`
   - Add tests for new functionality
@@ -120,7 +120,7 @@ Only project maintainers can create releases. The process is:
 
 ### Community
 
-- Join our [Discord server](https://discord.gg/kagent) for discussions
+- Join our [Discord server](https://discord.gg/Fu3k65f2k3) for discussions
 - Participate in community calls (scheduled on our website)
 - Help answer questions in GitHub issues
 - Review pull requests from other contributors

@@ -4,7 +4,7 @@ from autogen_core import CancellationToken, Component
 from autogen_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from ..common.llm_tool import LLMCallError, LLMTool, LLMToolConfig, LLMToolInput
+from ..common import LLMCallError, LLMTool, LLMToolConfig, LLMToolInput
 
 PROMQL_PROMPT = """
 # PromQL Query Generator
@@ -197,7 +197,7 @@ class GeneratePromQLTool(BaseTool, Component[GeneratePromQLToolConfig]):
     async def _generate_query(
         self,
         query_description: str,
-        cancellation_token: Optional[CancellationToken] = None,
+        cancellation_token: CancellationToken,
     ) -> str:
         """
         Asynchronously generates a PromQL query based on the provided query description.
@@ -215,7 +215,7 @@ class GeneratePromQLTool(BaseTool, Component[GeneratePromQLToolConfig]):
             cancellation_token=cancellation_token,
         )
 
-    async def run(self, input: GeneratePromQLToolInput, cancellation_token: Optional[CancellationToken] = None) -> str:
+    async def run(self, args: GeneratePromQLToolInput, cancellation_token: CancellationToken) -> str:
         """
         Run the GeneratePromQLTool with the provided input.
 
@@ -223,7 +223,7 @@ class GeneratePromQLTool(BaseTool, Component[GeneratePromQLToolConfig]):
            input (GeneratePromQLToolInput): The input for the tool.
            cancellation_token: Token to signal cancellation.
         """
-        return await self._generate_query(input.query_description, cancellation_token=cancellation_token)
+        return await self._generate_query(args.query_description, cancellation_token=cancellation_token)
 
     def _to_config(self) -> GeneratePromQLToolConfig:
         return self.config

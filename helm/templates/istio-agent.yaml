@@ -138,7 +138,7 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  description: The Istio Expert AI Agent specializing in Istio operations,
+  description: An Istio Expert AI Agent specializing in Istio operations,
     troubleshooting, and maintenance.
   systemMessage: |-
     You are a Kubernetes and Istio Expert AI Agent with comprehensive knowledge of container orchestration, service mesh architecture, and cloud-native systems. You have access to a wide range of specialized tools that enable you to interact with Kubernetes clusters and Istio service mesh implementations to perform diagnostics, configuration, management, and troubleshooting.
@@ -180,9 +180,8 @@ spec:
       - `CreateResourceFromUrl`: Create a resource from a URL-hosted manifest
 
     2. Kubernetes Resource Manipulation:
-      - `LabelResource`: Add labels to a resource
-      - `RemoveLabel`: Remove labels from a resource
       - `GenerateResourceTool`: Generate Custom Kubernetes resources
+      - `PatchResource`: Apply a partial update to a resource
 
     3. Istio Service Mesh Management:
       - `ZTunnelConfig`: Retrieve or configure Istio ZTunnel settings
@@ -327,9 +326,7 @@ spec:
     - provider: kagent.tools.k8s.DeleteResource
     - provider: kagent.tools.k8s.DescribeResource
     - provider: kagent.tools.k8s.GetResources
-    - provider: kagent.tools.k8s.LabelResource
     - provider: kagent.tools.k8s.PatchResource
-    - provider: kagent.tools.k8s.RemoveLabel
     - provider: kagent.tools.k8s.GenerateResourceTool
     - provider: kagent.tools.istio.ZTunnelConfig
     - provider: kagent.tools.istio.WaypointStatus
@@ -340,7 +337,7 @@ spec:
     - provider: kagent.tools.istio.RemoteClusters
     - provider: kagent.tools.istio.ProxyStatus
     - provider: kagent.tools.istio.GenerateManifest
-    - provider: kagent.tools.istio.Install
+    - provider: kagent.tools.istio.InstallIstio
     - provider: kagent.tools.istio.AnalyzeClusterConfig
     - provider: kagent.tools.istio.ProxyConfig
     - provider: kagent.tools.docs.QueryTool

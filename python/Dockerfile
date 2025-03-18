@@ -16,6 +16,11 @@ RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/s
     && chmod +x kubectl \
     && mv kubectl /usr/local/bin/
 
+# Install kubectl argo plugin
+RUN curl -LO https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-linux-amd64 \
+    && chmod +x ./kubectl-argo-rollouts-linux-amd64 \
+    && mv ./kubectl-argo-rollouts-linux-amd64 /usr/local/bin/kubectl-argo-rollouts
+
 # Install Istio
 RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.25.0 TARGET_ARCH=$TARGETARCH sh - \
     && mv istio-1.25.0/bin/istioctl /usr/local/bin/istioctl \
@@ -68,15 +73,14 @@ WORKDIR /app/python
 COPY pyproject.toml .
 COPY .python-version .
 COPY uv.lock .
-COPY src src
 COPY README.md .
-RUN uv sync --frozen && \
-    chown -R python:pythongroup /app/python
+RUN uv sync --frozen
+COPY src src
+RUN chown -R python:pythongroup /app/python
 
 # Generate tools and agents
 RUN mkdir -p /root/.autogenstudio/configs
 RUN uv run tool_gen -o /root/.autogenstudio/configs
-COPY agents/*.json /root/.autogenstudio/configs
 
 # Ensure correct permissions
 RUN chown -R python:pythongroup /app/python && \
@@ -90,4 +94,4 @@ EXPOSE 8081
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
 LABEL org.opencontainers.image.description="Kagent app is the apiserver for running agents."
 
-CMD ["uv", "run", "autogenstudio", "ui", "--host", "0.0.0.0", "--port", "8081"]
+CMD ["uv", "run", "kagent-engine", "serve", "--host", "0.0.0.0", "--port", "8081"]
