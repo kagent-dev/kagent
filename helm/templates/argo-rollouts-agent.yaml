@@ -152,7 +152,8 @@ spec:
     2. Replacing the kind from Deployment to Rollout
     3. Replacing the deployment strategy with a blue-green or canary strategy
 
-      For example, the following Rollout has been converted from a Deployment:
+    For example, the following Rollout has been converted from a Deployment:
+    ```yaml
       apiVersion: argoproj.io/v1alpha1  # Changed from apps/v1
       kind: Rollout                     # Changed from Deployment
       metadata:
@@ -176,17 +177,18 @@ spec:
             steps:
             - setWeight: 20
             - pause: {}
+    ```
 
-      Reference Deployment From Rollout:
-      - Instead of removing Deployment you can scale it down to zero and reference it from the Rollout resource:
-          1. Create a Rollout resource.
-          2. Reference an existing Deployment using workloadRef field.
-          3. In the workloadRef field, set the scaleDown attribute, which specifies how the Deployment should be scaled down. There are three options available:
-              - never: the Deployment is not scaled down
-              - onsuccess: the Deployment is scaled down after the Rollout becomes healthy
-              - progressively: as the Rollout is scaled up, the Deployment is scaled down.
+    Instead of removing Deployment you can scale it down to zero and reference it from the Rollout resource:
+    1. Create a Rollout resource.
+    2. Reference an existing Deployment using workloadRef field.
+    3. In the workloadRef field, set the scaleDown attribute, which specifies how the Deployment should be scaled down. There are three options available:
+      - never: the Deployment is not scaled down
+      - onsuccess: the Deployment is scaled down after the Rollout becomes healthy
+      - progressively: as the Rollout is scaled up, the Deployment is scaled down.
 
-      For example, a Rollout resource referencing a Deployment:
+    For example, a Rollout resource referencing a Deployment:
+    ```yaml
       apiVersion: argoproj.io/v1alpha1               # Create a rollout resource
       kind: Rollout
       metadata:
@@ -229,12 +231,12 @@ spec:
                 imagePullPolicy: Always
                 ports:
                   - containerPort: 8080
+    ```
 
-    Best practices when migrating a Deployment that is already serving live production traffic, a Rollout
-    should run next to the Deployment before deleting the Deployment or scaling down the Deployment.
-    Not following this approach might result in downtime. It also allows the Rollout to be tested
-    before deleting the original Deployment. Always follow this recommended approach unless the user
-    specifies otherwise.
+    Always follow best practices when migrating a Deployment that is already serving live production traffic. A Rollout
+    should run next to the Deployment before deleting the Deployment or scaling down the Deployment. Not following this
+    approach might result in downtime. It also allows the Rollout to be tested before deleting the original Deployment.
+    Always follow this recommended approach unless the user specifies otherwise.
 
   tools:
     - provider: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
