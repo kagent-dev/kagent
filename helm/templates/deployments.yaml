@@ -8,19 +8,30 @@ spec:
   replicas: {{ .Values.controller.replicaCount }}
   selector:
     matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
       app: controller
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
         app: controller
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "kagent.fullname" . }}
       containers:
         - name: controller
-          image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.global.tag .Values.controller.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
@@ -43,19 +54,26 @@ spec:
   replicas: {{ .Values.app.replicaCount }}
   selector:
     matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
       app: app
   template:
     metadata:
       labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
         app: app
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "kagent.fullname" . }}
       containers:
         - name: app
-          image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ coalesce .Values.global.tag .Values.app.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
           env:
             - name: OPENAI_API_KEY
@@ -65,6 +83,12 @@ spec:
                   key: {{ .Values.openai.secretKey }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+              value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
+              value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.service.ports.app.targetPort }}
@@ -90,19 +114,26 @@ spec:
   replicas: {{ .Values.ui.replicaCount }}
   selector:
     matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
       app: ui
   template:
     metadata:
       labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
         app: ui
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "kagent.fullname" . }}
       containers:
         - name: ui
-          image: "{{ .Values.ui.image.registry }}/{{ .Values.ui.image.repository }}:{{ .Values.ui.image.tag }}"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.ui.image.registry }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.global.tag .Values.ui.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
           ports:
             - name: http
