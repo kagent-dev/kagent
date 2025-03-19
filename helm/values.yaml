@@ -1,5 +1,4 @@
 # Default values for kagent
-replicaCount: 1
 
 global:
   tag: ""
@@ -10,6 +9,7 @@ openai:
   secretKey: "OPENAI_API_KEY"
 
 controller:
+  replicaCount: 1
   image:
     registry: ghcr.io
     repository: kagent-dev/kagent/controller
@@ -24,6 +24,7 @@ controller:
       memory: 512Mi
 
 app:
+  replicaCount: 1
   image:
     registry: ghcr.io
     repository: kagent-dev/kagent/app
@@ -38,6 +39,7 @@ app:
       memory: 1Gi
 
 ui:
+  replicaCount: 1
   image:
     registry: ghcr.io
     repository: kagent-dev/kagent/ui
@@ -51,10 +53,12 @@ ui:
       cpu: 1000m
       memory: 1Gi
   
-
 service:
   type: ClusterIP
   ports:
+    controller:
+      port: 8080
+      targetPort: 8080
     ui:
       port: 80
       targetPort: 80
