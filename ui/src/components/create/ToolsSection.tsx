@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogTitle, DialogHeader, DialogFooter, DialogD
 import { Input } from "@/components/ui/input";
 import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getToolDescription, getToolDisplayName, getToolIdentifier, isMcpTool } from "@/lib/data";
 import { Label } from "../ui/label";
 import { SelectToolsDialog } from "./SelectToolsDialog";
@@ -21,13 +21,47 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   const [showToolSelector, setShowToolSelector] = useState(false);
   const [configTool, setConfigTool] = useState<Component<ToolConfig> | null>(null);
   const [showConfig, setShowConfig] = useState(false);
+  const [toolConfigMap, setToolConfigMap] = useState<Record<string, unknown>>({});
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleConfigSave = (toolProvider: string, newConfig: any) => {
+  // Initialize toolConfigMap when selectedTools change
+  useEffect(() => {
+    const newToolConfigMap: Record<string, unknown> = {};
+    selectedTools.forEach((tool) => {
+      const toolId = getToolIdentifier(tool);
+      newToolConfigMap[toolId] = { ...tool.config };
+    });
+    setToolConfigMap(newToolConfigMap);
+  }, [selectedTools]);
+
+  const openConfigDialog = (tool: Component<ToolConfig>) => {
+    // Create a deep copy of the tool to avoid reference issues
+    const toolCopy = JSON.parse(JSON.stringify(tool));
+    setConfigTool(toolCopy);
+    setShowConfig(true);
+  };
+
+  const handleConfigSave = () => {
     if (!configTool) return;
 
-    // TODO: this might not be correct (the getToolident)
-    const updatedTools = selectedTools.map((tool) => (getToolIdentifier(tool) === toolProvider ? { ...tool, config: newConfig } : tool));
+    const toolId = getToolIdentifier(configTool);
+
+    // Update the toolConfigMap
+    setToolConfigMap((prev) => ({
+      ...prev,
+      [toolId]: { ...configTool.config },
+    }));
+
+    // Update the selectedTools array with the new config
+    const updatedTools = selectedTools.map((tool) => {
+      if (getToolIdentifier(tool) === toolId) {
+        return {
+          ...tool,
+          config: { ...configTool.config },
+        };
+      }
+      return tool;
+    });
+
     setSelectedTools(updatedTools);
     setShowConfig(false);
     setConfigTool(null);
@@ -39,20 +73,50 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   };
 
   const handleRemoveTool = (tool: Component<ToolConfig>) => {
-    const updatedTools = selectedTools.filter((t) => getToolIdentifier(t) !== getToolIdentifier(tool));
+    const toolId = getToolIdentifier(tool);
+    const updatedTools = selectedTools.filter((t) => getToolIdentifier(t) !== toolId);
+
+    // Also remove from the config map
+    const updatedConfigMap = { ...toolConfigMap };
+    delete updatedConfigMap[toolId];
+    setToolConfigMap(updatedConfigMap);
+
     setSelectedTools(updatedTools);
+  };
+
+  const handleConfigChange = (field: string, value: string) => {
+    if (!configTool) return;
+
+    setConfigTool((prevTool) => {
+      if (!prevTool) return null;
+      return {
+        ...prevTool,
+        config: {
+          ...prevTool.config,
+          [field]: value,
+        },
+      };
+    });
   };
 
   const renderConfigDialog = () => {
     if (!configTool) return null;
-    const configObj = configTool?.config;
+    const configObj = configTool.config;
 
-    if (Object.keys(configObj).length === 0) {
+    if (!configObj || Object.keys(configObj).length === 0) {
       return null;
     }
 
     return (
-      <Dialog open={showConfig} onOpenChange={setShowConfig}>
+      <Dialog
+        open={showConfig}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowConfig(false);
+            setConfigTool(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Configure {getToolDisplayName(configTool)}</DialogTitle>
@@ -70,22 +134,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
                     <Label htmlFor={field} className="flex items-center">
                       {field}
                     </Label>
-                    <Input
-                      id={field}
-                      type="text"
-                      value={configObj[field as keyof typeof configObj] || ""}
-                      onChange={(e) => {
-                        const newConfig = {
-                          ...configTool.config,
-                          [field]: e.target.value,
-                        };
-
-                        setConfigTool({
-                          ...configTool,
-                          config: newConfig,
-                        });
-                      }}
-                    />
+                    <Input id={field} type="text" value={configObj[field as keyof ToolConfig] || ""} onChange={(e) => handleConfigChange(field, e.target.value)} />
                   </div>
                 ))}
             </div>
@@ -102,7 +151,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
               >
                 Cancel
               </Button>
-              <Button className="bg-violet-500 hover:bg-violet-600 disabled:opacity-50" onClick={() => handleConfigSave(configTool.provider, configTool.config)}>
+              <Button className="bg-violet-500 hover:bg-violet-600 disabled:opacity-50" onClick={handleConfigSave}>
                 Save Configuration
               </Button>
             </div>
@@ -134,15 +183,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
 
                 <div className="flex items-center gap-2">
                   {!isMcpTool(tool) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setConfigTool(tool);
-                        setShowConfig(true);
-                      }}
-                      disabled={isSubmitting || !tool.config || Object.keys(tool.config).length === 0}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => openConfigDialog(tool)} disabled={isSubmitting || !tool.config || Object.keys(tool.config).length === 0}>
                       <Settings2 className="h-4 w-4" />
                     </Button>
                   )}
