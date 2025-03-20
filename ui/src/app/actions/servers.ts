@@ -1,3 +1,4 @@
+'use server'
 import { Component, ToolServer, ToolServerConfig } from "@/types/datamodel";
 import { fetchApi, getCurrentUserId } from "./utils";
 import { BaseResponse } from "@/lib/types";

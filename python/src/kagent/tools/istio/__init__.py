@@ -9,6 +9,7 @@ from ._istioctl import (
     ProxyConfig,
     ProxyStatus,
     RemoteClusters,
+    Version,
     WaypointStatus,
     ZTunnelConfig,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "ProxyConfig",
     "ProxyStatus",
     "RemoteClusters",
+    "Version",
     "WaypointStatus",
     "ZTunnelConfig",
 ]

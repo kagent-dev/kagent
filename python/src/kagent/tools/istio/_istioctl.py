@@ -102,6 +102,18 @@ async def _generate_manifest(
     return _run_istioctl_command(f"manifest generate --set profile={profile}")
 
 
+async def _version() -> str:
+    return _run_istioctl_command("version")
+
+
+version = FunctionTool(
+    _version,
+    description="Returns the Istio CLI client version, control plane and the data plane versions and number of proxies running in the cluster. If Istio is not installed, it will return the Istio CLI client version.",
+    name="version",
+)
+
+Version, VersionConfig = create_typed_fn_tool(version, "kagent.tools.istio.Version", "Version")
+
 ztunnel_config = FunctionTool(
     _ztunnel_config,
     description="Get ztunnel configuration",
