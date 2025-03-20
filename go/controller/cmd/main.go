@@ -288,6 +288,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "AutogenSecret")
 		os.Exit(1)
 	}
+	if err = (&controller.ToolServerReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ToolServer")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {

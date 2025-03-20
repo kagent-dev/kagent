@@ -23,6 +23,7 @@ type AutogenReconciler interface {
 	ReconcileAutogenModelConfig(ctx context.Context, req ctrl.Request) error
 	ReconcileAutogenTeam(ctx context.Context, req ctrl.Request) error
 	ReconcileAutogenApiKeySecret(ctx context.Context, req ctrl.Request) error
+	ReconcileAutogenToolServer(ctx context.Context, req ctrl.Request) error
 }
 
 type autogenReconciler struct {
@@ -223,6 +224,62 @@ func (a *autogenReconciler) ReconcileAutogenApiKeySecret(ctx context.Context, re
 	}
 
 	return a.reconcileTeams(ctx, teams...)
+}
+
+func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req ctrl.Request) error {
+	// reconcile the agent team itself
+	agent := &v1alpha1.ToolServer{}
+	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
+		return fmt.Errorf("failed to get agent %s: %v", req.Name, err)
+	}
+	if err := a.reconcileAgents(ctx, agent); err != nil {
+		return fmt.Errorf("failed to reconcile agent %s: %v", req.Name, err)
+	}
+
+	// find and reconcile all teams which use this agent
+	teams, err := a.findTeamsUsingAgent(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to find teams for agent %s: %v", req.Name, err)
+	}
+
+	return a.reconcileToolServerStatus(
+		ctx,
+		agent,
+		a.reconcileTeams(ctx, teams...),
+	)
+}
+
+func (a *autogenReconciler) reconcileToolServerStatus(ctx context.Context, agent *v1alpha1.Agent, err error) error {
+	var (
+		status  metav1.ConditionStatus
+		message string
+		reason  string
+	)
+	if err != nil {
+		status = metav1.ConditionFalse
+		message = err.Error()
+		reason = "AgentReconcileFailed"
+		reconcileLog.Error(err, "failed to reconcile agent", "agent", agent)
+	} else {
+		status = metav1.ConditionTrue
+		reason = "AgentReconciled"
+	}
+	agent.Status = v1alpha1.AgentStatus{
+		ObservedGeneration: agent.Generation,
+		Conditions: []metav1.Condition{{
+			Type:               v1alpha1.AgentConditionTypeAccepted,
+			Status:             status,
+			LastTransitionTime: metav1.Now(),
+			Reason:             reason,
+			Message:            message,
+		}},
+	}
+
+	if err := a.kube.Status().Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to update agent status: %v", err)
+	}
+
+	return nil
 }
 
 func (a *autogenReconciler) reconcileTeams(ctx context.Context, teams ...*v1alpha1.Team) error {
