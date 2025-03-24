@@ -38,7 +38,7 @@ var _ = Describe("E2e", func() {
 			Spec: v1alpha1.AgentSpec{
 				Description:   "The Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.",
 				SystemMessage: readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
-				Tools: []v1alpha1.Tool{
+				Tools: []*v1alpha1.Tool{
 					{Provider: "kagent.tools.k8s.AnnotateResource"},
 					{Provider: "kagent.tools.k8s.ApplyManifest"},
 					{Provider: "kagent.tools.k8s.CheckServiceConnectivity"},
@@ -73,7 +73,8 @@ var _ = Describe("E2e", func() {
 					{Provider: "kagent.tools.istio.AnalyzeClusterConfig"},
 					{Provider: "kagent.tools.istio.ProxyConfig"},
 					// tools with config
-					{Provider: "kagent.tools.docs.QueryTool",
+					{
+						Provider: "kagent.tools.docs.QueryTool",
 						Config: map[string]v1alpha1.AnyType{
 							"docs_download_url": {
 								RawMessage: makeRawMsg("https://doc-sqlite-db.s3.sa-east-1.amazonaws.com"),

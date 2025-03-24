@@ -3,7 +3,6 @@ package client
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/autogen/api"
 )
 
@@ -23,6 +22,16 @@ type Tool struct {
 	UpdatedAt *string       `json:"updated_at,omitempty"`
 	UserID    *string       `json:"user_id,omitempty"`
 	Version   *string       `json:"version,omitempty"`
+}
+
+type ToolServer struct {
+	Id            *int          `json:"id,omitempty"`
+	Component     api.Component `json:"component"`
+	CreatedAt     *string       `json:"created_at,omitempty"`
+	UpdatedAt     *string       `json:"updated_at,omitempty"`
+	UserID        *string       `json:"user_id,omitempty"`
+	LastConnected *string       `json:"last_connected,omitempty"`
+	Version       *string       `json:"version,omitempty"`
 }
 
 type ModelsUsage struct {
@@ -55,7 +64,7 @@ type RunMessage struct {
 	ID          int                    `json:"id"`
 	UserID      *string                `json:"user_id"`
 	Config      map[string]interface{} `json:"config"`
-	RunID       uuid.UUID              `json:"run_id"`
+	RunID       int                    `json:"run_id"`
 }
 
 type CreateRunRequest struct {
@@ -72,7 +81,7 @@ type SessionRuns struct {
 }
 
 type Run struct {
-	ID           uuid.UUID     `json:"id"`
+	ID           string        `json:"id"`
 	SessionID    int           `json:"session_id"`
 	CreatedAt    string        `json:"created_at"`
 	Status       string        `json:"status"`

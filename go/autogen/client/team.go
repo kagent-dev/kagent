@@ -14,6 +14,21 @@ func (c *Client) CreateTeam(team *Team) error {
 	return c.doRequest("POST", "/teams/", team, team)
 }
 
+func (c *Client) GetTeamByID(teamID int, userID string) (*Team, error) {
+	allTeams, err := c.ListTeams(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, team := range allTeams {
+		if team.Component.Label != nil && *&team.Id == teamID {
+			return team, nil
+		}
+	}
+
+	return nil, nil
+}
+
 func (c *Client) GetTeam(teamLabel string, userID string) (*Team, error) {
 	allTeams, err := c.ListTeams(userID)
 	if err != nil {

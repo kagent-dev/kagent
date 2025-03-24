@@ -349,7 +349,7 @@ func translateAssistantAgent(
 	modelContext *api.Component,
 ) (*api.Component, error) {
 
-	var tools []*api.Component
+	tools := []*api.Component{}
 	for _, tool := range agentSpec.Tools {
 		toolConfig, err := convertToolConfig(tool.Config)
 		if err != nil {

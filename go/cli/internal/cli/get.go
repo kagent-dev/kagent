@@ -165,7 +165,7 @@ func printRuns(runs []*autogen_client.Run) error {
 
 		rows[i] = []string{
 			strconv.Itoa(i),
-			run.ID.String(),
+			run.ID,
 			content,
 			strconv.Itoa(len(run.Messages)),
 			run.Status,

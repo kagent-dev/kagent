@@ -31,6 +31,8 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"github.com/kagent-dev/kagent/go/controller/internal/utils/syncutils"
 
+	"github.com/kagent-dev/kagent/go/controller/internal/httpserver"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -83,6 +85,8 @@ func main() {
 	var autogenStudioWsURL string
 	var defaultModelConfig types.NamespacedName
 	var tlsOpts []func(*tls.Config)
+	var httpServerAddr string
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8082", "The address the probe endpoint binds to.")
@@ -106,6 +110,8 @@ func main() {
 
 	flag.StringVar(&defaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
 	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", podNamespace, "The namespace of the default model config.")
+	flag.StringVar(&httpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -312,6 +318,16 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	httpServer := httpserver.NewHTTPServer(httpserver.ServerConfig{
+		BindAddr:      httpServerAddr,
+		AutogenClient: autogenClient,
+		KubeClient:    kubeClient,
+	})
+	if err := mgr.Add(httpServer); err != nil {
+		setupLog.Error(err, "unable to set up HTTP server")
 		os.Exit(1)
 	}
 
