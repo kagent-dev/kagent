@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { getChatData } from "@/app/actions/chat";
 
 interface AgentSwitcherProps {
-  agentId: string;
+  agentId: number;
 }
 
 export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
@@ -26,7 +26,6 @@ export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
   useEffect(() => {
     const fetchSessions = async () => {
       const data = await getChatData(agentId, null);
-
       if (data.agent) {
         setSelectedTeam(data.agent);
       }
@@ -62,7 +61,7 @@ export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
                 <KagentLogo className="w-4 h-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{innerAgent.label}</span>
+                <span className="truncate font-semibold">{selectedTeam.component.label}</span>
                 <span className="truncate text-xs">{innerAgent.config.model_client.config.model}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
@@ -71,16 +70,15 @@ export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
           <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg" align="start" side={isMobile ? "bottom" : "right"} sideOffset={4}>
             <DropdownMenuLabel className="text-xs text-muted-foreground">Agents</DropdownMenuLabel>
             {agents.map((team, index) => {
-              const ag = getUsersAgentFromTeam(team);
               return (
                 <DropdownMenuItem
-                  key={ag.label}
+                  key={team.component.label}
                   onClick={() => {
                     router.push(`/agents/${team.id}/chat`);
                   }}
                   className="gap-2 p-2"
                 >
-                  {ag.label}
+                  {team.component.label}
                   <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
                 </DropdownMenuItem>
               );

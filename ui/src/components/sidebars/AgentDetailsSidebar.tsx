@@ -3,32 +3,28 @@
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Team, AssistantAgentConfig, ToolConfig, Component } from "@/types/datamodel";
-import { SystemPromptEditor } from "./SystemPromptEditor";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
-import { createTeam, getTeam } from "@/app/actions/teams";
-import { findAllAssistantAgents, updateUsersAgent } from "@/lib/agents";
-import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "../ui/sidebar";
+import { getTeam } from "@/app/actions/teams";
+import { findAllAssistantAgents } from "@/lib/agents";
+import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { AgentActions } from "./AgentActions";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { LoadingState } from "../LoadingState";
+import { LoadingState } from "@/components/LoadingState";
 
 interface AgentDetailsSidebarProps {
-  selectedTeamId: string;
+  selectedAgentId: number;
 }
 
-export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps) {
-  const [isSystemPromptOpen, setIsSystemPromptOpen] = useState(false);
-  const [currentSystemPrompt, setCurrentSystemPrompt] = useState("");
+export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProps) {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [currentAgentIndex, setCurrentAgentIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchTeam = async () => {
       setLoading(true);
       try {
-        const teamData = await getTeam(selectedTeamId);
+        const teamData = await getTeam(selectedAgentId);
         if (teamData && teamData.data) {
           setSelectedTeam(teamData.data);
         }
@@ -40,7 +36,7 @@ export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps
     };
 
     fetchTeam();
-  }, [selectedTeamId]);
+  }, [selectedAgentId]);
 
   if (loading) {
     return <LoadingState />;
@@ -82,57 +78,26 @@ export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps
     );
   };
 
-  const handleOpenSystemPrompt = (systemMessage: string, agentIndex: number) => {
-    setCurrentSystemPrompt(systemMessage);
-    setCurrentAgentIndex(agentIndex);
-    setIsSystemPromptOpen(true);
-  };
-
-  const handleUpdateSystemPrompt = async (newSystemPrompt: string) => {
-    if (!selectedTeam || currentAgentIndex === null) return;
-
-    try {
-      const updatedTeam = updateUsersAgent(selectedTeam, (agent) => {
-        agent.config.system_message = newSystemPrompt;
-      });
-
-      // Remove the created_at and updated_at variables from the selectedTeam
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { created_at, updated_at, ...editedTeam } = updatedTeam;
-      await createTeam(editedTeam);
-
-      setCurrentSystemPrompt(newSystemPrompt);
-      return Promise.resolve();
-    } catch (error) {
-      console.error("Failed to update instructions:", error);
-      return Promise.reject(error);
-    }
-  };
-
   const assistantAgents = findAllAssistantAgents(selectedTeam?.component);
 
   return (
     <>
       <Sidebar side={"right"} collapsible="offcanvas">
         <SidebarHeader>Agent Details</SidebarHeader>
-        <SidebarContent className="">
-          <ScrollArea className="">
+        <SidebarContent>
+          <ScrollArea>
             {assistantAgents.map((participant, index) => {
               const assistantAgent = participant.config as AssistantAgentConfig;
               return (
                 <div key={index}>
                   <SidebarGroup>
                     <SidebarGroupLabel className="font-bold">
-                      {participant.label} ({assistantAgent.model_client.config.model})
+                      {selectedTeam?.component.label} ({assistantAgent.model_client.config.model})
                     </SidebarGroupLabel>
                     <p className="text-sm flex px-2 text-muted-foreground">{assistantAgent.description}</p>
                   </SidebarGroup>
                   <SidebarGroup>
-                    <AgentActions
-                      agentId={selectedTeam?.id ?? 0}
-                      onViewInstructions={() => handleOpenSystemPrompt(assistantAgent.system_message ?? "No system prompt available", index)}
-                      onCopyJson={() => navigator.clipboard.writeText(JSON.stringify(assistantAgent, null, 2))}
-                    />
+                    <AgentActions agentId={selectedTeam?.id ?? 0} onCopyJson={() => navigator.clipboard.writeText(JSON.stringify(assistantAgent, null, 2))} />
                   </SidebarGroup>
                   <SidebarGroup className="group-data-[collapsible=icon]:hidden">
                     <SidebarGroupLabel>Tools</SidebarGroupLabel>
@@ -144,9 +109,6 @@ export function AgentDetailsSidebar({ selectedTeamId }: AgentDetailsSidebarProps
           </ScrollArea>
         </SidebarContent>
       </Sidebar>
-
-      {/* Using the new SystemPromptEditor component */}
-      <SystemPromptEditor isOpen={isSystemPromptOpen} onOpenChange={setIsSystemPromptOpen} systemPrompt={currentSystemPrompt} onSave={handleUpdateSystemPrompt} />
     </>
   );
 }

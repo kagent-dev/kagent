@@ -59,7 +59,7 @@ export async function loadExistingChat(chatId: string) {
 }
 
 
-export async function getChatData(agentId: string, chatId: string | null): Promise<{ notFound?: boolean; agent?: Team; sessions?: { session: Session; runs: Run[] }[]; viewState?: { session: Session; run: Run } | null }> {
+export async function getChatData(agentId: number, chatId: string | null): Promise<{ notFound?: boolean; agent?: Team; sessions?: { session: Session; runs: Run[] }[]; viewState?: { session: Session; run: Run } | null }> {
   try {
     // Fetch agent details
     const agentData = await getTeam(agentId);
@@ -74,7 +74,7 @@ export async function getChatData(agentId: string, chatId: string | null): Promi
     }
 
     const sessions = sessionData.data;
-    const agentSessions = sessions.filter((session) => session.team_id === parseInt(agentId));
+    const agentSessions = sessions.filter((session) => session.team_id === agentId);
 
     // Fetch runs for each session
     const sessionsWithRuns = await Promise.all(

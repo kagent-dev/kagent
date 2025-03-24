@@ -3,7 +3,7 @@ import { Button } from "../ui/button";
 import Link from "next/link";
 
 interface NoMessagesStateProps {
-  agentId: string;
+  agentId: number;
 }
 
 export default function NoMessagesState({ agentId }: NoMessagesStateProps) {

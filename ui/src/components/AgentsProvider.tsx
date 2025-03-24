@@ -1,12 +1,12 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { getTeams, createTeam } from "@/app/actions/teams";
+import { getTeams, createAgent } from "@/app/actions/teams";
 import { Team, Component, ToolConfig } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
 import { BaseResponse, Model } from "@/lib/types";
-import { createTeamConfig } from "@/lib/agents";
 import { isIdentifier } from "@/lib/utils";
+import { getModels } from "@/app/actions/models";
 
 interface ValidationErrors {
   name?: string;
@@ -27,6 +27,7 @@ export interface AgentFormData {
 
 interface AgentsContextType {
   teams: Team[];
+  models: Model[];
   loading: boolean;
   error: string;
   tools: Component<ToolConfig>[];
@@ -56,6 +57,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [tools, setTools] = useState<Component<ToolConfig>[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
 
   const fetchTeams = async () => {
     try {
@@ -75,12 +77,30 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     }
   };
 
+  const fetchModels = async () => {
+    try {
+      setLoading(true);
+      const response = await getModels();
+      if (!response.data || response.error) {
+        throw new Error(response.error || "Failed to fetch models");
+      }
+
+      setModels(response.data);
+      setError("");
+    } catch (err) {
+      console.error("Error fetching models:", error);
+      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchTools = async () => {
     try {
       setLoading(true);
       const response = await getTools();
       if (response.success && response.data) {
-        setTools(response.data.map(t => t.component));
+        setTools(response.data.map((t) => t.component));
         setError("");
       }
     } catch (err) {
@@ -112,7 +132,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.systemPrompt = "Agent instructions are required";
     }
 
-    if (data.model === undefined) {
+    if (!data.model || data.model === undefined) {
       errors.model = "Please select a model";
     }
 
@@ -154,8 +174,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         return { success: false, error: "Validation failed", data: {} as Team };
       }
 
-      const teamConfig = await createTeamConfig(agentData);
-      const result = await createTeam(teamConfig);
+      const result = await createAgent(agentData);
 
       if (result.success) {
         // Refresh teams to get the newly created one
@@ -176,36 +195,14 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Team>> => {
     try {
       const errors = validateAgentData(agentData);
+
       if (Object.keys(errors).length > 0) {
+        console.log("Errors validating agent data", errors);
         return { success: false, error: "Validation failed", data: {} as Team };
       }
 
-      // Get existing agent/team
-      const existingTeam = await getAgentById(id);
-      if (!existingTeam) {
-        return { success: false, error: `Agent with ID ${id} not found`, data: {} as Team };
-      }
-
-      // Two approaches for updating:
-      // 1. Create a completely new team config (safer but might lose some custom configurations)
-      // 2. Update the existing team in-place (preserves all settings but more complex)
-
-      // We'll use approach #1 for simplicity while ensuring the ID is preserved
-      const teamConfig = await createTeamConfig({
-        ...agentData,
-      });
-
-      // Add the original ID to ensure we're updating the existing record
-      teamConfig.component.label = existingTeam.component.label;
-      teamConfig.component.description = agentData.description;
-
-      // Preserve the original team ID
-      if (existingTeam.id) {
-        teamConfig.id = existingTeam.id;
-      }
-
       // Use the same createTeam endpoint for updates
-      const result = await createTeam(teamConfig);
+      const result = await createAgent(agentData, true);
 
       if (result.success) {
         // Refresh teams to get the updated one
@@ -226,10 +223,12 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   useEffect(() => {
     fetchTeams();
     fetchTools();
+    fetchModels();
   }, []);
 
   const value = {
     teams,
+    models,
     loading,
     error,
     tools,

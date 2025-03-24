@@ -5,7 +5,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import GroupedSessions from "./GroupedSessions";
 
 interface SessionsSidebarProps {
-  agentId: string;
+  agentId: number;
 }
 
 export default function SessionsSidebar({ agentId }: SessionsSidebarProps) {

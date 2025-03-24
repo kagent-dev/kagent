@@ -3,7 +3,7 @@ import type { Model } from "@/lib/types";
 
 interface ModelSelectionSectionProps {
   allModels: Model[];
-  selectedModel: Model;
+  selectedModel: Model | null;
   setSelectedModel: (model: Model) => void;
   error?: string;
   isSubmitting: boolean;
@@ -13,19 +13,27 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
   return (
     <>
       <label className="text-sm mb-2 block">Model</label>
-      <Select value={selectedModel.id} disabled={isSubmitting} onValueChange={(value) => setSelectedModel(allModels.find((m) => m.id === value) || allModels[0])}>
+      <Select 
+        value={selectedModel?.name || ""} 
+        disabled={isSubmitting || allModels.length === 0} 
+        onValueChange={(value) => {
+          const model = allModels.find((m) => m.name === value);
+          if (model) setSelectedModel(model);
+        }}
+      >
         <SelectTrigger className={`${error ? "border-red-500" : ""}`}>
           <SelectValue placeholder="Select a model" />
         </SelectTrigger>
-        <SelectContent className="">
-          {allModels.map((model) => (
-            <SelectItem key={model.id} value={model.id} >
-              {model.name}
+        <SelectContent>
+          {allModels.map((model, idx) => (
+            <SelectItem key={`${idx}_${model.name}`} value={model.name}>
+              {model.model}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
       {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
+      {allModels.length === 0 && <p className="text-amber-500 text-sm mt-1">No models available</p>}
     </>
   );
 };

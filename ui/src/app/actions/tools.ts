@@ -17,26 +17,3 @@ export async function getTools(): Promise<BaseResponse<Tool[]>> {
     return { success: false, error: "Failed to get built-in tools. Please try again.", data: [] };
   }
 }
-
-
-export async function bulkSaveTools(tools: Tool[]): Promise<BaseResponse<Tool[]>> {
-  const response = await fetchApi<Tool[]>(`/tools/bulk`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(tools),
-  });
-
-  if (!response) {
-    return {
-      success: false,
-      error: "Failed to save tools. Please try again.",
-    };
-  }
-
-  return {
-    success: true,
-    data: response,
-  };
-}

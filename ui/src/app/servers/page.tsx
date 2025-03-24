@@ -1,16 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {  Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
+import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
 import { ToolServer, Tool, ToolServerConfig, Component } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { createServer, deleteServer, getServers, refreshServerTools } from "../actions/servers";
+import { createServer, deleteServer, getServers, refreshServerTools, getServerTools } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { getTools } from "../actions/tools";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -36,10 +35,11 @@ const formatDate = (dateString: string | null): string => {
 export default function ServersPage() {
   // State for servers and tools
   const [servers, setServers] = useState<ToolServer[]>([]);
-  const [tools, setTools] = useState<Tool[]>([]);
+  const [serverTools, setServerTools] = useState<Record<number, Tool[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState<number | null>(null);
   const [expandedServers, setExpandedServers] = useState<Set<number>>(new Set());
+  const [loadingServerTools, setLoadingServerTools] = useState<Set<number>>(new Set());
 
   // Dialog states
   const [showAddServer, setShowAddServer] = useState(false);
@@ -47,11 +47,11 @@ export default function ServersPage() {
 
   // Fetch data on component mount
   useEffect(() => {
-    fetchData();
+    fetchServers();
   }, []);
 
-  // Fetch servers and tools
-  const fetchData = async () => {
+  // Fetch servers
+  const fetchServers = async () => {
     try {
       setIsLoading(true);
 
@@ -59,24 +59,59 @@ export default function ServersPage() {
       const serversResponse = await getServers();
       if (serversResponse.success && serversResponse.data) {
         setServers(serversResponse.data);
-        setExpandedServers(new Set(serversResponse.data.map((server) => server.id).filter((id) => id !== undefined) as number[]));
+
+        // Initially expand all servers
+        const serverIds = serversResponse.data.map((server) => server.id).filter((id): id is number => id !== undefined);
+
+        setExpandedServers(new Set(serverIds));
       } else {
         console.error("Failed to fetch servers:", serversResponse);
         toast.error(serversResponse.error || "Failed to fetch servers data.");
       }
-
-      // Fetch tools for server association
-      const toolsResponse = await getTools();
-      if (toolsResponse.success && toolsResponse.data) {
-        setTools(toolsResponse.data);
-      }
     } catch (error) {
-      console.error("Error fetching data:", error);
-      toast.error("An error occurred while fetching data.");
+      console.error("Error fetching servers:", error);
+      toast.error("An error occurred while fetching servers.");
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Fetch tools for a specific server when expanded
+  const fetchServerTools = async (serverId: number) => {
+    if (serverTools[serverId] || !expandedServers.has(serverId)) return;
+
+    try {
+      setLoadingServerTools((prev) => new Set([...prev, serverId]));
+
+      const response = await getServerTools(serverId);
+
+      if (response.success && response.data) {
+        setServerTools((prev) => ({
+          ...prev,
+          [serverId]: response.data || [],
+        }));
+      } else {
+        console.error(`Failed to fetch tools for server ${serverId}:`, response);
+        toast.error(response.error || `Failed to fetch tools for server ${serverId}`);
+      }
+    } catch (error) {
+      console.error(`Error fetching tools for server ${serverId}:`, error);
+      toast.error(`Failed to fetch tools for server ${serverId}`);
+    } finally {
+      setLoadingServerTools((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(serverId);
+        return newSet;
+      });
+    }
+  };
+
+  // Effect to load tools when a server is expanded
+  useEffect(() => {
+    expandedServers.forEach((serverId) => {
+      fetchServerTools(serverId);
+    });
+  }, [expandedServers]);
 
   // Toggle server expansion
   const toggleServerExpansion = (serverId: number) => {
@@ -86,6 +121,8 @@ export default function ServersPage() {
         newSet.delete(serverId);
       } else {
         newSet.add(serverId);
+        // Fetch tools for this server if we haven't already
+        fetchServerTools(serverId);
       }
       return newSet;
     });
@@ -100,7 +137,15 @@ export default function ServersPage() {
 
       if (response) {
         toast.success("Tools refreshed successfully");
-        fetchData();
+
+        // Refresh the tools for this specific server
+        const toolsResponse = await getServerTools(serverId);
+        if (toolsResponse.success && toolsResponse.data) {
+          setServerTools((prev) => ({
+            ...prev,
+            [serverId]: toolsResponse.data || [],
+          }));
+        }
       } else {
         toast.error("Failed to refresh tools");
       }
@@ -121,7 +166,16 @@ export default function ServersPage() {
 
       if (response.success) {
         toast.success("Server deleted successfully");
-        fetchData();
+
+        // Remove the server tools from state
+        setServerTools((prev) => {
+          const newServerTools = { ...prev };
+          delete newServerTools[serverId];
+          return newServerTools;
+        });
+
+        // Refresh servers list
+        fetchServers();
       } else {
         toast.error(response.error || "Failed to delete server");
       }
@@ -147,7 +201,7 @@ export default function ServersPage() {
 
       toast.success("Server added successfully");
       setShowAddServer(false);
-      fetchData();
+      fetchServers();
     } catch (error) {
       console.error("Error adding server:", error);
       toast.error(`Failed to add server: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -156,13 +210,10 @@ export default function ServersPage() {
     }
   };
 
-  // Group tools by server
-  const toolsByServer: Record<number, Tool[]> = {};
-  servers.forEach((server) => {
-    if (server.id) {
-      toolsByServer[server.id] = tools.filter((tool) => tool.server_id === server.id);
-    }
-  });
+  // Get tool count for a server
+  const getToolCount = (serverId: number): number => {
+    return serverTools[serverId]?.length || 0;
+  };
 
   return (
     <div className="mt-12 mx-auto max-w-6xl px-6">
@@ -191,6 +242,9 @@ export default function ServersPage() {
           {servers.map((server) => {
             if (!server.id) return null;
             const serverId: number = server.id;
+            const isExpanded = expandedServers.has(serverId);
+            const isLoadingTools = loadingServerTools.has(serverId);
+            const toolCount = getToolCount(serverId);
 
             return (
               <div key={server.id} className="border rounded-md overflow-hidden">
@@ -198,7 +252,7 @@ export default function ServersPage() {
                 <div className="bg-secondary/10 p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleServerExpansion(serverId)}>
-                      {expandedServers.has(serverId) ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+                      {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                       <div className="flex items-center gap-2">
                         <Globe className="h-5 w-5 text-green-500" />
                         <div>
@@ -206,7 +260,7 @@ export default function ServersPage() {
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
                             <span className="font-mono">{server.component.label}</span>
                             <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                              {(toolsByServer[serverId] || []).length} tool{(toolsByServer[serverId] || []).length !== 1 ? "s" : ""}
+                              {isExpanded ? `${toolCount} tool${toolCount !== 1 ? "s" : ""}` : ""}
                             </Badge>
                             {server.last_connected && <span className="text-xs text-muted-foreground">Last updated: {formatDate(server.last_connected)}</span>}
                           </div>
@@ -250,11 +304,16 @@ export default function ServersPage() {
                 </div>
 
                 {/* Server Tools List */}
-                {expandedServers.has(serverId) && (
+                {isExpanded && (
                   <div className="p-4">
-                    {(toolsByServer[serverId] || []).length > 0 ? (
+                    {isLoadingTools ? (
+                      <div className="flex justify-center items-center p-4">
+                        <div className="h-5 w-5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin mr-2" />
+                        <span className="text-sm text-muted-foreground">Loading tools...</span>
+                      </div>
+                    ) : serverTools[serverId]?.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {toolsByServer[serverId]
+                        {serverTools[serverId]
                           .sort((a, b) => {
                             const aName = getToolDisplayName(a.component) || "";
                             const bName = getToolDisplayName(b.component) || "";
