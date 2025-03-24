@@ -61,6 +61,16 @@ spec:
                       type: string
                     provider:
                       type: string
+                    toolName:
+                      description: |-
+                        The name of the tool to be provided by the ToolServer
+                        For a list of all the tools provided by the server,
+                        the client can query the status of the ToolServer object after it has been created
+                      type: string
+                    toolServer:
+                      description: the name of the ToolServer that provides the tool.
+                        must exist in the same namespace as the Agent
+                      type: string
                   type: object
                 maxItems: 20
                 type: array

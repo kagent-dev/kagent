@@ -12,14 +12,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	apikeySecretKey = "api-key"
-)
-
-var (
-	openaiApiKey = os.Getenv("OPENAI_API_KEY")
-)
-
 var _ = Describe("E2e", func() {
 	It("configures the agent", func() {
 
@@ -38,48 +30,79 @@ var _ = Describe("E2e", func() {
 			Spec: v1alpha1.AgentSpec{
 				Description:   "The Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.",
 				SystemMessage: readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
-				Tools: []v1alpha1.Tool{
-					{Provider: "kagent.tools.k8s.AnnotateResource"},
-					{Provider: "kagent.tools.k8s.ApplyManifest"},
-					{Provider: "kagent.tools.k8s.CheckServiceConnectivity"},
-					{Provider: "kagent.tools.k8s.CreateResource"},
-					{Provider: "kagent.tools.k8s.DeleteResource"},
-					{Provider: "kagent.tools.k8s.DescribeResource"},
-					{Provider: "kagent.tools.k8s.ExecuteCommand"},
-					{Provider: "kagent.tools.k8s.GetAvailableAPIResources"},
-					{Provider: "kagent.tools.k8s.GetClusterConfiguration"},
-					{Provider: "kagent.tools.k8s.GetEvents"},
-					{Provider: "kagent.tools.k8s.GetPodLogs"},
-					{Provider: "kagent.tools.k8s.GetResources"},
-					{Provider: "kagent.tools.k8s.GetResourceYAML"},
-					{Provider: "kagent.tools.k8s.LabelResource"},
-					{Provider: "kagent.tools.k8s.PatchResource"},
-					{Provider: "kagent.tools.k8s.RemoveAnnotation"},
-					{Provider: "kagent.tools.k8s.RemoveLabel"},
-					{Provider: "kagent.tools.k8s.Rollout"},
-					{Provider: "kagent.tools.k8s.Scale"},
-					{Provider: "kagent.tools.k8s.GenerateResourceTool"},
-					{Provider: "kagent.tools.k8s.GenerateResourceToolConfig"},
-					{Provider: "kagent.tools.istio.ZTunnelConfig"},
-					{Provider: "kagent.tools.istio.WaypointStatus"},
-					{Provider: "kagent.tools.istio.ListWaypoints"},
-					{Provider: "kagent.tools.istio.GenerateWaypoint"},
-					{Provider: "kagent.tools.istio.DeleteWaypoint"},
-					{Provider: "kagent.tools.istio.ApplyWaypoint"},
-					{Provider: "kagent.tools.istio.RemoteClusters"},
-					{Provider: "kagent.tools.istio.ProxyStatus"},
-					{Provider: "kagent.tools.istio.GenerateManifest"},
-					{Provider: "kagent.tools.istio.Install"},
-					{Provider: "kagent.tools.istio.AnalyzeClusterConfig"},
-					{Provider: "kagent.tools.istio.ProxyConfig"},
+				Tools: []*v1alpha1.Tool{
+					{McpServerTool: v1alpha1.McpServerTool{
+						ToolServer: "asdf",
+						ToolName:   "qwer",
+					}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.AnnotateResource"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.ApplyManifest"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.CheckServiceConnectivity"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.CreateResource"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.DeleteResource"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.DescribeResource"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.ExecuteCommand"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetAvailableAPIResources"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetClusterConfiguration"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetEvents"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetPodLogs"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetResources"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetResourceYAML"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.LabelResource"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.PatchResource"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.RemoveAnnotation"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.RemoveLabel"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.Rollout"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.Scale"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GenerateResourceTool"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GenerateResourceToolConfig"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ZTunnelConfig"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.WaypointStatus"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ListWaypoints"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.GenerateWaypoint"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.DeleteWaypoint"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ApplyWaypoint"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.RemoteClusters"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ProxyStatus"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.GenerateManifest"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.Install"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.AnalyzeClusterConfig"}},
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ProxyConfig"}},
 					// tools with config
-					{Provider: "kagent.tools.docs.QueryTool",
+					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.docs.QueryTool",
 						Config: map[string]v1alpha1.AnyType{
 							"docs_download_url": {
 								RawMessage: makeRawMsg("https://doc-sqlite-db.s3.sa-east-1.amazonaws.com"),
 							},
 						},
+					}},
+				},
+			},
+		}
+
+		toolServer := &v1alpha1.ToolServer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "asdf",
+				Namespace: namespace,
+			},
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "ToolServer",
+				APIVersion: "kagent.dev/v1alpha1",
+			},
+			Spec: v1alpha1.ToolServerSpec{
+				Description: "a t",
+				Config: v1alpha1.ToolServerConfig{
+					Stdio: &v1alpha1.StdioMcpServerConfig{
+						Command: "npx",
+						Args: []string{
+							"-y",
+							"@modelcontextprotocol/server-everything",
+						},
+						Env:    nil,
+						Stderr: "",
+						Cwd:    "",
 					},
+					Sse: nil,
 				},
 			},
 		}
@@ -87,6 +110,7 @@ var _ = Describe("E2e", func() {
 		writeKubeObjects(
 			"manifests/kube-expert-agent.yaml",
 			kubeExpert,
+			toolServer,
 		)
 	})
 })

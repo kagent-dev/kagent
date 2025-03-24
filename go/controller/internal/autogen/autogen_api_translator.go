@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -96,17 +97,38 @@ func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.T
 			},
 		}, nil
 	case config.Sse != nil:
+		headers, err := convertMapFromAnytype(config.Sse.Headers)
+		if err != nil {
+			return "", nil, err
+		}
+		timeout, err := convertDurationToSeconds(config.Sse.Timeout)
+		if err != nil {
+			return "", nil, err
+		}
+		sseReadTimeout, err := convertDurationToSeconds(config.Sse.SseReadTimeout)
+		if err != nil {
+			return "", nil, err
+		}
+
 		return "kagent.tool_servers.SseMcpToolServer", &api.ToolServerConfig{
 			SseMcpServerConfig: &api.SseMcpServerConfig{
 				URL:            config.Sse.URL,
-				Headers:        config.Sse.Headers,
-				Timeout:        int(config.Sse.Timeout.Seconds()),
-				SseReadTimeout: int(config.Sse.SseReadTimeout.Seconds()),
+				Headers:        headers,
+				Timeout:        timeout,
+				SseReadTimeout: sseReadTimeout,
 			},
 		}, nil
 	}
 
 	return "", nil, fmt.Errorf("unsupported tool server config")
+}
+
+func convertDurationToSeconds(timeout string) (int, error) {
+	d, err := time.ParseDuration(timeout)
+	if err != nil {
+		return 0, err
+	}
+	return int(d.Seconds()), nil
 }
 
 func NewAutogenApiTranslator(
@@ -465,7 +487,7 @@ func translateBuiltinTool(
 	tool v1alpha1.BuiltinTool,
 ) (*api.Component, error) {
 
-	toolConfig, err := convertToolConfig(tool.Config)
+	toolConfig, err := convertMapFromAnytype(tool.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -515,14 +537,30 @@ func translateToolServerTool(
 	// requires the tool to have been discovered
 	for _, discoveredTool := range toolServer.Status.DiscoveredTools {
 		if discoveredTool.Name == tool.ToolName {
-			return discoveredTool.Component, nil
+			return convertComponent(discoveredTool.Component)
 		}
 	}
 
 	return nil, fmt.Errorf("tool %v not found in discovered tools in ToolServer %v", tool.ToolName, toolServer.Name)
 }
 
-func convertToolConfig(config map[string]v1alpha1.AnyType) (map[string]interface{}, error) {
+func convertComponent(component v1alpha1.Component) (*api.Component, error) {
+	config, err := convertMapFromAnytype(component.Config)
+	if err != nil {
+		return nil, err
+	}
+	return &api.Component{
+		Provider:         component.Provider,
+		ComponentType:    component.ComponentType,
+		Version:          component.Version,
+		ComponentVersion: component.ComponentVersion,
+		Description:      component.Description,
+		Label:            component.Label,
+		Config:           config,
+	}, nil
+}
+
+func convertMapFromAnytype(config map[string]v1alpha1.AnyType) (map[string]interface{}, error) {
 	// convert to map[string]interface{} to allow kubebuilder schemaless validation
 	// see https://github.com/kubernetes-sigs/controller-tools/issues/636 for more info
 	// must unmarshal to interface{} to avoid json.RawMessage

@@ -17,9 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/kagent-dev/kagent/go/autogen/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"time"
 )
 
 // ToolServerSpec defines the desired state of ToolServer.
@@ -42,34 +40,12 @@ type StdioMcpServerConfig struct {
 }
 
 type SseMcpServerConfig struct {
-	URL            string                 `json:"url"`
-	Headers        map[string]interface{} `json:"headers,omitempty"`
-	Timeout        Duration               `json:"timeout,omitempty"`
-	SseReadTimeout Duration               `json:"sse_read_timeout,omitempty"`
-}
-
-// Duration is a custom type to handle time.Duration marshaling
-type Duration struct {
-	time.Duration
-}
-
-// MarshalYAML formats the duration as a string with units
-func (d Duration) MarshalYAML() (interface{}, error) {
-	return d.String(), nil
-}
-
-// UnmarshalYAML parses the duration from a string
-func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	var str string
-	if err := unmarshal(&str); err != nil {
-		return err
-	}
-	dur, err := time.ParseDuration(str)
-	if err != nil {
-		return err
-	}
-	d.Duration = dur
-	return nil
+	URL string `json:"url"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Schemaless
+	Headers        map[string]AnyType `json:"headers,omitempty"`
+	Timeout        string             `json:"timeout,omitempty"`
+	SseReadTimeout string             `json:"sse_read_timeout,omitempty"`
 }
 
 // ToolServerStatus defines the observed state of ToolServer.
@@ -82,11 +58,21 @@ type ToolServerStatus struct {
 }
 
 type MCPTool struct {
-	Name      string         `json:"name"`
-	Component *api.Component `json:"component"`
-	//Description  string              `json:"description"`
-	//InputSchema  AnyType             `json:"input_schema"`
-	//ServerParams MCPToolServerParams `json:"server_params"`
+	Name      string    `json:"name"`
+	Component Component `json:"component"`
+}
+
+type Component struct {
+	Provider         string  `json:"provider"`
+	ComponentType    string  `json:"component_type"`
+	Version          *int    `json:"version"`
+	ComponentVersion int     `json:"component_version"`
+	Description      *string `json:"description"`
+	Label            *string `json:"label"`
+	// note: this implementation is due to the kubebuilder limitation https://github.com/kubernetes-sigs/controller-tools/issues/636
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Schemaless
+	Config map[string]AnyType `json:"config,omitempty"`
 }
 
 type MCPToolServerParams struct {

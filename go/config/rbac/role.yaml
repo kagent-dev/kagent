@@ -5,6 +5,32 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - agent.ai.solo.io
+  resources:
+  - toolservers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - agent.ai.solo.io
+  resources:
+  - toolservers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - agent.ai.solo.io
+  resources:
+  - toolservers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - kagent.dev
   resources:
   - agents

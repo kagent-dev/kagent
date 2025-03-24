@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/autogen/api"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"sync"
-	"time"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
@@ -669,9 +667,14 @@ func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {
 	if err := unmarshalFromMap(config, &mcpToolConfig); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal tool config: %v", err)
 	}
+	component, err := convertComponentToApiType(tool.Component)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert component: %v", err)
+	}
+
 	return &v1alpha1.MCPTool{
 		Name:      mcpToolConfig.Tool.Name,
-		Component: tool.Component,
+		Component: component,
 	}, nil
 	//
 	//inputSchema, err := convertToAnyType(mcpToolConfig.Tool.InputSchema)
@@ -739,20 +742,34 @@ func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {
 	//}, nil
 }
 
-func convertTimeout(timeout int) v1alpha1.Duration {
-	return v1alpha1.Duration{
-		Duration: time.Second * time.Duration(timeout),
+func convertComponentToApiType(component *api.Component) (v1alpha1.Component, error) {
+	anyConfig, err := convertMapToAnytype(component.Config)
+	if err != nil {
+		return v1alpha1.Component{}, err
 	}
+	return v1alpha1.Component{
+		Provider:         component.Provider,
+		ComponentType:    component.ComponentType,
+		Version:          component.Version,
+		ComponentVersion: component.ComponentVersion,
+		Description:      component.Description,
+		Label:            component.Label,
+		Config:           anyConfig,
+	}, nil
 }
 
-func convertToAnyType(v any) (v1alpha1.AnyType, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return v1alpha1.AnyType{}, err
+func convertMapToAnytype(m map[string]interface{}) (map[string]v1alpha1.AnyType, error) {
+	anyConfig := make(map[string]v1alpha1.AnyType)
+	for k, v := range m {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		anyConfig[k] = v1alpha1.AnyType{
+			RawMessage: b,
+		}
 	}
-	return v1alpha1.AnyType{
-		RawMessage: b,
-	}, nil
+	return anyConfig, nil
 }
 
 func unmarshalFromMap(m map[string]interface{}, v interface{}) error {

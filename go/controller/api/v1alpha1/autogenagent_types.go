@@ -37,8 +37,8 @@ type AgentSpec struct {
 
 type Tool struct {
 	// ONEOF: BuiltinTool, McpServerTool
-	BuiltinTool
-	McpServerTool
+	BuiltinTool   `json:",inline"`
+	McpServerTool `json:",inline"`
 }
 
 type BuiltinTool struct {
@@ -53,7 +53,7 @@ type BuiltinTool struct {
 
 type McpServerTool struct {
 	// the name of the ToolServer that provides the tool. must exist in the same namespace as the Agent
-	ToolServer string `json:"provider,omitempty"`
+	ToolServer string `json:"toolServer,omitempty"`
 	// The name of the tool to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created

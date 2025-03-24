@@ -4,25 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: agents.kagent.dev
+  name: toolservers.kagent.dev
 spec:
   group: kagent.dev
   names:
-    kind: Agent
-    listKind: AgentList
-    plural: agents
-    singular: agent
+    kind: ToolServer
+    listKind: ToolServerList
+    plural: toolservers
+    singular: toolserver
   scope: Namespaced
   versions:
-  - additionalPrinterColumns:
-    - description: Whether or not the agent has been accepted by the system.
-      jsonPath: .status.conditions[0].status
-      name: Accepted
-      type: string
-    name: v1alpha1
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Agent is the Schema for the agents API.
+        description: ToolServer is the Schema for the toolservers API.
         properties:
           apiVersion:
             description: |-
@@ -42,41 +37,51 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentSpec defines the desired state of Agent.
+            description: ToolServerSpec defines the desired state of ToolServer.
             properties:
+              config:
+                properties:
+                  sse:
+                    properties:
+                      headers:
+                        x-kubernetes-preserve-unknown-fields: true
+                      sse_read_timeout:
+                        type: string
+                      timeout:
+                        type: string
+                      url:
+                        type: string
+                    required:
+                    - url
+                    type: object
+                  stdio:
+                    properties:
+                      args:
+                        items:
+                          type: string
+                        type: array
+                      command:
+                        type: string
+                      cwd:
+                        type: string
+                      env:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      stderr:
+                        type: string
+                    required:
+                    - command
+                    type: object
+                type: object
               description:
                 type: string
-              systemMessage:
-                minLength: 1
-                type: string
-              tools:
-                items:
-                  properties:
-                    config:
-                      description: 'note: this implementation is due to the kubebuilder
-                        limitation https://github.com/kubernetes-sigs/controller-tools/issues/636'
-                      x-kubernetes-preserve-unknown-fields: true
-                    description:
-                      description: Description is a brief description of the tool.
-                      type: string
-                    provider:
-                      type: string
-                    toolName:
-                      description: |-
-                        The name of the tool to be provided by the ToolServer
-                        For a list of all the tools provided by the server,
-                        the client can query the status of the ToolServer object after it has been created
-                      type: string
-                    toolServer:
-                      description: the name of the ToolServer that provides the tool.
-                        must exist in the same namespace as the Agent
-                      type: string
-                  type: object
-                maxItems: 20
-                type: array
+            required:
+            - config
+            - description
             type: object
           status:
-            description: AgentStatus defines the observed state of Agent.
+            description: ToolServerStatus defines the observed state of ToolServer.
             properties:
               conditions:
                 items:
@@ -134,9 +139,52 @@ spec:
                   - type
                   type: object
                 type: array
+              discoveredTools:
+                items:
+                  properties:
+                    component:
+                      properties:
+                        component_type:
+                          type: string
+                        component_version:
+                          type: integer
+                        config:
+                          description: 'note: this implementation is due to the kubebuilder
+                            limitation https://github.com/kubernetes-sigs/controller-tools/issues/636'
+                          x-kubernetes-preserve-unknown-fields: true
+                        description:
+                          type: string
+                        label:
+                          type: string
+                        provider:
+                          type: string
+                        version:
+                          type: integer
+                      required:
+                      - component_type
+                      - component_version
+                      - description
+                      - label
+                      - provider
+                      - version
+                      type: object
+                    name:
+                      type: string
+                  required:
+                  - component
+                  - name
+                  type: object
+                type: array
               observedGeneration:
+                description: |-
+                  INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+                  Important: Run "make" to regenerate code after modifying this file
                 format: int64
                 type: integer
+            required:
+            - conditions
+            - discoveredTools
+            - observedGeneration
             type: object
         type: object
     served: true
