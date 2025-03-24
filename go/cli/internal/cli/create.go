@@ -56,15 +56,17 @@ func CreateCmd(c *ishell.Context) {
 		if existingTeam != nil {
 			team = existingTeam
 			team.Component = &cmp
-			team.CreatedAt = nil
-			team.UpdatedAt = nil
+			team.CreatedAt = ""
+			team.UpdatedAt = ""
 			// Update the existing team
 			c.Printf("A team with the name %s already exists\n", *cmp.Label)
 			c.Println("Updating team")
 		} else {
 			team = &autogen_client.Team{
 				Component: &cmp,
-				UserID:    cfg.UserID,
+				BaseObject: autogen_client.BaseObject{
+					UserID: cfg.UserID,
+				},
 			}
 		}
 

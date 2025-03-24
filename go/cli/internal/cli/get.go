@@ -143,10 +143,10 @@ func printTools(tools []*autogen_client.Tool) error {
 	for i, tool := range tools {
 		rows[i] = []string{
 			strconv.Itoa(i),
-			strconv.Itoa(*tool.Id),
+			strconv.Itoa(tool.Id),
 			tool.Component.Provider,
 			*tool.Component.Label,
-			*tool.CreatedAt,
+			tool.CreatedAt,
 		}
 	}
 
@@ -185,7 +185,7 @@ func printTeams(teams []*autogen_client.Team) error {
 			strconv.Itoa(i),
 			*team.Component.Label,
 			strconv.Itoa(team.Id),
-			*team.CreatedAt,
+			team.CreatedAt,
 		}
 	}
 

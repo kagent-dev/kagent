@@ -2,8 +2,13 @@ package autogen
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/hashicorp/go-multierror"
+	"github.com/kagent-dev/kagent/go/autogen/api"
+	"reflect"
 	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -228,28 +233,49 @@ func (a *autogenReconciler) ReconcileAutogenApiKeySecret(ctx context.Context, re
 
 func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req ctrl.Request) error {
 	// reconcile the agent team itself
-	agent := &v1alpha1.ToolServer{}
-	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
+	toolServer := &v1alpha1.ToolServer{}
+	if err := a.kube.Get(ctx, req.NamespacedName, toolServer); err != nil {
 		return fmt.Errorf("failed to get agent %s: %v", req.Name, err)
 	}
-	if err := a.reconcileAgents(ctx, agent); err != nil {
-		return fmt.Errorf("failed to reconcile agent %s: %v", req.Name, err)
+
+	serverID, reconcileErr := a.reconcileToolServer(ctx, toolServer)
+
+	// update the tool server status as the agents depend on it
+	if err := a.reconcileToolServerStatus(
+		ctx,
+		toolServer,
+		serverID,
+		reconcileErr,
+	); err != nil {
+		return fmt.Errorf("failed to reconcile tool server %s: %v", req.Name, err)
 	}
 
-	// find and reconcile all teams which use this agent
-	teams, err := a.findTeamsUsingAgent(ctx, req)
+	// find and reconcile all agents which use this tool server
+	agents, err := a.findAgentsUsingToolServer(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to find teams for agent %s: %v", req.Name, err)
 	}
 
-	return a.reconcileToolServerStatus(
-		ctx,
-		agent,
-		a.reconcileTeams(ctx, teams...),
-	)
+	if err := a.reconcileAgents(ctx, agents...); err != nil {
+		return fmt.Errorf("failed to reconcile agents for tool server %s: %v", req.Name, err)
+	}
+
+	return nil
 }
 
-func (a *autogenReconciler) reconcileToolServerStatus(ctx context.Context, agent *v1alpha1.Agent, err error) error {
+func (a *autogenReconciler) reconcileToolServerStatus(
+	ctx context.Context,
+	toolServer *v1alpha1.ToolServer,
+	serverID int,
+	err error,
+) error {
+	discoveredTools, discoveryErr := a.getDiscoveredMCPTools(serverID)
+	if discoveryErr != nil {
+		err = multierror.Append(err, discoveryErr)
+	}
+
+	oldStatus := toolServer.Status
+
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -259,13 +285,13 @@ func (a *autogenReconciler) reconcileToolServerStatus(ctx context.Context, agent
 		status = metav1.ConditionFalse
 		message = err.Error()
 		reason = "AgentReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile agent", "agent", agent)
+		reconcileLog.Error(err, "failed to reconcile agent", "agent", toolServer)
 	} else {
 		status = metav1.ConditionTrue
 		reason = "AgentReconciled"
 	}
-	agent.Status = v1alpha1.AgentStatus{
-		ObservedGeneration: agent.Generation,
+	toolServer.Status = v1alpha1.ToolServerStatus{
+		ObservedGeneration: toolServer.Generation,
 		Conditions: []metav1.Condition{{
 			Type:               v1alpha1.AgentConditionTypeAccepted,
 			Status:             status,
@@ -273,9 +299,15 @@ func (a *autogenReconciler) reconcileToolServerStatus(ctx context.Context, agent
 			Reason:             reason,
 			Message:            message,
 		}},
+		DiscoveredTools: discoveredTools,
 	}
 
-	if err := a.kube.Status().Update(ctx, agent); err != nil {
+	// only update if the status has changed to prevent looping the reconciler
+	if reflect.DeepEqual(oldStatus, toolServer.Status) {
+		return nil
+	}
+
+	if err := a.kube.Status().Update(ctx, toolServer); err != nil {
 		return fmt.Errorf("failed to update agent status: %v", err)
 	}
 
@@ -324,6 +356,19 @@ func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1al
 	return nil
 }
 
+func (a *autogenReconciler) reconcileToolServer(ctx context.Context, server *v1alpha1.ToolServer) (int, error) {
+	toolServer, err := a.translator.TranslateToolServer(ctx, server)
+	if err != nil {
+		return 0, fmt.Errorf("failed to translate tool server %s: %v", server.Name, err)
+	}
+	serverID, err := a.upsertToolServer(toolServer)
+	if err != nil {
+		return 0, fmt.Errorf("failed to upsert tool server %s: %v", server.Name, err)
+	}
+
+	return serverID, nil
+}
+
 func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
 	// lock to prevent races
 	a.upsertLock.Lock()
@@ -354,6 +399,40 @@ func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
 	}
 
 	return a.autogenClient.CreateTeam(team)
+}
+
+func (a *autogenReconciler) upsertToolServer(toolServer *autogen_client.ToolServerConfig) (int, error) {
+	// lock to prevent races
+	a.upsertLock.Lock()
+	defer a.upsertLock.Unlock()
+
+	// delete if toolServer exists
+	existingToolServer, err := a.autogenClient.GetToolServer(*toolServer.Component.Label)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get existing toolServer %s: %v", *toolServer.Component.Label, err)
+	}
+	if existingToolServer != nil {
+		err = a.autogenClient.UpdateToolServer(toolServer)
+		if err != nil {
+			return 0, fmt.Errorf("failed to delete existing toolServer %s: %v", *toolServer.Component.Label, err)
+		}
+	} else {
+		err = a.autogenClient.CreateToolServer(toolServer)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create toolServer %s: %v", *toolServer.Component.Label, err)
+		}
+		existingToolServer, err = a.autogenClient.GetToolServer(*toolServer.Component.Label)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get existing toolServer %s: %v", *toolServer.Component.Label, err)
+		}
+	}
+
+	err = a.autogenClient.RefreshToolServer(existingToolServer.Id)
+	if err != nil {
+		return 0, fmt.Errorf("failed to refresh toolServer %s: %v", *toolServer.Component.Label, err)
+	}
+
+	return existingToolServer.Id, nil
 }
 
 func (a *autogenReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
@@ -530,4 +609,156 @@ func (a *autogenReconciler) findTeamsUsingApiKeySecret(ctx context.Context, req 
 
 	return teams, nil
 
+}
+
+func (a *autogenReconciler) findAgentsUsingToolServer(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
+	var agentsList v1alpha1.AgentList
+	if err := a.kube.List(
+		ctx,
+		&agentsList,
+		client.InNamespace(req.Namespace),
+	); err != nil {
+		return nil, fmt.Errorf("failed to list agents: %v", err)
+	}
+
+	var agents []*v1alpha1.Agent
+	appendAgentIfUsesToolServer := func(agent *v1alpha1.Agent) {
+		for _, tool := range agent.Spec.Tools {
+			if tool.Provider == req.Name {
+				agents = append(agents, agent)
+				return
+			}
+		}
+	}
+
+	for _, agent := range agentsList.Items {
+		agent := agent
+		appendAgentIfUsesToolServer(&agent)
+	}
+
+	return agents, nil
+
+}
+
+func (a *autogenReconciler) getDiscoveredMCPTools(serverID int) ([]*v1alpha1.MCPTool, error) {
+	allTools, err := a.autogenClient.ListTools(GlobalUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	var discoveredTools []*v1alpha1.MCPTool
+	for _, tool := range allTools {
+		if tool.ServerID != nil && *tool.ServerID == serverID {
+			mcpTool, err := convertTool(tool)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert tool: %v", err)
+			}
+			discoveredTools = append(discoveredTools, mcpTool)
+		}
+	}
+
+	return discoveredTools, nil
+}
+
+func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {
+	if tool.Component == nil || tool.Component.Config == nil {
+		return nil, fmt.Errorf("missing component or config")
+	}
+	config := tool.Component.Config
+	var mcpToolConfig api.MCPToolConfig
+	if err := unmarshalFromMap(config, &mcpToolConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tool config: %v", err)
+	}
+	return &v1alpha1.MCPTool{
+		Name:      mcpToolConfig.Tool.Name,
+		Component: tool.Component,
+	}, nil
+	//
+	//inputSchema, err := convertToAnyType(mcpToolConfig.Tool.InputSchema)
+	//if err != nil {
+	//	return nil, fmt.Errorf("failed to convert input schema: %v", err)
+	//}
+	//
+	//serverParams := mcpToolConfig.ServerParams
+	//if serverParams == nil {
+	//	return nil, fmt.Errorf("missing server params")
+	//}
+	//serverParamsMap, ok := serverParams.(map[string]interface{})
+	//if !ok {
+	//	return nil, fmt.Errorf("invalid server params")
+	//}
+	//
+	//// if serevr params contains "command", parse it as Stdio, else look for "url" and parse it as Sse
+	//_, hasCommand := serverParamsMap["command"]
+	//_, hasUrl := serverParamsMap["url"]
+	//
+	//var (
+	//	stdio *v1alpha1.StdioMcpServerConfig
+	//	sse   *v1alpha1.SseMcpServerConfig
+	//)
+	//switch {
+	//case hasCommand:
+	//	stdioConfig := &api.StdioMcpServerConfig{}
+	//	if err := unmarshalFromMap(serverParamsMap, stdioConfig); err != nil {
+	//		return nil, fmt.Errorf("failed to unmarshal stdio config: %v", err)
+	//	}
+	//	stderr, ok := stdioConfig.Stderr.(string)
+	//	if !ok {
+	//		stderr = ""
+	//	}
+	//
+	//	stdio = &v1alpha1.StdioMcpServerConfig{
+	//		Command: stdioConfig.Command,
+	//		Args:    stdioConfig.Args,
+	//		Env:     stdioConfig.Env,
+	//		Stderr:  stderr,
+	//		Cwd:     stdioConfig.Cwd,
+	//	}
+	//case hasUrl:
+	//	sseConfig := &api.SseMcpServerConfig{}
+	//	if err := unmarshalFromMap(serverParamsMap, sseConfig); err != nil {
+	//		return nil, fmt.Errorf("failed to unmarshal sse config: %v", err)
+	//	}
+	//
+	//	sse = &v1alpha1.SseMcpServerConfig{
+	//		URL:            sseConfig.URL,
+	//		Headers:        sseConfig.Headers,
+	//		Timeout:        convertTimeout(sseConfig.Timeout),
+	//		SseReadTimeout: convertTimeout(sseConfig.SseReadTimeout),
+	//	}
+	//}
+	//
+	//return &v1alpha1.MCPTool{
+	//	Name:        mcpToolConfig.Tool.Name,
+	//	Description: mcpToolConfig.Tool.Description,
+	//	InputSchema: inputSchema,
+	//	ServerParams: v1alpha1.MCPToolServerParams{
+	//		Stdio: stdio,
+	//		Sse:   sse,
+	//	},
+	//}, nil
+}
+
+func convertTimeout(timeout int) v1alpha1.Duration {
+	return v1alpha1.Duration{
+		Duration: time.Second * time.Duration(timeout),
+	}
+}
+
+func convertToAnyType(v any) (v1alpha1.AnyType, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return v1alpha1.AnyType{}, err
+	}
+	return v1alpha1.AnyType{
+		RawMessage: b,
+	}, nil
+}
+
+func unmarshalFromMap(m map[string]interface{}, v interface{}) error {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
 }

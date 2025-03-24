@@ -36,6 +36,12 @@ type AgentSpec struct {
 }
 
 type Tool struct {
+	// ONEOF: BuiltinTool, McpServerTool
+	BuiltinTool
+	McpServerTool
+}
+
+type BuiltinTool struct {
 	Provider string `json:"provider,omitempty"`
 	// Description is a brief description of the tool.
 	Description string `json:"description,omitempty"`
@@ -43,6 +49,15 @@ type Tool struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
 	Config map[string]AnyType `json:"config,omitempty"`
+}
+
+type McpServerTool struct {
+	// the name of the ToolServer that provides the tool. must exist in the same namespace as the Agent
+	ToolServer string `json:"provider,omitempty"`
+	// The name of the tool to be provided by the ToolServer
+	// For a list of all the tools provided by the server,
+	// the client can query the status of the ToolServer object after it has been created
+	ToolName string `json:"toolName,omitempty"`
 }
 
 type AnyType struct {

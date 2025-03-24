@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+
 	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"github.com/kagent-dev/kagent/go/controller/internal/utils/syncutils"
 
@@ -289,8 +290,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.ToolServerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Reconciler: autogenReconciler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ToolServer")
 		os.Exit(1)

@@ -52,11 +52,61 @@ type ApiTranslator interface {
 		ctx context.Context,
 		team *v1alpha1.Agent,
 	) (*autogen_client.Team, error)
+
+	TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServerConfig, error)
 }
 
 type apiTranslator struct {
 	kube               client.Client
 	defaultModelConfig types.NamespacedName
+}
+
+func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServerConfig, error) {
+	// provder = "kagent.tool_servers.StdioMcpToolServer" || "kagent.tool_servers.SseMcpToolServer"
+	provider, toolServerConfig, err := translateToolServerConfig(toolServer.Spec.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &autogen_client.ToolServerConfig{
+		BaseObject: autogen_client.BaseObject{
+			UserID: GlobalUserID,
+		},
+		Component: &api.Component{
+			Provider:      provider,
+			ComponentType: "tool_server",
+			Version:       makePtr(1),
+			Description:   makePtr(toolServer.Spec.Description),
+			Label:         makePtr(toolServer.Name),
+			Config:        api.MustToConfig(toolServerConfig),
+		},
+	}, nil
+}
+
+func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.ToolServerConfig, error) {
+	switch {
+	case config.Stdio != nil:
+		return "kagent.tool_servers.StdioMcpToolServer", &api.ToolServerConfig{
+			StdioMcpServerConfig: &api.StdioMcpServerConfig{
+				Command: config.Stdio.Command,
+				Args:    config.Stdio.Args,
+				Env:     config.Stdio.Env,
+				Stderr:  config.Stdio.Stderr,
+				Cwd:     config.Stdio.Cwd,
+			},
+		}, nil
+	case config.Sse != nil:
+		return "kagent.tool_servers.SseMcpToolServer", &api.ToolServerConfig{
+			SseMcpServerConfig: &api.SseMcpServerConfig{
+				URL:            config.Sse.URL,
+				Headers:        config.Sse.Headers,
+				Timeout:        int(config.Sse.Timeout.Seconds()),
+				SseReadTimeout: int(config.Sse.SseReadTimeout.Seconds()),
+			},
+		}, nil
+	}
+
+	return "", nil, fmt.Errorf("unsupported tool server config")
 }
 
 func NewAutogenApiTranslator(
@@ -198,7 +248,10 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			)
 		} else {
 			participant, err = translateAssistantAgent(
+				ctx,
+				a.kube,
 				agent.Name,
+				agent.Namespace,
 				agent.Spec,
 				modelClient,
 				modelContext,
@@ -290,8 +343,10 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	teamConfig.Label = makePtr(team.Name)
 
 	return &autogen_client.Team{
-		UserID:    GlobalUserID, // always use global id
 		Component: teamConfig,
+		BaseObject: autogen_client.BaseObject{
+			UserID: GlobalUserID, // always use global id
+		},
 	}, nil
 }
 
@@ -343,7 +398,10 @@ func (a *apiTranslator) translateTaskAgent(
 }
 
 func translateAssistantAgent(
+	ctx context.Context,
+	kube client.Client,
 	agentName string,
+	agentNamespace string,
 	agentSpec v1alpha1.AgentSpec,
 	modelClient *api.Component,
 	modelContext *api.Component,
@@ -351,33 +409,30 @@ func translateAssistantAgent(
 
 	var tools []*api.Component
 	for _, tool := range agentSpec.Tools {
-		toolConfig, err := convertToolConfig(tool.Config)
-		if err != nil {
-			return nil, err
-		}
-		// special case where we put the model client in the tool config
-		if toolNeedsModelClient(tool.Provider) {
-			if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
-				return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
+		switch {
+		case tool.Provider != "":
+			autogenTool, err := translateBuiltinTool(
+				modelClient,
+				tool.BuiltinTool,
+			)
+			if err != nil {
+				return nil, err
 			}
+			tools = append(tools, autogenTool)
+		case tool.ToolServer != "":
+			autogenTool, err := translateToolServerTool(
+				ctx,
+				kube,
+				tool.McpServerTool,
+				agentNamespace,
+			)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, autogenTool)
+		default:
+			return nil, fmt.Errorf("tool must have a provider or tool server")
 		}
-
-		providerParts := strings.Split(tool.Provider, ".")
-		toolLabel := providerParts[len(providerParts)-1]
-
-		var description *string
-		if tool.Description != "" {
-			description = makePtr(tool.Description)
-		}
-
-		tools = append(tools, &api.Component{
-			Provider:      tool.Provider,
-			Description:   description,
-			ComponentType: "tool",
-			Version:       makePtr(1),
-			Config:        api.GenericToolConfig(toolConfig),
-			Label:         makePtr(toolLabel),
-		})
 	}
 
 	sysMsgPtr := makePtr(agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix)
@@ -403,6 +458,68 @@ func translateAssistantAgent(
 			ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
 		}),
 	}, nil
+}
+
+func translateBuiltinTool(
+	modelClient *api.Component,
+	tool v1alpha1.BuiltinTool,
+) (*api.Component, error) {
+
+	toolConfig, err := convertToolConfig(tool.Config)
+	if err != nil {
+		return nil, err
+	}
+	// special case where we put the model client in the tool config
+	if toolNeedsModelClient(tool.Provider) {
+		if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
+			return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
+		}
+	}
+
+	providerParts := strings.Split(tool.Provider, ".")
+	toolLabel := providerParts[len(providerParts)-1]
+
+	var description *string
+	if tool.Description != "" {
+		description = makePtr(tool.Description)
+	}
+
+	return &api.Component{
+		Provider:      tool.Provider,
+		Description:   description,
+		ComponentType: "tool",
+		Version:       makePtr(1),
+		Config:        toolConfig,
+		Label:         makePtr(toolLabel),
+	}, nil
+}
+
+func translateToolServerTool(
+	ctx context.Context,
+	kube client.Client,
+	tool v1alpha1.McpServerTool,
+	agentNamespace string,
+) (*api.Component, error) {
+	toolServer := &v1alpha1.ToolServer{}
+	err := fetchObjKube(
+		ctx,
+		kube,
+		toolServer,
+		tool.ToolServer,
+		agentNamespace,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// requires the tool to have been discovered
+	for _, discoveredTool := range toolServer.Status.DiscoveredTools {
+		if discoveredTool.Name == tool.ToolName {
+			return discoveredTool.Component, nil
+		}
+	}
+
+	return nil, fmt.Errorf("tool %v not found in discovered tools in ToolServer %v", tool.ToolName, toolServer.Name)
 }
 
 func convertToolConfig(config map[string]v1alpha1.AnyType) (map[string]interface{}, error) {

@@ -17,25 +17,81 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/kagent-dev/kagent/go/autogen/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"time"
 )
-
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // ToolServerSpec defines the desired state of ToolServer.
 type ToolServerSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	Description string           `json:"description"`
+	Config      ToolServerConfig `json:"config"`
+}
 
-	// Foo is an example field of ToolServer. Edit toolserver_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+type ToolServerConfig struct {
+	Stdio *StdioMcpServerConfig `json:"stdio,omitempty"`
+	Sse   *SseMcpServerConfig   `json:"sse,omitempty"`
+}
+
+type StdioMcpServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Stderr  string            `json:"stderr,omitempty"`
+	Cwd     string            `json:"cwd,omitempty"`
+}
+
+type SseMcpServerConfig struct {
+	URL            string                 `json:"url"`
+	Headers        map[string]interface{} `json:"headers,omitempty"`
+	Timeout        Duration               `json:"timeout,omitempty"`
+	SseReadTimeout Duration               `json:"sse_read_timeout,omitempty"`
+}
+
+// Duration is a custom type to handle time.Duration marshaling
+type Duration struct {
+	time.Duration
+}
+
+// MarshalYAML formats the duration as a string with units
+func (d Duration) MarshalYAML() (interface{}, error) {
+	return d.String(), nil
+}
+
+// UnmarshalYAML parses the duration from a string
+func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var str string
+	if err := unmarshal(&str); err != nil {
+		return err
+	}
+	dur, err := time.ParseDuration(str)
+	if err != nil {
+		return err
+	}
+	d.Duration = dur
+	return nil
 }
 
 // ToolServerStatus defines the observed state of ToolServer.
 type ToolServerStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	ObservedGeneration int64              `json:"observedGeneration"`
+	Conditions         []metav1.Condition `json:"conditions"`
+	DiscoveredTools    []*MCPTool         `json:"discoveredTools"`
+}
+
+type MCPTool struct {
+	Name      string         `json:"name"`
+	Component *api.Component `json:"component"`
+	//Description  string              `json:"description"`
+	//InputSchema  AnyType             `json:"input_schema"`
+	//ServerParams MCPToolServerParams `json:"server_params"`
+}
+
+type MCPToolServerParams struct {
+	Stdio *StdioMcpServerConfig `json:"stdio,omitempty"`
+	Sse   *SseMcpServerConfig   `json:"sse,omitempty"`
 }
 
 // +kubebuilder:object:root=true
