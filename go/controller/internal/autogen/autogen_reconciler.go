@@ -3,6 +3,7 @@ package autogen
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -87,7 +88,7 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 		status = metav1.ConditionTrue
 		reason = "AgentReconciled"
 	}
-	agent.Status = v1alpha1.AgentStatus{
+	newStatus := v1alpha1.AgentStatus{
 		ObservedGeneration: agent.Generation,
 		Conditions: []metav1.Condition{{
 			Type:               v1alpha1.AgentConditionTypeAccepted,
@@ -96,6 +97,10 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 			Reason:             reason,
 			Message:            message,
 		}},
+	}
+
+	if reflect.DeepEqual(agent.Status, newStatus) {
+		return nil
 	}
 
 	if err := a.kube.Status().Update(ctx, agent); err != nil {
@@ -147,7 +152,7 @@ func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, mode
 		status = metav1.ConditionTrue
 		reason = "ModelConfigReconciled"
 	}
-	modelConfig.Status = v1alpha1.ModelConfigStatus{
+	newStatus := v1alpha1.ModelConfigStatus{
 		ObservedGeneration: modelConfig.Generation,
 		Conditions: []metav1.Condition{{
 			Type:               v1alpha1.ModelConfigConditionTypeAccepted,
@@ -156,6 +161,10 @@ func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, mode
 			Reason:             reason,
 			Message:            message,
 		}},
+	}
+
+	if reflect.DeepEqual(modelConfig.Status, newStatus) {
+		return nil
 	}
 
 	if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
@@ -189,7 +198,7 @@ func (a *autogenReconciler) reconcileTeamStatus(ctx context.Context, team *v1alp
 		status = metav1.ConditionTrue
 		reason = "TeamReconciled"
 	}
-	team.Status = v1alpha1.TeamStatus{
+	newStatus := v1alpha1.TeamStatus{
 		ObservedGeneration: team.Generation,
 		Conditions: []metav1.Condition{{
 			Type:               v1alpha1.TeamConditionTypeAccepted,
@@ -198,6 +207,10 @@ func (a *autogenReconciler) reconcileTeamStatus(ctx context.Context, team *v1alp
 			Reason:             reason,
 			Message:            message,
 		}},
+	}
+
+	if reflect.DeepEqual(team.Status, newStatus) {
+		return nil
 	}
 
 	if err := a.kube.Status().Update(ctx, team); err != nil {
