@@ -124,6 +124,9 @@ func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.T
 }
 
 func convertDurationToSeconds(timeout string) (int, error) {
+	if timeout == "" {
+		return 0, nil
+	}
 	d, err := time.ParseDuration(timeout)
 	if err != nil {
 		return 0, err

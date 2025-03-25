@@ -24,7 +24,7 @@ func New(baseURL, wsURL string) *Client {
 		BaseURL: baseURL,
 		WSURL:   wsURL,
 		HTTPClient: &http.Client{
-			Timeout: time.Second * 30,
+			Timeout: time.Minute * 30,
 		},
 	}
 }

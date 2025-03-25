@@ -183,7 +183,6 @@ spec:
                 type: integer
             required:
             - conditions
-            - discoveredTools
             - observedGeneration
             type: object
         type: object

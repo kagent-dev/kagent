@@ -92,17 +92,19 @@ var _ = Describe("E2e", func() {
 			Spec: v1alpha1.ToolServerSpec{
 				Description: "a t",
 				Config: v1alpha1.ToolServerConfig{
-					Stdio: &v1alpha1.StdioMcpServerConfig{
-						Command: "npx",
-						Args: []string{
-							"-y",
-							"@modelcontextprotocol/server-everything",
-						},
-						Env:    nil,
-						Stderr: "",
-						Cwd:    "",
+					//Stdio: &v1alpha1.StdioMcpServerConfig{
+					//	Command: "npx",
+					//	Args: []string{
+					//		"-y",
+					//		"@modelcontextprotocol/server-everything",
+					//	},
+					//	Env:    nil,
+					//	Stderr: "",
+					//	Cwd:    "",
+					//},
+					Sse: &v1alpha1.SseMcpServerConfig{
+						URL: "https://www.mcp.run/api/mcp/sse?nonce=WrRYKc7jwXSnlwalvjHlzA&username=ilackarms&profile=ilackarms%2Fdefault&sig=GvCWTGTiNh0I_ZqOCx7CeID0KEIVZJnWGpP58eXNUuw",
 					},
-					Sse: nil,
 				},
 			},
 		}

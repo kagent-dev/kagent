@@ -1,15 +1,14 @@
+---
 apiVersion: kagent.dev/v1alpha1
 kind: ToolServer
 metadata:
+  creationTimestamp: null
   name: asdf
   namespace: team-ns
 spec:
   config:
-    stdio:
-      args:
-      - -y
-      - '@modelcontextprotocol/server-everything'
-      command: npx
+    sse:
+      url: https://www.mcp.run/api/mcp/sse?nonce=WrRYKc7jwXSnlwalvjHlzA&username=ilackarms&profile=ilackarms%2Fdefault&sig=GvCWTGTiNh0I_ZqOCx7CeID0KEIVZJnWGpP58eXNUuw
   description: a t
 status:
   conditions: null

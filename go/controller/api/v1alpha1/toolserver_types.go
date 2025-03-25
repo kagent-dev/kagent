@@ -54,7 +54,8 @@ type ToolServerStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 	ObservedGeneration int64              `json:"observedGeneration"`
 	Conditions         []metav1.Condition `json:"conditions"`
-	DiscoveredTools    []*MCPTool         `json:"discoveredTools"`
+	// +kubebuilder:validation:Optional
+	DiscoveredTools []*MCPTool `json:"discoveredTools"`
 }
 
 type MCPTool struct {

@@ -8,6 +8,7 @@ import (
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
+	"strings"
 	"sync"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -405,27 +406,28 @@ func (a *autogenReconciler) upsertToolServer(toolServer *autogen_client.ToolServ
 	defer a.upsertLock.Unlock()
 
 	// delete if toolServer exists
-	existingToolServer, err := a.autogenClient.GetToolServer(*toolServer.Component.Label)
-	if err != nil {
+	existingToolServer, err := a.autogenClient.GetToolServer(*toolServer.Component.Label, GlobalUserID)
+	if err != nil && !strings.Contains(err.Error(), "not found") {
 		return 0, fmt.Errorf("failed to get existing toolServer %s: %v", *toolServer.Component.Label, err)
 	}
 	if existingToolServer != nil {
-		err = a.autogenClient.UpdateToolServer(toolServer)
+		toolServer.Id = existingToolServer.Id
+		err = a.autogenClient.UpdateToolServer(toolServer, GlobalUserID)
 		if err != nil {
 			return 0, fmt.Errorf("failed to delete existing toolServer %s: %v", *toolServer.Component.Label, err)
 		}
 	} else {
-		err = a.autogenClient.CreateToolServer(toolServer)
+		err = a.autogenClient.CreateToolServer(toolServer, GlobalUserID)
 		if err != nil {
 			return 0, fmt.Errorf("failed to create toolServer %s: %v", *toolServer.Component.Label, err)
 		}
-		existingToolServer, err = a.autogenClient.GetToolServer(*toolServer.Component.Label)
+		existingToolServer, err = a.autogenClient.GetToolServer(*toolServer.Component.Label, GlobalUserID)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get existing toolServer %s: %v", *toolServer.Component.Label, err)
 		}
 	}
 
-	err = a.autogenClient.RefreshToolServer(existingToolServer.Id)
+	err = a.autogenClient.RefreshToolServer(existingToolServer.Id, GlobalUserID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to refresh toolServer %s: %v", *toolServer.Component.Label, err)
 	}
