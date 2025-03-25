@@ -102,7 +102,7 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 	if reflect.DeepEqual(agent.Status, newStatus) {
 		return nil
 	}
-
+	agent.Status = newStatus
 	if err := a.kube.Status().Update(ctx, agent); err != nil {
 		return fmt.Errorf("failed to update agent status: %v", err)
 	}
@@ -166,6 +166,7 @@ func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, mode
 	if reflect.DeepEqual(modelConfig.Status, newStatus) {
 		return nil
 	}
+	modelConfig.Status = newStatus
 
 	if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
 		return fmt.Errorf("failed to update model config status: %v", err)
@@ -212,6 +213,7 @@ func (a *autogenReconciler) reconcileTeamStatus(ctx context.Context, team *v1alp
 	if reflect.DeepEqual(team.Status, newStatus) {
 		return nil
 	}
+	team.Status = newStatus
 
 	if err := a.kube.Status().Update(ctx, team); err != nil {
 		return fmt.Errorf("failed to update team status: %v", err)
