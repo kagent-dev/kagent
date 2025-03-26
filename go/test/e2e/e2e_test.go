@@ -107,7 +107,7 @@ var _ = Describe("E2e", func() {
 					},
 				},
 			},
-		}}
+		}
 
 		writeKubeObjects(
 			"manifests/kube-expert-agent.yaml",
