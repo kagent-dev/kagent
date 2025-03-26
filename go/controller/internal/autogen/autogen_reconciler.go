@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/autogen/api"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"strings"
@@ -273,8 +274,6 @@ func (a *autogenReconciler) reconcileToolServerStatus(
 		err = multierror.Append(err, discoveryErr)
 	}
 
-	oldStatus := toolServer.Status
-
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -289,22 +288,23 @@ func (a *autogenReconciler) reconcileToolServerStatus(
 		status = metav1.ConditionTrue
 		reason = "AgentReconciled"
 	}
-	toolServer.Status = v1alpha1.ToolServerStatus{
-		ObservedGeneration: toolServer.Generation,
-		Conditions: []metav1.Condition{{
-			Type:               v1alpha1.AgentConditionTypeAccepted,
-			Status:             status,
-			LastTransitionTime: metav1.Now(),
-			Reason:             reason,
-			Message:            message,
-		}},
-		DiscoveredTools: discoveredTools,
-	}
+	conditionChanged := meta.SetStatusCondition(&toolServer.Status.Conditions, metav1.Condition{
+		Type:               v1alpha1.AgentConditionTypeAccepted,
+		Status:             status,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	})
 
 	// only update if the status has changed to prevent looping the reconciler
-	if reflect.DeepEqual(oldStatus, toolServer.Status) {
+	if !conditionChanged &&
+		toolServer.Status.ObservedGeneration == toolServer.Generation &&
+		reflect.DeepEqual(toolServer.Status.DiscoveredTools, discoveredTools) {
 		return nil
 	}
+
+	toolServer.Status.ObservedGeneration = toolServer.Generation
+	toolServer.Status.DiscoveredTools = discoveredTools
 
 	if err := a.kube.Status().Update(ctx, toolServer); err != nil {
 		return fmt.Errorf("failed to update agent status: %v", err)
