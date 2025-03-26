@@ -149,7 +149,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		return nil, fmt.Errorf("model api key not found")
 	}
 
-	modelClient := &api.Component{
+	modelClientWithStreaming := &api.Component{
 		Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
 		ComponentType: "model",
 		Version:       makePtr(1),
@@ -166,6 +166,19 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			},
 		}),
 	}
+	modelClientWithoutStreaming := &api.Component{
+		Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
+		ComponentType: "model",
+		Version:       makePtr(1),
+		//ComponentVersion: 1,
+		Config: api.MustToConfig(&api.OpenAIClientConfig{
+			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
+				Model:  modelConfig.Spec.Model,
+				APIKey: makePtr(string(modelApiKey)),
+			},
+		}),
+	}
+
 	modelContext := &api.Component{
 		Provider:      "autogen_core.model_context.UnboundedChatCompletionContext",
 		ComponentType: "chat_completion_context",
@@ -200,7 +213,8 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			participant, err = translateAssistantAgent(
 				agent.Name,
 				agent.Spec,
-				modelClient,
+				modelClientWithStreaming,
+				modelClientWithoutStreaming,
 				modelContext,
 			)
 		}
@@ -220,7 +234,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		planningAgent := MakeBuiltinPlanningAgent(
 			"planning_agent",
 			participants,
-			modelClient,
+			modelClientWithStreaming,
 		)
 		// prepend builtin planning agent when using swarm mode
 		participants = append(
@@ -345,7 +359,8 @@ func (a *apiTranslator) translateTaskAgent(
 func translateAssistantAgent(
 	agentName string,
 	agentSpec v1alpha1.AgentSpec,
-	modelClient *api.Component,
+	modelClientWithStreaming *api.Component,
+	modelClientWithoutStreaming *api.Component,
 	modelContext *api.Component,
 ) (*api.Component, error) {
 
@@ -357,7 +372,7 @@ func translateAssistantAgent(
 		}
 		// special case where we put the model client in the tool config
 		if toolNeedsModelClient(tool.Provider) {
-			if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
+			if err := addModelClientToConfig(modelClientWithoutStreaming, &toolConfig); err != nil {
 				return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
 			}
 		}
@@ -392,7 +407,7 @@ func translateAssistantAgent(
 		Description:   makePtr(agentSpec.Description),
 		Config: api.MustToConfig(&api.AssistantAgentConfig{
 			Name:         convertToPythonIdentifier(agentName),
-			ModelClient:  modelClient,
+			ModelClient:  modelClientWithStreaming,
 			Tools:        tools,
 			ModelContext: modelContext,
 			Description:  agentSpec.Description,
