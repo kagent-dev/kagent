@@ -1,11 +1,4 @@
 import { Component, MCPToolConfig, ToolConfig } from "@/types/datamodel";
-import type { Model } from "./types";
-
-// TODO: Could also come from the backend
-export const AVAILABLE_MODELS: Model[] = [
-  { id: "gpt-4o", name: "GPT-4o" },
-  { id: "gpt-4o-mini", name: "GPT-4o-mini" },
-];
 
 export const isMcpTool = (content: unknown): content is MCPToolConfig => {
   if (!content || typeof content !== "object") return false;

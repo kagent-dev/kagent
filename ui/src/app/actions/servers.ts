@@ -1,5 +1,5 @@
 'use server'
-import { Component, ToolServer, ToolServerConfig } from "@/types/datamodel";
+import { Component, Tool, ToolServer, ToolServerConfig } from "@/types/datamodel";
 import { fetchApi, getCurrentUserId } from "./utils";
 import { BaseResponse } from "@/lib/types";
 
@@ -84,6 +84,24 @@ export async function createServer(serverData: Component<ToolServerConfig>): Pro
     return {
       success: false,
       error: "Failed to create server. Please try again.",
+    };
+  }
+
+  return {
+    success: true,
+    data: response,
+  };
+}
+
+
+export async function getServerTools(serverId: number): Promise<BaseResponse<Tool[]>> {
+  const response = await fetchApi<Tool[]>(`/toolservers/${serverId}/tools`);
+
+  if (!response) {
+    return {
+      success: false,
+      error: "Failed to get server tools. Please try again.",
+      data: [],
     };
   }
 

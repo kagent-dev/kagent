@@ -17,12 +17,12 @@ import StatusDisplay from "./StatusDisplay";
 import Link from "next/link";
 
 interface ChatInterfaceProps {
-  selectedTeamId: string;
+  selectedAgentId: number;
   selectedSession?: Session | null;
   selectedRun?: Run | null;
 }
 
-export default function ChatInterface({ selectedTeamId, selectedRun }: ChatInterfaceProps) {
+export default function ChatInterface({ selectedAgentId, selectedRun }: ChatInterfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
   const [tokenStats, setTokenStats] = useState<TokenStats>({
@@ -56,7 +56,7 @@ export default function ChatInterface({ selectedTeamId, selectedRun }: ChatInter
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!message.trim() || !selectedTeamId) {
+    if (!message.trim() || !selectedAgentId) {
       return;
     }
 
@@ -64,7 +64,7 @@ export default function ChatInterface({ selectedTeamId, selectedRun }: ChatInter
     setMessage("");
 
     try {
-      await sendUserMessage(currentMessage, Number(selectedTeamId));
+      await sendUserMessage(currentMessage, Number(selectedAgentId));
     } catch (error) {
       console.error("Error sending message:", error);
       setMessage(currentMessage);
@@ -80,7 +80,7 @@ export default function ChatInterface({ selectedTeamId, selectedRun }: ChatInter
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (message.trim() && selectedTeamId) {
+      if (message.trim() && selectedAgentId) {
         handleSendMessage(e);
       }
     }
@@ -100,7 +100,7 @@ export default function ChatInterface({ selectedTeamId, selectedRun }: ChatInter
       <div className="flex-1 w-full overflow-hidden relative">
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
           <div className="flex flex-col space-y-5">
-            {displayMessages.length === 0 && !showStreamingMessage && <NoMessagesState agentId={selectedTeamId} />}
+            {displayMessages.length === 0 && !showStreamingMessage && <NoMessagesState agentId={selectedAgentId} />}
             {displayMessages.map((msg, index) => (
               <ChatMessage key={`${msg.run_id}-${msg.config.source}-${index}`} message={msg} run={actualRun} />
             ))}
@@ -147,7 +147,7 @@ export default function ChatInterface({ selectedTeamId, selectedRun }: ChatInter
 
             {(runStatus === "complete" || runStatus === "error" || runStatus === "stopped" || status === 'error') && (
               <Button className="bg-violet-500 hover:bg-violet-600" asChild>
-                <Link href={`/agents/${selectedTeamId}/chat`}>
+                <Link href={`/agents/${selectedAgentId}/chat`}>
                 Start New Chat
                 </Link>
               </Button>

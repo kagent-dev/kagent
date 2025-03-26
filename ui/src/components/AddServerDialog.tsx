@@ -310,8 +310,8 @@ export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDi
 
               <TabsContent value="command" className="pt-4 space-y-4">
                 {/* Command Preview Box */}
-                <div className="p-3 bg-gray-50 border rounded-md font-mono text-sm">
-                  <div className="flex items-center gap-2 mb-1 text-gray-500">
+                <div className="p-3 bg-gray-50 border rounded-md font-mono text-sm text-gray-500">
+                  <div className="flex items-center gap-2 mb-1">
                     <Code className="h-4 w-4" />
                     <span>Command Preview:</span>
                   </div>

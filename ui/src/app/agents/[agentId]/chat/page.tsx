@@ -3,18 +3,18 @@ import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import ChatInterface from "@/components/chat/ChatInterface";
 
-export default async function ChatLayout({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function ChatLayout({ params }: { params: Promise<{ agentId: number }> }) {
+  const { agentId } = await params;
 
   return (
     <SidebarProvider>
-      <SessionsSidebar agentId={id} />
+      <SessionsSidebar agentId={agentId} />
       <main className="w-full max-w-6xl mx-auto">
         <ChatInterface
-          selectedTeamId={id}
+          selectedAgentId={agentId}
         />
       </main>
-      <AgentDetailsSidebar selectedTeamId={id} />
+      <AgentDetailsSidebar selectedAgentId={agentId} />
     </SidebarProvider>
   );
 }

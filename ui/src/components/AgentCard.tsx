@@ -21,7 +21,7 @@ export function AgentCard({ team }: AgentCardProps) {
             <KagentLogo className="h-5 w-5" />
             {agent.label || agent.config.name}
           </CardTitle>
-          <DeleteButton teamId={String(team.id)} />
+          <DeleteButton teamLabel={String(team.component.label)} />
         </CardHeader>
         <CardContent className="flex flex-col justify-between h-32">
           <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">{agent.description}</p>

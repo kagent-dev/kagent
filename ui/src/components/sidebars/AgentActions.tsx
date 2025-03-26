@@ -1,17 +1,16 @@
 "use client";
 
-import { ChevronsUpDown, Clipboard, Edit2, Text } from "lucide-react";
+import { ChevronsUpDown, Clipboard, Edit2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 import Link from "next/link";
 
 interface AgentActionsProps {
-  onViewInstructions?: () => void;
   onCopyJson?: () => void;
   agentId: number;
 }
 
-export function AgentActions({ onViewInstructions, onCopyJson, agentId }: AgentActionsProps) {
+export function AgentActions({ onCopyJson, agentId }: AgentActionsProps) {
   const { isMobile } = useSidebar();
 
   return (
@@ -36,17 +35,13 @@ export function AgentActions({ onViewInstructions, onCopyJson, agentId }: AgentA
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={onViewInstructions}>
-                <Text />
-                View instructions
-              </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href={`/agents/new?edit=true&id=${agentId}`}>
+                <Link href={`/agents/new?edit=true&id=${agentId}`} className="cursor-pointer">
                   <Edit2 />
                   Edit...
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={onCopyJson}>
+              <DropdownMenuItem onClick={onCopyJson} className="cursor-pointer">
                 <Clipboard />
                 Copy JSON
               </DropdownMenuItem>

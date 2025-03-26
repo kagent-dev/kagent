@@ -9,7 +9,6 @@ import { Loader2, FunctionSquare } from "lucide-react";
 import { Model } from "@/lib/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
-import { AVAILABLE_MODELS } from "@/lib/data";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
@@ -32,7 +31,7 @@ interface ValidationErrors {
 function AgentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
+  const { models, tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
 
   const getModelIdFromTeam = (team: Team): string | undefined => {
     try {
@@ -57,7 +56,7 @@ function AgentPageContent() {
   const [systemPrompt, setSystemPrompt] = useState("");
 
   // Default to the first model
-  const [selectedModel, setSelectedModel] = useState<Model>(AVAILABLE_MODELS[0]);
+  const [selectedModel, setSelectedModel] = useState<Model | null>(models && models.length > 0 ? models[0] : null);
 
   // Tools state
   const [selectedTools, setSelectedTools] = useState<Component<ToolConfig>[]>([]);
@@ -67,6 +66,12 @@ function AgentPageContent() {
   const [isLoading, setIsLoading] = useState(isEditMode);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [generalError, setGeneralError] = useState("");
+
+  useEffect(() => {
+    if (models && models.length > 0 && !selectedModel) {
+      setSelectedModel(models[0]);
+    }
+  }, [models, selectedModel]);
 
   // Fetch existing agent data if in edit mode
   useEffect(() => {
@@ -93,7 +98,7 @@ function AgentPageContent() {
                 // Find the model id from the model client and match it to available models
                 const modelId = getModelIdFromTeam(team);
                 if (modelId) {
-                  const model = AVAILABLE_MODELS.find((m) => m.id === modelId) || AVAILABLE_MODELS[0];
+                  const model = models.find((m) => m.model === modelId) || models[0];
                   setSelectedModel(model);
                 }
               } else {
@@ -123,7 +128,7 @@ function AgentPageContent() {
       name,
       description,
       systemPrompt,
-      model: selectedModel,
+      model: selectedModel || undefined,
       tools: selectedTools,
     };
 
@@ -153,19 +158,23 @@ function AgentPageContent() {
 
       if (isEditMode && agentId) {
         // Update existing agent
-        result = await updateAgent(agentId, agentData);
+        if (!selectedModel) {
+          throw new Error("Model is required to update the agent.");
+        }
+        result = await updateAgent(agentId, { ...agentData, model: selectedModel });
       } else {
         // Create new agent
-        result = await createNewAgent(agentData);
+        if (!selectedModel) {
+          throw new Error("Model is required to create the agent.");
+        }
+        result = await createNewAgent({ ...agentData, model: selectedModel });
       }
 
       if (!result.success) {
         throw new Error(result.error || `Failed to ${isEditMode ? "update" : "create"} agent`);
       }
 
-      // Redirect to the agent's chat page
-      const id = isEditMode ? agentId : result.data?.id;
-      router.push(`/agents/${id}/chat`);
+      router.push(`/agents`);
     } catch (error) {
       console.error(`Error ${isEditMode ? "updating" : "creating"} agent:`, error);
       setGeneralError(`Failed to ${isEditMode ? "update" : "create"} agent. Please try again.`);
@@ -225,7 +234,7 @@ function AgentPageContent() {
 
                 <SystemPromptSection value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} error={errors.systemPrompt} disabled={isSubmitting || isLoading} />
 
-                <ModelSelectionSection allModels={AVAILABLE_MODELS} selectedModel={selectedModel} setSelectedModel={setSelectedModel} error={errors.model} isSubmitting={isSubmitting || isLoading} />
+                <ModelSelectionSection allModels={models} selectedModel={selectedModel} setSelectedModel={setSelectedModel} error={errors.model} isSubmitting={isSubmitting || isLoading} />
               </CardContent>
             </Card>
 

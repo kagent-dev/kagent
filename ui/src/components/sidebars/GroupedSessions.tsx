@@ -7,7 +7,7 @@ import { EmptyState } from "./EmptyState";
 import { getSessions, getSessionRuns, deleteSession } from "@/app/actions/sessions";
 import { LoadingState } from "../LoadingState";
 
-export default function GroupedSessions({ agentId }: { agentId: string }) {
+export default function GroupedSessions({ agentId }: { agentId: number }) {
   const [sessions, setSessions] = useState<SessionWithRuns[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -19,7 +19,7 @@ export default function GroupedSessions({ agentId }: { agentId: string }) {
         throw new Error("Failed to get sessions");
       }
 
-      const agentSessions = sessions.data.filter((session) => String(session.team_id) === agentId);
+      const agentSessions = sessions.data.filter((session) => session.team_id == agentId);
       const sessionsWithRuns = await Promise.all(
         agentSessions.map(async (session) => {
           const runs = await getSessionRuns(String(session.id));
@@ -95,11 +95,11 @@ export default function GroupedSessions({ agentId }: { agentId: string }) {
 
   return (
     <>
-      {groupedSessions.today.length > 0 && <SessionGroup title="Today" sessions={groupedSessions.today} agentId={Number(agentId)} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />}
+      {groupedSessions.today.length > 0 && <SessionGroup title="Today" sessions={groupedSessions.today} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />}
       {groupedSessions.yesterday.length > 0 && (
-        <SessionGroup title="Yesterday" sessions={groupedSessions.yesterday} agentId={Number(agentId)} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />
+        <SessionGroup title="Yesterday" sessions={groupedSessions.yesterday} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />
       )}
-      {groupedSessions.older.length > 0 && <SessionGroup title="Older" sessions={groupedSessions.older} agentId={Number(agentId)} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />}
+      {groupedSessions.older.length > 0 && <SessionGroup title="Older" sessions={groupedSessions.older} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />}
     </>
   );
 }

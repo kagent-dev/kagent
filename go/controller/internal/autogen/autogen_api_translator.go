@@ -224,7 +224,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		return nil, fmt.Errorf("model api key not found")
 	}
 
-	modelClient := &api.Component{
+	modelClientWithStreaming := &api.Component{
 		Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
 		ComponentType: "model",
 		Version:       makePtr(1),
@@ -241,6 +241,19 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			},
 		}),
 	}
+	modelClientWithoutStreaming := &api.Component{
+		Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
+		ComponentType: "model",
+		Version:       makePtr(1),
+		//ComponentVersion: 1,
+		Config: api.MustToConfig(&api.OpenAIClientConfig{
+			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
+				Model:  modelConfig.Spec.Model,
+				APIKey: makePtr(string(modelApiKey)),
+			},
+		}),
+	}
+
 	modelContext := &api.Component{
 		Provider:      "autogen_core.model_context.UnboundedChatCompletionContext",
 		ComponentType: "chat_completion_context",
@@ -278,7 +291,8 @@ func (a *apiTranslator) translateGroupChatForTeam(
 				agent.Name,
 				agent.Namespace,
 				agent.Spec,
-				modelClient,
+				modelClientWithStreaming,
+				modelClientWithoutStreaming,
 				modelContext,
 			)
 		}
@@ -298,7 +312,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		planningAgent := MakeBuiltinPlanningAgent(
 			"planning_agent",
 			participants,
-			modelClient,
+			modelClientWithStreaming,
 		)
 		// prepend builtin planning agent when using swarm mode
 		participants = append(
@@ -428,16 +442,17 @@ func translateAssistantAgent(
 	agentName string,
 	agentNamespace string,
 	agentSpec v1alpha1.AgentSpec,
-	modelClient *api.Component,
+	modelClientWithStreaming *api.Component,
+	modelClientWithoutStreaming *api.Component,
 	modelContext *api.Component,
 ) (*api.Component, error) {
 
-	var tools []*api.Component
+	tools := []*api.Component{}
 	for _, tool := range agentSpec.Tools {
 		switch {
 		case tool.Provider != "":
 			autogenTool, err := translateBuiltinTool(
-				modelClient,
+				modelClientWithoutStreaming,
 				tool.BuiltinTool,
 			)
 			if err != nil {
@@ -472,7 +487,7 @@ func translateAssistantAgent(
 		Description:   makePtr(agentSpec.Description),
 		Config: api.MustToConfig(&api.AssistantAgentConfig{
 			Name:         convertToPythonIdentifier(agentName),
-			ModelClient:  modelClient,
+			ModelClient:  modelClientWithStreaming,
 			Tools:        tools,
 			ModelContext: modelContext,
 			Description:  agentSpec.Description,

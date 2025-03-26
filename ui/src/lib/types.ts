@@ -8,10 +8,9 @@ export interface CreateAgentFormData {
   tools: Component<ToolConfig>[];
 }
 
-
 export interface Model {
-  id: string;
   name: string;
+  model: string;
 }
 
 export interface CreateSessionRequest {

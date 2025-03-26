@@ -14,6 +14,12 @@ func (c *Client) CreateTeam(team *Team) error {
 	return c.doRequest("POST", "/teams/", team, team)
 }
 
+func (c *Client) GetTeamByID(teamID int, userID string) (*Team, error) {
+	var team *Team
+	err := c.doRequest("GET", fmt.Sprintf("/teams/%d?user_id=%s", teamID, userID), nil, &team)
+	return team, err
+}
+
 func (c *Client) GetTeam(teamLabel string, userID string) (*Team, error) {
 	allTeams, err := c.ListTeams(userID)
 	if err != nil {

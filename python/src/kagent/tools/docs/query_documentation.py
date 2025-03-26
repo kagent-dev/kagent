@@ -19,8 +19,8 @@ DEFAULT_DB_URL = "https://doc-sqlite-db.s3.sa-east-1.amazonaws.com"
 PRODUCT_DB_MAP = {
     "kubernetes": "kubernetes.db",
     "istio": "istio.db",
-    "argo cd": "argo.db",
-    "argo rollouts": "argo-rollouts.db",
+    "argo": "argo.db",
+    "argo-rollouts": "argo-rollouts.db",
     "helm": "helm.db",
     "prometheus": "prometheus.db",
     "gateway-api": "gateway-api.db",
@@ -28,7 +28,7 @@ PRODUCT_DB_MAP = {
     "gloo-edge": "gloo-edge.db",
     "otel": "otel.db",
     "cilium": "cilium.db",
-    "istio ambient mesh": "ambient.db",
+    "ambient": "ambient.db",
 }
 
 

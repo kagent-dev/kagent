@@ -24,7 +24,7 @@ export function getBackendUrl() {
   if (process.env.NODE_ENV === "production") {
     url = process.env.NEXT_PUBLIC_BACKEND_URL || "http://0.0.0.0/api";
   } else {
-    url = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8081/api";
+    url = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8083/api";
   }
   return url;
 }

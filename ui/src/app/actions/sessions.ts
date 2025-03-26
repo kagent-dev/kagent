@@ -7,8 +7,8 @@ import { fetchApi } from "./utils";
 
 export async function getSessionRuns(sessionId: string): Promise<BaseResponse<Run[]>> {
   try {
-    const { runs } = await fetchApi<{ runs: Run[] }>(`/sessions/${sessionId}/runs`);
-    return { success: true, data: runs };
+    const data = await fetchApi<Run[]>(`/sessions/${sessionId}/runs`);
+    return { success: true, data };
   } catch (error) {
     console.error("Error getting session runs:", error);
     return { success: false, error: "Failed to get session runs. Please try again." };

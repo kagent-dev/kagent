@@ -15,6 +15,17 @@
   <img src="img/hero.png" alt="Autogen Framework" width="500">
 </div>
 
+
+## Get started
+
+- [Quick Start](https://kagent.dev/docs/getting-started/quickstart)
+- [Installation guide](https://kagent.dev/docs/introduction/installation)
+
+
+## Documentation
+
+The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/docs).
+
 ## Core Concepts
 
 - **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools, and a model configuration.
@@ -45,22 +56,6 @@ Kagent has 4 core components:
 - **UI**: The UI is a web UI that allows you to manage the agents and tools.
 - **Engine**: The engine is a Python application that runs the agents and tools. The engine is built using [Autogen](https://github.com/microsoft/autogen).
 - **CLI**: The CLI is a command line tool that allows you to manage the agents and tools.
-
-## Quick Start
-
-1. Install prerequisites:
-  - [Helm](https://helm.sh/docs/intro/install/)
-  - [kubectl](https://kubernetes.io/docs/tasks/tools/)
-
-2. Install the kagent Helm chart:
-  ```bash
-  helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent --set openai.apiKey="your-api-key-here"
-  ```
-3. Port-forward the UI: 
-  ```bash
-  kubectl port-forward svc/kagent 8080:80
-  ```
-Then open [http://localhost:8080](http://localhost:8080) in your browser.
 
 
 ## Roadmap

@@ -93,21 +93,22 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 		status = metav1.ConditionTrue
 		reason = "AgentReconciled"
 	}
-	agent.Status = v1alpha1.AgentStatus{
-		ObservedGeneration: agent.Generation,
-		Conditions: []metav1.Condition{{
-			Type:               v1alpha1.AgentConditionTypeAccepted,
-			Status:             status,
-			LastTransitionTime: metav1.Now(),
-			Reason:             reason,
-			Message:            message,
-		}},
-	}
 
-	if err := a.kube.Status().Update(ctx, agent); err != nil {
-		return fmt.Errorf("failed to update agent status: %v", err)
-	}
+	conditionChanged := meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+		Type:               v1alpha1.AgentConditionTypeAccepted,
+		Status:             status,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	})
 
+	// update the status if it has changed or the generation has changed
+	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
+		agent.Status.ObservedGeneration = agent.Generation
+		if err := a.kube.Status().Update(ctx, agent); err != nil {
+			return fmt.Errorf("failed to update agent status: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -153,21 +154,22 @@ func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, mode
 		status = metav1.ConditionTrue
 		reason = "ModelConfigReconciled"
 	}
-	modelConfig.Status = v1alpha1.ModelConfigStatus{
-		ObservedGeneration: modelConfig.Generation,
-		Conditions: []metav1.Condition{{
-			Type:               v1alpha1.ModelConfigConditionTypeAccepted,
-			Status:             status,
-			LastTransitionTime: metav1.Now(),
-			Reason:             reason,
-			Message:            message,
-		}},
-	}
 
-	if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
-		return fmt.Errorf("failed to update model config status: %v", err)
-	}
+	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
+		Type:               v1alpha1.ModelConfigConditionTypeAccepted,
+		Status:             status,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	})
 
+	// update the status if it has changed or the generation has changed
+	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation {
+		modelConfig.Status.ObservedGeneration = modelConfig.Generation
+		if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
+			return fmt.Errorf("failed to update model config status: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -195,19 +197,20 @@ func (a *autogenReconciler) reconcileTeamStatus(ctx context.Context, team *v1alp
 		status = metav1.ConditionTrue
 		reason = "TeamReconciled"
 	}
-	team.Status = v1alpha1.TeamStatus{
-		ObservedGeneration: team.Generation,
-		Conditions: []metav1.Condition{{
-			Type:               v1alpha1.TeamConditionTypeAccepted,
-			Status:             status,
-			LastTransitionTime: metav1.Now(),
-			Reason:             reason,
-			Message:            message,
-		}},
-	}
 
-	if err := a.kube.Status().Update(ctx, team); err != nil {
-		return fmt.Errorf("failed to update team status: %v", err)
+	conditionChanged := meta.SetStatusCondition(&team.Status.Conditions, metav1.Condition{
+		Type:               v1alpha1.TeamConditionTypeAccepted,
+		Status:             status,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	})
+
+	if conditionChanged || team.Status.ObservedGeneration != team.Generation {
+		team.Status.ObservedGeneration = team.Generation
+		if err := a.kube.Status().Update(ctx, team); err != nil {
+			return fmt.Errorf("failed to update team status: %v", err)
+		}
 	}
 
 	return nil
