@@ -26,11 +26,6 @@ type Tool struct {
 	ServerID  *int           `json:"server_id,omitempty"`
 }
 
-type ToolServerConfig struct {
-	BaseObject
-	Component *api.Component `json:"component"`
-}
-
 type StdioMcpServerConfig struct {
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
