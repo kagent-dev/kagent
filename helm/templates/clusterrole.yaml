@@ -84,8 +84,12 @@ metadata:
 rules:
 - apiGroups:
   - ""
+  - kagent.dev
   resources:
   - "*"
+  - agents
+  - modelconfigs
+  - teams
   verbs:
   - create
   - update
