@@ -381,21 +381,21 @@ func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
 	}
 	resp, err := a.autogenClient.Validate(&req)
 	if err != nil {
-		return fmt.Errorf("failed to validate team %s: %v", *team.Component.Label, err)
+		return fmt.Errorf("failed to validate team %s: %v", team.Component.Label, err)
 	}
 	if !resp.IsValid {
-		return fmt.Errorf("team %s is invalid: %v", *team.Component.Label, resp.ErrorMsg())
+		return fmt.Errorf("team %s is invalid: %v", team.Component.Label, resp.ErrorMsg())
 	}
 
 	// delete if team exists
-	existingTeam, err := a.autogenClient.GetTeam(*team.Component.Label, GlobalUserID)
+	existingTeam, err := a.autogenClient.GetTeam(team.Component.Label, GlobalUserID)
 	if err != nil {
-		return fmt.Errorf("failed to get existing team %s: %v", *team.Component.Label, err)
+		return fmt.Errorf("failed to get existing team %s: %v", team.Component.Label, err)
 	}
 	if existingTeam != nil {
 		err = a.autogenClient.DeleteTeam(existingTeam.Id, GlobalUserID)
 		if err != nil {
-			return fmt.Errorf("failed to delete existing team %s: %v", *team.Component.Label, err)
+			return fmt.Errorf("failed to delete existing team %s: %v", team.Component.Label, err)
 		}
 		team.Id = existingTeam.Id
 	}
@@ -403,36 +403,36 @@ func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
 	return a.autogenClient.CreateTeam(team)
 }
 
-func (a *autogenReconciler) upsertToolServer(toolServer *autogen_client.ToolServerConfig) (int, error) {
+func (a *autogenReconciler) upsertToolServer(toolServer *autogen_client.ToolServer) (int, error) {
 	// lock to prevent races
 	a.upsertLock.Lock()
 	defer a.upsertLock.Unlock()
 
 	// delete if toolServer exists
-	existingToolServer, err := a.autogenClient.GetToolServer(*toolServer.Component.Label, GlobalUserID)
+	existingToolServer, err := a.autogenClient.GetToolServerByLabel(toolServer.Component.Label, GlobalUserID)
 	if err != nil && !strings.Contains(err.Error(), "not found") {
-		return 0, fmt.Errorf("failed to get existing toolServer %s: %v", *toolServer.Component.Label, err)
+		return 0, fmt.Errorf("failed to get existing toolServer %s: %v", toolServer.Component.Label, err)
 	}
 	if existingToolServer != nil {
 		toolServer.Id = existingToolServer.Id
 		err = a.autogenClient.UpdateToolServer(toolServer, GlobalUserID)
 		if err != nil {
-			return 0, fmt.Errorf("failed to delete existing toolServer %s: %v", *toolServer.Component.Label, err)
+			return 0, fmt.Errorf("failed to delete existing toolServer %s: %v", toolServer.Component.Label, err)
 		}
 	} else {
-		err = a.autogenClient.CreateToolServer(toolServer, GlobalUserID)
+		existingToolServer, err = a.autogenClient.CreateToolServer(toolServer, GlobalUserID)
 		if err != nil {
-			return 0, fmt.Errorf("failed to create toolServer %s: %v", *toolServer.Component.Label, err)
+			return 0, fmt.Errorf("failed to create toolServer %s: %v", toolServer.Component.Label, err)
 		}
-		existingToolServer, err = a.autogenClient.GetToolServer(*toolServer.Component.Label, GlobalUserID)
+		existingToolServer, err = a.autogenClient.GetToolServerByLabel(toolServer.Component.Label, GlobalUserID)
 		if err != nil {
-			return 0, fmt.Errorf("failed to get existing toolServer %s: %v", *toolServer.Component.Label, err)
+			return 0, fmt.Errorf("failed to get existing toolServer %s: %v", toolServer.Component.Label, err)
 		}
 	}
 
 	err = a.autogenClient.RefreshToolServer(existingToolServer.Id, GlobalUserID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to refresh toolServer %s: %v", *toolServer.Component.Label, err)
+		return 0, fmt.Errorf("failed to refresh toolServer %s: %v", toolServer.Component.Label, err)
 	}
 
 	return existingToolServer.Id, nil

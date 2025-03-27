@@ -29,7 +29,7 @@ func (c *RoundRobinGroupChatConfig) FromConfig(config map[string]interface{}) er
 
 type SelectorGroupChatConfig struct {
 	CommonTeamConfig
-	SelectorPrompt *string `json:"selector_prompt,omitempty"`
+	SelectorPrompt string `json:"selector_prompt,omitempty"`
 }
 
 func (c *SelectorGroupChatConfig) ToConfig() (map[string]interface{}, error) {
@@ -42,8 +42,8 @@ func (c *SelectorGroupChatConfig) FromConfig(config map[string]interface{}) erro
 
 type MagenticOneGroupChatConfig struct {
 	CommonTeamConfig
-	FinalAnswerPrompt *string `json:"final_answer_prompt,omitempty"`
-	MaxStalls         *int    `json:"max_stalls,omitempty"`
+	FinalAnswerPrompt string `json:"final_answer_prompt,omitempty"`
+	MaxStalls         int    `json:"max_stalls,omitempty"`
 }
 
 func (c *MagenticOneGroupChatConfig) ToConfig() (map[string]interface{}, error) {

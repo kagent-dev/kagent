@@ -34,20 +34,20 @@ func MakeBuiltinPlanningAgent(
 	return &api.Component{
 		Provider:      "autogen_agentchat.agents.AssistantAgent",
 		ComponentType: "agent",
-		Version:       makePtr(1),
-		Description:   makePtr(planningAgentDescription),
+		Version:       1,
+		Description:   planningAgentDescription,
 		Config: api.MustToConfig(&api.AssistantAgentConfig{
 			Name:        name,
 			ModelClient: modelClient,
 			ModelContext: &api.Component{
 				Provider:      "autogen_core.model_context.UnboundedChatCompletionContext",
 				ComponentType: "chat_completion_context",
-				Version:       makePtr(1),
+				Version:       1,
 				Config:        api.MustToConfig(&api.ChatCompletionContextConfig{}),
 			},
 			Description: planningAgentDescription,
 			// TODO(ilackarms): convert to non-ptr with omitempty?
-			SystemMessage:         makePtr(planningAgentSystemPrompt),
+			SystemMessage:         planningAgentSystemPrompt,
 			ReflectOnToolUse:      false,
 			ToolCallSummaryFormat: "{result}",
 			Handoffs:              handoffs,

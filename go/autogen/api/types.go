@@ -7,10 +7,10 @@ import (
 type Component struct {
 	Provider         string                 `json:"provider"`
 	ComponentType    string                 `json:"component_type"`
-	Version          *int                   `json:"version"`
+	Version          int                    `json:"version"`
 	ComponentVersion int                    `json:"component_version"`
-	Description      *string                `json:"description"`
-	Label            *string                `json:"label"`
+	Description      string                 `json:"description"`
+	Label            string                 `json:"label"`
 	Config           map[string]interface{} `json:"config"`
 }
 

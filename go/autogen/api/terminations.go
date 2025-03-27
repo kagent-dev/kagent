@@ -25,7 +25,7 @@ func (c *AndTerminationConfig) FromConfig(config map[string]interface{}) error {
 }
 
 type TextMentionTerminationConfig struct {
-	Text *string `json:"text"`
+	Text string `json:"text,omitempty"`
 }
 
 func (c *TextMentionTerminationConfig) ToConfig() (map[string]interface{}, error) {
@@ -37,7 +37,7 @@ func (c *TextMentionTerminationConfig) FromConfig(config map[string]interface{})
 }
 
 type TextMessageTerminationConfig struct {
-	Source *string `json:"source"`
+	Source string `json:"source,omitempty"`
 }
 
 func (c *TextMessageTerminationConfig) ToConfig() (map[string]interface{}, error) {
@@ -49,7 +49,7 @@ func (c *TextMessageTerminationConfig) FromConfig(config map[string]interface{})
 }
 
 type MaxMessageTerminationConfig struct {
-	MaxMessages *int `json:"max_messages"`
+	MaxMessages int `json:"max_messages"`
 }
 
 func (c *MaxMessageTerminationConfig) ToConfig() (map[string]interface{}, error) {

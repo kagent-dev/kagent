@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"net/http"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -42,12 +43,12 @@ func (h *ToolServersHandler) HandleCreateToolServer(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if toolServerRequest.UserID == nil || *toolServerRequest.UserID == "" {
+	if toolServerRequest.UserID == "" {
 		RespondWithError(w, http.StatusBadRequest, "user_id is required")
 		return
 	}
 
-	toolServer, err := h.AutogenClient.CreateToolServer(toolServerRequest)
+	toolServer, err := h.AutogenClient.CreateToolServer(toolServerRequest, autogen.GlobalUserID)
 	if err != nil {
 		RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return

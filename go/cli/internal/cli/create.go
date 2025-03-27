@@ -41,11 +41,11 @@ func CreateCmd(c *ishell.Context) {
 			return
 		}
 
-		if cmp.Label == nil {
+		if cmp.Label == "" {
 			c.Println("Team label is required")
 			return
 		}
-		existingTeam, err := client.GetTeam(*cmp.Label, cfg.UserID)
+		existingTeam, err := client.GetTeam(cmp.Label, cfg.UserID)
 		if err != nil {
 			c.Printf("Error getting team: %v\n", err)
 			return
@@ -59,7 +59,7 @@ func CreateCmd(c *ishell.Context) {
 			team.CreatedAt = ""
 			team.UpdatedAt = ""
 			// Update the existing team
-			c.Printf("A team with the name %s already exists\n", *cmp.Label)
+			c.Printf("A team with the name %s already exists\n", cmp.Label)
 			c.Println("Updating team")
 		} else {
 			team = &autogen_client.Team{

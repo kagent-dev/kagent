@@ -69,10 +69,10 @@ func ChatCmd(c *ishell.Context) {
 
 		teamNames := make([]string, len(teams))
 		for i, team := range teams {
-			if team.Component.Label == nil {
+			if team.Component.Label == "" {
 				continue
 			}
-			teamNames[i] = *team.Component.Label
+			teamNames[i] = team.Component.Label
 		}
 
 		selectedTeamIdx := c.MultiChoice(teamNames, "Select an agent:")
@@ -121,7 +121,7 @@ func ChatCmd(c *ishell.Context) {
 		session = existingSessions[selectedSessionIdx-1]
 	}
 
-	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", *team.Component.Label, session.Name))
+	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", team.Component.Label, session.Name))
 	c.SetPrompt(promptStr)
 
 	run, err := client.CreateRun(&autogen_client.CreateRunRequest{

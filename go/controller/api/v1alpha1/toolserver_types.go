@@ -64,12 +64,12 @@ type MCPTool struct {
 }
 
 type Component struct {
-	Provider         string  `json:"provider"`
-	ComponentType    string  `json:"component_type"`
-	Version          *int    `json:"version"`
-	ComponentVersion int     `json:"component_version"`
-	Description      *string `json:"description"`
-	Label            *string `json:"label"`
+	Provider         string `json:"provider"`
+	ComponentType    string `json:"component_type"`
+	Version          int    `json:"version"`
+	ComponentVersion int    `json:"component_version"`
+	Description      string `json:"description"`
+	Label            string `json:"label"`
 	// note: this implementation is due to the kubebuilder limitation https://github.com/kubernetes-sigs/controller-tools/issues/636
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless

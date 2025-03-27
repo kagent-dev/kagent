@@ -13,7 +13,7 @@ type AssistantAgentConfig struct {
 	ModelClient           *Component   `json:"model_client,omitempty"`
 	Tools                 []*Component `json:"tools"`
 	ModelContext          *Component   `json:"model_context,omitempty"`
-	SystemMessage         *string      `json:"system_message,omitempty"`
+	SystemMessage         string       `json:"system_message,omitempty"`
 	ReflectOnToolUse      bool         `json:"reflect_on_tool_use"`
 	ModelClientStream     bool         `json:"model_client_stream"`
 	ToolCallSummaryFormat string       `json:"tool_call_summary_format,omitempty"`

@@ -54,7 +54,7 @@ type ApiTranslator interface {
 		team *v1alpha1.Agent,
 	) (*autogen_client.Team, error)
 
-	TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServerConfig, error)
+	TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServer, error)
 }
 
 type apiTranslator struct {
@@ -62,23 +62,21 @@ type apiTranslator struct {
 	defaultModelConfig types.NamespacedName
 }
 
-func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServerConfig, error) {
+func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServer, error) {
 	// provder = "kagent.tool_servers.StdioMcpToolServer" || "kagent.tool_servers.SseMcpToolServer"
 	provider, toolServerConfig, err := translateToolServerConfig(toolServer.Spec.Config)
 	if err != nil {
 		return nil, err
 	}
 
-	return &autogen_client.ToolServerConfig{
-		BaseObject: autogen_client.BaseObject{
-			UserID: GlobalUserID,
-		},
-		Component: &api.Component{
+	return &autogen_client.ToolServer{
+		UserID: GlobalUserID,
+		Component: api.Component{
 			Provider:      provider,
 			ComponentType: "tool_server",
-			Version:       makePtr(1),
-			Description:   makePtr(toolServer.Spec.Description),
-			Label:         makePtr(toolServer.Name),
+			Version:       1,
+			Description:   toolServer.Spec.Description,
+			Label:         toolServer.Name,
 			Config:        api.MustToConfig(toolServerConfig),
 		},
 	}, nil
@@ -227,12 +225,12 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	modelClientWithStreaming := &api.Component{
 		Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
 		ComponentType: "model",
-		Version:       makePtr(1),
+		Version:       1,
 		//ComponentVersion: 1,
 		Config: api.MustToConfig(&api.OpenAIClientConfig{
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
 				Model:  modelConfig.Spec.Model,
-				APIKey: makePtr(string(modelApiKey)),
+				APIKey: string(modelApiKey),
 				// By default, we include usage in the stream
 				// If we aren't streaming this may break, but I think we're good for now
 				StreamOptions: &api.StreamOptions{
@@ -244,12 +242,12 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	modelClientWithoutStreaming := &api.Component{
 		Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
 		ComponentType: "model",
-		Version:       makePtr(1),
+		Version:       1,
 		//ComponentVersion: 1,
 		Config: api.MustToConfig(&api.OpenAIClientConfig{
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
 				Model:  modelConfig.Spec.Model,
-				APIKey: makePtr(string(modelApiKey)),
+				APIKey: string(modelApiKey),
 			},
 		}),
 	}
@@ -257,9 +255,9 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	modelContext := &api.Component{
 		Provider:      "autogen_core.model_context.UnboundedChatCompletionContext",
 		ComponentType: "chat_completion_context",
-		Version:       makePtr(1),
-		Description:   makePtr("An unbounded chat completion context that keeps a view of the all the messages."),
-		Label:         makePtr("UnboundedChatCompletionContext"),
+		Version:       1,
+		Description:   "An unbounded chat completion context that keeps a view of the all the messages.",
+		Label:         "UnboundedChatCompletionContext",
 		Config:        map[string]interface{}{},
 	}
 
@@ -336,8 +334,8 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		teamConfig = &api.Component{
 			Provider:      "autogen_agentchat.teams.RoundRobinGroupChat",
 			ComponentType: "team",
-			Version:       makePtr(1),
-			Description:   makePtr(team.Spec.Description),
+			Version:       1,
+			Description:   team.Spec.Description,
 			Config: api.MustToConfig(&api.RoundRobinGroupChatConfig{
 				CommonTeamConfig: commonTeamConfig,
 			}),
@@ -346,31 +344,31 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		teamConfig = &api.Component{
 			Provider:      "autogen_agentchat.teams.SelectorGroupChat",
 			ComponentType: "team",
-			Version:       makePtr(1),
-			Description:   makePtr(team.Spec.Description),
+			Version:       1,
+			Description:   team.Spec.Description,
 			Config: api.MustToConfig(&api.SelectorGroupChatConfig{
 				CommonTeamConfig: commonTeamConfig,
-				SelectorPrompt:   makePtr(selectorTeamConfig.SelectorPrompt),
+				SelectorPrompt:   selectorTeamConfig.SelectorPrompt,
 			}),
 		}
 	} else if magenticOneTeamConfig != nil {
 		teamConfig = &api.Component{
 			Provider:      "autogen_agentchat.teams.MagenticOneGroupChat",
 			ComponentType: "team",
-			Version:       makePtr(1),
-			Description:   makePtr(team.Spec.Description),
+			Version:       1,
+			Description:   team.Spec.Description,
 			Config: api.MustToConfig(&api.MagenticOneGroupChatConfig{
 				CommonTeamConfig:  commonTeamConfig,
-				MaxStalls:         makePtr(magenticOneTeamConfig.MaxStalls),
-				FinalAnswerPrompt: makePtr(magenticOneTeamConfig.FinalAnswerPrompt),
+				MaxStalls:         magenticOneTeamConfig.MaxStalls,
+				FinalAnswerPrompt: magenticOneTeamConfig.FinalAnswerPrompt,
 			}),
 		}
 	} else if swarmTeamConfig != nil {
 		teamConfig = &api.Component{
 			Provider:      "autogen_agentchat.teams.SwarmTeam",
 			ComponentType: "team",
-			Version:       makePtr(1),
-			Description:   makePtr(team.Spec.Description),
+			Version:       1,
+			Description:   team.Spec.Description,
 			Config: api.MustToConfig(&api.SwarmTeamConfig{
 				CommonTeamConfig: commonTeamConfig,
 			}),
@@ -379,7 +377,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		return nil, fmt.Errorf("no team config specified")
 	}
 
-	teamConfig.Label = makePtr(team.Name)
+	teamConfig.Label = team.Name
 
 	return &autogen_client.Team{
 		Component: teamConfig,
@@ -425,9 +423,9 @@ func (a *apiTranslator) translateTaskAgent(
 	return &api.Component{
 		Provider:      "kagent.agents.TaskAgent",
 		ComponentType: "agent",
-		Version:       makePtr(1),
-		Label:         makePtr("society_of_mind_agent"),
-		Description:   makePtr("An agent that runs a team of agents"),
+		Version:       1,
+		Label:         "society_of_mind_agent",
+		Description:   "An agent that runs a team of agents",
 		Config: api.MustToConfig(&api.TaskAgentConfig{
 			Team:         societyOfMindTeam.Component,
 			Name:         "society_of_mind_agent",
@@ -475,16 +473,16 @@ func translateAssistantAgent(
 		}
 	}
 
-	sysMsgPtr := makePtr(agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix)
+	sysMsg := agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix
 	if agentSpec.SystemMessage == "" {
-		sysMsgPtr = nil
+		sysMsg = ""
 	}
 
 	return &api.Component{
 		Provider:      "autogen_agentchat.agents.AssistantAgent",
 		ComponentType: "agent",
-		Version:       makePtr(1),
-		Description:   makePtr(agentSpec.Description),
+		Version:       1,
+		Description:   agentSpec.Description,
 		Config: api.MustToConfig(&api.AssistantAgentConfig{
 			Name:         convertToPythonIdentifier(agentName),
 			ModelClient:  modelClientWithStreaming,
@@ -492,7 +490,7 @@ func translateAssistantAgent(
 			ModelContext: modelContext,
 			Description:  agentSpec.Description,
 			// TODO(ilackarms): convert to non-ptr with omitempty?
-			SystemMessage:         sysMsgPtr,
+			SystemMessage:         sysMsg,
 			ReflectOnToolUse:      false,
 			ModelClientStream:     true,
 			ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
@@ -519,18 +517,13 @@ func translateBuiltinTool(
 	providerParts := strings.Split(tool.Provider, ".")
 	toolLabel := providerParts[len(providerParts)-1]
 
-	var description *string
-	if tool.Description != "" {
-		description = makePtr(tool.Description)
-	}
-
 	return &api.Component{
 		Provider:      tool.Provider,
-		Description:   description,
+		Description:   tool.Description,
 		ComponentType: "tool",
-		Version:       makePtr(1),
+		Version:       1,
 		Config:        toolConfig,
-		Label:         makePtr(toolLabel),
+		Label:         toolLabel,
 	}, nil
 }
 
@@ -601,10 +594,6 @@ func convertMapFromAnytype(config map[string]v1alpha1.AnyType) (map[string]inter
 	return convertedConfig, nil
 }
 
-func makePtr[T any](v T) *T {
-	return &v
-}
-
 func translateTerminationCondition(terminationCondition v1alpha1.TerminationCondition) (*api.Component, error) {
 	// ensure only one termination condition is set
 	var conditionsSet int
@@ -632,30 +621,30 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 		return &api.Component{
 			Provider:      "autogen_agentchat.conditions.MaxMessageTermination",
 			ComponentType: "termination",
-			Version:       makePtr(1),
+			Version:       1,
 			//ComponentVersion: 1,
 			Config: api.MustToConfig(&api.MaxMessageTerminationConfig{
-				MaxMessages: makePtr(terminationCondition.MaxMessageTermination.MaxMessages),
+				MaxMessages: terminationCondition.MaxMessageTermination.MaxMessages,
 			}),
 		}, nil
 	case terminationCondition.TextMentionTermination != nil:
 		return &api.Component{
 			Provider:      "autogen_agentchat.conditions.TextMentionTermination",
 			ComponentType: "termination",
-			Version:       makePtr(1),
+			Version:       1,
 			//ComponentVersion: 1,
 			Config: api.MustToConfig(&api.TextMentionTerminationConfig{
-				Text: makePtr(terminationCondition.TextMentionTermination.Text),
+				Text: terminationCondition.TextMentionTermination.Text,
 			}),
 		}, nil
 	case terminationCondition.TextMessageTermination != nil:
 		return &api.Component{
 			Provider:      "autogen_agentchat.conditions.TextMessageTermination",
 			ComponentType: "termination",
-			Version:       makePtr(1),
+			Version:       1,
 			//ComponentVersion: 1,
 			Config: api.MustToConfig(&api.TextMessageTerminationConfig{
-				Source: makePtr(terminationCondition.TextMessageTermination.Source),
+				Source: terminationCondition.TextMessageTermination.Source,
 			}),
 		}, nil
 	case terminationCondition.OrTermination != nil:
@@ -675,7 +664,7 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 		return &api.Component{
 			Provider:      "autogen_agentchat.conditions.OrTerminationCondition",
 			ComponentType: "termination",
-			Version:       makePtr(1),
+			Version:       1,
 			//ComponentVersion: 1,
 			Config: api.MustToConfig(&api.OrTerminationConfig{
 				Conditions: conditions,
@@ -685,10 +674,10 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 		return &api.Component{
 			Provider:      "autogen_agentchat.conditions.StopMessageTermination",
 			ComponentType: "termination",
-			Version:       makePtr(1),
+			Version:       1,
 			//ComponentVersion: 1,
 			Config: api.MustToConfig(&api.StopMessageTerminationConfig{}),
-			Label:  makePtr("StopMessageTermination"),
+			Label:  "StopMessageTermination",
 		}, nil
 	}
 

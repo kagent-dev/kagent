@@ -26,12 +26,6 @@ type Tool struct {
 	ServerID  *int           `json:"server_id,omitempty"`
 }
 
-type ToolServer struct {
-	BaseObject
-	LastConnected *string `json:"last_connected"`
-	IsActive      bool    `json:"is_active"`
-}
-
 type ToolServerConfig struct {
 	BaseObject
 	Component *api.Component `json:"component"`
@@ -53,13 +47,13 @@ type SseMcpServerConfig struct {
 }
 
 type ToolServer struct {
-	Id            *int          `json:"id,omitempty"`
+	Id            int           `json:"id,omitempty"`
 	Component     api.Component `json:"component"`
-	CreatedAt     *string       `json:"created_at,omitempty"`
-	UpdatedAt     *string       `json:"updated_at,omitempty"`
-	UserID        *string       `json:"user_id,omitempty"`
-	LastConnected *string       `json:"last_connected,omitempty"`
-	Version       *string       `json:"version,omitempty"`
+	CreatedAt     string        `json:"created_at,omitempty"`
+	UpdatedAt     string        `json:"updated_at,omitempty"`
+	UserID        string        `json:"user_id,omitempty"`
+	LastConnected string        `json:"last_connected,omitempty"`
+	Version       string        `json:"version,omitempty"`
 }
 
 type ModelsUsage struct {
