@@ -1,0 +1,20 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ModelConfig
+metadata:
+  creationTimestamp: null
+  name: gpt-model-config
+  namespace: team-ns
+spec:
+  apiKeySecretKey: api-key
+  apiKeySecretName: openai-api-key-secret
+  model: gpt-4o
+  provider: OpenAI
+  providerConfig:
+    openAI:
+      maxTokens: 2048
+      temperature: "0.7"
+      topP: "0.95"
+status:
+  conditions: null
+  observedGeneration: 0
+---

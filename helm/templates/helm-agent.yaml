@@ -144,6 +144,7 @@ spec:
     4. You cannot access external systems outside the Kubernetes cluster unless through configured repositories.
 
     Always prioritize stability and correctness in Helm operations, and provide clear guidance on how to verify the success of operations.
+  modelConfigRef: default-model-config
   tools:
     - provider: kagent.tools.helm.ListReleases
     - provider: kagent.tools.helm.GetRelease

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
@@ -70,6 +71,18 @@ func NewAutogenApiTranslator(
 }
 
 func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v1alpha1.Agent) (*autogen_client.Team, error) {
+	modelConfig := a.defaultModelConfig
+	// Use the provided model config if set, otherwise use the default one
+	if agent.Spec.ModelConfigRef != "" {
+		modelConfig = types.NamespacedName{
+			Name:      agent.Spec.ModelConfigRef,
+			Namespace: agent.Namespace,
+		}
+	}
+	if err := a.kube.Get(ctx, modelConfig, &v1alpha1.ModelConfig{}); err != nil {
+		return nil, err
+	}
+
 	// generate an internal round robin "team" for the individual agent
 	team := &v1alpha1.Team{
 		ObjectMeta: agent.ObjectMeta,
@@ -80,6 +93,7 @@ func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v
 		Spec: v1alpha1.TeamSpec{
 			Participants:         []string{agent.Name},
 			Description:          agent.Spec.Description,
+			ModelConfig:          modelConfig.Name,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
 				StopMessageTermination: &v1alpha1.StopMessageTermination{},
@@ -149,34 +163,14 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		return nil, fmt.Errorf("model api key not found")
 	}
 
-	modelClientWithStreaming := &api.Component{
-		Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
-		ComponentType: "model",
-		Version:       makePtr(1),
-		//ComponentVersion: 1,
-		Config: api.MustToConfig(&api.OpenAIClientConfig{
-			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
-				Model:  modelConfig.Spec.Model,
-				APIKey: makePtr(string(modelApiKey)),
-				// By default, we include usage in the stream
-				// If we aren't streaming this may break, but I think we're good for now
-				StreamOptions: &api.StreamOptions{
-					IncludeUsage: true,
-				},
-			},
-		}),
+	modelClientWithStreaming, err := createModelClientForProvider(modelConfig, modelApiKey, true)
+	if err != nil {
+		return nil, err
 	}
-	modelClientWithoutStreaming := &api.Component{
-		Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
-		ComponentType: "model",
-		Version:       makePtr(1),
-		//ComponentVersion: 1,
-		Config: api.MustToConfig(&api.OpenAIClientConfig{
-			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
-				Model:  modelConfig.Spec.Model,
-				APIKey: makePtr(string(modelApiKey)),
-			},
-		}),
+
+	modelClientWithoutStreaming, err := createModelClientForProvider(modelConfig, modelApiKey, false)
+	if err != nil {
+		return nil, err
 	}
 
 	modelContext := &api.Component{
@@ -328,6 +322,7 @@ func (a *apiTranslator) translateTaskAgent(
 		Spec: v1alpha1.TeamSpec{
 			Participants:         []string{agent.Name},
 			Description:          agent.Spec.Description,
+			ModelConfig:          agent.Spec.ModelConfigRef,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
 				TextMessageTermination: &v1alpha1.TextMessageTermination{
@@ -576,4 +571,189 @@ func addModelClientToConfig(
 
 	(*toolConfig)["model_client"] = cfg
 	return nil
+}
+
+// createModelClientForProvider creates a model client component based on the model provider
+func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []byte, includeUsage bool) (*api.Component, error) {
+	switch modelConfig.Spec.Provider {
+	case v1alpha1.Anthropic:
+		config := &api.AnthropicClientConfiguration{
+			BaseAnthropicClientConfiguration: api.BaseAnthropicClientConfiguration{
+				APIKey: makePtr(string(apiKey)),
+				Model:  modelConfig.Spec.Model,
+			},
+		}
+
+		// Add provider-specific configurations
+		if modelConfig.Spec.ProviderAnthropic != nil {
+			anthropicConfig := modelConfig.Spec.ProviderAnthropic
+
+			if anthropicConfig.BaseURL != "" {
+				config.BaseURL = &anthropicConfig.BaseURL
+			}
+
+			if anthropicConfig.MaxTokens > 0 {
+				maxTokens := int(anthropicConfig.MaxTokens)
+				config.MaxTokens = &maxTokens
+			}
+
+			if anthropicConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(anthropicConfig.Temperature, 64)
+				if err == nil {
+					config.Temperature = &temp
+				}
+			}
+
+			if anthropicConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(anthropicConfig.TopP, 64)
+				if err == nil {
+					config.TopP = &topP
+				}
+			}
+
+			if anthropicConfig.TopK > 0 {
+				topK := int(anthropicConfig.TopK)
+				config.TopK = &topK
+			}
+		}
+
+		// Convert to map
+		configMap, err := config.ToConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert Anthropic config: %w", err)
+		}
+
+		return &api.Component{
+			Provider:      "autogen_ext.models.anthropic.AnthropicChatCompletionClient",
+			ComponentType: "model",
+			Version:       makePtr(1),
+			Config:        configMap,
+		}, nil
+
+	case v1alpha1.AzureOpenAI:
+		config := &api.AzureOpenAIClientConfig{
+			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
+				Model:  modelConfig.Spec.Model,
+				APIKey: makePtr(string(apiKey)),
+			},
+			Stream: makePtr(true),
+		}
+
+		if includeUsage {
+			config.StreamOptions = &api.StreamOptions{
+				IncludeUsage: true,
+			}
+		}
+
+		// Add provider-specific configurations
+		if modelConfig.Spec.ProviderAzureOpenAI != nil {
+			azureConfig := modelConfig.Spec.ProviderAzureOpenAI
+
+			if azureConfig.Endpoint != "" {
+				config.AzureEndpoint = &azureConfig.Endpoint
+			}
+
+			if azureConfig.APIVersion != "" {
+				config.APIVersion = &azureConfig.APIVersion
+			}
+
+			if azureConfig.DeploymentName != "" {
+				config.AzureDeployment = &azureConfig.DeploymentName
+			}
+
+			if azureConfig.AzureADToken != "" {
+				config.AzureADToken = &azureConfig.AzureADToken
+			}
+
+			if azureConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(azureConfig.Temperature, 64)
+				if err == nil {
+					config.Temperature = &temp
+				}
+			}
+
+			if azureConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(azureConfig.TopP, 64)
+				if err == nil {
+					config.TopP = &topP
+				}
+			}
+		}
+
+		return &api.Component{
+			Provider:      "autogen_ext.models.openai.AzureOpenAIChatCompletionClient",
+			ComponentType: "model",
+			Version:       makePtr(1),
+			Config:        api.MustToConfig(config),
+		}, nil
+
+	case v1alpha1.OpenAI:
+		config := &api.OpenAIClientConfig{
+			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
+				Model:  modelConfig.Spec.Model,
+				APIKey: makePtr(string(apiKey)),
+			},
+		}
+
+		if includeUsage {
+			config.StreamOptions = &api.StreamOptions{
+				IncludeUsage: true,
+			}
+		}
+
+		// Add provider-specific configurations
+		if modelConfig.Spec.ProviderOpenAI != nil {
+			openAIConfig := modelConfig.Spec.ProviderOpenAI
+
+			if openAIConfig.BaseURL != "" {
+				config.BaseURL = &openAIConfig.BaseURL
+			}
+
+			if openAIConfig.Organization != "" {
+				config.Organization = &openAIConfig.Organization
+			}
+
+			if *openAIConfig.MaxTokens > 0 {
+				config.MaxTokens = openAIConfig.MaxTokens
+			}
+
+			if openAIConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(openAIConfig.Temperature, 64)
+				if err == nil {
+					config.Temperature = &temp
+				}
+			}
+
+			if openAIConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(openAIConfig.TopP, 64)
+				if err == nil {
+					config.TopP = &topP
+				}
+			}
+
+			if openAIConfig.FrequencyPenalty != "" {
+				freqP, err := strconv.ParseFloat(openAIConfig.FrequencyPenalty, 64)
+				if err == nil {
+					config.FrequencyPenalty = &freqP
+				}
+			}
+
+			if openAIConfig.PresencePenalty != "" {
+				presP, err := strconv.ParseFloat(openAIConfig.PresencePenalty, 64)
+				if err == nil {
+					config.PresencePenalty = &presP
+				}
+			}
+		}
+
+		return &api.Component{
+			Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
+			ComponentType: "model",
+			Version:       makePtr(1),
+			Config:        api.MustToConfig(config),
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
+	}
 }

@@ -1,22 +1,21 @@
-import { getToolDisplayName, getToolDescription, getToolIdentifier, isMcpTool } from "@/lib/data";
+import {  isMcpTool } from "@/lib/data";
 import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Component, ToolConfig } from "@/types/datamodel";
+import {  Component, ToolConfig } from "@/types/datamodel";
 
-type Tool = Component<ToolConfig>;
 
 interface ToolItemProps {
-  tool: Tool;
+  tool: Component<ToolConfig>;
   isSelected: boolean;
-  onToggle: (tool: Tool) => void;
+  onToggle: (tool: Component<ToolConfig>) => void;
   disabled?: boolean;
 }
 
 const ToolItem = ({ tool, isSelected, onToggle, disabled = false }: ToolItemProps) => {
-  const displayName = getToolDisplayName(tool) || "Unnamed Tool";
-  const displayDescription = getToolDescription(tool) || "No description available";
-  const toolId = getToolIdentifier(tool);
+  const displayName = tool.provider; // getToolDisplayName(tool) || "Unnamed Tool";
+  const displayDescription = tool.description; // getToolDescription(tool) || "No description available";
+  const toolId = tool.provider; // getToolIdentifier(tool);
 
   // Determine classes based on selection and disabled states
   const containerClasses = `p-4 rounded-lg border transition-all ${

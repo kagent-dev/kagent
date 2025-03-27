@@ -7,8 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 import { useEffect, useState } from "react";
 import { getTeams } from "@/app/actions/teams";
-import { Team } from "@/types/datamodel";
-import { getUsersAgentFromTeam } from "@/lib/agents";
+import { AgentResponse } from "@/types/datamodel";
 import KagentLogo from "../kagent-logo";
 import { useRouter } from "next/navigation";
 import { getChatData } from "@/app/actions/chat";
@@ -20,8 +19,8 @@ interface AgentSwitcherProps {
 export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
   const router = useRouter();
   const { isMobile } = useSidebar();
-  const [agents, setAgents] = useState<Team[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [agentResponses, setAgentResponses] = useState<AgentResponse[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<AgentResponse | null>(null);
 
   useEffect(() => {
     const fetchSessions = async () => {
@@ -35,10 +34,10 @@ export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
 
   useEffect(() => {
     const fetchTeams = async () => {
-      const teamData = await getTeams();
+      const { data } = await getTeams();
 
-      if (teamData && teamData.data) {
-        setAgents(teamData.data);
+      if (data) {
+        setAgentResponses(data);
       }
     };
 
@@ -48,8 +47,6 @@ export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
   if (!selectedTeam) {
     return null;
   }
-
-  const innerAgent = getUsersAgentFromTeam(selectedTeam);
 
   return (
     <SidebarMenu>
@@ -61,24 +58,24 @@ export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
                 <KagentLogo className="w-4 h-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{selectedTeam.component.label}</span>
-                <span className="truncate text-xs">{innerAgent.config.model_client.config.model}</span>
+                <span className="truncate font-semibold">{selectedTeam.agent.metadata.name}</span>
+                <span className="truncate text-xs">{selectedTeam.provider} ({selectedTeam.model})</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg" align="start" side={isMobile ? "bottom" : "right"} sideOffset={4}>
             <DropdownMenuLabel className="text-xs text-muted-foreground">Agents</DropdownMenuLabel>
-            {agents.map((team, index) => {
+            {agentResponses.map(({ id, agent}, index) => {
               return (
                 <DropdownMenuItem
-                  key={team.component.label}
+                  key={agent.metadata.name}
                   onClick={() => {
-                    router.push(`/agents/${team.id}/chat`);
+                    router.push(`/agents/${id}/chat`);
                   }}
                   className="gap-2 p-2"
                 >
-                  {team.component.label}
+                  {agent.metadata.name}
                   <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
                 </DropdownMenuItem>
               );

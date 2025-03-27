@@ -314,17 +314,11 @@ func (a *autogenReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.R
 	}
 
 	var agents []*v1alpha1.Agent
-	appendAgentIfUsesModel := func(agent *v1alpha1.Agent) {
-		// TODO currently all agents use the default model config
-		// eventually we will want to support per-agent overrides
-		// then we will want to update this to check the agent's spec
-		if a.defaultModelConfig.Name == req.Name && a.defaultModelConfig.Namespace == req.Namespace {
+	for i := range agentsList.Items {
+		agent := &agentsList.Items[i]
+		if agent.Spec.ModelConfigRef == req.Name {
 			agents = append(agents, agent)
 		}
-	}
-	for _, agent := range agentsList.Items {
-		agent := agent
-		appendAgentIfUsesModel(&agent)
 	}
 
 	return agents, nil
@@ -337,46 +331,40 @@ func (a *autogenReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req
 		&modelsList,
 		client.InNamespace(req.Namespace),
 	); err != nil {
-		return nil, fmt.Errorf("failed to list secrets: %v", err)
+		return nil, fmt.Errorf("failed to list model configs: %v", err)
 	}
 
 	var models []string
-	appendModelIfUsesApiKeySecret := func(model v1alpha1.ModelConfig) {
+	for _, model := range modelsList.Items {
 		if model.Spec.APIKeySecretName == req.Name {
 			models = append(models, model.Name)
 		}
 	}
-	for _, model := range modelsList.Items {
-		appendModelIfUsesApiKeySecret(model)
-	}
 
 	var agents []*v1alpha1.Agent
-	appendUniqueAgent := func(agent *v1alpha1.Agent) {
-		for _, t := range agents {
-			if t.Name == agent.Name {
-				return
-			}
-		}
-		agents = append(agents, agent)
-	}
+	uniqueAgents := make(map[string]bool)
 
-	for _, model := range models {
+	for _, modelName := range models {
 		agentsUsingModel, err := a.findAgentsUsingModel(ctx, ctrl.Request{
 			NamespacedName: types.NamespacedName{
 				Namespace: req.Namespace,
-				Name:      model,
+				Name:      modelName,
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to find agents for model %s: %v", model, err)
+			return nil, fmt.Errorf("failed to find agents for model %s: %v", modelName, err)
 		}
+
 		for _, agent := range agentsUsingModel {
-			appendUniqueAgent(agent)
+			key := fmt.Sprintf("%s/%s", agent.Namespace, agent.Name)
+			if !uniqueAgents[key] {
+				uniqueAgents[key] = true
+				agents = append(agents, agent)
+			}
 		}
 	}
 
 	return agents, nil
-
 }
 
 func (a *autogenReconciler) findTeamsUsingAgent(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Team, error) {
@@ -390,17 +378,14 @@ func (a *autogenReconciler) findTeamsUsingAgent(ctx context.Context, req ctrl.Re
 	}
 
 	var teams []*v1alpha1.Team
-	appendTeamIfUsesAgent := func(team *v1alpha1.Team) {
+	for i := range teamsList.Items {
+		team := &teamsList.Items[i]
 		for _, participant := range team.Spec.Participants {
 			if participant == req.Name {
 				teams = append(teams, team)
 				break
 			}
 		}
-	}
-	for _, team := range teamsList.Items {
-		team := team
-		appendTeamIfUsesAgent(&team)
 	}
 
 	return teams, nil
@@ -417,14 +402,11 @@ func (a *autogenReconciler) findTeamsUsingModel(ctx context.Context, req ctrl.Re
 	}
 
 	var teams []*v1alpha1.Team
-	appendTeamIfUsesModel := func(team *v1alpha1.Team) {
+	for i := range teamsList.Items {
+		team := &teamsList.Items[i]
 		if team.Spec.ModelConfig == req.Name {
 			teams = append(teams, team)
 		}
-	}
-	for _, team := range teamsList.Items {
-		team := team
-		appendTeamIfUsesModel(&team)
 	}
 
 	return teams, nil
@@ -437,44 +419,38 @@ func (a *autogenReconciler) findTeamsUsingApiKeySecret(ctx context.Context, req 
 		&modelsList,
 		client.InNamespace(req.Namespace),
 	); err != nil {
-		return nil, fmt.Errorf("failed to list secrets: %v", err)
+		return nil, fmt.Errorf("failed to list model configs: %v", err)
 	}
 
 	var models []string
-	appendModelIfUsesApiKeySecret := func(model v1alpha1.ModelConfig) {
+	for _, model := range modelsList.Items {
 		if model.Spec.APIKeySecretName == req.Name {
 			models = append(models, model.Name)
 		}
 	}
-	for _, model := range modelsList.Items {
-		appendModelIfUsesApiKeySecret(model)
-	}
 
 	var teams []*v1alpha1.Team
-	appendUniqueTeam := func(team *v1alpha1.Team) {
-		for _, t := range teams {
-			if t.Name == team.Name {
-				return
-			}
-		}
-		teams = append(teams, team)
-	}
+	uniqueTeams := make(map[string]bool)
 
-	for _, model := range models {
+	for _, modelName := range models {
 		teamsUsingModel, err := a.findTeamsUsingModel(ctx, ctrl.Request{
 			NamespacedName: types.NamespacedName{
 				Namespace: req.Namespace,
-				Name:      model,
+				Name:      modelName,
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to find teams for model %s: %v", model, err)
+			return nil, fmt.Errorf("failed to find teams for model %s: %v", modelName, err)
 		}
+
 		for _, team := range teamsUsingModel {
-			appendUniqueTeam(team)
+			key := fmt.Sprintf("%s/%s", team.Namespace, team.Name)
+			if !uniqueTeams[key] {
+				uniqueTeams[key] = true
+				teams = append(teams, team)
+			}
 		}
 	}
 
 	return teams, nil
-
 }

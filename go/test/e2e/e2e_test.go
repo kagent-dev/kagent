@@ -9,6 +9,7 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -21,11 +22,49 @@ var (
 )
 
 var _ = Describe("E2e", func() {
-	It("configures the agent", func() {
-
+	It("configures the agent and model", func() {
 		// add a team
 		namespace := "team-ns"
 
+		// Create API Key Secret
+		apiKeySecret := &v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "openai-api-key-secret",
+				Namespace: namespace,
+			},
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Secret",
+				APIVersion: "v1",
+			},
+			Data: map[string][]byte{
+				apikeySecretKey: []byte(openaiApiKey),
+			},
+		}
+
+		// Create ModelConfig
+		modelConfig := &v1alpha1.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "gpt-model-config",
+				Namespace: namespace,
+			},
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "ModelConfig",
+				APIVersion: "kagent.dev/v1alpha1",
+			},
+			Spec: v1alpha1.ModelConfigSpec{
+				Model:            "gpt-4o",
+				Provider:         v1alpha1.OpenAI,
+				APIKeySecretName: apiKeySecret.Name,
+				APIKeySecretKey:  apikeySecretKey,
+				ProviderOpenAI: &v1alpha1.OpenAIConfig{
+					Temperature: "0.7",
+					MaxTokens:   ptrToInt(2048),
+					TopP:        "0.95",
+				},
+			},
+		}
+
+		// Agent with required ModelConfigRef
 		kubeExpert := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "kube-expert",
@@ -36,8 +75,9 @@ var _ = Describe("E2e", func() {
 				APIVersion: "kagent.dev/v1alpha1",
 			},
 			Spec: v1alpha1.AgentSpec{
-				Description:   "The Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.",
-				SystemMessage: readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
+				Description:    "The Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.",
+				SystemMessage:  readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
+				ModelConfigRef: modelConfig.Name, // Added required ModelConfigRef
 				Tools: []*v1alpha1.Tool{
 					{Provider: "kagent.tools.k8s.AnnotateResource"},
 					{Provider: "kagent.tools.k8s.ApplyManifest"},
@@ -85,6 +125,19 @@ var _ = Describe("E2e", func() {
 			},
 		}
 
+		// Write Secret
+		writeKubeObjects(
+			"manifests/api-key-secret.yaml",
+			apiKeySecret,
+		)
+
+		// Write ModelConfig
+		writeKubeObjects(
+			"manifests/gpt-model-config.yaml",
+			modelConfig,
+		)
+
+		// Write Agent
 		writeKubeObjects(
 			"manifests/kube-expert-agent.yaml",
 			kubeExpert,
@@ -109,6 +162,10 @@ func writeKubeObjects(file string, objects ...metav1.Object) {
 
 	err := os.WriteFile(file, bytes, 0644)
 	Expect(err).NotTo(HaveOccurred())
+}
+
+func ptrToInt(v int) *int {
+	return &v
 }
 
 func readFileAsString(path string) string {

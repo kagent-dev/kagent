@@ -2,6 +2,7 @@ package autogen_test
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/exec"
 	"time"
@@ -30,18 +31,31 @@ var _ = Describe("AutogenClient", func() {
 	It("should interact with autogen server", func() {
 		ctx := context.Background()
 
-		// go func() {
-		// 	// start autogen server
-		// 	startAutogenServer(ctx)
-		// }()
+		go func() {
+			// start autogen server
+			startAutogenServer(ctx)
+		}()
 
-		// sleep for a while to allow autogen server to start
-		<-time.After(3 * time.Second)
+		// Make requests to /api/health until it returns 200
+		// Do it for max 20 seconds
+		c := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:8081/api/health", nil)
+		Expect(err).NotTo(HaveOccurred())
+		var resp *http.Response
+		for i := 0; i < 20; i++ {
+			resp, err = c.Do(req)
+			if err == nil && resp.StatusCode == 200 {
+				break
+			}
+			<-time.After(1 * time.Second)
+		}
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(200))
 
 		client := autogen_client.New("http://localhost:8081/api", "ws://localhost:8081/api/ws")
 
 		scheme := scheme.Scheme
-		err := v1alpha1.AddToScheme(scheme)
+		err = v1alpha1.AddToScheme(scheme)
 		Expect(err).NotTo(HaveOccurred())
 
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -66,8 +80,14 @@ var _ = Describe("AutogenClient", func() {
 			},
 			Spec: v1alpha1.ModelConfigSpec{
 				Model:            "gpt-4o",
+				Provider:         v1alpha1.OpenAI,
 				APIKeySecretName: apikeySecret.Name,
 				APIKeySecretKey:  apikeySecretKey,
+				ProviderOpenAI: &v1alpha1.OpenAIConfig{
+					Temperature: "0.7",
+					MaxTokens:   func(i int) *int { return &i }(1024),
+					TopP:        "0.95",
+				},
 			},
 		}
 
@@ -77,9 +97,10 @@ var _ = Describe("AutogenClient", func() {
 				Namespace: namespace,
 			},
 			Spec: v1alpha1.AgentSpec{
-				Description:   "a test participant",
-				SystemMessage: "You are a test participant",
-				Tools:         nil,
+				Description:    "a test participant",
+				SystemMessage:  "You are a test participant",
+				ModelConfigRef: modelConfig.Name,
+				Tools:          nil,
 			},
 		}
 
@@ -89,9 +110,10 @@ var _ = Describe("AutogenClient", func() {
 				Namespace: namespace,
 			},
 			Spec: v1alpha1.AgentSpec{
-				Description:   "a test participant",
-				SystemMessage: "You are a test participant",
-				Tools:         nil,
+				Description:    "a test participant",
+				SystemMessage:  "You are a test participant",
+				ModelConfigRef: modelConfig.Name,
+				Tools:          nil,
 			},
 		}
 
@@ -137,20 +159,37 @@ var _ = Describe("AutogenClient", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(autogenTeam).NotTo(BeNil())
 
+		listBefore, err := client.ListTeams(autogenTeam.UserID)
+		Expect(err).NotTo(HaveOccurred())
+
 		err = client.CreateTeam(autogenTeam)
 		Expect(err).NotTo(HaveOccurred())
 
 		list, err := client.ListTeams(autogenTeam.UserID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(list).NotTo(BeNil())
-		Expect(len(list)).To(Equal(1))
-		Expect(list[0].Id).To(Equal(autogenTeam.Id))
+		Expect(len(list)).To(Equal(len(listBefore) + 1))
+
+		// check the autogen team that was created is returned
+		found := false
+		for _, t := range list {
+			if t.Id == autogenTeam.Id {
+				Expect(t.Component.Label).To(Equal(autogenTeam.Component.Label))
+				Expect(t.Component.Provider).To(Equal(autogenTeam.Component.Provider))
+				Expect(t.Component.Version).To(Equal(autogenTeam.Component.Version))
+				Expect(t.Component.Description).To(Equal(autogenTeam.Component.Description))
+				Expect(t.Component.Config).To(Equal(autogenTeam.Component.Config))
+				found = true
+				break
+			}
+		}
+		Expect(found).To(BeTrue())
 	})
 })
 
 func startAutogenServer(ctx context.Context) {
 	defer GinkgoRecover()
-	cmd := exec.CommandContext(ctx, "bash", "-c", "source .venv/bin/activate && uv run autogenstudio ui")
+	cmd := exec.CommandContext(ctx, "bash", "-c", "source .venv/bin/activate && uv run kagent-engine serve")
 	cmd.Dir = "../../../../python"
 	cmd.Stdout = GinkgoWriter
 	cmd.Stderr = GinkgoWriter

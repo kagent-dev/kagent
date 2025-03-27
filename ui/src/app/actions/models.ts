@@ -18,3 +18,21 @@ export async function getModels(): Promise<BaseResponse<Model[]>> {
     data: response,
   };
 }
+
+
+export async function getModel(configName: string) {
+  const response = await fetchApi<Model>(`/modelconfigs/${configName}`);
+
+  if (!response) {
+    return {
+      success: false,
+      error: "Failed to get model. Please try again.",
+      data: null,
+    };
+  }
+
+  return {
+    success: true,
+    data: response,
+  };
+}

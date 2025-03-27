@@ -1,15 +1,15 @@
-import type { Team } from "@/types/datamodel";
+import type { AgentResponse } from "@/types/datamodel";
 import { AgentCard } from "./AgentCard";
 
 interface AgentGridProps {
-  teams: Team[];
+  agentResponse: AgentResponse[];
 }
 
-export function AgentGrid({ teams }: AgentGridProps) {
+export function AgentGrid({ agentResponse }: AgentGridProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {teams.map((team) => (
-        <AgentCard key={team.component.label} team={team} />
+      {agentResponse.map((item) => (
+        <AgentCard key={item.agent.metadata.name} agentResponse={item} id={item.id} />
       ))}
     </div>
   );

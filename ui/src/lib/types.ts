@@ -14,8 +14,9 @@ export interface Model {
 }
 
 export interface CreateSessionRequest {
-  userId: string;
-  teamId: number;
+  name?: string;
+  user_id: string;
+  team_id: string;
 }
 
 export interface CreateRunRequest {

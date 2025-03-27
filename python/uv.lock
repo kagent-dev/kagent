@@ -40,6 +40,24 @@ wheels = [
 ]
 
 [[package]]
+name = "anthropic"
+version = "0.49.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/86/e3/a88c8494ce4d1a88252b9e053607e885f9b14d0a32273d47b727cbee4228/anthropic-0.49.0.tar.gz", hash = "sha256:c09e885b0f674b9119b4f296d8508907f6cff0009bc20d5cf6b35936c40b4398", size = 210016 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/74/5d90ad14d55fbe3f9c474fdcb6e34b4bed99e3be8efac98734a5ddce88c1/anthropic-0.49.0-py3-none-any.whl", hash = "sha256:bbc17ad4e7094988d2fa86b87753ded8dce12498f4b85fe5810f208f454a8375", size = 243368 },
+]
+
+[[package]]
 name = "anyio"
 version = "4.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1087,9 +1105,10 @@ name = "kagent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "autogen-agentchat" },
     { name = "autogen-core" },
-    { name = "autogen-ext", extra = ["mcp"] },
+    { name = "autogen-ext", extra = ["azure", "mcp", "openai"] },
     { name = "autogenstudio" },
     { name = "mcp" },
     { name = "numpy" },
@@ -1121,9 +1140,10 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = ">=0.49.0" },
     { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=faec0c007eba443a6a755fd363abbad82195bcb9" },
     { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=faec0c007eba443a6a755fd363abbad82195bcb9" },
-    { name = "autogen-ext", extras = ["mcp"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=faec0c007eba443a6a755fd363abbad82195bcb9" },
+    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=faec0c007eba443a6a755fd363abbad82195bcb9" },
     { name = "autogenstudio", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=faec0c007eba443a6a755fd363abbad82195bcb9" },
     { name = "ipykernel", marker = "extra == 'jupyter-executor'", specifier = ">=6.29.5" },
     { name = "mcp", specifier = ">=1.2.0" },

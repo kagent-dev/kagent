@@ -8,3 +8,4 @@ spec:
   apiKeySecretName: {{ .Values.openai.secretName }}
   apiKeySecretKey: {{ .Values.openai.secretKey }}
   model: gpt-4o
+  provider: OpenAI

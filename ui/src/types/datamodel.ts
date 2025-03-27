@@ -358,3 +358,36 @@ export interface SessionWithRuns {
   session: Session;
   runs: Run[];
 }
+
+
+export interface ResourceMetadata {
+  name: string;
+  namespace?: string;
+}
+
+export interface AgentTool {
+  provider: string;
+  description: string;
+  config: {
+    [key: string]: string;
+  };
+}
+export interface AgentResourceSpec {
+  description: string;
+  systemMessage: string;
+  tools: AgentTool[];
+  // Name of the model config resource
+  modelConfigRef: string;
+}
+export interface Agent {
+    metadata: ResourceMetadata;
+    spec: AgentResourceSpec;
+}
+
+export interface AgentResponse {
+  id: number;
+  agent: Agent;
+  component: Component<TeamConfig>;
+  model: string;
+  provider: string;
+}

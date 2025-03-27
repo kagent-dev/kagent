@@ -320,6 +320,7 @@ spec:
     - Multi-cluster connectivity issues
 
       Your primary goal is to provide expert assistance with Kubernetes and Istio environments by leveraging your specialized tools while following best practices for safety, reliability, and performance. Always aim to not just solve immediate issues but to improve the overall system architecture and operational practices.
+  modelConfigRef: default-model-config
   tools:
     - provider: kagent.tools.k8s.CreateResource
     - provider: kagent.tools.k8s.CreateResourceFromUrl

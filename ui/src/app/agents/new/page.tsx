@@ -12,11 +12,10 @@ import { ModelSelectionSection } from "@/components/create/ModelSelectionSection
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
-import { Component, ToolConfig, Team } from "@/types/datamodel";
+import type { AgentTool } from "@/types/datamodel";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
-import { getUsersAgentFromTeam } from "@/lib/agents";
 
 interface ValidationErrors {
   name?: string;
@@ -33,19 +32,6 @@ function AgentPageContent() {
   const searchParams = useSearchParams();
   const { models, tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
 
-  const getModelIdFromTeam = (team: Team): string | undefined => {
-    try {
-      // Try to find model from the assistantAgent's model_client first
-      const assistantAgent = getUsersAgentFromTeam(team);
-      if (assistantAgent.config.model_client?.config?.model) {
-        return assistantAgent.config.model_client.config.model;
-      }
-    } catch (error) {
-      console.error("Error extracting model ID:", error);
-      return undefined;
-    }
-  };
-
   // Determine if in edit mode
   const isEditMode = searchParams.get("edit") === "true";
   const agentId = searchParams.get("id");
@@ -58,8 +44,8 @@ function AgentPageContent() {
   // Default to the first model
   const [selectedModel, setSelectedModel] = useState<Model | null>(models && models.length > 0 ? models[0] : null);
 
-  // Tools state
-  const [selectedTools, setSelectedTools] = useState<Component<ToolConfig>[]>([]);
+  // Tools state - now using AgentTool interface correctly
+  const [selectedTools, setSelectedTools] = useState<AgentTool[]>([]);
 
   // Overall form state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -79,31 +65,28 @@ function AgentPageContent() {
       if (isEditMode && agentId) {
         try {
           setIsLoading(true);
-          const team = await getAgentById(agentId);
+          const agentResponse = await getAgentById(agentId);
 
-          if (team) {
+          if (!agentResponse) {
+            setGeneralError("Agent not found");
+            setIsLoading(false);
+            return;
+          }
+          const agent = agentResponse.agent;
+          if (agent) {
             try {
-              // Extract the inner assistant agent from the team structure
-              const assistantAgent = getUsersAgentFromTeam(team);
+              // Populate form with existing agent data
+              setName(agent.metadata.name || "");
+              setDescription(agent.spec.description || "");
+              setSystemPrompt(agent.spec.systemMessage || "");
 
-              if (assistantAgent) {
-                // Populate form with existing agent data from the assistant agent
-                setName(assistantAgent.label || assistantAgent.config.name || "");
-                setDescription(assistantAgent.description || "");
-                setSystemPrompt(assistantAgent.config.system_message || "");
+              // Extract and set tools - these are already AgentTool objects
+              setSelectedTools(agent.spec.tools || []);
 
-                // Extract and set tools
-                setSelectedTools(assistantAgent.config.tools || []);
-
-                // Find the model id from the model client and match it to available models
-                const modelId = getModelIdFromTeam(team);
-                if (modelId) {
-                  const model = models.find((m) => m.model === modelId) || models[0];
-                  setSelectedModel(model);
-                }
-              } else {
-                throw new Error("Assistant agent configuration not found in team");
-              }
+              setSelectedModel({
+                model: agentResponse.model,
+                name: agent.spec.modelConfigRef,
+              });
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
               setGeneralError("Failed to extract agent data from team structure");
@@ -121,7 +104,7 @@ function AgentPageContent() {
     };
 
     fetchAgentData();
-  }, [isEditMode, agentId, getAgentById]);
+  }, [isEditMode, agentId, getAgentById, models]);
 
   const validateForm = () => {
     const formData = {
@@ -161,13 +144,21 @@ function AgentPageContent() {
         if (!selectedModel) {
           throw new Error("Model is required to update the agent.");
         }
-        result = await updateAgent(agentId, { ...agentData, model: selectedModel });
+        result = await updateAgent(agentId, {
+          ...agentData,
+          model: selectedModel,
+          tools: selectedTools,
+        });
       } else {
         // Create new agent
         if (!selectedModel) {
           throw new Error("Model is required to create the agent.");
         }
-        result = await createNewAgent({ ...agentData, model: selectedModel });
+        result = await createNewAgent({
+          ...agentData,
+          model: selectedModel,
+          tools: selectedTools,
+        });
       }
 
       if (!result.success) {
