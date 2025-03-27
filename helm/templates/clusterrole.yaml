@@ -97,7 +97,6 @@ rules:
   - ""
   resources:
   - "*"
-  - teams
   verbs:
   - create
   - update
