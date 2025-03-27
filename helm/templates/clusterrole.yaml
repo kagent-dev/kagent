@@ -83,12 +83,20 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 rules:
 - apiGroups:
-  - ""
   - kagent.dev
   resources:
-  - "*"
   - agents
   - modelconfigs
+  - teams
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - "*"
   - teams
   verbs:
   - create
