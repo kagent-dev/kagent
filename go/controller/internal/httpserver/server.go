@@ -112,6 +112,7 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Model configs
 	s.router.HandleFunc(APIPathModelConfig, s.handlers.ModelConfig.HandleListModelConfigs).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelConfig+"/{configName}", s.handlers.ModelConfig.HandleGetModelConfig).Methods(http.MethodGet)
 
 	// Runs
 	s.router.HandleFunc(APIPathRuns, s.handlers.Runs.HandleCreateRun).Methods(http.MethodPost)
@@ -137,7 +138,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathTeams, s.handlers.Teams.HandleListTeams).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathTeams, s.handlers.Teams.HandleCreateTeam).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathTeams, s.handlers.Teams.HandleUpdateTeam).Methods(http.MethodPut)
-	s.router.HandleFunc(APIPathTeams+"/{teamLabel}", s.handlers.Teams.HandleGetTeam).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathTeams+"/{teamID}", s.handlers.Teams.HandleGetTeam).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathTeams+"/{teamLabel}", s.handlers.Teams.HandleDeleteTeam).Methods(http.MethodDelete)
 
 	// Use middleware for common functionality

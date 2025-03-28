@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // ModelConfigHandler handles model configuration requests
@@ -33,4 +34,23 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w http.ResponseWriter, r *ht
 	}
 
 	RespondWithJSON(w, http.StatusOK, configs)
+}
+
+func (h *ModelConfigHandler) HandleGetModelConfig(w http.ResponseWriter, r *http.Request) {
+	configName, err := GetPathParam(r, "configName")
+	if err != nil {
+		RespondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	modelConfig := &v1alpha1.ModelConfig{}
+	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
+		Name:      configName,
+		Namespace: DefaultResourceNamespace,
+	}, modelConfig); err != nil {
+		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, modelConfig)
 }

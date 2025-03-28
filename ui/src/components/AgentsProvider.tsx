@@ -2,10 +2,9 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getTeams, createAgent } from "@/app/actions/teams";
-import { Team, Component, ToolConfig } from "@/types/datamodel";
+import { Component, ToolConfig, Agent, AgentTool, AgentResponse } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
-import { BaseResponse, Model } from "@/lib/types";
-import { isIdentifier } from "@/lib/utils";
+import type { BaseResponse, Model } from "@/lib/types";
 import { getModels } from "@/app/actions/models";
 
 interface ValidationErrors {
@@ -22,19 +21,19 @@ export interface AgentFormData {
   description: string;
   systemPrompt: string;
   model: Model;
-  tools: Component<ToolConfig>[];
+  tools: AgentTool[];
 }
 
 interface AgentsContextType {
-  teams: Team[];
+  agents: AgentResponse[];
   models: Model[];
   loading: boolean;
   error: string;
   tools: Component<ToolConfig>[];
   refreshTeams: () => Promise<void>;
-  createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Team>>;
-  updateAgent: (id: string, agentData: AgentFormData) => Promise<BaseResponse<Team>>;
-  getAgentById: (id: string) => Promise<Team | null>;
+  createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
+  updateAgent: (id: string, agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
+  getAgentById: (id: string) => Promise<AgentResponse | null>;
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
 }
 
@@ -53,7 +52,7 @@ interface AgentsProviderProps {
 }
 
 export function AgentsProvider({ children }: AgentsProviderProps) {
-  const [teams, setTeams] = useState<Team[]>([]);
+  const [agents, setAgents] = useState<AgentResponse[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [tools, setTools] = useState<Component<ToolConfig>[]>([]);
@@ -68,7 +67,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         throw new Error(teamsResult.error || "Failed to fetch teams");
       }
 
-      setTeams(teamsResult.data);
+      setAgents(teamsResult.data);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
@@ -118,9 +117,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     if (data.name !== undefined) {
       if (!data.name.trim()) {
         errors.name = "Agent name is required";
-      } // we only check that it's required as this will be the label -- the name is created from the label
-      else if (!isIdentifier(data.name)) {
-        errors.name = "Agent name must not contain special characters";
       }
     }
 
@@ -140,7 +136,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   };
 
   // Get agent by ID function
-  const getAgentById = async (id: string): Promise<Team | null> => {
+  const getAgentById = async (name: string): Promise<AgentResponse | null> => {
     try {
       // First ensure we have the latest teams data
       const { data: teams } = await getTeams();
@@ -151,10 +147,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
 
       // Find the team/agent with the matching ID
-      const agent = teams.find((team) => String(team.id) === id);
+      const agent = teams.find((team) => String(team.agent.metadata.name) === name);
 
       if (!agent) {
-        console.warn(`Agent with ID ${id} not found`);
+        console.warn(`Agent with name ${name} not found`);
         return null;
       }
 
@@ -171,7 +167,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     try {
       const errors = validateAgentData(agentData);
       if (Object.keys(errors).length > 0) {
-        return { success: false, error: "Validation failed", data: {} as Team };
+        return { success: false, error: "Validation failed", data: {} as Agent };
       }
 
       const result = await createAgent(agentData);
@@ -192,13 +188,13 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   };
 
   // Update existing agent
-  const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Team>> => {
+  const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
     try {
       const errors = validateAgentData(agentData);
 
       if (Object.keys(errors).length > 0) {
         console.log("Errors validating agent data", errors);
-        return { success: false, error: "Validation failed", data: {} as Team };
+        return { success: false, error: "Validation failed", data: {} as Agent };
       }
 
       // Use the same createTeam endpoint for updates
@@ -227,7 +223,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   }, []);
 
   const value = {
-    teams,
+    agents,
     models,
     loading,
     error,

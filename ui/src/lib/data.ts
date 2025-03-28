@@ -1,4 +1,4 @@
-import { Component, MCPToolConfig, ToolConfig } from "@/types/datamodel";
+import { AgentTool, Component, MCPToolConfig, ToolConfig } from "@/types/datamodel";
 
 export const isMcpTool = (content: unknown): content is MCPToolConfig => {
   if (!content || typeof content !== "object") return false;
@@ -12,7 +12,49 @@ export const isMcpTool = (content: unknown): content is MCPToolConfig => {
   return true;
 };
 
-// All MCP tools have the same label & description, so the actual tool name is stored in the config
-export const getToolDisplayName = (tool: Component<ToolConfig>) => (isMcpTool(tool) ? (tool.config as MCPToolConfig).tool.name : tool.label);
-export const getToolDescription = (tool: Component<ToolConfig>) => (isMcpTool(tool) ? (tool.config as MCPToolConfig).tool.description : tool.description);
-export const getToolIdentifier = (tool: Component<ToolConfig>): string => (isMcpTool(tool) ? (tool.config as MCPToolConfig).tool.name : `${tool.provider}::${getToolDisplayName(tool)}`);
+export const isAgentTool = (tool: unknown): tool is AgentTool => {
+  if (!tool || typeof tool !== "object") return false;
+  
+  const possibleAgentTool = tool as Partial<AgentTool>;
+  return typeof possibleAgentTool.provider === "string" && 
+         typeof possibleAgentTool.description === "string" && 
+         typeof possibleAgentTool.config === "object" && 
+         possibleAgentTool.config !== null;
+};
+
+export const getToolDisplayName = (tool?: Component<ToolConfig> | AgentTool) => {
+  if (!tool) return "No name";
+  
+  if (isMcpTool(tool)) {
+    return (tool.config as MCPToolConfig).tool.name;
+  } else if (isAgentTool(tool)) {
+    return (tool as AgentTool).provider || "Agent Tool";
+  } else {
+    return tool?.label ?? "No name";
+  }
+};
+
+export const getToolDescription = (tool?: Component<ToolConfig> | AgentTool) => {
+  if (!tool) return "No description";
+  
+  if (isMcpTool(tool)) {
+    return (tool.config as MCPToolConfig).tool.description;
+  } else if (isAgentTool(tool)) {
+    return (tool as AgentTool).description || "No description";
+  } else {
+    return tool?.description ?? "No description";
+  }
+};
+
+export const getToolIdentifier = (tool?: Component<ToolConfig> | AgentTool): string => {
+  if (!tool) return "unknown";
+  
+  if (isMcpTool(tool)) {
+    return (tool.config as MCPToolConfig).tool.name;
+  } else if (isAgentTool(tool)) {
+    const agentTool = tool as AgentTool;
+    return `${agentTool.provider}::${agentTool.provider || "Agent Tool"}`;
+  } else {
+    return `${tool?.provider}::${getToolDisplayName(tool)}`;
+  }
+};

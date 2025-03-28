@@ -9,15 +9,20 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function getWsUrl() {
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
+  }
+
   let url = "";
   if (process.env.NODE_ENV === "production") {
-    url = process.env.NEXT_PUBLIC_BACKEND_URL || `ws://${window.location.host}/api/ws`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    url = `${protocol}//${window.location.host}/api/ws`;
   } else {
-    url = process.env.NEXT_PUBLIC_BACKEND_URL || "ws://localhost:8081/api/ws";
+    url = "ws://localhost:8081/api/ws";
   }
   return url;
-
 }
+
 export function getBackendUrl() {
   let url = "";
 

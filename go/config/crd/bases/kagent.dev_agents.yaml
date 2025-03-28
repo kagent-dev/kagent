@@ -19,6 +19,10 @@ spec:
       jsonPath: .status.conditions[0].status
       name: Accepted
       type: string
+    - description: The ModelConfig resource referenced by this agent.
+      jsonPath: .spec.modelConfigRef
+      name: ModelConfig
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -45,6 +49,8 @@ spec:
             description: AgentSpec defines the desired state of Agent.
             properties:
               description:
+                type: string
+              modelConfigRef:
                 type: string
               systemMessage:
                 minLength: 1

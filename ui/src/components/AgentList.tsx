@@ -9,7 +9,7 @@ import { LoadingState } from "./LoadingState";
 import { useAgents } from "./AgentsProvider";
 
 export default function AgentList() {
-  const { teams, loading, error } = useAgents();
+  const { agents , loading, error } = useAgents();
 
   if (error) {
     return <ErrorState message={error} />;
@@ -27,7 +27,7 @@ export default function AgentList() {
         </div>
       </div>
 
-      {teams?.length === 0 ? (
+      {agents?.length === 0 ? (
         <div className="text-center py-12">
           <KagentLogo className="h-16 w-16 mx-auto mb-4" />
           <h3 className="text-lg font-medium  mb-2">No agents yet</h3>
@@ -40,7 +40,7 @@ export default function AgentList() {
           </Button>
         </div>
       ) : (
-        <AgentGrid teams={teams || []} />
+        <AgentGrid agentResponse={agents || []} />
       )}
     </div>
   );

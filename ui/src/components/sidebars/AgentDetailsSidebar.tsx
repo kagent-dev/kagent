@@ -2,31 +2,31 @@
 
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import type { Team, AssistantAgentConfig, ToolConfig, Component } from "@/types/datamodel";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
+import type { AgentResponse, AgentTool } from "@/types/datamodel";
 import { getTeam } from "@/app/actions/teams";
-import { findAllAssistantAgents } from "@/lib/agents";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { AgentActions } from "./AgentActions";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
+import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
+import { extractSocietyOfMindAgentTools } from "@/lib/toolUtils";
 
 interface AgentDetailsSidebarProps {
   selectedAgentId: number;
 }
 
 export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProps) {
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<AgentResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchTeam = async () => {
       setLoading(true);
       try {
-        const teamData = await getTeam(selectedAgentId);
-        if (teamData && teamData.data) {
-          setSelectedTeam(teamData.data);
+        const { data } = await getTeam(selectedAgentId);
+        if (data && data.agent) {
+          setSelectedTeam(data);
         }
       } catch (error) {
         console.error("Failed to fetch team:", error);
@@ -42,7 +42,7 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
     return <LoadingState />;
   }
 
-  const renderAgentTools = (tools: Component<ToolConfig>[] = []) => {
+  const renderAgentTools = (tools: AgentTool[] = []) => {
     if (tools.length === 0) {
       return (
         <SidebarMenu>
@@ -64,7 +64,7 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
                 <CollapsibleTrigger asChild>
                   <SidebarMenuButton tooltip={displayName}>
                     <span>{displayName}</span>
-                    {displayDescription &&  <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" /> }
+                    {displayDescription && <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />}
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
                 {displayDescription && (
@@ -80,34 +80,25 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
     );
   };
 
-  const assistantAgents = findAllAssistantAgents(selectedTeam?.component);
-
   return (
     <>
       <Sidebar side={"right"} collapsible="offcanvas">
         <SidebarHeader>Agent Details</SidebarHeader>
         <SidebarContent>
           <ScrollArea>
-            {assistantAgents.map((participant, index) => {
-              const assistantAgent = participant.config as AssistantAgentConfig;
-              return (
-                <div key={index}>
-                  <SidebarGroup>
-                    <SidebarGroupLabel className="font-bold">
-                      {selectedTeam?.component.label} ({assistantAgent.model_client.config.model})
-                    </SidebarGroupLabel>
-                    <p className="text-sm flex px-2 text-muted-foreground">{assistantAgent.description}</p>
-                  </SidebarGroup>
-                  <SidebarGroup>
-                    <AgentActions agentId={selectedTeam?.id ?? 0} onCopyJson={() => navigator.clipboard.writeText(JSON.stringify(assistantAgent, null, 2))} />
-                  </SidebarGroup>
-                  <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-                    <SidebarGroupLabel>Tools</SidebarGroupLabel>
-                    {renderAgentTools(assistantAgent.tools)}
-                  </SidebarGroup>
-                </div>
-              );
-            })}
+            <SidebarGroup>
+              <SidebarGroupLabel className="font-bold">
+                {selectedTeam?.agent.metadata.name} ({selectedTeam?.model})
+              </SidebarGroupLabel>
+              <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
+            </SidebarGroup>
+            <SidebarGroup>
+              <AgentActions agentName={selectedTeam?.agent.metadata.name ?? ""} onCopyJson={() => navigator.clipboard.writeText(JSON.stringify(selectedTeam, null, 2))} />
+            </SidebarGroup>
+            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+              <SidebarGroupLabel>Tools</SidebarGroupLabel>
+              {selectedTeam && renderAgentTools(extractSocietyOfMindAgentTools(selectedTeam))}
+            </SidebarGroup>
           </ScrollArea>
         </SidebarContent>
       </Sidebar>

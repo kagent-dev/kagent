@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "autogen-core>=0.4.3",
-  "autogen-ext[mcp]>=0.4.3",
+  "autogen-ext[anthropic,azure,mcp,openai]>=0.4.3",
   "autogen-agentchat>=0.4.3",
   "autogenstudio>=0.4.3",
   "openai==1.60.0",
@@ -26,6 +26,7 @@ dependencies = [
   "opentelemetry-exporter-otlp-proto-grpc>=1.30.0",
   "opentelemetry-instrumentation-openai>= 0.38.0",
   "opentelemetry-instrumentation-httpx >= 0.51.0",
+  "anthropic>=0.49.0",
 ]
 
 [project.optional-dependencies]

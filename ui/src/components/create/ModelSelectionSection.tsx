@@ -27,7 +27,7 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
         <SelectContent>
           {allModels.map((model, idx) => (
             <SelectItem key={`${idx}_${model.name}`} value={model.name}>
-              {model.model}
+              {model.model} ({model.name})
             </SelectItem>
           ))}
         </SelectContent>

@@ -117,6 +117,7 @@ spec:
     4. Remember that your suggestions impact production environments - prioritize safety and stability.
 
     Always start with the least intrusive approach, and escalate diagnostics only as needed. When in doubt, gather more information before recommending changes.
+  modelConfigRef: default-model-config
   tools:
     - provider: kagent.tools.k8s.CheckServiceConnectivity
     - provider: kagent.tools.k8s.PatchResource

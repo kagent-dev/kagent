@@ -64,7 +64,7 @@ export default function ChatInterface({ selectedAgentId, selectedRun }: ChatInte
     setMessage("");
 
     try {
-      await sendUserMessage(currentMessage, Number(selectedAgentId));
+      await sendUserMessage(currentMessage, String(selectedAgentId));
     } catch (error) {
       console.error("Error sending message:", error);
       setMessage(currentMessage);
