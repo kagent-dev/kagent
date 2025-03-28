@@ -36,9 +36,9 @@ type ToolServerReconciler struct {
 	Reconciler autogen.AutogenReconciler
 }
 
-// +kubebuilder:rbac:groups=agent.ai.solo.io,resources=toolservers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=agent.ai.solo.io,resources=toolservers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=agent.ai.solo.io,resources=toolservers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
