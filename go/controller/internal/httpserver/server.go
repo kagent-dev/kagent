@@ -142,6 +142,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathTeams+"/{teamLabel}", s.handlers.Teams.HandleDeleteTeam).Methods(http.MethodDelete)
 
 	// Use middleware for common functionality
+	s.router.Use(errorHandlerMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(contentTypeMiddleware)
 }
