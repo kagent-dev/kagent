@@ -90,8 +90,6 @@ func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.T
 				Command: config.Stdio.Command,
 				Args:    config.Stdio.Args,
 				Env:     config.Stdio.Env,
-				Stderr:  config.Stdio.Stderr,
-				Cwd:     config.Stdio.Cwd,
 			},
 		}, nil
 	case config.Sse != nil:

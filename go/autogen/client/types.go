@@ -30,8 +30,6 @@ type StdioMcpServerConfig struct {
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
-	Stderr  interface{}       `json:"stderr,omitempty"`
-	Cwd     string            `json:"cwd,omitempty"`
 }
 
 type SseMcpServerConfig struct {
