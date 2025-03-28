@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -18,14 +19,12 @@ func NewSessionsHandler(base *Base) *SessionsHandler {
 }
 
 // HandleListSessions handles GET /api/sessions requests
-func (h *SessionsHandler) HandleListSessions(w http.ResponseWriter, r *http.Request) {
+func (h *SessionsHandler) HandleListSessions(w errorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "list")
-	log.Info("Handling list sessions request")
 
 	userID, err := GetUserID(r)
 	if err != nil {
-		log.Error(err, "Failed to get user ID")
-		RespondWithError(w, http.StatusBadRequest, err.Error())
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
 	log = log.WithValues("userID", userID)
@@ -33,8 +32,7 @@ func (h *SessionsHandler) HandleListSessions(w http.ResponseWriter, r *http.Requ
 	log.V(1).Info("Listing sessions from Autogen")
 	sessions, err := h.AutogenClient.ListSessions(userID)
 	if err != nil {
-		log.Error(err, "Failed to list sessions")
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		w.RespondWithError(errors.NewInternalServerError("Failed to list sessions", err))
 		return
 	}
 
@@ -43,21 +41,17 @@ func (h *SessionsHandler) HandleListSessions(w http.ResponseWriter, r *http.Requ
 }
 
 // HandleCreateSession handles POST /api/sessions requests
-func (h *SessionsHandler) HandleCreateSession(w http.ResponseWriter, r *http.Request) {
+func (h *SessionsHandler) HandleCreateSession(w errorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "create")
-	log.Info("Handling create session request")
 
 	var sessionRequest *autogen_client.CreateSession
-
 	if err := DecodeJSONBody(r, &sessionRequest); err != nil {
-		log.Error(err, "Invalid request body")
-		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
 	if sessionRequest.UserID == "" {
-		log.Error(nil, "Missing user_id in request")
-		RespondWithError(w, http.StatusBadRequest, "user_id is required")
+		w.RespondWithError(errors.NewBadRequestError("user_id is required", nil))
 		return
 	}
 	log = log.WithValues("userID", sessionRequest.UserID)
@@ -67,8 +61,7 @@ func (h *SessionsHandler) HandleCreateSession(w http.ResponseWriter, r *http.Req
 		"name", sessionRequest.Name)
 	session, err := h.AutogenClient.CreateSession(sessionRequest)
 	if err != nil {
-		log.Error(err, "Failed to create session")
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
 		return
 	}
 
@@ -76,22 +69,20 @@ func (h *SessionsHandler) HandleCreateSession(w http.ResponseWriter, r *http.Req
 	RespondWithJSON(w, http.StatusCreated, session)
 }
 
-func (h *SessionsHandler) HandleGetSession(w http.ResponseWriter, r *http.Request) {
+// HandleGetSession handles GET /api/sessions/{sessionID} requests
+func (h *SessionsHandler) HandleGetSession(w errorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "get")
-	log.Info("Handling get session request")
 
 	sessionID, err := GetIntPathParam(r, "sessionID")
 	if err != nil {
-		log.Error(err, "Failed to get session ID from path")
-		RespondWithError(w, http.StatusBadRequest, err.Error())
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
 		return
 	}
 	log = log.WithValues("sessionID", sessionID)
 
 	userID, err := GetUserID(r)
 	if err != nil {
-		log.Error(err, "Failed to get user ID")
-		RespondWithError(w, http.StatusBadRequest, err.Error())
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
 	log = log.WithValues("userID", userID)
@@ -99,14 +90,12 @@ func (h *SessionsHandler) HandleGetSession(w http.ResponseWriter, r *http.Reques
 	log.V(1).Info("Getting session from Autogen")
 	session, err := h.AutogenClient.GetSession(sessionID, userID)
 	if err != nil {
-		log.Error(err, "Failed to get session")
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		w.RespondWithError(errors.NewInternalServerError("Failed to get session", err))
 		return
 	}
 
 	if session == nil {
-		log.Info("Session not found")
-		RespondWithError(w, http.StatusNotFound, "Session not found")
+		w.RespondWithError(errors.NewNotFoundError("Session not found", nil))
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -19,14 +20,12 @@ func NewModelConfigHandler(base *Base) *ModelConfigHandler {
 }
 
 // HandleListModelConfigs handles GET /api/modelconfigs requests
-func (h *ModelConfigHandler) HandleListModelConfigs(w http.ResponseWriter, r *http.Request) {
+func (h *ModelConfigHandler) HandleListModelConfigs(w errorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "list")
-	log.Info("Handling list model configs request")
 
 	modelConfigs := &v1alpha1.ModelConfigList{}
 	if err := h.KubeClient.List(r.Context(), modelConfigs); err != nil {
-		log.Error(err, "Failed to list model configs from Kubernetes")
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		w.RespondWithError(errors.NewInternalServerError("Failed to list model configs from Kubernetes", err))
 		return
 	}
 
@@ -43,14 +42,13 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w http.ResponseWriter, r *ht
 	RespondWithJSON(w, http.StatusOK, configs)
 }
 
-func (h *ModelConfigHandler) HandleGetModelConfig(w http.ResponseWriter, r *http.Request) {
+// HandleGetModelConfig handles GET /api/modelconfigs/{configName} requests
+func (h *ModelConfigHandler) HandleGetModelConfig(w errorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "get")
-	log.Info("Handling get model config request")
 
 	configName, err := GetPathParam(r, "configName")
 	if err != nil {
-		log.Error(err, "Failed to get config name from path")
-		RespondWithError(w, http.StatusBadRequest, err.Error())
+		w.RespondWithError(errors.NewBadRequestError("Failed to get config name from path", err))
 		return
 	}
 	log = log.WithValues("configName", configName)
@@ -61,8 +59,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w http.ResponseWriter, r *http
 		Name:      configName,
 		Namespace: DefaultResourceNamespace,
 	}, modelConfig); err != nil {
-		log.Error(err, "Failed to get model config")
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		w.RespondWithError(errors.NewInternalServerError("Failed to get model config", err))
 		return
 	}
 

@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -17,14 +18,12 @@ func NewToolsHandler(base *Base) *ToolsHandler {
 }
 
 // HandleListTools handles GET /api/tools requests
-func (h *ToolsHandler) HandleListTools(w http.ResponseWriter, r *http.Request) {
+func (h *ToolsHandler) HandleListTools(w errorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("tools-handler").WithValues("operation", "list")
-	log.Info("Handling list tools request")
 
 	userID, err := GetUserID(r)
 	if err != nil {
-		log.Error(err, "Failed to get user ID")
-		RespondWithError(w, http.StatusBadRequest, err.Error())
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
 	log = log.WithValues("userID", userID)
@@ -32,8 +31,7 @@ func (h *ToolsHandler) HandleListTools(w http.ResponseWriter, r *http.Request) {
 	log.V(1).Info("Listing tools from Autogen")
 	tools, err := h.AutogenClient.ListTools(userID)
 	if err != nil {
-		log.Error(err, "Failed to list tools")
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		w.RespondWithError(errors.NewInternalServerError("Failed to list tools", err))
 		return
 	}
 
