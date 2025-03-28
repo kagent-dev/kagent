@@ -54,10 +54,10 @@ type BuiltinTool struct {
 type McpServerTool struct {
 	// the name of the ToolServer that provides the tool. must exist in the same namespace as the Agent
 	ToolServer string `json:"toolServer,omitempty"`
-	// The name of the tool to be provided by the ToolServer
+	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
-	ToolName string `json:"toolName,omitempty"`
+	ToolNames []string `json:"toolNames,omitempty"`
 }
 
 type AnyType struct {

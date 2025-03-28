@@ -458,16 +458,19 @@ func translateAssistantAgent(
 			}
 			tools = append(tools, autogenTool)
 		case tool.ToolServer != "":
-			autogenTool, err := translateToolServerTool(
-				ctx,
-				kube,
-				tool.McpServerTool,
-				agentNamespace,
-			)
-			if err != nil {
-				return nil, err
+			for _, toolName := range tool.ToolNames {
+				autogenTool, err := translateToolServerTool(
+					ctx,
+					kube,
+					tool.ToolServer,
+					toolName,
+					agentNamespace,
+				)
+				if err != nil {
+					return nil, err
+				}
+				tools = append(tools, autogenTool)
 			}
-			tools = append(tools, autogenTool)
 		default:
 			return nil, fmt.Errorf("tool must have a provider or tool server")
 		}
@@ -530,7 +533,8 @@ func translateBuiltinTool(
 func translateToolServerTool(
 	ctx context.Context,
 	kube client.Client,
-	tool v1alpha1.McpServerTool,
+	toolServerName string,
+	toolName string,
 	agentNamespace string,
 ) (*api.Component, error) {
 	toolServer := &v1alpha1.ToolServer{}
@@ -538,7 +542,7 @@ func translateToolServerTool(
 		ctx,
 		kube,
 		toolServer,
-		tool.ToolServer,
+		toolServerName,
 		agentNamespace,
 	)
 	if err != nil {
@@ -547,12 +551,12 @@ func translateToolServerTool(
 
 	// requires the tool to have been discovered
 	for _, discoveredTool := range toolServer.Status.DiscoveredTools {
-		if discoveredTool.Name == tool.ToolName {
+		if discoveredTool.Name == toolName {
 			return convertComponent(discoveredTool.Component)
 		}
 	}
 
-	return nil, fmt.Errorf("tool %v not found in discovered tools in ToolServer %v", tool.ToolName, toolServer.Name)
+	return nil, fmt.Errorf("tool %v not found in discovered tools in ToolServer %v", toolName, toolServer.Name)
 }
 
 func convertComponent(component v1alpha1.Component) (*api.Component, error) {

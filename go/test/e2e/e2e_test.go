@@ -31,10 +31,6 @@ var _ = Describe("E2e", func() {
 				Description:   "The Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.",
 				SystemMessage: readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
 				Tools: []*v1alpha1.Tool{
-					{McpServerTool: v1alpha1.McpServerTool{
-						ToolServer: "asdf",
-						ToolName:   "qwer",
-					}},
 					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.AnnotateResource"}},
 					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.ApplyManifest"}},
 					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.CheckServiceConnectivity"}},
