@@ -44,9 +44,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: ModelConfigSpec defines the desired state of ModelConfig.
             properties:
-              anthropicC:
+              anthropic:
                 description: Anthropic-specific configuration
                 properties:
                   baseUrl:
@@ -152,6 +151,17 @@ spec:
             - model
             - provider
             type: object
+            x-kubernetes-validations:
+            - message: provider.openAI must be nil if the provider is not OpenAI
+              rule: '!(has(self.openAI) && self.provider != ''OpenAI'')'
+            - message: provider.anthropic must be nil if the provider is not Anthropic
+              rule: '!(has(self.anthropic) && self.provider != ''Anthropic'')'
+            - message: provider.anthropic must be specified for Anthropic provider
+              rule: '!(!has(self.anthropic) && self.provider == ''Anthropic'')'
+            - message: provider.azureOpenAI must be nil if the provider is not AzureOpenAI
+              rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
+            - message: provider.azureOpenAI must be specified for AzureOpenAI provider
+              rule: '!(!has(self.azureOpenAI) && self.provider == ''AzureOpenAI'')'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

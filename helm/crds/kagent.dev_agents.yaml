@@ -58,28 +58,53 @@ spec:
               tools:
                 items:
                   properties:
-                    config:
-                      description: 'note: this implementation is due to the kubebuilder
-                        limitation https://github.com/kubernetes-sigs/controller-tools/issues/636'
-                      x-kubernetes-preserve-unknown-fields: true
-                    description:
-                      description: Description is a brief description of the tool.
-                      type: string
-                    provider:
-                      type: string
-                    toolNames:
-                      description: |-
-                        The names of the tools to be provided by the ToolServer
-                        For a list of all the tools provided by the server,
-                        the client can query the status of the ToolServer object after it has been created
-                      items:
-                        type: string
-                      type: array
-                    toolServer:
-                      description: the name of the ToolServer that provides the tool.
-                        must exist in the same namespace as the Agent
+                    inline:
+                      properties:
+                        config:
+                          description: 'note: this implementation is due to the kubebuilder
+                            limitation https://github.com/kubernetes-sigs/controller-tools/issues/636'
+                          x-kubernetes-preserve-unknown-fields: true
+                        description:
+                          description: Description is a brief description of the tool.
+                          type: string
+                        provider:
+                          type: string
+                      type: object
+                    mcpServer:
+                      properties:
+                        toolNames:
+                          description: |-
+                            The names of the tools to be provided by the ToolServer
+                            For a list of all the tools provided by the server,
+                            the client can query the status of the ToolServer object after it has been created
+                          items:
+                            type: string
+                          type: array
+                        toolServer:
+                          description: the name of the ToolServer that provides the
+                            tool. must exist in the same namespace as the Agent
+                          type: string
+                      type: object
+                    type:
+                      allOf:
+                      - enum:
+                        - Inline
+                        - McpServer
+                      - enum:
+                        - Inline
+                        - McpServer
+                      description: ToolProviderType represents the tool provider type
                       type: string
                   type: object
+                  x-kubernetes-validations:
+                  - message: type.inline must be nil if the type is not Inline
+                    rule: '!(has(self.inline) && self.type != ''Inline'')'
+                  - message: type.inline must be specified for Inline filter.type
+                    rule: '!(!has(self.inline) && self.type == ''Inline'')'
+                  - message: type.mcpServer must be nil if the type is not McpServer
+                    rule: '!(has(self.mcpServer) && self.type != ''McpServer'')'
+                  - message: type.mcpServer must be specified for McpServer filter.type
+                    rule: '!(!has(self.mcpServer) && self.type == ''McpServer'')'
                 maxItems: 20
                 type: array
             type: object

@@ -146,16 +146,36 @@ spec:
     Always prioritize stability and correctness in Helm operations, and provide clear guidance on how to verify the success of operations.
   modelConfigRef: default-model-config
   tools:
-    - provider: kagent.tools.helm.ListReleases
-    - provider: kagent.tools.helm.GetRelease
-    - provider: kagent.tools.helm.Upgrade
-    - provider: kagent.tools.helm.Uninstall
-    - provider: kagent.tools.helm.RepoAdd
-    - provider: kagent.tools.helm.RepoUpdate
-    - provider: kagent.tools.k8s.GetResources
-    - provider: kagent.tools.k8s.GetAvailableAPIResources
-    - provider: kagent.tools.k8s.ApplyManifest
-    - provider: kagent.tools.docs.QueryTool
-      config:
-        docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+    - type: Inline
+      inline:
+        provider: kagent.tools.helm.ListReleases
+    - type: Inline
+      inline:
+        provider: kagent.tools.helm.GetRelease
+    - type: Inline
+      inline:
+        provider: kagent.tools.helm.Upgrade
+    - type: Inline
+      inline:
+        provider: kagent.tools.helm.Uninstall
+    - type: Inline
+      inline:
+        provider: kagent.tools.helm.RepoAdd
+    - type: Inline
+      inline:
+        provider: kagent.tools.helm.RepoUpdate
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetResources
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetAvailableAPIResources
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.ApplyManifest
+    - type: Inline
+      inline:
+        provider: kagent.tools.docs.QueryTool
+        config:
+          docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
 {{- end }}
