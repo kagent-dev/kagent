@@ -51,14 +51,12 @@ func (h *ToolServersHandler) HandleCreateToolServer(w errorResponseWriter, r *ht
 		return
 	}
 
-	if toolServerRequest.UserID == "" {
 	if toolServerRequest.UserID == nil || *toolServerRequest.UserID == "" {
 		w.RespondWithError(errors.NewBadRequestError("user_id is required", nil))
 		return
 	}
 	log = log.WithValues("userID", *toolServerRequest.UserID)
 
-	toolServer, err := h.AutogenClient.CreateToolServer(toolServerRequest, autogen.GlobalUserID)
 	log.V(1).Info("Creating tool server in Autogen")
 	toolServer, err := h.AutogenClient.CreateToolServer(toolServerRequest)
 	if err != nil {
