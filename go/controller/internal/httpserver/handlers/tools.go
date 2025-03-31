@@ -18,7 +18,7 @@ func NewToolsHandler(base *Base) *ToolsHandler {
 }
 
 // HandleListTools handles GET /api/tools requests
-func (h *ToolsHandler) HandleListTools(w errorResponseWriter, r *http.Request) {
+func (h *ToolsHandler) HandleListTools(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("tools-handler").WithValues("operation", "list")
 
 	userID, err := GetUserID(r)

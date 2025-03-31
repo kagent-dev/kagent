@@ -20,7 +20,7 @@ func NewModelConfigHandler(base *Base) *ModelConfigHandler {
 }
 
 // HandleListModelConfigs handles GET /api/modelconfigs requests
-func (h *ModelConfigHandler) HandleListModelConfigs(w errorResponseWriter, r *http.Request) {
+func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "list")
 
 	modelConfigs := &v1alpha1.ModelConfigList{}
@@ -43,7 +43,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w errorResponseWriter, r *ht
 }
 
 // HandleGetModelConfig handles GET /api/modelconfigs/{configName} requests
-func (h *ModelConfigHandler) HandleGetModelConfig(w errorResponseWriter, r *http.Request) {
+func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "get")
 
 	configName, err := GetPathParam(r, "configName")

@@ -19,7 +19,7 @@ func NewSessionsHandler(base *Base) *SessionsHandler {
 }
 
 // HandleListSessions handles GET /api/sessions requests
-func (h *SessionsHandler) HandleListSessions(w errorResponseWriter, r *http.Request) {
+func (h *SessionsHandler) HandleListSessions(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "list")
 
 	userID, err := GetUserID(r)
@@ -41,7 +41,7 @@ func (h *SessionsHandler) HandleListSessions(w errorResponseWriter, r *http.Requ
 }
 
 // HandleCreateSession handles POST /api/sessions requests
-func (h *SessionsHandler) HandleCreateSession(w errorResponseWriter, r *http.Request) {
+func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "create")
 
 	var sessionRequest *autogen_client.CreateSession
@@ -70,7 +70,7 @@ func (h *SessionsHandler) HandleCreateSession(w errorResponseWriter, r *http.Req
 }
 
 // HandleGetSession handles GET /api/sessions/{sessionID} requests
-func (h *SessionsHandler) HandleGetSession(w errorResponseWriter, r *http.Request) {
+func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "get")
 
 	sessionID, err := GetIntPathParam(r, "sessionID")

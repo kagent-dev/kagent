@@ -10,12 +10,11 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type errorResponseWriter interface {
+type ErrorResponseWriter interface {
 	http.ResponseWriter
 	RespondWithError(err error)
 }
 
-// Common HTTP response helpers
 func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	log := ctrllog.Log.WithName("http-helpers")
 

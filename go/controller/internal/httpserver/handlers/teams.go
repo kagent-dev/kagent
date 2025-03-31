@@ -33,7 +33,7 @@ func convertToKubernetesIdentifier(name string) string {
 }
 
 // HandleListTeams handles GET /api/teams requests
-func (h *TeamsHandler) HandleListTeams(w errorResponseWriter, r *http.Request) {
+func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "list")
 
 	userID, err := GetUserID(r)
@@ -92,7 +92,7 @@ func (h *TeamsHandler) HandleListTeams(w errorResponseWriter, r *http.Request) {
 }
 
 // HandleUpdateTeam handles PUT /api/teams requests
-func (h *TeamsHandler) HandleUpdateTeam(w errorResponseWriter, r *http.Request) {
+func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "update")
 
 	var teamRequest *v1alpha1.Agent
@@ -125,7 +125,7 @@ func (h *TeamsHandler) HandleUpdateTeam(w errorResponseWriter, r *http.Request) 
 }
 
 // HandleCreateTeam handles POST /api/teams requests
-func (h *TeamsHandler) HandleCreateTeam(w errorResponseWriter, r *http.Request) {
+func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "create")
 
 	var teamRequest *v1alpha1.Agent
@@ -202,7 +202,7 @@ func (h *TeamsHandler) HandleCreateTeam(w errorResponseWriter, r *http.Request) 
 }
 
 // HandleGetTeam handles GET /api/teams/{teamID} requests
-func (h *TeamsHandler) HandleGetTeam(w errorResponseWriter, r *http.Request) {
+func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "get")
 
 	userID, err := GetUserID(r)
@@ -264,7 +264,7 @@ func (h *TeamsHandler) HandleGetTeam(w errorResponseWriter, r *http.Request) {
 }
 
 // HandleDeleteTeam handles DELETE /api/teams/{teamLabel} requests
-func (h *TeamsHandler) HandleDeleteTeam(w errorResponseWriter, r *http.Request) {
+func (h *TeamsHandler) HandleDeleteTeam(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "delete")
 
 	teamLabel, err := GetPathParam(r, "teamLabel")

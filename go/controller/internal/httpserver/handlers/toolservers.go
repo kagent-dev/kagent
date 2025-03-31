@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"net/http"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -20,7 +19,7 @@ func NewToolServersHandler(base *Base) *ToolServersHandler {
 }
 
 // HandleListToolServers handles GET /api/toolservers requests
-func (h *ToolServersHandler) HandleListToolServers(w errorResponseWriter, r *http.Request) {
+func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "list")
 
 	userID, err := GetUserID(r)
@@ -42,7 +41,7 @@ func (h *ToolServersHandler) HandleListToolServers(w errorResponseWriter, r *htt
 }
 
 // HandleCreateToolServer handles POST /api/toolservers requests
-func (h *ToolServersHandler) HandleCreateToolServer(w errorResponseWriter, r *http.Request) {
+func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "create")
 
 	var toolServerRequest *autogen_client.ToolServer
@@ -51,14 +50,14 @@ func (h *ToolServersHandler) HandleCreateToolServer(w errorResponseWriter, r *ht
 		return
 	}
 
-	if toolServerRequest.UserID == nil || *toolServerRequest.UserID == "" {
+	if toolServerRequest.UserID == "" {
 		w.RespondWithError(errors.NewBadRequestError("user_id is required", nil))
 		return
 	}
-	log = log.WithValues("userID", *toolServerRequest.UserID)
+	log = log.WithValues("userID", toolServerRequest.UserID)
 
 	log.V(1).Info("Creating tool server in Autogen")
-	toolServer, err := h.AutogenClient.CreateToolServer(toolServerRequest)
+	toolServer, err := h.AutogenClient.CreateToolServer(toolServerRequest, toolServerRequest.UserID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create tool server", err))
 		return
@@ -69,7 +68,7 @@ func (h *ToolServersHandler) HandleCreateToolServer(w errorResponseWriter, r *ht
 }
 
 // HandleGetToolServer handles GET /api/toolservers/{toolServerID} requests
-func (h *ToolServersHandler) HandleGetToolServer(w errorResponseWriter, r *http.Request) {
+func (h *ToolServersHandler) HandleGetToolServer(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "get")
 
 	toolServerID, err := GetIntPathParam(r, "toolServerID")
@@ -103,7 +102,7 @@ func (h *ToolServersHandler) HandleGetToolServer(w errorResponseWriter, r *http.
 }
 
 // HandleRefreshToolServer handles POST /api/toolservers/{toolServerID}/refresh requests
-func (h *ToolServersHandler) HandleRefreshToolServer(w errorResponseWriter, r *http.Request) {
+func (h *ToolServersHandler) HandleRefreshToolServer(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "refresh")
 
 	toolServerID, err := GetIntPathParam(r, "toolServerID")
@@ -132,7 +131,7 @@ func (h *ToolServersHandler) HandleRefreshToolServer(w errorResponseWriter, r *h
 }
 
 // HandleGetServerTools handles GET /api/toolservers/{toolServerID}/tools requests
-func (h *ToolServersHandler) HandleGetServerTools(w errorResponseWriter, r *http.Request) {
+func (h *ToolServersHandler) HandleGetServerTools(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "list-tools")
 
 	toolServerID, err := GetIntPathParam(r, "toolServerID")
@@ -161,7 +160,7 @@ func (h *ToolServersHandler) HandleGetServerTools(w errorResponseWriter, r *http
 }
 
 // HandleDeleteToolServer handles DELETE /api/toolservers/{toolServerID} requests
-func (h *ToolServersHandler) HandleDeleteToolServer(w errorResponseWriter, r *http.Request) {
+func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "delete")
 
 	toolServerID, err := GetIntPathParam(r, "toolServerID")

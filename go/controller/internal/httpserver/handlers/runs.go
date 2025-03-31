@@ -19,7 +19,7 @@ func NewRunsHandler(base *Base) *RunsHandler {
 }
 
 // HandleCreateRun handles POST /api/runs requests
-func (h *RunsHandler) HandleCreateRun(w errorResponseWriter, r *http.Request) {
+func (h *RunsHandler) HandleCreateRun(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("runs-handler").WithValues("operation", "create")
 
 	request := &autogen_client.CreateRunRequest{}
@@ -44,8 +44,8 @@ func (h *RunsHandler) HandleCreateRun(w errorResponseWriter, r *http.Request) {
 }
 
 // HandleListSessionRuns handles GET /api/sessions/{sessionID}/runs requests
-func (h *RunsHandler) HandleListSessionRuns(w errorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("runs-handler").WithValues("operation", "list")
+func (h *RunsHandler) HandleListSessionRuns(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("runs-handler").WithValues("operation", "list-session-runs")
 
 	sessionID, err := GetIntPathParam(r, "sessionID")
 	if err != nil {

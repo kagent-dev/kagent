@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
+	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/handlers"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -23,6 +24,8 @@ type errorResponseWriter struct {
 	http.ResponseWriter
 	request *http.Request
 }
+
+var _ handlers.ErrorResponseWriter = &errorResponseWriter{}
 
 func (w *errorResponseWriter) RespondWithError(err error) {
 	log := ctrllog.FromContext(w.request.Context())
