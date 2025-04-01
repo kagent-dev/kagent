@@ -49,8 +49,34 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		c.Println("Error installing kagent: ", string(byt))
 		return
 	}
-	s.Stop()
-	c.Println("kagent installed successfully")
+
+	// Create a new context for port-forward
+	pfCtx, pfCancel := context.WithCancel(context.Background())
+
+	portForwardCmd := exec.CommandContext(pfCtx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent", "8081:8081")
+    if err := portForwardCmd.Start(); err != nil {
+        s.Stop()
+        c.Println("Error starting port-forward:", err)
+        return
+    }
+
+    // Wait for port-forward to be ready
+    time.Sleep(2 * time.Second)
+
+    // Check if port-forward is running
+    if portForwardCmd.Process == nil {
+        s.Stop()
+        c.Println("Port-forward failed to start")
+        return
+    }
+
+    s.Stop()
+    c.Println("kagent installed successfully")
+
+    // Store the port-forward command and context in the shell's context
+    c.Set("portForwardCmd", portForwardCmd)
+    c.Set("portForwardCtx", pfCtx)
+    c.Set("portForwardCancel", pfCancel)
 }
 
 func UninstallCmd(ctx context.Context, c *ishell.Context) {
