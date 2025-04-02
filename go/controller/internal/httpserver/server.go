@@ -108,40 +108,51 @@ func (s *HTTPServer) NeedLeaderElection() bool {
 // setupRoutes configures all the routes for the server
 func (s *HTTPServer) setupRoutes() {
 	// Health check endpoint
-	s.router.HandleFunc(APIPathHealth, s.handlers.Health.HandleHealth).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathHealth, adaptHealthHandler(s.handlers.Health.HandleHealth)).Methods(http.MethodGet)
 
 	// Model configs
-	s.router.HandleFunc(APIPathModelConfig, s.handlers.ModelConfig.HandleListModelConfigs).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathModelConfig+"/{configName}", s.handlers.ModelConfig.HandleGetModelConfig).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelConfig, adaptHandler(s.handlers.ModelConfig.HandleListModelConfigs)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelConfig+"/{configName}", adaptHandler(s.handlers.ModelConfig.HandleGetModelConfig)).Methods(http.MethodGet)
 
 	// Runs
-	s.router.HandleFunc(APIPathRuns, s.handlers.Runs.HandleCreateRun).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathSessions+"/{sessionID}/runs", s.handlers.Runs.HandleListSessionRuns).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathRuns, adaptHandler(s.handlers.Runs.HandleCreateRun)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{sessionID}/runs", adaptHandler(s.handlers.Runs.HandleListSessionRuns)).Methods(http.MethodGet)
 
 	// Sessions
-	s.router.HandleFunc(APIPathSessions, s.handlers.Sessions.HandleListSessions).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions, s.handlers.Sessions.HandleCreateSession).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathSessions+"/{sessionID}", s.handlers.Sessions.HandleGetSession).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleListSessions)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleCreateSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{sessionID}", adaptHandler(s.handlers.Sessions.HandleGetSession)).Methods(http.MethodGet)
 
 	// Tools
-	s.router.HandleFunc(APIPathTools, s.handlers.Tools.HandleListTools).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathTools, adaptHandler(s.handlers.Tools.HandleListTools)).Methods(http.MethodGet)
 
 	// Tool Servers
-	s.router.HandleFunc(APIPathToolServers, s.handlers.ToolServers.HandleListToolServers).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathToolServers, s.handlers.ToolServers.HandleCreateToolServer).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}", s.handlers.ToolServers.HandleGetToolServer).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}/refresh", s.handlers.ToolServers.HandleRefreshToolServer).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}/tools", s.handlers.ToolServers.HandleGetServerTools).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}", s.handlers.ToolServers.HandleDeleteToolServer).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}", adaptHandler(s.handlers.ToolServers.HandleGetToolServer)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}/refresh", adaptHandler(s.handlers.ToolServers.HandleRefreshToolServer)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}/tools", adaptHandler(s.handlers.ToolServers.HandleGetServerTools)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
 
 	// Teams
-	s.router.HandleFunc(APIPathTeams, s.handlers.Teams.HandleListTeams).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathTeams, s.handlers.Teams.HandleCreateTeam).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathTeams, s.handlers.Teams.HandleUpdateTeam).Methods(http.MethodPut)
-	s.router.HandleFunc(APIPathTeams+"/{teamID}", s.handlers.Teams.HandleGetTeam).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathTeams+"/{teamLabel}", s.handlers.Teams.HandleDeleteTeam).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathTeams, adaptHandler(s.handlers.Teams.HandleListTeams)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathTeams, adaptHandler(s.handlers.Teams.HandleCreateTeam)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathTeams, adaptHandler(s.handlers.Teams.HandleUpdateTeam)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathTeams+"/{teamID}", adaptHandler(s.handlers.Teams.HandleGetTeam)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathTeams+"/{teamLabel}", adaptHandler(s.handlers.Teams.HandleDeleteTeam)).Methods(http.MethodDelete)
 
 	// Use middleware for common functionality
+	s.router.Use(errorHandlerMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(contentTypeMiddleware)
+}
+
+func adaptHandler(h func(handlers.ErrorResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h(w.(handlers.ErrorResponseWriter), r)
+	}
+}
+
+func adaptHealthHandler(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return h
 }
