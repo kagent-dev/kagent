@@ -1,196 +1,126 @@
 package e2e_test
 
 import (
-	"encoding/json"
-	"os"
-
-	"sigs.k8s.io/yaml"
-
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"context"
+	"fmt"
+	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/cli/exported"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"strings"
+	"time"
+)
+
+const (
+	GlobalUserID = "admin@kagent.dev"
 )
 
 var _ = Describe("E2e", func() {
-	It("configures the agent and model", func() {
-		// add a team
-		namespace := "team-ns"
+	It("installs istio, the bookinfo application, and sets up routing", func() {
 
-		// Create API Key Secret
-		apiKeySecret := &v1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "openai-api-key-secret",
-				Namespace: namespace,
-			},
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Secret",
-				APIVersion: "v1",
-			},
-			Data: map[string][]byte{
-				apikeySecretKey: []byte(openaiApiKey),
-			},
+		// initialize autogen http client
+		// assumes fresh cluster setup + port forwarding started
+		wsURL := "ws://localhost:8081/api/ws"
+		client := autogen_client.New("http://localhost:8081/api", wsURL)
+
+		teams, err := client.ListTeams(GlobalUserID)
+		Expect(err).NotTo(HaveOccurred())
+
+		// start a session with the istio agent
+		var istioTeam *autogen_client.Team
+		for _, team := range teams {
+			if team.Component.Label == "istio-agent" {
+				istioTeam = team
+				break
+			}
+		}
+		Expect(istioTeam).NotTo(BeNil())
+
+		sess, err := client.CreateSession(&autogen_client.CreateSession{
+			UserID: GlobalUserID,
+			TeamID: istioTeam.Id,
+			Name:   "e2e-test-istio-" + time.Now().String(),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		run, err := client.CreateRun(&autogen_client.CreateRunRequest{
+			SessionID: sess.ID,
+			UserID:    GlobalUserID,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		wsClient, err := exported.NewWebsocketClient(wsURL, run.ID, exported.DefaultConfig)
+		Expect(err).NotTo(HaveOccurred())
+
+		testShell := &TestShell{
+			Done: make(chan struct{}),
 		}
 
-		// Create ModelConfig
-		modelConfig := &v1alpha1.ModelConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "gpt-model-config",
-				Namespace: namespace,
-			},
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "ModelConfig",
-				APIVersion: "kagent.dev/v1alpha1",
-			},
-			Spec: v1alpha1.ModelConfigSpec{
-				Model:            "gpt-4o",
-				Provider:         v1alpha1.OpenAI,
-				APIKeySecretName: apiKeySecret.Name,
-				APIKeySecretKey:  apikeySecretKey,
-				ProviderOpenAI: &v1alpha1.OpenAIConfig{
-					Temperature: "0.7",
-					MaxTokens:   ptrToInt(2048),
-					TopP:        "0.95",
-				},
-			},
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		go func() {
+			defer GinkgoRecover()
+			err := wsClient.StartInteractive(
+				ctx,
+				testShell,
+				istioTeam,
+				`List all the pods in the cluster. When you are finished, end your reply with "Report created successfully"`,
+			)
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		// sleep 2s to allow the websocket client to connect
+		select {
+		case <-testShell.Done:
+		case <-ctx.Done():
+			Fail("Timed out waiting for the websocket client to finish")
 		}
 
-		// Agent with required ModelConfigRef
-		kubeExpert := &v1alpha1.Agent{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "kube-expert",
-				Namespace: namespace,
-			},
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Agent",
-				APIVersion: "kagent.dev/v1alpha1",
-			},
-			Spec: v1alpha1.AgentSpec{
-				Description:    "The Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.",
-				SystemMessage:  readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
-				ModelConfigRef: modelConfig.Name, // Added required ModelConfigRef
-				Tools: []*v1alpha1.Tool{
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.AnnotateResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.ApplyManifest"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.CheckServiceConnectivity"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.CreateResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.DeleteResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.DescribeResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.ExecuteCommand"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetAvailableAPIResources"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetClusterConfiguration"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetEvents"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetPodLogs"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetResources"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetResourceYAML"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.LabelResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.PatchResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.RemoveAnnotation"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.RemoveLabel"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.Rollout"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.Scale"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GenerateResourceTool"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GenerateResourceToolConfig"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ZTunnelConfig"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.WaypointStatus"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ListWaypoints"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.GenerateWaypoint"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.DeleteWaypoint"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ApplyWaypoint"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.RemoteClusters"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ProxyStatus"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.GenerateManifest"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.Install"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.AnalyzeClusterConfig"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ProxyConfig"}},
-					// tools with config
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.docs.QueryTool",
-						Config: map[string]v1alpha1.AnyType{
-							"docs_download_url": {
-								RawMessage: makeRawMsg("https://doc-sqlite-db.s3.sa-east-1.amazonaws.com"),
-							},
-						},
-					}},
-				},
-			},
+		for _, expectedSubstring := range []string{
+			"kagent-",
+			"coredns-",
+			"coredns-",
+			"etcd-kagent-control-plane",
+			"kindnet-",
+			"kube-apiserver-kagent-control-plane",
+			"kube-controller-manager-kagent-control-plane",
+			"kube-proxy-",
+			"kube-scheduler-kagent-control-plane",
+			"local-path-provisioner-",
+		} {
+			Expect(testShell.OutputText).To(ContainSubstring(expectedSubstring))
 		}
-
-		toolServer := &v1alpha1.ToolServer{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "asdf",
-				Namespace: namespace,
-			},
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "ToolServer",
-				APIVersion: "kagent.dev/v1alpha1",
-			},
-			Spec: v1alpha1.ToolServerSpec{
-				Description: "a t",
-				Config: v1alpha1.ToolServerConfig{
-					//Stdio: &v1alpha1.StdioMcpServerConfig{
-					//	Command: "npx",
-					//	Args: []string{
-					//		"-y",
-					//		"@modelcontextprotocol/server-everything",
-					//	},
-					//	Env:    nil,
-					//	Stderr: "",
-					//	Cwd:    "",
-					//},
-					Sse: &v1alpha1.SseMcpServerConfig{
-						URL: "https://www.mcp.run/api/mcp/sse?nonce=WrRYKc7jwXSnlwalvjHlzA&username=ilackarms&profile=ilackarms%2Fdefault&sig=GvCWTGTiNh0I_ZqOCx7CeID0KEIVZJnWGpP58eXNUuw",
-					},
-				},
-			},
-		}
-
-		// Write Secret
-		writeKubeObjects(
-			"manifests/api-key-secret.yaml",
-			apiKeySecret,
-		)
-
-		// Write ModelConfig
-		writeKubeObjects(
-			"manifests/gpt-model-config.yaml",
-			modelConfig,
-		)
-
-		// Write Agent
-		writeKubeObjects(
-			"manifests/kube-expert-agent.yaml",
-			kubeExpert,
-			toolServer,
-		)
 	})
 })
 
-func makeRawMsg(v interface{}) json.RawMessage {
-	data, err := json.Marshal(v)
-	Expect(err).NotTo(HaveOccurred())
-	return data
+// test shell simulates a user shell interface
+type TestShell struct {
+	InputText  []string
+	OutputText string
+	Done       chan struct{}
+	Finished   bool
 }
 
-func writeKubeObjects(file string, objects ...metav1.Object) {
-	var bytes []byte
-	for _, obj := range objects {
-		data, err := yaml.Marshal(obj)
-		Expect(err).NotTo(HaveOccurred())
-		bytes = append(bytes, data...)
-		bytes = append(bytes, []byte("---\n")...)
+func (t *TestShell) ReadLineErr() (string, error) {
+	// pop the first element from the input text
+	if len(t.InputText) == 0 {
+		return "", nil
 	}
-
-	err := os.WriteFile(file, bytes, 0644)
-	Expect(err).NotTo(HaveOccurred())
+	val := t.InputText[0]
+	t.InputText = t.InputText[1:]
+	return val, nil
 }
 
-func ptrToInt(v int) *int {
-	return &v
+func (t *TestShell) Println(val ...interface{}) {
+	t.OutputText += fmt.Sprintln(val...)
 }
 
-func readFileAsString(path string) string {
-	bytes, err := os.ReadFile(path)
-	Expect(err).NotTo(HaveOccurred())
-	return string(bytes)
+func (t *TestShell) Printf(format string, val ...interface{}) {
+	t.OutputText += fmt.Sprintf(format, val...)
+
+	fmt.Println(t.OutputText)
+	if strings.Contains(t.OutputText, "Report created successfully") && !t.Finished {
+		t.Finished = true
+		close(t.Done)
+	}
 }
