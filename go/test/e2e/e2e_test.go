@@ -13,6 +13,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	apikeySecretKey = "apikey"
+)
+
 var _ = Describe("E2e", func() {
 	It("configures the agent and model", func() {
 		// add a team
@@ -29,7 +33,7 @@ var _ = Describe("E2e", func() {
 				APIVersion: "v1",
 			},
 			Data: map[string][]byte{
-				apikeySecretKey: []byte(openaiApiKey),
+				apikeySecretKey: []byte("fake"),
 			},
 		}
 
@@ -48,7 +52,7 @@ var _ = Describe("E2e", func() {
 				Provider:         v1alpha1.OpenAI,
 				APIKeySecretName: apiKeySecret.Name,
 				APIKeySecretKey:  apikeySecretKey,
-				ProviderOpenAI: &v1alpha1.OpenAIConfig{
+				OpenAI: &v1alpha1.OpenAIConfig{
 					Temperature: "0.7",
 					MaxTokens:   ptrToInt(2048),
 					TopP:        "0.95",
@@ -71,41 +75,41 @@ var _ = Describe("E2e", func() {
 				SystemMessage:  readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
 				ModelConfigRef: modelConfig.Name, // Added required ModelConfigRef
 				Tools: []*v1alpha1.Tool{
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.AnnotateResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.ApplyManifest"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.CheckServiceConnectivity"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.CreateResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.DeleteResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.DescribeResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.ExecuteCommand"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetAvailableAPIResources"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetClusterConfiguration"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetEvents"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetPodLogs"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetResources"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GetResourceYAML"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.LabelResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.PatchResource"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.RemoveAnnotation"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.RemoveLabel"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.Rollout"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.Scale"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GenerateResourceTool"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.k8s.GenerateResourceToolConfig"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ZTunnelConfig"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.WaypointStatus"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ListWaypoints"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.GenerateWaypoint"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.DeleteWaypoint"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ApplyWaypoint"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.RemoteClusters"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ProxyStatus"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.GenerateManifest"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.Install"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.AnalyzeClusterConfig"}},
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.istio.ProxyConfig"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.AnnotateResource"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.ApplyManifest"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.CheckServiceConnectivity"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.CreateResource"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.DeleteResource"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.DescribeResource"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.ExecuteCommand"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.GetAvailableAPIResources"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.GetClusterConfiguration"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.GetEvents"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.GetPodLogs"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.GetResources"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.GetResourceYAML"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.LabelResource"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.PatchResource"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.RemoveAnnotation"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.RemoveLabel"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.Rollout"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.Scale"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.GenerateResourceTool"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.k8s.GenerateResourceToolConfig"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.ZTunnelConfig"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.WaypointStatus"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.ListWaypoints"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.GenerateWaypoint"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.DeleteWaypoint"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.ApplyWaypoint"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.RemoteClusters"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.ProxyStatus"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.GenerateManifest"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.Install"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.AnalyzeClusterConfig"}},
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.istio.ProxyConfig"}},
 					// tools with config
-					{BuiltinTool: v1alpha1.BuiltinTool{Provider: "kagent.tools.docs.QueryTool",
+					{Inline: &v1alpha1.InlineTool{Provider: "kagent.tools.docs.QueryTool",
 						Config: map[string]v1alpha1.AnyType{
 							"docs_download_url": {
 								RawMessage: makeRawMsg("https://doc-sqlite-db.s3.sa-east-1.amazonaws.com"),

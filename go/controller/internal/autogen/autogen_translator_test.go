@@ -83,7 +83,7 @@ var _ = Describe("AutogenClient", func() {
 				Provider:         v1alpha1.OpenAI,
 				APIKeySecretName: apikeySecret.Name,
 				APIKeySecretKey:  apikeySecretKey,
-				ProviderOpenAI: &v1alpha1.OpenAIConfig{
+				OpenAI: &v1alpha1.OpenAIConfig{
 					Temperature: "0.7",
 					MaxTokens:   func(i int) *int { return &i }(1024),
 					TopP:        "0.95",

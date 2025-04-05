@@ -37,13 +37,29 @@ type AgentSpec struct {
 	Tools []*Tool `json:"tools,omitempty"`
 }
 
+// ToolProviderType represents the tool provider type
+// +kubebuilder:validation:Enum=Inline;McpServer
+type ToolProviderType string
+
+const (
+	Inline    ToolProviderType = "Inline"
+	McpServer ToolProviderType = "McpServer"
+)
+
+// +kubebuilder:validation:XValidation:message="type.inline must be nil if the type is not Inline",rule="!(has(self.inline) && self.type != 'Inline')"
+// +kubebuilder:validation:XValidation:message="type.inline must be specified for Inline filter.type",rule="!(!has(self.inline) && self.type == 'Inline')"
+// +kubebuilder:validation:XValidation:message="type.mcpServer must be nil if the type is not McpServer",rule="!(has(self.mcpServer) && self.type != 'McpServer')"
+// +kubebuilder:validation:XValidation:message="type.mcpServer must be specified for McpServer filter.type",rule="!(!has(self.mcpServer) && self.type == 'McpServer')"
 type Tool struct {
-	// ONEOF: BuiltinTool, McpServerTool
-	BuiltinTool   `json:",inline"`
-	McpServerTool `json:",inline"`
+	// +kubebuilder:validation:Enum=Inline;McpServer
+	ToolProvider ToolProviderType `json:"type,omitempty"`
+	// +optional
+	Inline *InlineTool `json:"inline,omitempty"`
+	// +optional
+	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 }
 
-type BuiltinTool struct {
+type InlineTool struct {
 	Provider string `json:"provider,omitempty"`
 	// Description is a brief description of the tool.
 	Description string `json:"description,omitempty"`

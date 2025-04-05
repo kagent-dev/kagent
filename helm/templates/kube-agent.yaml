@@ -119,26 +119,63 @@ spec:
     Always start with the least intrusive approach, and escalate diagnostics only as needed. When in doubt, gather more information before recommending changes.
   modelConfigRef: default-model-config
   tools:
-    - provider: kagent.tools.k8s.CheckServiceConnectivity
-    - provider: kagent.tools.k8s.PatchResource
-    - provider: kagent.tools.k8s.RemoveAnnotation
-    - provider: kagent.tools.k8s.AnnotateResource
-    - provider: kagent.tools.k8s.RemoveLabel
-    - provider: kagent.tools.k8s.LabelResource
-    - provider: kagent.tools.k8s.CreateResource
-    - provider: kagent.tools.k8s.CreateResourceFromUrl
-    - provider: kagent.tools.k8s.GetEvents
-    - provider: kagent.tools.k8s.GetAvailableAPIResources
-    - provider: kagent.tools.k8s.GetClusterConfiguration
-    - provider: kagent.tools.k8s.DescribeResource
-    - provider: kagent.tools.k8s.DeleteResource
-    - provider: kagent.tools.k8s.GetResourceYAML
-    - provider: kagent.tools.k8s.ExecuteCommand
-    - provider: kagent.tools.k8s.ApplyManifest
-    - provider: kagent.tools.k8s.GetResources
-    - provider: kagent.tools.k8s.GetPodLogs
-    - provider: kagent.tools.k8s.GenerateResourceTool
-    - provider: kagent.tools.docs.QueryTool
-      config:
-        docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.CheckServiceConnectivity
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.PatchResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.RemoveAnnotation
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.AnnotateResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.RemoveLabel
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.LabelResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.CreateResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.CreateResourceFromUrl
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetEvents
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetAvailableAPIResources
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetClusterConfiguration
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.DescribeResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.DeleteResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetResourceYAML
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.ExecuteCommand
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.ApplyManifest
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetResources
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetPodLogs
+    - type: Inline
+      inline:
+        provider: kagent.tools.docs.QueryTool
+        config:
+          docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
 {{- end }}
