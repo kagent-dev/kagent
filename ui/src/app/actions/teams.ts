@@ -1,10 +1,11 @@
 "use server";
 
 import { BaseResponse } from "@/lib/types";
-import { Agent, AgentResponse } from "@/types/datamodel";
+import { Agent, AgentResponse, AgentTool } from "@/types/datamodel";
 import { revalidatePath } from "next/cache";
 import { fetchApi } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
+import { isInlineTool, isMcpTool } from "@/lib/data";
 
 export async function getTeam(teamLabel: string | number): Promise<BaseResponse<AgentResponse>> {
   try {
@@ -57,11 +58,32 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
       modelConfigRef: agentFormData.model.name,
-      tools: agentFormData.tools.map((tool) => ({
-        provider: tool.provider,
-        description: tool.description ?? "No description provided",
-        config: tool.config ? processConfigObject(tool.config) : {},
-      })),
+      tools: agentFormData.tools.map((tool) => {
+        // Convert to the proper Tool structure based on the tool type
+        if (isInlineTool(tool) && tool.inline) {
+          return {
+            type: "Inline",
+            inline: {
+              provider: tool.inline.provider,
+              config: tool.inline.config ? processConfigObject(tool.inline.config) : {},
+            },
+          } as AgentTool;
+        }
+        
+        if (isMcpTool(tool) && tool.mcpServer) {
+          return {
+            type: "McpServer",
+            mcpServer: {
+              toolServer: tool.mcpServer.toolServer,
+              toolNames: tool.mcpServer.toolNames,
+            },
+          } as AgentTool;
+        }
+        
+        // Default case - shouldn't happen with proper type checking
+        console.warn("Unknown tool type:", tool);
+        return tool;
+      }),
     },
   };
 }

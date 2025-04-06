@@ -2,21 +2,46 @@
  * This utility file provides functions to convert between different tool types
  */
 
-import { AgentConfig, AgentResponse, AgentTool, AssistantAgentConfig, Component, RoundRobinGroupChatConfig, SelectorGroupChatConfig, TeamConfig, ToolConfig } from "@/types/datamodel";
-import { getToolIdentifier } from "./data";
+import { AgentConfig, AgentResponse, AgentTool, AssistantAgentConfig, Component, MCPToolConfig, RoundRobinGroupChatConfig, SelectorGroupChatConfig, TeamConfig, ToolConfig } from "@/types/datamodel";
+import { getToolIdentifier, getToolProvider } from "./data";
+
+export function isMCPToolConfig(config: ToolConfig): config is MCPToolConfig {
+  return (
+    config &&
+    typeof config === "object" &&
+    "server_params" in config &&
+    "tool" in config &&
+    typeof config.tool === "object" &&
+    "name" in config.tool
+  );
+}
 
 /**
  * Converts a Component<ToolConfig> to an AgentTool
- * @param tool The Component<ToolConfig> to convert
- * @returns An AgentTool based on the provided Component
  */
-export function componentToAgentTool(tool: Component<ToolConfig>): AgentTool {
-  return {
-    provider: tool.provider,
-    description: tool.description || "",
-    // Deep copy the entire config object to preserve all nested structures
-    config: tool.config ? JSON.parse(JSON.stringify(tool.config)) : {},
-  };
+export function componentToAgentTool(component: Component<ToolConfig>): AgentTool {
+  // Check if it's an MCP tool first
+  if (isMCPToolConfig(component.config)) {
+    const mcpConfig = component.config;
+    
+    return {
+      type: "McpServer",
+      mcpServer: {
+        toolServer: component.provider,
+        toolNames: [mcpConfig.tool.name]
+      }
+    };
+  } else {
+    const r ={ 
+      type: "Inline",
+      inline: {
+        provider: component.provider,
+        description: component.description || "",
+        config: component.config
+      }
+    } as AgentTool;
+    return r;
+  }
 }
 
 /**
@@ -120,11 +145,13 @@ export function extractSocietyOfMindAgentTools(
       if (isAssistantAgentConfig(agent.config) && agent.config.tools) {
         // Convert Component<ToolConfig> to AgentTool
         const agentTools = agent.config.tools.map(tool => {
+          const toolType = getToolProvider(tool)
           return {
+            type: toolType === "autogen_ext.tools.mcp.SseMcpToolAdapter" ? "McpServer" : "Inline",
             provider: tool.provider,
-            description: tool.description || '',
-            config: tool.config || {}
-          } as AgentTool;
+            description: tool.description || "",
+            config: tool.config ? JSON.parse(JSON.stringify(tool.config)) : {},
+          } as AgentTool
         });
         
         allTools.push(...agentTools);

@@ -133,8 +133,8 @@ function AgentPageContent() {
 
       const agentData = {
         name,
-        description,
         systemPrompt,
+        description,
         model: selectedModel,
         tools: selectedTools,
       };

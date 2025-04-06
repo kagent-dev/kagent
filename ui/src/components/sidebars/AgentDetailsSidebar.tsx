@@ -9,7 +9,7 @@ import { AgentActions } from "./AgentActions";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
+import { getToolDescription, getToolIdentifier, getToolProvider } from "@/lib/data";
 import { extractSocietyOfMindAgentTools } from "@/lib/toolUtils";
 
 interface AgentDetailsSidebarProps {
@@ -55,15 +55,19 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
       <SidebarMenu>
         {tools.map((tool) => {
           const toolIdentifier = getToolIdentifier(tool);
-          const displayName = getToolDisplayName(tool);
+          const toolProvider = getToolProvider(tool);
           const displayDescription = getToolDescription(tool);
+
+          // Split the provider at . and get the last part
+          const providerParts = toolProvider.split(".");
+          const providerName = providerParts[providerParts.length - 1];
 
           return (
             <Collapsible key={toolIdentifier} asChild className="group/collapsible">
               <SidebarMenuItem>
                 <CollapsibleTrigger asChild>
-                  <SidebarMenuButton tooltip={displayName}>
-                    <span>{displayName}</span>
+                  <SidebarMenuButton tooltip={providerName}>
+                    <span>{providerName}</span>
                     {displayDescription && <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />}
                   </SidebarMenuButton>
                 </CollapsibleTrigger>

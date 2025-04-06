@@ -365,13 +365,25 @@ export interface ResourceMetadata {
   namespace?: string;
 }
 
+export type ToolProviderType = "Inline" | "McpServer"
+
 export interface AgentTool {
-  provider: string;
-  description: string;
-  config: {
-    [key: string]: string | { [key: string]: any };
-  };
+  type: ToolProviderType;
+  inline?: InlineTool;
+  mcpServer?: McpServerTool;
 }
+
+export interface InlineTool {
+  provider: string;
+  description?: string;
+  config?: Record<string, any>;
+}
+
+export interface McpServerTool {
+  toolServer: string;
+  toolNames: string[];
+}
+
 export interface AgentResourceSpec {
   description: string;
   systemMessage: string;
