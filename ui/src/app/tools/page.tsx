@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
-import { ToolServer, Tool } from "@/types/datamodel";
+import { DBToolServer, Tool } from "@/types/datamodel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getTools } from "../actions/tools";
@@ -37,7 +37,7 @@ const getToolCategory = (tool: Tool): string => {
 export default function ToolsPage() {
   // State for tools
   const [tools, setTools] = useState<Tool[]>([]);
-  const [servers, setServers] = useState<ToolServer[]>([]);
+  const [servers, setServers] = useState<DBToolServer[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

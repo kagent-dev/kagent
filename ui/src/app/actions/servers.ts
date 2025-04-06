@@ -1,14 +1,14 @@
 'use server'
-import { Component, Tool, ToolServer, ToolServerConfig } from "@/types/datamodel";
-import { fetchApi, getCurrentUserId } from "./utils";
+import { Tool, DBToolServer, ToolServer } from "@/types/datamodel";
+import { fetchApi } from "./utils";
 import { BaseResponse } from "@/lib/types";
 
 /**
  * Fetches all tool servers
  * @returns Promise with server data
  */
-export async function getServers(): Promise<BaseResponse<ToolServer[]>> {
-  const response = await fetchApi<ToolServer[]>("/toolservers");
+export async function getServers(): Promise<BaseResponse<DBToolServer[]>> {
+  const response = await fetchApi<DBToolServer[]>("/toolservers");
 
   if (!response) {
     return {
@@ -63,21 +63,13 @@ export async function deleteServer(serverId: number) {
  * @param serverData Server data to create
  * @returns Promise with create result
  */
-export async function createServer(serverData: Component<ToolServerConfig>): Promise<BaseResponse<ToolServer>> {
-  const userId = await getCurrentUserId();
-  const data = {
-    user_id: userId,
-    component: {
-      ...serverData,
-    },
-  };
-
+export async function createServer(serverData: ToolServer): Promise<BaseResponse<ToolServer>> {
   const response = await fetchApi<ToolServer>("/toolservers", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify(serverData),
   });
 
   if (!response) {

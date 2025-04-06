@@ -5,7 +5,7 @@ import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus,
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
-import { ToolServer, Tool, ToolServerConfig, Component } from "@/types/datamodel";
+import { DBToolServer, Tool, ToolServer } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers, refreshServerTools, getServerTools } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
@@ -34,7 +34,7 @@ const formatDate = (dateString: string | null): string => {
 
 export default function ServersPage() {
   // State for servers and tools
-  const [servers, setServers] = useState<ToolServer[]>([]);
+  const [servers, setServers] = useState<DBToolServer[]>([]);
   const [serverTools, setServerTools] = useState<Record<number, Tool[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState<number | null>(null);
@@ -189,7 +189,7 @@ export default function ServersPage() {
   };
 
   // Handle adding a new server
-  const handleAddServer = async (server: Component<ToolServerConfig>) => {
+  const handleAddServer = async (server: ToolServer) => {
     try {
       setIsLoading(true);
 

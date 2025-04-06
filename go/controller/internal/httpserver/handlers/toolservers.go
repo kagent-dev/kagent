@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -44,27 +44,22 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "create")
 
-	var toolServerRequest *autogen_client.ToolServer
+	var toolServerRequest *v1alpha1.ToolServer
 	if err := DecodeJSONBody(r, &toolServerRequest); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
-	if toolServerRequest.UserID == "" {
-		w.RespondWithError(errors.NewBadRequestError("user_id is required", nil))
-		return
-	}
-	log = log.WithValues("userID", toolServerRequest.UserID)
+	log = log.WithValues("toolServerName", toolServerRequest.Name)
+	toolServerRequest.Namespace = DefaultResourceNamespace
 
-	log.V(1).Info("Creating tool server in Autogen")
-	toolServer, err := h.AutogenClient.CreateToolServer(toolServerRequest, toolServerRequest.UserID)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to create tool server", err))
+	if err := h.KubeClient.Create(r.Context(), toolServerRequest); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to create tool server in Kubernetes", err))
 		return
 	}
 
-	log.Info("Successfully created tool server", "toolServerID", toolServer.Id)
-	RespondWithJSON(w, http.StatusCreated, toolServer)
+	log.Info("Successfully created tool server")
+	RespondWithJSON(w, http.StatusCreated, toolServerRequest)
 }
 
 // HandleGetToolServer handles GET /api/toolservers/{toolServerID} requests
