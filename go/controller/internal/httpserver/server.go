@@ -142,9 +142,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathTeams+"/{teamLabel}", adaptHandler(s.handlers.Teams.HandleDeleteTeam)).Methods(http.MethodDelete)
 
 	// Use middleware for common functionality
-	s.router.Use(errorHandlerMiddleware)
-	s.router.Use(loggingMiddleware)
 	s.router.Use(contentTypeMiddleware)
+	s.router.Use(loggingMiddleware)
+	s.router.Use(errorHandlerMiddleware)
 }
 
 func adaptHandler(h func(handlers.ErrorResponseWriter, *http.Request)) http.HandlerFunc {
