@@ -261,7 +261,7 @@ export interface DBModel {
   version?: number;
 }
 
-export interface Tool extends DBModel {
+export interface DBTool extends DBModel {
   component: Component<ToolConfig>;
   server_id?: number;
 }
@@ -395,4 +395,15 @@ export interface ToolServerSpec {
 export interface ToolServerConfiguration {
   stdio?: StdioMcpServerConfig;
   sse?: SseMcpServerConfig;
+}
+
+export interface Tool {
+  name: string;
+  component: Component<ToolConfig>;
+}
+
+export interface ToolServerWithTools {
+  name: string;
+  config: ToolServerConfiguration;
+  discoveredTools: Tool[];
 }

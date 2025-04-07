@@ -1,14 +1,15 @@
 'use server'
-import { Tool, DBToolServer, ToolServer } from "@/types/datamodel";
+import { ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { fetchApi } from "./utils";
 import { BaseResponse } from "@/lib/types";
+import { revalidatePath } from "next/cache";
 
 /**
  * Fetches all tool servers
  * @returns Promise with server data
  */
-export async function getServers(): Promise<BaseResponse<DBToolServer[]>> {
-  const response = await fetchApi<DBToolServer[]>("/toolservers");
+export async function getServers(): Promise<BaseResponse<ToolServerWithTools[]>> {
+  const response = await fetchApi<ToolServerWithTools[]>("/toolservers");
 
   if (!response) {
     return {
@@ -25,32 +26,20 @@ export async function getServers(): Promise<BaseResponse<DBToolServer[]>> {
 }
 
 /**
- * Refreshes tools for a specific server
- * @param serverId ID of the server to refresh
- * @returns Promise with refresh result
- */
-export async function refreshServerTools(serverId: number) {
-  const response = await fetchApi(`/toolservers/${serverId}/refresh`, {
-    method: "POST",
-  });
-
-  return response;
-}
-
-/**
  * Deletes a server
- * @param serverId ID of the server to delete
+ * @param serverName NAme of the server to delete
  * @returns Promise with delete result
  */
-export async function deleteServer(serverId: number) {
+export async function deleteServer(serverName: string) {
   try {
-    await fetchApi(`/toolservers/${serverId}`, {
+    await fetchApi(`/toolservers/${serverName}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
       },
     });
 
+     revalidatePath("/servers");
     return { success: true };
   } catch (error) {
     console.error("Error deleting tool server:", error);
@@ -76,24 +65,6 @@ export async function createServer(serverData: ToolServer): Promise<BaseResponse
     return {
       success: false,
       error: "Failed to create server. Please try again.",
-    };
-  }
-
-  return {
-    success: true,
-    data: response,
-  };
-}
-
-
-export async function getServerTools(serverId: number): Promise<BaseResponse<Tool[]>> {
-  const response = await fetchApi<Tool[]>(`/toolservers/${serverId}/tools`);
-
-  if (!response) {
-    return {
-      success: false,
-      error: "Failed to get server tools. Please try again.",
-      data: [],
     };
   }
 
