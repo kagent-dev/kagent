@@ -90,6 +90,7 @@ rules:
   - agents
   - modelconfigs
   - teams
+  - toolservers
   verbs:
   - create
   - update
