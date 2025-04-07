@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
-import { ToolServer, Tool } from "@/types/datamodel";
+import { DBTool, Component, ToolConfig, ToolServerConfiguration } from "@/types/datamodel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getTools } from "../actions/tools";
@@ -15,8 +15,7 @@ import { getServers } from "../actions/servers";
 import Link from "next/link";
 
 // Extract category from tool identifier
-const getToolCategory = (tool: Tool): string => {
-  const component = tool.component;
+const getToolCategory = (component: Component<ToolConfig>): string => {
   const providerId = getToolIdentifier(component);
   const parts = providerId.split(".");
 
@@ -35,14 +34,24 @@ const getToolCategory = (tool: Tool): string => {
 };
 
 export default function ToolsPage() {
-  // State for tools
-  const [tools, setTools] = useState<Tool[]>([]);
-  const [servers, setServers] = useState<ToolServer[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [categories, setCategories] = useState<Set<string>>(new Set());
+  // Consolidated state
+  const [toolsData, setToolsData] = useState<{
+    tools: DBTool[];
+    serversMap: Map<string, { name: string; label: string; config: ToolServerConfiguration }>;
+    categories: Set<string>;
+    isLoading: boolean;
+    error: string | null;
+  }>({
+    tools: [],                 // Normalized tools from both sources
+    serversMap: new Map(),     // Map of server_id to server name/label
+    categories: new Set(),     // Unique categories
+    isLoading: true,
+    error: null
+  });
+  
+  // UI state
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [showFilters, setShowFilters] = useState<boolean>(false);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
 
   // Fetch data on component mount
@@ -50,43 +59,94 @@ export default function ToolsPage() {
     fetchData();
   }, []);
 
-  // Fetch tools data
+  // Fetch and consolidate tools data
   const fetchData = async () => {
     try {
-      setIsLoading(true);
-      setError(null);
+      setToolsData(prev => ({ ...prev, isLoading: true, error: null }));
 
-      // Get servers for association with tools
-      const serversResponse = await getServers();
+      // Fetch both data sources in parallel
+      const [serversResponse, toolsResponse] = await Promise.all([
+        getServers(),
+        getTools()
+      ]);
+
+      // Process servers
+      const serversMap = new Map<string, { name: string; label: string; config: ToolServerConfiguration }>();
+      const toolsFromServers: DBTool[] = [];
+      
       if (serversResponse.success && serversResponse.data) {
-        setServers(serversResponse.data);
-      }
-
-      // Fetch tools
-      const toolsResponse = await getTools();
-      if (toolsResponse.success && toolsResponse.data) {
-        setTools(toolsResponse.data);
-
-        // Extract unique categories
-        const uniqueCategories = new Set<string>();
-        toolsResponse.data.forEach((tool) => {
-          uniqueCategories.add(getToolCategory(tool));
+        serversResponse.data.forEach(server => {
+          serversMap.set(server.name, {
+            name: server.name,
+            label: server.name,
+            config: server.config
+          });
+          
+          // Process discovered tools from this server
+          if (server.discoveredTools && Array.isArray(server.discoveredTools)) {
+            server.discoveredTools.forEach(tool => {
+              toolsFromServers.push({
+                component: tool.component,
+              });
+            });
+          }
         });
-        setCategories(uniqueCategories);
-      } else {
-        setError(toolsResponse.error || "Failed to fetch tools data.");
       }
+
+      // Process DB tools
+      let allTools: DBTool[] = [];
+      if (toolsResponse.success && toolsResponse.data) {
+        allTools = [...toolsResponse.data];
+      }
+      
+      // Combine tools from both sources (prioritizing DB tools if there are duplicates)
+      // This assumes getToolIdentifier returns a unique identifier for each tool
+      const toolMap = new Map<string, DBTool>();
+      
+      // First add all DB tools
+      allTools.forEach(tool => {
+        const toolId = getToolIdentifier(tool.component);
+        toolMap.set(toolId, tool);
+      });
+      
+      // Then add server tools only if they don't already exist
+      toolsFromServers.forEach(tool => {
+        const toolId = getToolIdentifier(tool.component);
+        if (!toolMap.has(toolId)) {
+          toolMap.set(toolId, tool);
+        }
+      });
+      
+      // Convert map back to array
+      const consolidatedTools = Array.from(toolMap.values());
+      
+      // Extract unique categories
+      const uniqueCategories = new Set<string>();
+      consolidatedTools.forEach(tool => {
+        uniqueCategories.add(getToolCategory(tool.component));
+      });
+
+      // Update state with consolidated data
+      setToolsData({
+        tools: consolidatedTools,
+        serversMap,
+        categories: uniqueCategories,
+        isLoading: false,
+        error: null
+      });
     } catch (error) {
       console.error("Error fetching data:", error);
-      setError("An error occurred while fetching data.");
-    } finally {
-      setIsLoading(false);
+      setToolsData(prev => ({
+        ...prev,
+        isLoading: false,
+        error: "An error occurred while fetching data."
+      }));
     }
   };
 
   // Category filter handlers
   const handleToggleCategory = (category: string) => {
-    setSelectedCategories((prev) => {
+    setSelectedCategories(prev => {
       const newSelection = new Set(prev);
       if (newSelection.has(category)) {
         newSelection.delete(category);
@@ -97,11 +157,11 @@ export default function ToolsPage() {
     });
   };
 
-  const selectAllCategories = () => setSelectedCategories(new Set(categories));
+  const selectAllCategories = () => setSelectedCategories(new Set(toolsData.categories));
   const clearCategories = () => setSelectedCategories(new Set());
 
   // Filter tools based on search and categories
-  const filteredTools = tools.filter((tool) => {
+  const filteredTools = toolsData.tools.filter(tool => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
       getToolDisplayName(tool.component)?.toLowerCase().includes(searchLower) ||
@@ -109,16 +169,16 @@ export default function ToolsPage() {
       tool.component.provider?.toLowerCase().includes(searchLower) ||
       getToolIdentifier(tool.component)?.toLowerCase().includes(searchLower);
 
-    const toolCategory = getToolCategory(tool);
+    const toolCategory = getToolCategory(tool.component);
     const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
 
     return matchesSearch && matchesCategory;
   });
 
   // Group tools by category
-  const toolsByCategory: Record<string, Tool[]> = {};
-  filteredTools.forEach((tool) => {
-    const category = getToolCategory(tool);
+  const toolsByCategory: Record<string, DBTool[]> = {};
+  filteredTools.forEach(tool => {
+    const category = getToolCategory(tool.component);
     if (!toolsByCategory[category]) {
       toolsByCategory[category] = [];
     }
@@ -135,11 +195,11 @@ export default function ToolsPage() {
       </div>
 
       {/* Alerts */}
-      {error && (
+      {toolsData.error && (
         <Alert variant="destructive" className="mb-6">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{toolsData.error}</AlertDescription>
         </Alert>
       )}
 
@@ -147,9 +207,19 @@ export default function ToolsPage() {
       <div className="flex gap-2 mb-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search tools by name, description or provider..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
+          <Input 
+            placeholder="Search tools by name, description or provider..." 
+            value={searchTerm} 
+            onChange={(e) => setSearchTerm(e.target.value)} 
+            className="pl-10" 
+          />
         </div>
-        <Button variant="outline" size="icon" onClick={() => setShowFilters(!showFilters)} className={showFilters ? "bg-secondary" : ""}>
+        <Button 
+          variant="outline" 
+          size="icon" 
+          onClick={() => setShowFilters(!showFilters)} 
+          className={showFilters ? "bg-secondary" : ""}
+        >
           <Filter className="h-4 w-4" />
         </Button>
       </div>
@@ -159,10 +229,15 @@ export default function ToolsPage() {
         <div className="mb-6 p-4 border rounded-md bg-secondary/10">
           <h3 className="text-sm font-medium mb-3">Filter by Category</h3>
           <div className="flex flex-wrap gap-2 mb-3">
-            {Array.from(categories)
+            {Array.from(toolsData.categories)
               .sort()
-              .map((category) => (
-                <Badge key={category} variant={selectedCategories.has(category) ? "default" : "outline"} className="cursor-pointer capitalize" onClick={() => handleToggleCategory(category)}>
+              .map(category => (
+                <Badge 
+                  key={category} 
+                  variant={selectedCategories.has(category) ? "default" : "outline"} 
+                  className="cursor-pointer capitalize" 
+                  onClick={() => handleToggleCategory(category)}
+                >
                   {category}
                 </Badge>
               ))}
@@ -185,7 +260,7 @@ export default function ToolsPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {toolsData.isLoading ? (
         <div className="flex flex-col items-center justify-center h-[200px] border rounded-lg bg-secondary/5">
           <div className="animate-pulse h-6 w-6 rounded-full bg-primary/10 mb-4"></div>
           <p className="text-muted-foreground">Loading tools...</p>
@@ -211,17 +286,22 @@ export default function ToolsPage() {
                         const bName = getToolDisplayName(b.component) || "";
                         return aName.localeCompare(bName);
                       })
-                      .map((tool) => (
-                        <div key={getToolIdentifier(tool.component)} className="p-4 border rounded-md hover:bg-secondary/5 transition-colors">
+                      .map(tool => (
+                        <div 
+                          key={getToolIdentifier(tool.component)} 
+                          className="p-4 border rounded-md hover:bg-secondary/5 transition-colors"
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-start gap-2">
                               <FunctionSquare className="h-5 w-5 text-blue-500 mt-0.5" />
                               <div>
                                 <div className="font-medium">{getToolDisplayName(tool.component)}</div>
-                                <div className="text-sm text-muted-foreground mt-1">{getToolDescription(tool.component)}</div>
+                                <div className="text-sm text-muted-foreground mt-1">
+                                  {getToolDescription(tool.component)}
+                                </div>
                                 <div className="text-xs text-muted-foreground mt-2 flex items-center">
                                   <Server className="h-3 w-3 mr-1" />
-                                  {servers.find((s) => s.id === tool.server_id)?.component.label || "Built-in tool"}
+                                  {tool.component.provider}
                                 </div>
                               </div>
                             </div>
@@ -250,7 +330,11 @@ export default function ToolsPage() {
         <div className="flex flex-col items-center justify-center h-[300px] text-center p-4 border rounded-lg bg-secondary/5">
           <FunctionSquare className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
           <h3 className="font-medium text-lg">No tools found</h3>
-          <p className="text-muted-foreground mt-1 mb-4">{searchTerm || selectedCategories.size > 0 ? "Try adjusting your search or filters to find tools." : "Connect a server to discover tools."}</p>
+          <p className="text-muted-foreground mt-1 mb-4">
+            {searchTerm || selectedCategories.size > 0 
+              ? "Try adjusting your search or filters to find tools." 
+              : "Connect a server to discover tools."}
+          </p>
           {searchTerm || selectedCategories.size > 0 ? (
             <div className="flex gap-3">
               <Button

@@ -83,10 +83,9 @@ export interface MCPTool {
 }
 
 export interface MCPToolConfig {
-  server_params: StdioMcpServerConfig | SseMcpServerConfig
+  server_params: StdioMcpServerConfig | SseMcpServerConfig;
   tool: MCPTool;
 }
-
 
 export interface StdioMcpServerConfig {
   /**
@@ -101,21 +100,13 @@ export interface StdioMcpServerConfig {
    * The environment to use when spawning the process.
    */
   env?: Record<string, string>;
-  /**
-   * How to handle stderr of the child process.
-   */
-  stderr?: string | number;
-  /**
-   * The working directory to use when spawning the process.
-   */
-  cwd?: string;
 }
 
 export interface SseMcpServerConfig {
   url: string;
   headers?: Record<string, any>;
-  timeout?: number;
-  sse_read_timeout?: number;
+  timeout?: string;
+  sseReadTimeout?: string;
 }
 
 export interface BuiltInToolConfig {
@@ -245,7 +236,7 @@ export interface TextMessageTerminationConfig {
 }
 
 // Config type unions based on provider
-export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | TaskAgentConfig
+export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | TaskAgentConfig;
 
 export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | UserProxyAgentConfig | TaskAgentConfig;
 
@@ -270,12 +261,12 @@ export interface DBModel {
   version?: number;
 }
 
-export interface Tool extends DBModel {
+export interface DBTool extends DBModel {
   component: Component<ToolConfig>;
-  server_id?: number; 
+  server_id?: number;
 }
 
-export interface ToolServer extends DBModel {
+export interface DBToolServer extends DBModel {
   last_connected: string | null;
   is_active: boolean;
   component: Component<ToolServerConfig>;
@@ -291,7 +282,7 @@ export interface Message extends DBModel {
 export interface InitialMessage {
   type: "start";
   task: string;
-  team_config?: Component<TeamConfig>
+  team_config?: Component<TeamConfig>;
 }
 
 export interface MessageMeta {
@@ -359,7 +350,6 @@ export interface SessionWithRuns {
   runs: Run[];
 }
 
-
 export interface ResourceMetadata {
   name: string;
   namespace?: string;
@@ -392,8 +382,8 @@ export interface AgentResourceSpec {
   modelConfigRef: string;
 }
 export interface Agent {
-    metadata: ResourceMetadata;
-    spec: AgentResourceSpec;
+  metadata: ResourceMetadata;
+  spec: AgentResourceSpec;
 }
 
 export interface AgentResponse {
@@ -402,4 +392,30 @@ export interface AgentResponse {
   component: Component<TeamConfig>;
   model: string;
   provider: string;
+}
+
+export interface ToolServer {
+  metadata: ResourceMetadata;
+  spec: ToolServerSpec;
+}
+
+export interface ToolServerSpec {
+  description: string;
+  config: ToolServerConfiguration;
+}
+
+export interface ToolServerConfiguration {
+  stdio?: StdioMcpServerConfig;
+  sse?: SseMcpServerConfig;
+}
+
+export interface Tool {
+  name: string;
+  component: Component<ToolConfig>;
+}
+
+export interface ToolServerWithTools {
+  name: string;
+  config: ToolServerConfiguration;
+  discoveredTools: Tool[];
 }

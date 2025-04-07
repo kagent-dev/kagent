@@ -129,10 +129,7 @@ func (s *HTTPServer) setupRoutes() {
 	// Tool Servers
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}", adaptHandler(s.handlers.ToolServers.HandleGetToolServer)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}/refresh", adaptHandler(s.handlers.ToolServers.HandleRefreshToolServer)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}/tools", adaptHandler(s.handlers.ToolServers.HandleGetServerTools)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerID}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathToolServers+"/{toolServerName}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
 
 	// Teams
 	s.router.HandleFunc(APIPathTeams, adaptHandler(s.handlers.Teams.HandleListTeams)).Methods(http.MethodGet)
@@ -142,9 +139,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathTeams+"/{teamLabel}", adaptHandler(s.handlers.Teams.HandleDeleteTeam)).Methods(http.MethodDelete)
 
 	// Use middleware for common functionality
-	s.router.Use(errorHandlerMiddleware)
-	s.router.Use(loggingMiddleware)
 	s.router.Use(contentTypeMiddleware)
+	s.router.Use(loggingMiddleware)
+	s.router.Use(errorHandlerMiddleware)
 }
 
 func adaptHandler(h func(handlers.ErrorResponseWriter, *http.Request)) http.HandlerFunc {

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/handlers"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -44,6 +45,16 @@ func newStatusResponseWriter(w http.ResponseWriter) *statusResponseWriter {
 func (w *statusResponseWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// Forward RespondWithError to underlying writer if it implements ErrorResponseWriter
+func (w *statusResponseWriter) RespondWithError(err error) {
+	if errWriter, ok := w.ResponseWriter.(handlers.ErrorResponseWriter); ok {
+		errWriter.RespondWithError(err)
+		w.status = 500
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func contentTypeMiddleware(next http.Handler) http.Handler {
