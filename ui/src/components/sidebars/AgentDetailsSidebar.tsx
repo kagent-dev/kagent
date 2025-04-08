@@ -67,7 +67,7 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
               <SidebarMenuItem>
                 <CollapsibleTrigger asChild>
                   <SidebarMenuButton tooltip={providerName}>
-                    <span>{providerName}</span>
+                    <span>{toolIdentifier}</span>
                     {displayDescription && <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />}
                   </SidebarMenuButton>
                 </CollapsibleTrigger>

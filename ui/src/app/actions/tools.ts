@@ -2,11 +2,11 @@
 
 import { BaseResponse } from "@/lib/types";
 import { fetchApi } from "./utils";
-import { DBTool } from "@/types/datamodel";
+import { Component, ToolConfig } from "@/types/datamodel";
 
-export async function getTools(): Promise<BaseResponse<DBTool[]>> {
+export async function getTools(): Promise<BaseResponse<Component<ToolConfig>[]>> {
   try {
-    const response = await fetchApi<DBTool[]>("/tools");
+    const response = await fetchApi<Component<ToolConfig>[]>("/tools");
     if (!response) {
       throw new Error("Failed to get built-in tools");
     }

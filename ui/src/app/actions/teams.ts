@@ -93,8 +93,6 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
 
   try {
     agentSpec = fromAgentFormDataToAgent(agentConfig);
-
-    console.log("Converted agent data:", agentSpec);
   } catch (ex) {
     console.error("Error converting agent data:", ex);
     return { success: false, error: "Failed to convert agent data. Please try again." };

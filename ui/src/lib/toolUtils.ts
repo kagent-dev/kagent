@@ -27,7 +27,7 @@ export function componentToAgentTool(component: Component<ToolConfig>): AgentToo
     return {
       type: "McpServer",
       mcpServer: {
-        toolServer: component.provider,
+        toolServer: component.label || "",
         toolNames: [mcpConfig.tool.name]
       }
     };

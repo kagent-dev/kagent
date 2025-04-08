@@ -99,7 +99,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       setLoading(true);
       const response = await getTools();
       if (response.success && response.data) {
-        setTools(response.data.map((t) => t.component));
+        setTools(response.data);
         setError("");
       }
     } catch (err) {
