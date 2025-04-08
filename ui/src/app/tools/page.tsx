@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
-import { DBTool, Component, ToolConfig, ToolServerConfiguration } from "@/types/datamodel";
+import {  Component, ToolConfig, ToolServerConfiguration } from "@/types/datamodel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getTools } from "../actions/tools";
@@ -36,7 +36,7 @@ const getToolCategory = (component: Component<ToolConfig>): string => {
 export default function ToolsPage() {
   // Consolidated state
   const [toolsData, setToolsData] = useState<{
-    tools: DBTool[];
+    tools: Component<ToolConfig>[];
     serversMap: Map<string, { name: string; label: string; config: ToolServerConfiguration }>;
     categories: Set<string>;
     isLoading: boolean;
@@ -72,7 +72,7 @@ export default function ToolsPage() {
 
       // Process servers
       const serversMap = new Map<string, { name: string; label: string; config: ToolServerConfiguration }>();
-      const toolsFromServers: DBTool[] = [];
+      const toolsFromServers: Component<ToolConfig>[] = [];
       
       if (serversResponse.success && serversResponse.data) {
         serversResponse.data.forEach(server => {
@@ -85,33 +85,31 @@ export default function ToolsPage() {
           // Process discovered tools from this server
           if (server.discoveredTools && Array.isArray(server.discoveredTools)) {
             server.discoveredTools.forEach(tool => {
-              toolsFromServers.push({
-                component: tool.component,
-              });
+              toolsFromServers.push(tool.component);
             });
           }
         });
       }
 
       // Process DB tools
-      let allTools: DBTool[] = [];
+      let allTools: Component<ToolConfig>[] = [];
       if (toolsResponse.success && toolsResponse.data) {
         allTools = [...toolsResponse.data];
       }
       
       // Combine tools from both sources (prioritizing DB tools if there are duplicates)
       // This assumes getToolIdentifier returns a unique identifier for each tool
-      const toolMap = new Map<string, DBTool>();
+      const toolMap = new Map<string, Component<ToolConfig>>();
       
       // First add all DB tools
       allTools.forEach(tool => {
-        const toolId = getToolIdentifier(tool.component);
+        const toolId = getToolIdentifier(tool);
         toolMap.set(toolId, tool);
       });
       
       // Then add server tools only if they don't already exist
       toolsFromServers.forEach(tool => {
-        const toolId = getToolIdentifier(tool.component);
+        const toolId = getToolIdentifier(tool);
         if (!toolMap.has(toolId)) {
           toolMap.set(toolId, tool);
         }
@@ -123,7 +121,7 @@ export default function ToolsPage() {
       // Extract unique categories
       const uniqueCategories = new Set<string>();
       consolidatedTools.forEach(tool => {
-        uniqueCategories.add(getToolCategory(tool.component));
+        uniqueCategories.add(getToolCategory(tool));
       });
 
       // Update state with consolidated data
@@ -164,21 +162,21 @@ export default function ToolsPage() {
   const filteredTools = toolsData.tools.filter(tool => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
-      getToolDisplayName(tool.component)?.toLowerCase().includes(searchLower) ||
-      getToolDescription(tool.component)?.toLowerCase().includes(searchLower) ||
-      tool.component.provider?.toLowerCase().includes(searchLower) ||
-      getToolIdentifier(tool.component)?.toLowerCase().includes(searchLower);
+      getToolDisplayName(tool)?.toLowerCase().includes(searchLower) ||
+      getToolDescription(tool)?.toLowerCase().includes(searchLower) ||
+      tool.provider?.toLowerCase().includes(searchLower) ||
+      getToolIdentifier(tool)?.toLowerCase().includes(searchLower);
 
-    const toolCategory = getToolCategory(tool.component);
+    const toolCategory = getToolCategory(tool);
     const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
 
     return matchesSearch && matchesCategory;
   });
 
   // Group tools by category
-  const toolsByCategory: Record<string, DBTool[]> = {};
+  const toolsByCategory: Record<string, Component<ToolConfig>[]> = {};
   filteredTools.forEach(tool => {
-    const category = getToolCategory(tool.component);
+    const category = getToolCategory(tool);
     if (!toolsByCategory[category]) {
       toolsByCategory[category] = [];
     }
@@ -282,26 +280,26 @@ export default function ToolsPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {categoryTools
                       .sort((a, b) => {
-                        const aName = getToolDisplayName(a.component) || "";
-                        const bName = getToolDisplayName(b.component) || "";
+                        const aName = getToolDisplayName(a) || "";
+                        const bName = getToolDisplayName(b) || "";
                         return aName.localeCompare(bName);
                       })
                       .map(tool => (
                         <div 
-                          key={getToolIdentifier(tool.component)} 
+                          key={getToolIdentifier(tool)} 
                           className="p-4 border rounded-md hover:bg-secondary/5 transition-colors"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-start gap-2">
                               <FunctionSquare className="h-5 w-5 text-blue-500 mt-0.5" />
                               <div>
-                                <div className="font-medium">{getToolDisplayName(tool.component)}</div>
+                                <div className="font-medium">{getToolDisplayName(tool)}</div>
                                 <div className="text-sm text-muted-foreground mt-1">
-                                  {getToolDescription(tool.component)}
+                                  {getToolDescription(tool)}
                                 </div>
                                 <div className="text-xs text-muted-foreground mt-2 flex items-center">
                                   <Server className="h-3 w-3 mr-1" />
-                                  {tool.component.provider}
+                                  {tool.label}
                                 </div>
                               </div>
                             </div>
@@ -314,7 +312,7 @@ export default function ToolsPage() {
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="max-w-sm">
-                                  <p className="font-mono text-xs">{getToolIdentifier(tool.component)}</p>
+                                  <p className="font-mono text-xs">{getToolIdentifier(tool)}</p>
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
