@@ -18,7 +18,7 @@ func checkServerConnection(client *autogen_client.Client) error {
 	if client == nil {
 		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
 	}
-	
+
 	_, err := client.GetVersion()
 	if err != nil {
 		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
@@ -41,14 +41,6 @@ func main() {
 	}
 
 	client := autogen_client.New(cfg.APIURL, cfg.WSURL)
-
-	// Check server connection for commands passed as arguments
-	if len(os.Args) > 1 && os.Args[1] != "install" && os.Args[1] != "version" {
-		if err := checkServerConnection(client); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
