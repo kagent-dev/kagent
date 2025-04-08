@@ -15,7 +15,6 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// Mock ErrorResponseWriter implementation
 type mockErrorResponseWriter struct {
 	*httptest.ResponseRecorder
 	errorReceived error
@@ -29,10 +28,14 @@ func newMockErrorResponseWriter() *mockErrorResponseWriter {
 
 func (m *mockErrorResponseWriter) RespondWithError(err error) {
 	m.errorReceived = err
-	handlers.RespondWithError(m, http.StatusInternalServerError, err.Error())
+	
+	if errWithStatus, ok := err.(interface{ StatusCode() int }); ok {
+		handlers.RespondWithError(m, errWithStatus.StatusCode(), err.Error())
+	} else {
+		handlers.RespondWithError(m, http.StatusInternalServerError, err.Error())
+	}
 }
 
-// We only need to mock the methods we use, not the entire client
 type mockAutogenClient struct {
 	createSessionFunc func(*autogen_client.CreateSession) (*autogen_client.Session, error)
 	createRunFunc     func(*autogen_client.CreateRunRequest) (*autogen_client.CreateRunResult, error)
@@ -46,7 +49,6 @@ func (m *mockAutogenClient) CreateRun(req *autogen_client.CreateRunRequest) (*au
 	return m.createRunFunc(req)
 }
 
-// Add stubs for other methods to satisfy the interface
 func (m *mockAutogenClient) ListSessions(userID string) ([]*autogen_client.Session, error) {
 	return nil, nil
 }
@@ -117,16 +119,6 @@ func TestInvokeHandler(t *testing.T) {
 	RunSpecs(t, "Invoke Handler Suite")
 }
 
-// helper function to create a Base handler with a client interface
-func createBaseWithClient(client *mockAutogenClient) *handlers.Base {
-	// create a handler with a nil client (we'll use the mock directly)
-	base := &handlers.Base{
-		AutogenClient: nil,
-	}
-	
-	return base
-}
-
 var _ = Describe("InvokeHandler", func() {
 	var (
 		handler          *handlers.InvokeHandler
@@ -137,19 +129,17 @@ var _ = Describe("InvokeHandler", func() {
 	BeforeEach(func() {
 		mockClient = &mockAutogenClient{}
 		
-		// create Base handler manually using the helper function
-		base := createBaseWithClient(mockClient)
+		base := &handlers.Base{}
+		
 		handler = handlers.NewInvokeHandler(base)
 		
-		// set the mock client for testing
-		handler.SetTestClient(mockClient)
+		handler.WithClient(mockClient)
 		
 		responseRecorder = newMockErrorResponseWriter()
 	})
 
 	Context("HandleInvokeAgent", func() {
 		It("should handle synchronous invocation successfully", func() {
-			// mock session creation
 			mockClient.createSessionFunc = func(req *autogen_client.CreateSession) (*autogen_client.Session, error) {
 				return &autogen_client.Session{
 					ID:      42,
@@ -160,39 +150,33 @@ var _ = Describe("InvokeHandler", func() {
 				}, nil
 			}
 
-			// mock run creation
 			mockClient.createRunFunc = func(req *autogen_client.CreateRunRequest) (*autogen_client.CreateRunResult, error) {
 				return &autogen_client.CreateRunResult{
 					ID: 123,
 				}, nil
 			}
 
-			// create test request
 			agentID := "1"
 			reqBody := handlers.InvokeRequest{
 				Message: "Test message",
-				Sync:    true,
 				UserID:  "test-user",
 			}
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/invoke", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 
-			// add agentId to request context via gorilla/mux
 			router := mux.NewRouter()
 			router.HandleFunc("/api/agents/{agentId}/invoke", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleInvokeAgent(responseRecorder, r)
 			}).Methods("POST")
 
-			// execute request
 			router.ServeHTTP(responseRecorder, req)
 
-			// verify response
 			Expect(responseRecorder.Code).To(Equal(http.StatusOK))
 
 			var response handlers.InvokeResponse
-			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
-			Expect(err).NotTo(HaveOccurred())
+			decodeErr := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
+			Expect(decodeErr).NotTo(HaveOccurred())
 
 			Expect(response.SessionID).To(Equal("42"))
 			Expect(response.Status).To(Equal("completed"))
@@ -200,7 +184,6 @@ var _ = Describe("InvokeHandler", func() {
 		})
 
 		It("should handle asynchronous invocation successfully", func() {
-			// mock session creation
 			mockClient.createSessionFunc = func(req *autogen_client.CreateSession) (*autogen_client.Session, error) {
 				return &autogen_client.Session{
 					ID:      42,
@@ -211,39 +194,33 @@ var _ = Describe("InvokeHandler", func() {
 				}, nil
 			}
 
-			// mock run creation
 			mockClient.createRunFunc = func(req *autogen_client.CreateRunRequest) (*autogen_client.CreateRunResult, error) {
 				return &autogen_client.CreateRunResult{
 					ID: 123,
 				}, nil
 			}
 
-			// create test request
 			agentID := "1"
 			reqBody := handlers.InvokeRequest{
 				Message: "Test message",
-				Sync:    false,
 				UserID:  "test-user",
 			}
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/invoke", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/start", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 
-			// add agentId to request context via gorilla/mux
 			router := mux.NewRouter()
-			router.HandleFunc("/api/agents/{agentId}/invoke", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleInvokeAgent(responseRecorder, r)
+			router.HandleFunc("/api/agents/{agentId}/start", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleStartAgent(responseRecorder, r)
 			}).Methods("POST")
 
-			// execute request
 			router.ServeHTTP(responseRecorder, req)
 
-			// verify response
 			Expect(responseRecorder.Code).To(Equal(http.StatusOK))
 
 			var response handlers.InvokeResponse
-			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
-			Expect(err).NotTo(HaveOccurred())
+			decodeErr := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
+			Expect(decodeErr).NotTo(HaveOccurred())
 
 			Expect(response.SessionID).To(Equal("42"))
 			Expect(response.Status).To(Equal("processing"))
@@ -251,38 +228,31 @@ var _ = Describe("InvokeHandler", func() {
 		})
 
 		It("should handle errors in session creation", func() {
-			// mock session creation failure
 			mockClient.createSessionFunc = func(req *autogen_client.CreateSession) (*autogen_client.Session, error) {
 				return nil, fmt.Errorf("session creation failed")
 			}
 
-			// create test request
 			agentID := "1"
 			reqBody := handlers.InvokeRequest{
 				Message: "Test message",
-				Sync:    true,
 				UserID:  "test-user",
 			}
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/invoke", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 
-			// add agentId to request context via gorilla/mux
 			router := mux.NewRouter()
 			router.HandleFunc("/api/agents/{agentId}/invoke", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleInvokeAgent(responseRecorder, r)
 			}).Methods("POST")
 
-			// execute request
 			router.ServeHTTP(responseRecorder, req)
 
-			// verify response
 			Expect(responseRecorder.Code).To(Equal(http.StatusInternalServerError))
 			Expect(responseRecorder.errorReceived).ToNot(BeNil())
 		})
 
 		It("should handle errors in run creation", func() {
-			// mock session creation
 			mockClient.createSessionFunc = func(req *autogen_client.CreateSession) (*autogen_client.Session, error) {
 				return &autogen_client.Session{
 					ID:      42,
@@ -293,57 +263,46 @@ var _ = Describe("InvokeHandler", func() {
 				}, nil
 			}
 
-			// mock run creation failure
 			mockClient.createRunFunc = func(req *autogen_client.CreateRunRequest) (*autogen_client.CreateRunResult, error) {
 				return nil, fmt.Errorf("run creation failed")
 			}
 
-			// create test request
 			agentID := "1"
 			reqBody := handlers.InvokeRequest{
 				Message: "Test message",
-				Sync:    true,
 				UserID:  "test-user",
 			}
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/invoke", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 
-			// add agentId to request context via gorilla/mux
 			router := mux.NewRouter()
 			router.HandleFunc("/api/agents/{agentId}/invoke", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleInvokeAgent(responseRecorder, r)
 			}).Methods("POST")
 
-			// execute request
 			router.ServeHTTP(responseRecorder, req)
 
-			// verify response
 			Expect(responseRecorder.Code).To(Equal(http.StatusInternalServerError))
 			Expect(responseRecorder.errorReceived).ToNot(BeNil())
 		})
 
 		It("should handle invalid agentId parameter", func() {
-			// create test request with invalid agentId
 			reqBody := handlers.InvokeRequest{
 				Message: "Test message",
-				Sync:    true,
 				UserID:  "test-user",
 			}
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/agents/invalid/invoke", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 
-			// add agentId to request context via gorilla/mux
 			router := mux.NewRouter()
 			router.HandleFunc("/api/agents/{agentId}/invoke", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleInvokeAgent(responseRecorder, r)
 			}).Methods("POST")
 
-			// execute request
 			router.ServeHTTP(responseRecorder, req)
 
-			// verify response
 			Expect(responseRecorder.Code).To(Equal(http.StatusBadRequest))
 			Expect(responseRecorder.errorReceived).ToNot(BeNil())
 		})

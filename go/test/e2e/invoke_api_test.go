@@ -18,34 +18,28 @@ var _ = Describe("Invoke API", func() {
 		var apiURL string
 
 		BeforeEach(func() {
-			// get the API URL from environment
 			apiURL = os.Getenv("KAGENT_API_URL")
 			if apiURL == "" {
-				apiURL = "http://localhost:8001" // default to local testing URL
+				apiURL = "http://localhost:8001"
 			}
 		})
 
 		It("should successfully handle a synchronous invocation", func() {
-			// create the request payload
 			payload := map[string]interface{}{
 				"message": "Test message from integration test",
-				"sync":    true,
 				"user_id": "integration-test-user",
 			}
 			payloadBytes, err := json.Marshal(payload)
 			Expect(err).NotTo(HaveOccurred())
 
-			// setup a client with timeout
 			client := http.Client{
 				Timeout: time.Second * 30,
 			}
 
-			// create the request
 			req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/agents/1/invoke", apiURL), bytes.NewBuffer(payloadBytes))
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
 
-			// send the request
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			req = req.WithContext(ctx)
@@ -57,15 +51,12 @@ var _ = Describe("Invoke API", func() {
 			}
 			defer resp.Body.Close()
 
-			// check response
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			// parse the response
 			var responseData map[string]interface{}
 			err = json.NewDecoder(resp.Body).Decode(&responseData)
 			Expect(err).NotTo(HaveOccurred())
 
-			// verify essential fields exist in the response
 			Expect(responseData).To(HaveKey("sessionId"))
 			Expect(responseData).To(HaveKey("response"))
 			Expect(responseData).To(HaveKey("status"))
@@ -73,26 +64,21 @@ var _ = Describe("Invoke API", func() {
 		})
 
 		It("should successfully handle an asynchronous invocation", func() {
-			// create the request payload
 			payload := map[string]interface{}{
 				"message": "Test message from integration test",
-				"sync":    false,
 				"user_id": "integration-test-user",
 			}
 			payloadBytes, err := json.Marshal(payload)
 			Expect(err).NotTo(HaveOccurred())
 
-			// setup a client with timeout
 			client := http.Client{
 				Timeout: time.Second * 30,
 			}
 
-			// create the request
-			req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/agents/1/invoke", apiURL), bytes.NewBuffer(payloadBytes))
+			req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/agents/1/start", apiURL), bytes.NewBuffer(payloadBytes))
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
 
-			// send the request
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			req = req.WithContext(ctx)
@@ -104,15 +90,12 @@ var _ = Describe("Invoke API", func() {
 			}
 			defer resp.Body.Close()
 
-			// check response
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			// parse the response
 			var responseData map[string]interface{}
 			err = json.NewDecoder(resp.Body).Decode(&responseData)
 			Expect(err).NotTo(HaveOccurred())
 
-			// verify essential fields exist in the response
 			Expect(responseData).To(HaveKey("sessionId"))
 			Expect(responseData).To(HaveKey("statusUrl"))
 			Expect(responseData).To(HaveKey("status"))

@@ -6,43 +6,45 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/go-logr/logr"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// mockAutogenClient interface for testing
-type mockAutogenClient interface {
+// AutogenClient defines operations for interacting with the autogen backend.
+type AutogenClient interface {
 	CreateSession(*autogen_client.CreateSession) (*autogen_client.Session, error)
 	CreateRun(*autogen_client.CreateRunRequest) (*autogen_client.CreateRunResult, error)
 }
 
-// InvokeHandler handles agent invocation requests
+// InvokeHandler processes agent invocation API requests.
 type InvokeHandler struct {
 	*Base
-	testClient interface{}
+	testClient AutogenClient // Used only for testing
 }
 
-// NewInvokeHandler creates a new InvokeHandler
+// NewInvokeHandler creates a handler with the given base dependencies.
 func NewInvokeHandler(base *Base) *InvokeHandler {
-	return &InvokeHandler{Base: base}
+	return &InvokeHandler{
+		Base: base,
+	}
 }
 
-// SetTestClient allows setting a mock client for testing
-func (h *InvokeHandler) SetTestClient(client interface{}) {
+// WithClient sets a test client and returns the handler for chaining.
+func (h *InvokeHandler) WithClient(client AutogenClient) *InvokeHandler {
 	h.testClient = client
+	return h
 }
 
-// InvokeRequest represents a request to invoke an agent
+// InvokeRequest represents an agent invocation request.
 type InvokeRequest struct {
 	Message string                 `json:"message"`
-	Sync    bool                   `json:"sync"`
 	Context map[string]interface{} `json:"context,omitempty"`
 	UserID  string                 `json:"user_id,omitempty"`
 }
 
-// InvokeResponse represents a response from an agent invocation
+// InvokeResponse contains data returned after an agent invocation.
 type InvokeResponse struct {
 	SessionID   string `json:"sessionId"`
 	Response    string `json:"response,omitempty"`
@@ -51,116 +53,146 @@ type InvokeResponse struct {
 	CompletedAt string `json:"completedAt,omitempty"`
 }
 
-// HandleInvokeAgent handles POST /api/agents/{agentId}/invoke requests
+// HandleInvokeAgent processes synchronous agent execution requests.
 func (h *InvokeHandler) HandleInvokeAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("invoke-handler").WithValues("operation", "invoke")
 
-	// Extract agent ID from path
-	vars := mux.Vars(r)
-	agentIDStr := vars["agentId"]
-	if agentIDStr == "" {
-		w.RespondWithError(errors.NewBadRequestError("Agent ID is required", nil))
-		return
+	agentID, userID, err := h.extractAgentParams(w, r, log)
+	if err != nil {
+		return 	
+	}
+
+	session, _, err := h.createSessionAndRun(w, agentID, userID, log)
+	if err != nil {
+		return 
+	}
+
+	log.Info("Synchronous request - waiting for response")
+	response := InvokeResponse{
+		SessionID:   fmt.Sprintf("%d", session.ID),
+		Status:      "completed",
+		Response:    "This is a placeholder response. In a real implementation, we would wait for the agent to respond.",
+		CompletedAt: time.Now().Format(time.RFC3339),
+	}
+
+	log.Info("Successfully invoked agent")
+	RespondWithJSON(w, http.StatusOK, response)
+}
+
+// HandleStartAgent processes asynchronous agent execution requests.
+func (h *InvokeHandler) HandleStartAgent(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("invoke-handler").WithValues("operation", "start")
+
+	agentID, userID, err := h.extractAgentParams(w, r, log)
+	if err != nil {
+		return 
+	}
+
+	session, _, err := h.createSessionAndRun(w, agentID, userID, log)
+	if err != nil {
+		return 
+	}
+
+	log.Info("Asynchronous request - returning immediately")
+	response := InvokeResponse{
+		SessionID: fmt.Sprintf("%d", session.ID),
+		Status:    "processing",
+		StatusURL: fmt.Sprintf("/api/sessions/%d", session.ID),
+	}
+
+	log.Info("Successfully started agent")
+	RespondWithJSON(w, http.StatusOK, response)
+}
+
+// extractAgentParams parses and validates agent ID and user ID from the request.
+func (h *InvokeHandler) extractAgentParams(w ErrorResponseWriter, r *http.Request, log logr.Logger) (int, string, error) {
+	agentIDStr, err := GetPathParam(r, "agentId")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Agent ID is required", err))
+		return 0, "", err
 	}
 	
-	// Convert agent ID to int
 	agentID, err := strconv.Atoi(agentIDStr)
 	if err != nil {
-		if httpWriter, ok := w.(http.ResponseWriter); ok {
-			httpWriter.WriteHeader(http.StatusBadRequest)
-		}
 		w.RespondWithError(errors.NewBadRequestError("Invalid agent ID format, must be an integer", err))
-		return
+		return 0, "", err
 	}
-	log = log.WithValues("agentId", agentID)
+	log.WithValues("agentId", agentID)
 
-	// Parse request body
 	var invokeRequest InvokeRequest
 	if err = DecodeJSONBody(r, &invokeRequest); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
-		return
+		return 0, "", err
 	}
 
-	// Get user ID from request or header
 	userID := invokeRequest.UserID
 	if userID == "" {
 		userID, err = GetUserID(r)
 		if err != nil {
 			w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
-			return
+			return 0, "", err
 		}
 	}
-	log = log.WithValues("userID", userID)
+	log.WithValues("userID", userID)
 
-	// Create session request
+	return agentID, userID, nil
+}
+
+// createSessionAndRun creates a session and run for the specified agent.
+func (h *InvokeHandler) createSessionAndRun(w ErrorResponseWriter, agentID int, userID string, log logr.Logger) (*autogen_client.Session, *autogen_client.CreateRunResult, error) {
 	sessionRequest := &autogen_client.CreateSession{
 		UserID: userID,
 		Name:   fmt.Sprintf("Invocation of agent %d", agentID),
 		TeamID: agentID,
 	}
 	
-	log.V(1).Info("Creating session for agent invocation")
-	var session *autogen_client.Session
+	log.V(1).Info("Creating session for agent execution")
 	
-	// Handle client selection for testing vs. production
-	if h.testClient != nil {
-		if mockClient, ok := h.testClient.(mockAutogenClient); ok {
-			session, err = mockClient.CreateSession(sessionRequest)
+	var session *autogen_client.Session
+	var run *autogen_client.CreateRunResult
+	var err error
+	
+	if h.testClient != nil {	
+		session, err = h.testClient.CreateSession(sessionRequest)
+		if err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
+			return nil, nil, err
+		}
+		
+		runRequest := &autogen_client.CreateRunRequest{
+			UserID:    userID,
+			SessionID: session.ID,
+		}
+		
+		log.V(1).Info("Creating run for agent execution")
+		run, err = h.testClient.CreateRun(runRequest)
+		if err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to create run", err))
+			return nil, nil, err
 		}
 	} else if h.AutogenClient != nil {
 		session, err = h.AutogenClient.CreateSession(sessionRequest)
-	} else {
-		err = fmt.Errorf("no client available")
-	}
-	
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
-		return
-	}
-	log = log.WithValues("sessionID", session.ID)
-
-	// Create run request
-	runRequest := &autogen_client.CreateRunRequest{
-		UserID:    userID,
-		SessionID: session.ID,
-	}
-	
-	log.V(1).Info("Creating run for agent invocation")
-	var run *autogen_client.CreateRunResult
-	
-	if h.testClient != nil {
-		if mockClient, ok := h.testClient.(mockAutogenClient); ok {
-			run, err = mockClient.CreateRun(runRequest)
+		if err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
+			return nil, nil, err
 		}
-	} else if h.AutogenClient != nil {
+		
+		runRequest := &autogen_client.CreateRunRequest{
+			UserID:    userID,
+			SessionID: session.ID,
+		}
+		
+		log.V(1).Info("Creating run for agent execution")
 		run, err = h.AutogenClient.CreateRun(runRequest)
+		if err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to create run", err))
+			return nil, nil, err
+		}
 	} else {
-		err = fmt.Errorf("no client available")
+		panic("No client available for agent execution - this is a critical error")
 	}
 	
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to create run", err))
-		return
-	}
-	log = log.WithValues("runID", run.ID)
-
-	// Prepare response
-	response := InvokeResponse{
-		SessionID: fmt.Sprintf("%d", session.ID),
-	}
-
-	// Handle based on sync parameter
-	if invokeRequest.Sync {
-		log.Info("Synchronous request - waiting for response")
-		response.Status = "completed"
-		response.Response = "This is a placeholder response. In a real implementation, we would wait for the agent to respond."
-		response.CompletedAt = time.Now().Format(time.RFC3339)
-	} else {
-		log.Info("Asynchronous request - returning immediately")
-		response.Status = "processing"
-		response.StatusURL = fmt.Sprintf("/api/sessions/%d", session.ID)
-	}
-
-	log.Info("Successfully invoked agent")
-	RespondWithJSON(w, http.StatusOK, response)
+	log.WithValues("sessionID", session.ID, "runID", run.ID)
+	return session, run, nil
 } 
+
