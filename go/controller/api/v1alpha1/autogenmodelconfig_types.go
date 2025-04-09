@@ -34,21 +34,6 @@ const (
 	OpenAI      ModelProvider = "OpenAI"
 )
 
-// ProviderConfig contains provider-specific configurations
-type ProviderConfig struct {
-	// Configuration for Anthropic provider models
-	// +optional
-	Anthropic *AnthropicConfig `json:"anthropic,omitempty"`
-
-	// Configuration for OpenAI provider models
-	// +optional
-	OpenAI *OpenAIConfig `json:"openAI,omitempty"`
-
-	// Configuration for Azure OpenAI provider models
-	// +optional
-	AzureOpenAI *AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
-}
-
 // AnthropicConfig contains Anthropic-specific configuration options
 type AnthropicConfig struct {
 	// Base URL for the Anthropic API (overrides default)
@@ -150,6 +135,13 @@ type AzureOpenAIConfig struct {
 }
 
 // ModelConfigSpec defines the desired state of ModelConfig.
+//
+// +kubebuilder:validation:XValidation:message="provider.openAI must be nil if the provider is not OpenAI",rule="!(has(self.openAI) && self.provider != 'OpenAI')"
+// +kubebuilder:validation:XValidation:message="provider.anthropic must be nil if the provider is not Anthropic",rule="!(has(self.anthropic) && self.provider != 'Anthropic')"
+// +kubebuilder:validation:XValidation:message="provider.anthropic must be specified for Anthropic provider",rule="!(!has(self.anthropic) && self.provider == 'Anthropic')"
+// +kubebuilder:validation:XValidation:message="provider.azureOpenAI must be nil if the provider is not AzureOpenAI",rule="!(has(self.azureOpenAI) && self.provider != 'AzureOpenAI')"
+// +kubebuilder:validation:XValidation:message="provider.azureOpenAI must be specified for AzureOpenAI provider",rule="!(!has(self.azureOpenAI) && self.provider == 'AzureOpenAI')"
+
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
@@ -163,15 +155,15 @@ type ModelConfigSpec struct {
 
 	// OpenAI-specific configuration
 	// +optional
-	ProviderOpenAI *OpenAIConfig `json:"openAI,omitempty"`
+	OpenAI *OpenAIConfig `json:"openAI,omitempty"`
 
 	// Anthropic-specific configuration
 	// +optional
-	ProviderAnthropic *AnthropicConfig `json:"anthropicC,omitempty"`
+	Anthropic *AnthropicConfig `json:"anthropic,omitempty"`
 
 	// Azure OpenAI-specific configuration
 	// +optional
-	ProviderAzureOpenAI *AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+	AzureOpenAI *AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.

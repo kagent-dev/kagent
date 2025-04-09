@@ -239,12 +239,26 @@ spec:
     Always follow this recommended approach unless the user specifies otherwise.
   modelConfigRef: default-model-config
   tools:
-    - provider: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
-    - provider: kagent.tools.k8s.GetResources
-    - provider: kagent.tools.k8s.GetResourceYAML
-    - provider: kagent.tools.k8s.CreateResource
-    - provider: kagent.tools.k8s.DeleteResource
-    - provider: kagent.tools.k8s.ApplyManifest
-    - provider: kagent.tools.k8s.DescribeResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetResources
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.GetResourceYAML
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.CreateResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.DeleteResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.ApplyManifest
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.DescribeResource
     
 {{- end }}

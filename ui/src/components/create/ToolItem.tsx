@@ -32,7 +32,7 @@ const ToolItem: React.FC<ToolItemProps> = ({ tool, isSelected, onToggle, disable
             )}
           </div>
           <p className="text-sm text-muted-foreground mt-1">{toolDescription}</p>
-          <div className="text-xs text-muted-foreground mt-2">{tool.provider}</div>
+          <div className="text-xs text-muted-foreground mt-2">{tool.label}</div>
         </div>
         <div className="ml-4 flex-shrink-0">
           {isSelected ? (

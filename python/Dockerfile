@@ -74,6 +74,7 @@ COPY pyproject.toml .
 COPY .python-version .
 COPY uv.lock .
 COPY README.md .
+RUN uv venv .venv &&  uv pip install hatchling
 RUN uv sync --frozen
 COPY src src
 RUN chown -R python:pythongroup /app/python

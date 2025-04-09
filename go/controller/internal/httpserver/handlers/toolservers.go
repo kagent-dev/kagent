@@ -1,10 +1,12 @@
 package handlers
 
 import (
-	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"net/http"
 
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
+	"k8s.io/apimachinery/pkg/types"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // ToolServersHandler handles tool server-related requests
@@ -18,137 +20,78 @@ func NewToolServersHandler(base *Base) *ToolServersHandler {
 }
 
 // HandleListToolServers handles GET /api/toolservers requests
-func (h *ToolServersHandler) HandleListToolServers(w http.ResponseWriter, r *http.Request) {
-	userID, err := GetUserID(r)
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
+func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "list")
+
+	log.V(1).Info("Listing tool servers from Kubernetes")
+	toolServerList := &v1alpha1.ToolServerList{}
+	if err := h.KubeClient.List(r.Context(), toolServerList); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list tool servers from Kubernetes", err))
 		return
 	}
 
-	toolServers, err := h.AutogenClient.ListToolServers(userID)
-	if err != nil {
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
+	toolServerWithTools := make([]map[string]interface{}, 0)
+	for _, toolServer := range toolServerList.Items {
+		log.V(1).Info("Processing tool server", "toolServerName", toolServer.Name)
+
+		toolServerWithTools = append(toolServerWithTools, map[string]interface{}{
+			"name":            toolServer.Name,
+			"config":          toolServer.Spec.Config,
+			"discoveredTools": toolServer.Status.DiscoveredTools,
+		})
 	}
 
-	RespondWithJSON(w, http.StatusOK, toolServers)
+	RespondWithJSON(w, http.StatusOK, toolServerWithTools)
 }
 
 // HandleCreateToolServer handles POST /api/toolservers requests
-func (h *ToolServersHandler) HandleCreateToolServer(w http.ResponseWriter, r *http.Request) {
-	var toolServerRequest *autogen_client.ToolServer
+func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "create")
 
+	var toolServerRequest *v1alpha1.ToolServer
 	if err := DecodeJSONBody(r, &toolServerRequest); err != nil {
-		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
-	if toolServerRequest.UserID == "" {
-		RespondWithError(w, http.StatusBadRequest, "user_id is required")
+	log = log.WithValues("toolServerName", toolServerRequest.Name)
+	toolServerRequest.Namespace = DefaultResourceNamespace
+
+	if err := h.KubeClient.Create(r.Context(), toolServerRequest); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to create tool server in Kubernetes", err))
 		return
 	}
 
-	toolServer, err := h.AutogenClient.CreateToolServer(toolServerRequest, autogen.GlobalUserID)
-	if err != nil {
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	RespondWithJSON(w, http.StatusCreated, toolServer)
+	log.Info("Successfully created tool server")
+	RespondWithJSON(w, http.StatusCreated, toolServerRequest)
 }
 
-// HandleGetToolServer handles GET /api/toolservers/{toolServerID} requests
-func (h *ToolServersHandler) HandleGetToolServer(w http.ResponseWriter, r *http.Request) {
-	toolServerID, err := GetIntPathParam(r, "toolServerID")
+// HandleDeleteToolServer handles DELETE /api/toolservers/{toolServerName} requests
+func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "delete")
+
+	toolServerName, err := GetPathParam(r, "toolServerName")
 	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
+		w.RespondWithError(errors.NewBadRequestError("Failed to get tool server name from path", err))
+		return
+	}
+	log = log.WithValues("toolServerName", toolServerName)
+
+	toolServer := &v1alpha1.ToolServer{}
+	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
+		Name:      toolServerName,
+		Namespace: DefaultResourceNamespace,
+	}, toolServer); err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Tool server not found in Kubernetes", err))
 		return
 	}
 
-	userID, err := GetUserID(r)
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
+	log.V(1).Info("Deleting tool server from Kubernetes")
+	if err := h.KubeClient.Delete(r.Context(), toolServer); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to delete tool server from Kubernetes", err))
 		return
 	}
 
-	toolServer, err := h.AutogenClient.GetToolServer(toolServerID, userID)
-	if err != nil {
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if toolServer == nil {
-		RespondWithError(w, http.StatusNotFound, "Tool server not found")
-		return
-	}
-
-	RespondWithJSON(w, http.StatusOK, toolServer)
-}
-
-// HandleRefreshToolServer handles POST /api/toolservers/{toolServerID}/refresh requests
-func (h *ToolServersHandler) HandleRefreshToolServer(w http.ResponseWriter, r *http.Request) {
-	toolServerID, err := GetIntPathParam(r, "toolServerID")
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	userID, err := GetUserID(r)
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	err = h.AutogenClient.RefreshTools(&toolServerID, userID)
-	if err != nil {
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// HandleGetServerTools handles GET /api/toolservers/{toolServerID}/tools requests
-func (h *ToolServersHandler) HandleGetServerTools(w http.ResponseWriter, r *http.Request) {
-	toolServerID, err := GetIntPathParam(r, "toolServerID")
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	userID, err := GetUserID(r)
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	tools, err := h.AutogenClient.ListToolsForServer(&toolServerID, userID)
-	if err != nil {
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	RespondWithJSON(w, http.StatusOK, tools)
-}
-
-func (h *ToolServersHandler) HandleDeleteToolServer(w http.ResponseWriter, r *http.Request) {
-	toolServerID, err := GetIntPathParam(r, "toolServerID")
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	userID, err := GetUserID(r)
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	err = h.AutogenClient.DeleteToolServer(&toolServerID, userID)
-	if err != nil {
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
+	log.Info("Successfully deleted tool server from Kubernetes")
 	w.WriteHeader(http.StatusNoContent)
 }

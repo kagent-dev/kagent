@@ -6,11 +6,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Filter, ChevronDown, ChevronRight, AlertCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { AgentTool, Component, ToolConfig } from "@/types/datamodel";
+import {  Component, ToolConfig } from "@/types/datamodel";
 import ProviderFilter from "./ProviderFilter";
 import ToolItem from "./ToolItem";
-import { findComponentForAgentTool } from "@/lib/toolUtils";
-import { getToolDisplayName, getToolDescription, getToolIdentifier } from "@/lib/data";
+import { getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider } from "@/lib/data";
 
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 10;
@@ -29,7 +28,7 @@ interface SelectToolsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   availableTools: Component<ToolConfig>[];
-  selectedTools: AgentTool[];
+  selectedTools: Component<ToolConfig>[];
   onToolsSelected: (tools: Component<ToolConfig>[]) => void;
 }
 
@@ -42,23 +41,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
-
   // Initialize state when dialog opens
   useEffect(() => {
     if (open) {
-      // Convert selectedTools (AgentTool[]) to Component<ToolConfig>[] for local state
-      const initialComponents: Component<ToolConfig>[] = selectedTools
-        .map((agentTool) => findComponentForAgentTool(agentTool, availableTools))
-        .filter((tool): tool is Component<ToolConfig> => tool !== undefined);
-
-      setLocalSelectedComponents(initialComponents);
+      setLocalSelectedComponents(selectedTools);
       setSearchTerm("");
 
       // Extract unique providers
       const uniqueProviders = new Set<string>();
       availableTools.forEach((tool) => {
         if (tool.provider) {
-          uniqueProviders.add(tool.provider);
+          uniqueProviders.add(getToolProvider(tool));
         }
       });
 
