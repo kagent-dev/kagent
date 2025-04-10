@@ -306,5 +306,28 @@ var _ = Describe("InvokeHandler", func() {
 			Expect(responseRecorder.Code).To(Equal(http.StatusBadRequest))
 			Expect(responseRecorder.errorReceived).ToNot(BeNil())
 		})
+
+		It("should panic when no client is available", func() {
+			handlerWithoutClient := handlers.NewInvokeHandler(&handlers.Base{})
+			handlerWithoutClient.WithClient(nil)
+			
+			agentID := "1"
+			reqBody := handlers.InvokeRequest{
+				Message: "Test message",
+				UserID:  "test-user",
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/invoke", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/agents/{agentId}/invoke", func(w http.ResponseWriter, r *http.Request) {
+				Expect(func() {
+					handlerWithoutClient.HandleInvokeAgent(responseRecorder, r)
+				}).To(Panic())
+			}).Methods("POST")
+
+			router.ServeHTTP(responseRecorder, req)
+		})
 	})
 }) 
