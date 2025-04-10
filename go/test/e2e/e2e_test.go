@@ -183,10 +183,7 @@ When the given task is considered complete, end the session by replying with "Op
 		wsClient, err := exported.NewWebsocketClient(WSEndpoint, run.ID, exported.DefaultConfig)
 		Expect(err).NotTo(HaveOccurred())
 
-		testShell := &TestShell{
-			TerminationText: "Operation completed",
-			Done:            make(chan struct{}),
-		}
+		testShell := &TestShell{}
 
 		ctx, cancel := context.WithTimeout(ctx, TestTimeout)
 		defer cancel()
@@ -201,15 +198,20 @@ When the given task is considered complete, end the session by replying with "Op
 			)
 			Expect(err).NotTo(HaveOccurred())
 		}()
-
-		select {
-		case <-testShell.Done:
-			// Success case
-			fmt.Printf("Agent %s finished successfully.\nOutput: %s\n", agentLabel, testShell.OutputText)
-		case <-ctx.Done():
-			Fail(fmt.Sprintf("Timed out waiting for %s agent to respond.\nAgent Output: %s", agentLabel, testShell.OutputText))
+		for {
+			select {
+			case <-time.After(time.Second * 5):
+				// check that output contains "Operation completed"
+				// if not, continue
+				if strings.Contains(testShell.OutputText, "Operation completed") {
+					// Success case
+					fmt.Printf("Agent %s finished successfully.\nOutput: %s\n", agentLabel, testShell.OutputText)
+					break
+				}
+			case <-ctx.Done():
+				Fail(fmt.Sprintf("Timed out waiting for %s agent to respond.\nAgent Output: %s", agentLabel, testShell.OutputText))
+			}
 		}
-
 		return testShell.OutputText
 	}
 
@@ -618,11 +620,8 @@ func makeAgentSummary(agent *api.AssistantAgentConfig) string {
 
 // test shell simulates a user shell interface
 type TestShell struct {
-	InputText       []string
-	OutputText      string
-	TerminationText string
-	Done            chan struct{}
-	Finished        bool
+	InputText  []string
+	OutputText string
 }
 
 func (t *TestShell) ReadLineErr() (string, error) {
@@ -647,11 +646,6 @@ func (t *TestShell) print(s string) {
 	t.OutputText += s
 
 	fmt.Print(s)
-
-	if strings.Contains(t.OutputText, t.TerminationText) && !t.Finished {
-		t.Finished = true
-		close(t.Done)
-	}
 }
 
 func convertToPythonIdentifier(name string) string {
