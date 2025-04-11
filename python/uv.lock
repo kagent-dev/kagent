@@ -142,7 +142,7 @@ wheels = [
 [[package]]
 name = "autogen-agentchat"
 version = "0.5.1"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=4fae818a1115ce033351138be948efefb4729487#4fae818a1115ce033351138be948efefb4729487" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169#bec1baa06c2c16a73e216e88a951a1d93fafb169" }
 dependencies = [
     { name = "autogen-core" },
 ]
@@ -150,7 +150,7 @@ dependencies = [
 [[package]]
 name = "autogen-core"
 version = "0.5.1"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=4fae818a1115ce033351138be948efefb4729487#4fae818a1115ce033351138be948efefb4729487" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169#bec1baa06c2c16a73e216e88a951a1d93fafb169" }
 dependencies = [
     { name = "jsonref" },
     { name = "opentelemetry-api" },
@@ -163,7 +163,7 @@ dependencies = [
 [[package]]
 name = "autogen-ext"
 version = "0.5.1"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=4fae818a1115ce033351138be948efefb4729487#4fae818a1115ce033351138be948efefb4729487" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169#bec1baa06c2c16a73e216e88a951a1d93fafb169" }
 dependencies = [
     { name = "autogen-core" },
 ]
@@ -198,7 +198,7 @@ openai = [
 [[package]]
 name = "autogenstudio"
 version = "0.4.2"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=4fae818a1115ce033351138be948efefb4729487#4fae818a1115ce033351138be948efefb4729487" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169#bec1baa06c2c16a73e216e88a951a1d93fafb169" }
 dependencies = [
     { name = "aiofiles" },
     { name = "alembic" },
@@ -1204,10 +1204,10 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.49.0" },
-    { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=4fae818a1115ce033351138be948efefb4729487" },
-    { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=4fae818a1115ce033351138be948efefb4729487" },
-    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=4fae818a1115ce033351138be948efefb4729487" },
-    { name = "autogenstudio", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=4fae818a1115ce033351138be948efefb4729487" },
+    { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169" },
+    { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169" },
+    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169" },
+    { name = "autogenstudio", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169" },
     { name = "ipykernel", marker = "extra == 'jupyter-executor'", specifier = ">=6.29.5" },
     { name = "mcp", specifier = ">=1.2.0" },
     { name = "nbclient", marker = "extra == 'jupyter-executor'", specifier = ">=0.10.2" },
@@ -1494,8 +1494,8 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.4.0.dev0"
-source = { git = "https://github.com/kagent-dev/python-sdk?rev=56e86a5c90468014fd94cd95dcdfe0644c5b19b6#56e86a5c90468014fd94cd95dcdfe0644c5b19b6" }
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "httpx" },
@@ -1505,6 +1505,10 @@ dependencies = [
     { name = "sse-starlette" },
     { name = "starlette" },
     { name = "uvicorn" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/d2/f587cb965a56e992634bebc8611c5b579af912b74e04eb9164bd49527d21/mcp-1.6.0.tar.gz", hash = "sha256:d9324876de2c5637369f43161cd71eebfd803df5a95e46225cab8d280e366723", size = 200031 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/30/20a7f33b0b884a9d14dd3aa94ff1ac9da1479fe2ad66dd9e2736075d2506/mcp-1.6.0-py3-none-any.whl", hash = "sha256:7bd24c6ea042dbec44c754f100984d186620d8b841ec30f1b19eda9b93a634d0", size = 76077 },
 ]
 
 [[package]]
