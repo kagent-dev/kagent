@@ -1,9 +1,10 @@
 package handlers
 
 import (
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 )
 
 // Handlers holds all the HTTP handler components
@@ -15,6 +16,7 @@ type Handlers struct {
 	Teams       *TeamsHandler
 	Tools       *ToolsHandler
 	ToolServers *ToolServersHandler
+	Invoke      *InvokeHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -40,5 +42,6 @@ func NewHandlers(kubeClient client.Client, autogenClient *autogen_client.Client,
 		Teams:       NewTeamsHandler(base),
 		Tools:       NewToolsHandler(base),
 		ToolServers: NewToolServersHandler(base),
+		Invoke:      NewInvokeHandler(base),
 	}
 }
