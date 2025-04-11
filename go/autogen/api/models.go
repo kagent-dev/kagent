@@ -9,15 +9,15 @@ type ModelInfo struct {
 }
 
 type OpenAICreateArgumentsConfig struct {
-	FrequencyPenalty *float64           `json:"frequency_penalty,omitempty"`
+	FrequencyPenalty float64            `json:"frequency_penalty,omitempty"`
 	LogitBias        map[string]float64 `json:"logit_bias,omitempty"`
-	MaxTokens        *int               `json:"max_tokens,omitempty"`
-	N                *int               `json:"n,omitempty"`
-	PresencePenalty  *float64           `json:"presence_penalty,omitempty"`
-	Seed             *int               `json:"seed,omitempty"`
-	Temperature      *float64           `json:"temperature,omitempty"`
-	TopP             *float64           `json:"top_p,omitempty"`
-	User             *string            `json:"user,omitempty"`
+	MaxTokens        int                `json:"max_tokens,omitempty"`
+	N                int                `json:"n,omitempty"`
+	PresencePenalty  float64            `json:"presence_penalty,omitempty"`
+	Seed             int                `json:"seed,omitempty"`
+	Temperature      float64            `json:"temperature,omitempty"`
+	TopP             float64            `json:"top_p,omitempty"`
+	User             string             `json:"user,omitempty"`
 }
 
 type StreamOptions struct {
