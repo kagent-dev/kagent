@@ -73,7 +73,7 @@ type OpenAIConfig struct {
 
 	// Maximum tokens to generate
 	// +optional
-	MaxTokens *int `json:"maxTokens,omitempty"`
+	MaxTokens int `json:"maxTokens,omitempty"`
 
 	// Top-p sampling parameter
 	// +optional
