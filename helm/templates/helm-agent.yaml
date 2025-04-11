@@ -175,6 +175,12 @@ spec:
         provider: kagent.tools.k8s.ApplyManifest
     - type: Inline
       inline:
+        provider: kagent.tools.k8s.CreateResource
+    - type: Inline
+      inline:
+        provider: kagent.tools.k8s.DeleteResource
+    - type: Inline
+      inline:
         provider: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
