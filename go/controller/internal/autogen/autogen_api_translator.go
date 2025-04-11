@@ -446,21 +446,21 @@ func translateAssistantAgent(
 	tools := []*api.Component{}
 	for _, tool := range agentSpec.Tools {
 		switch {
-		case tool.Provider != "":
+		case tool.Inline != nil:
 			autogenTool, err := translateBuiltinTool(
 				modelClientWithoutStreaming,
-				tool.BuiltinTool,
+				tool.Inline,
 			)
 			if err != nil {
 				return nil, err
 			}
 			tools = append(tools, autogenTool)
-		case tool.ToolServer != "":
-			for _, toolName := range tool.ToolNames {
+		case tool.McpServer != nil:
+			for _, toolName := range tool.McpServer.ToolNames {
 				autogenTool, err := translateToolServerTool(
 					ctx,
 					kube,
-					tool.ToolServer,
+					tool.McpServer.ToolServer,
 					toolName,
 					agentNamespace,
 				)
@@ -501,7 +501,7 @@ func translateAssistantAgent(
 
 func translateBuiltinTool(
 	modelClient *api.Component,
-	tool v1alpha1.BuiltinTool,
+	tool *v1alpha1.InlineTool,
 ) (*api.Component, error) {
 
 	toolConfig, err := convertMapFromAnytype(tool.Config)
@@ -739,8 +739,8 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 		}
 
 		// Add provider-specific configurations
-		if modelConfig.Spec.ProviderAnthropic != nil {
-			anthropicConfig := modelConfig.Spec.ProviderAnthropic
+		if modelConfig.Spec.Anthropic != nil {
+			anthropicConfig := modelConfig.Spec.Anthropic
 
 			config.BaseURL = anthropicConfig.BaseURL
 			config.MaxTokens = anthropicConfig.MaxTokens
@@ -791,8 +791,8 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 		}
 
 		// Add provider-specific configurations
-		if modelConfig.Spec.ProviderAzureOpenAI != nil {
-			azureConfig := modelConfig.Spec.ProviderAzureOpenAI
+		if modelConfig.Spec.AzureOpenAI != nil {
+			azureConfig := modelConfig.Spec.AzureOpenAI
 
 			config.AzureEndpoint = azureConfig.Endpoint
 			config.APIVersion = azureConfig.APIVersion
@@ -836,8 +836,8 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 		}
 
 		// Add provider-specific configurations
-		if modelConfig.Spec.ProviderOpenAI != nil {
-			openAIConfig := modelConfig.Spec.ProviderOpenAI
+		if modelConfig.Spec.OpenAI != nil {
+			openAIConfig := modelConfig.Spec.OpenAI
 
 			if openAIConfig.BaseURL != "" {
 				config.BaseURL = &openAIConfig.BaseURL

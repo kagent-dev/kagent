@@ -30,6 +30,10 @@ const (
 	kagentNamespace = "kagent"
 )
 
+const (
+	apikeySecretKey = "apikey"
+)
+
 var _ = Describe("E2e", func() {
 	// Initialize clients
 	var (

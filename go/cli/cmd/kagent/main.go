@@ -13,6 +13,19 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
+func checkServerConnection(client *autogen_client.Client) error {
+	// Only check if we have a valid client
+	if client == nil {
+		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
+	}
+
+	_, err := client.GetVersion()
+	if err != nil {
+		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
+	}
+	return nil
+}
+
 func main() {
 
 	// Initialize config
@@ -28,9 +41,6 @@ func main() {
 	}
 
 	client := autogen_client.New(cfg.APIURL, cfg.WSURL)
-
-	// Attempt to connect to the server
-	_, err = client.GetVersion()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
@@ -95,6 +105,10 @@ Examples:
 - chat
 `,
 		Func: func(c *ishell.Context) {
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
 			cli.ChatCmd(c)
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		},
@@ -127,7 +141,13 @@ Examples:
   get session [session_name]
   get session
   `,
-		Func: cli.GetSessionCmd,
+		Func: func(c *ishell.Context) {
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
+			cli.GetSessionCmd(c)
+		},
 	})
 
 	getCmd.AddCmd(&ishell.Cmd{
@@ -141,7 +161,13 @@ Examples:
   get run [run_name]
   get run
   `,
-		Func: cli.GetRunCmd,
+		Func: func(c *ishell.Context) {
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
+			cli.GetRunCmd(c)
+		},
 	})
 
 	getCmd.AddCmd(&ishell.Cmd{
@@ -155,7 +181,13 @@ Examples:
   get agent [agent_name]
   get agent
   `,
-		Func: cli.GetAgentCmd,
+		Func: func(c *ishell.Context) {
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
+			cli.GetAgentCmd(c)
+		},
 	})
 
 	getCmd.AddCmd(&ishell.Cmd{
@@ -169,7 +201,13 @@ Examples:
   get tool [tool_name]
   get tool
   `,
-		Func: cli.GetToolCmd,
+		Func: func(c *ishell.Context) {
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
+			cli.GetToolCmd(c)
+		},
 	})
 
 	shell.AddCmd(getCmd)
@@ -178,10 +216,18 @@ Examples:
 		// Hidden create command
 		if len(c.Args) > 0 && c.Args[0] == "create" {
 			c.Args = c.Args[1:]
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
 			cli.CreateCmd(c)
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		} else if len(c.Args) > 0 && c.Args[0] == "delete" {
 			c.Args = c.Args[1:]
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
 			cli.DeleteCmd(c)
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		} else {
@@ -213,6 +259,10 @@ Examples:
 		Aliases: []string{"u"},
 		Help:    "Uninstall kagent.",
 		Func: func(c *ishell.Context) {
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
 			cli.UninstallCmd(ctx, c)
 		},
 	})
@@ -222,6 +272,10 @@ Examples:
 		Aliases: []string{"d"},
 		Help:    "Open the kagent dashboard.",
 		Func: func(c *ishell.Context) {
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
 			cli.DashboardCmd(ctx, c)
 		},
 	})

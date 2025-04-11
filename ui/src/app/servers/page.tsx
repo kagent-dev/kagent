@@ -3,47 +3,24 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
-import { ToolServer, Tool, ToolServerConfig, Component } from "@/types/datamodel";
+import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { createServer, deleteServer, getServers, refreshServerTools, getServerTools } from "../actions/servers";
+import { createServer, deleteServer, getServers } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
 import { toast } from "sonner";
 
-// Format date function
-const formatDate = (dateString: string | null): string => {
-  if (!dateString) return "Never";
-
-  try {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  } catch (e) {
-    return "Invalid date";
-  }
-};
-
 export default function ServersPage() {
   // State for servers and tools
-  const [servers, setServers] = useState<ToolServer[]>([]);
-  const [serverTools, setServerTools] = useState<Record<number, Tool[]>>({});
+  const [servers, setServers] = useState<ToolServerWithTools[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState<number | null>(null);
-  const [expandedServers, setExpandedServers] = useState<Set<number>>(new Set());
-  const [loadingServerTools, setLoadingServerTools] = useState<Set<number>>(new Set());
+  const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
 
   // Dialog states
   const [showAddServer, setShowAddServer] = useState(false);
-  const [showConfirmDelete, setShowConfirmDelete] = useState<number | null>(null);
+  const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -61,9 +38,9 @@ export default function ServersPage() {
         setServers(serversResponse.data);
 
         // Initially expand all servers
-        const serverIds = serversResponse.data.map((server) => server.id).filter((id): id is number => id !== undefined);
+        const serverNames = serversResponse.data.map((server) => server.name).filter((name): name is string => name !== undefined);
 
-        setExpandedServers(new Set(serverIds));
+        setExpandedServers(new Set(serverNames));
       } else {
         console.error("Failed to fetch servers:", serversResponse);
         toast.error(serversResponse.error || "Failed to fetch servers data.");
@@ -76,105 +53,16 @@ export default function ServersPage() {
     }
   };
 
-  // Fetch tools for a specific server when expanded
-  const fetchServerTools = async (serverId: number) => {
-    if (serverTools[serverId] || !expandedServers.has(serverId)) return;
-
-    try {
-      setLoadingServerTools((prev) => new Set([...prev, serverId]));
-
-      const response = await getServerTools(serverId);
-
-      if (response.success && response.data) {
-        setServerTools((prev) => ({
-          ...prev,
-          [serverId]: response.data || [],
-        }));
-      } else {
-        console.error(`Failed to fetch tools for server ${serverId}:`, response);
-        toast.error(response.error || `Failed to fetch tools for server ${serverId}`);
-      }
-    } catch (error) {
-      console.error(`Error fetching tools for server ${serverId}:`, error);
-      toast.error(`Failed to fetch tools for server ${serverId}`);
-    } finally {
-      setLoadingServerTools((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(serverId);
-        return newSet;
-      });
-    }
-  };
-
-  // Effect to load tools when a server is expanded
-  useEffect(() => {
-    expandedServers.forEach((serverId) => {
-      fetchServerTools(serverId);
-    });
-  }, [expandedServers]);
-
-  // Toggle server expansion
-  const toggleServerExpansion = (serverId: number) => {
-    setExpandedServers((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(serverId)) {
-        newSet.delete(serverId);
-      } else {
-        newSet.add(serverId);
-        // Fetch tools for this server if we haven't already
-        fetchServerTools(serverId);
-      }
-      return newSet;
-    });
-  };
-
-  // Handle server refresh
-  const handleRefreshServer = async (serverId: number) => {
-    try {
-      setIsRefreshing(serverId);
-
-      const response = await refreshServerTools(serverId);
-
-      if (response) {
-        toast.success("Tools refreshed successfully");
-
-        // Refresh the tools for this specific server
-        const toolsResponse = await getServerTools(serverId);
-        if (toolsResponse.success && toolsResponse.data) {
-          setServerTools((prev) => ({
-            ...prev,
-            [serverId]: toolsResponse.data || [],
-          }));
-        }
-      } else {
-        toast.error("Failed to refresh tools");
-      }
-    } catch (error) {
-      console.error("Error refreshing server:", error);
-      toast.error("Failed to refresh server");
-    } finally {
-      setIsRefreshing(null);
-    }
-  };
-
   // Handle server deletion
-  const handleDeleteServer = async (serverId: number) => {
+  const handleDeleteServer = async (serverName: string) => {
     try {
       setIsLoading(true);
 
-      const response = await deleteServer(serverId);
+      console.log('deleting server:', serverName);
+      const response = await deleteServer(serverName);
 
       if (response.success) {
         toast.success("Server deleted successfully");
-
-        // Remove the server tools from state
-        setServerTools((prev) => {
-          const newServerTools = { ...prev };
-          delete newServerTools[serverId];
-          return newServerTools;
-        });
-
-        // Refresh servers list
         fetchServers();
       } else {
         toast.error(response.error || "Failed to delete server");
@@ -189,7 +77,7 @@ export default function ServersPage() {
   };
 
   // Handle adding a new server
-  const handleAddServer = async (server: Component<ToolServerConfig>) => {
+  const handleAddServer = async (server: ToolServer) => {
     try {
       setIsLoading(true);
 
@@ -208,11 +96,6 @@ export default function ServersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Get tool count for a server
-  const getToolCount = (serverId: number): number => {
-    return serverTools[serverId]?.length || 0;
   };
 
   return (
@@ -240,52 +123,29 @@ export default function ServersPage() {
       ) : servers.length > 0 ? (
         <div className="space-y-4">
           {servers.map((server) => {
-            if (!server.id) return null;
-            const serverId: number = server.id;
-            const isExpanded = expandedServers.has(serverId);
-            const isLoadingTools = loadingServerTools.has(serverId);
-            const toolCount = getToolCount(serverId);
+            if (!server.name) return null;
+            const serverName: string = server.name;
+            const isExpanded = expandedServers.has(serverName);
 
             return (
-              <div key={server.id} className="border rounded-md overflow-hidden">
+              <div key={server.name} className="border rounded-md overflow-hidden">
                 {/* Server Header */}
                 <div className="bg-secondary/10 p-4">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleServerExpansion(serverId)}>
+                    <div className="flex items-center gap-3 cursor-pointer">
                       {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                       <div className="flex items-center gap-2">
                         <Globe className="h-5 w-5 text-green-500" />
                         <div>
-                          <div className="font-medium">{server.component.label || server.component.provider}</div>
+                          <div className="font-medium">{server.name}</div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
-                            <span className="font-mono">{server.component.label}</span>
-                            <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                              {isExpanded ? `${toolCount} tool${toolCount !== 1 ? "s" : ""}` : ""}
-                            </Badge>
-                            {server.last_connected && <span className="text-xs text-muted-foreground">Last updated: {formatDate(server.last_connected)}</span>}
+                            <span className="font-mono">{server.name}</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRefreshServer(serverId)}
-                        className="h-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                        disabled={isRefreshing === serverId}
-                      >
-                        {isRefreshing === serverId ? (
-                          <>
-                            <div className="h-4 w-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin mr-2" />
-                            Refreshing...
-                          </>
-                        ) : (
-                          "Refresh"
-                        )}
-                      </Button>
-
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -293,7 +153,7 @@ export default function ServersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="text-red-600" onClick={() => setShowConfirmDelete(serverId)}>
+                          <DropdownMenuItem className="text-red-600" onClick={() => setShowConfirmDelete(serverName)}>
                             <Trash2 className="h-4 w-4 mr-2" />
                             Remove Server
                           </DropdownMenuItem>
@@ -306,14 +166,9 @@ export default function ServersPage() {
                 {/* Server Tools List */}
                 {isExpanded && (
                   <div className="p-4">
-                    {isLoadingTools ? (
-                      <div className="flex justify-center items-center p-4">
-                        <div className="h-5 w-5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin mr-2" />
-                        <span className="text-sm text-muted-foreground">Loading tools...</span>
-                      </div>
-                    ) : serverTools[serverId]?.length > 0 ? (
+                    {server.discoveredTools && server.discoveredTools.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {serverTools[serverId]
+                        {server.discoveredTools
                           .sort((a, b) => {
                             const aName = getToolDisplayName(a.component) || "";
                             const bName = getToolDisplayName(b.component) || "";
@@ -333,14 +188,7 @@ export default function ServersPage() {
                           ))}
                       </div>
                     ) : (
-                      <div className="text-center p-4 text-sm text-muted-foreground">
-                        No tools available for this server.
-                        <div className="mt-2">
-                          <Button variant="outline" size="sm" onClick={() => handleRefreshServer(serverId)} disabled={isRefreshing === serverId} className="text-blue-600">
-                            Refresh to discover tools
-                          </Button>
-                        </div>
-                      </div>
+                      <div className="text-center p-4 text-sm text-muted-foreground">No tools available for this server.</div>
                     )}
                   </div>
                 )}

@@ -68,82 +68,12 @@ export function getRelativeTimeString(date: string | number | Date): string {
   }
 }
 
-// Python keywords (as of Python 3.12)
-const PYTHON_KEYWORDS = new Set([
-  "False",
-  "None",
-  "True",
-  "and",
-  "as",
-  "assert",
-  "async",
-  "await",
-  "break",
-  "class",
-  "continue",
-  "def",
-  "del",
-  "elif",
-  "else",
-  "except",
-  "finally",
-  "for",
-  "from",
-  "global",
-  "if",
-  "import",
-  "in",
-  "is",
-  "lambda",
-  "nonlocal",
-  "not",
-  "or",
-  "pass",
-  "raise",
-  "return",
-  "try",
-  "while",
-  "with",
-  "yield",
-  "case",
-  "match",
-  "type",
-]);
-
-/**
- * Checks whether a string is a valid Python identifier.
- * This is a TypeScript implementation of Python's str.isidentifier()
- *
- * @param str - The string to check
- * @returns True if the string is a valid Python identifier, false otherwise
- */
-export function isIdentifier(str: string): boolean {
-  // Handle empty string
-  if (!str) {
-    return false;
-  }
-
-  // Use the XID_Start and XID_Continue Unicode properties to match Python's behavior
-  // Note: In Python, the first character must be in XID_Start and the rest in XID_Continue
-
-  // Check first character (must be XID_Start)
-  const firstChar = str[0];
-  if (!/^\p{XID_Start}$/u.test(firstChar)) {
-    return false;
-  }
-
-  // Check remaining characters (must be XID_Continue)
-  const restOfString = str.slice(1);
-  if (restOfString.length > 0 && !/^[\p{XID_Continue}]*$/u.test(restOfString)) {
-    return false;
-  }
-
-  // Check if it's not a Python keyword
-  if (PYTHON_KEYWORDS.has(str)) {
-    return false;
-  }
-  return true;
-}
+// All resource names must be valid RFC 1123 subdomains
+export const isResourceNameValid = (name: string): boolean => {
+  // RFC 1123 subdomain regex pattern
+  const rfc1123Pattern = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
+  return rfc1123Pattern.test(name);
+};
 
 export const messageUtils = {
   isToolCallContent(content: unknown): content is FunctionCall[] {
