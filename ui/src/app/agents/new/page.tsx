@@ -17,6 +17,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
 import { extractSocietyOfMindAgentTools } from "@/lib/toolUtils";
+import { AgentFormData } from "@/components/AgentsProvider";
 
 interface ValidationErrors {
   name?: string;
@@ -119,6 +120,27 @@ function AgentPageContent() {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Add field-level validation functions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const validateField = (fieldName: keyof ValidationErrors, value: any) => {
+    const formData: Partial<AgentFormData> = {};
+    
+    // Set only the field being validated
+    if (fieldName === 'name') formData.name = value;
+    else if (fieldName === 'description') formData.description = value;
+    else if (fieldName === 'systemPrompt') formData.systemPrompt = value;
+    else if (fieldName === 'model') formData.model = value;
+    else if (fieldName === 'tools') formData.tools = value;
+    
+    const fieldErrors = validateAgentData(formData);
+    
+    // Update only the specific field error
+    setErrors(prev => ({
+      ...prev,
+      [fieldName]: fieldErrors[fieldName]
+    }));
+  };
+
   const handleSaveAgent = async () => {
     if (!validateForm()) {
       return;
@@ -192,6 +214,7 @@ function AgentPageContent() {
                   <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    onBlur={() => validateField('name', name)}
                     className={`${errors.name ? "border-red-500" : ""}`}
                     placeholder="Enter agent name..."
                     disabled={isSubmitting || isLoading}
@@ -204,6 +227,7 @@ function AgentPageContent() {
                   <Textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
+                    onBlur={() => validateField('description', description)}
                     className={`min-h-[100px] ${errors.description ? "border-red-500" : ""}`}
                     placeholder="Describe your agent. This is for your reference only and it's not going to be used by the agent."
                     disabled={isSubmitting || isLoading}
@@ -211,9 +235,25 @@ function AgentPageContent() {
                   {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
                 </div>
 
-                <SystemPromptSection value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} error={errors.systemPrompt} disabled={isSubmitting || isLoading} />
+                <SystemPromptSection 
+                  value={systemPrompt} 
+                  onChange={(e) => setSystemPrompt(e.target.value)} 
+                  onBlur={() => validateField('systemPrompt', systemPrompt)}
+                  error={errors.systemPrompt} 
+                  disabled={isSubmitting || isLoading} 
+                />
 
-                <ModelSelectionSection allModels={models} selectedModel={selectedModel} setSelectedModel={setSelectedModel} error={errors.model} isSubmitting={isSubmitting || isLoading} />
+                <ModelSelectionSection 
+                  allModels={models} 
+                  selectedModel={selectedModel} 
+                  setSelectedModel={(model) => {
+                    setSelectedModel(model);
+                    validateField('model', model);
+                  }} 
+                  error={errors.model} 
+                  isSubmitting={isSubmitting || isLoading} 
+                  onBlur={() => validateField('model', selectedModel)}
+                />
               </CardContent>
             </Card>
 
@@ -225,7 +265,13 @@ function AgentPageContent() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ToolsSection allTools={tools} selectedTools={selectedTools} setSelectedTools={setSelectedTools} isSubmitting={isSubmitting || isLoading} />
+                <ToolsSection 
+                  allTools={tools} 
+                  selectedTools={selectedTools} 
+                  setSelectedTools={setSelectedTools} 
+                  isSubmitting={isSubmitting || isLoading} 
+                  onBlur={() => validateField('tools', selectedTools)}
+                />
               </CardContent>
             </Card>
 
