@@ -6,6 +6,7 @@ import { Component, ToolConfig, Agent, AgentTool, AgentResponse } from "@/types/
 import { getTools } from "@/app/actions/tools";
 import type { BaseResponse, Model } from "@/lib/types";
 import { getModels } from "@/app/actions/models";
+import { isResourceNameValid } from "@/lib/utils";
 
 interface ValidationErrors {
   name?: string;
@@ -118,6 +119,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       if (!data.name.trim()) {
         errors.name = "Agent name is required";
       }
+    }
+
+    if (data.name !== undefined && !isResourceNameValid(data.name)) {
+      errors.name = `Agent name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
     }
 
     if (data.description !== undefined && !data.description.trim()) {

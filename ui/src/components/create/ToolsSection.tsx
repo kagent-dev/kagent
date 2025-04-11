@@ -17,9 +17,10 @@ interface ToolsSectionProps {
   selectedTools: AgentTool[];
   setSelectedTools: (tools: AgentTool[]) => void;
   isSubmitting: boolean;
+  onBlur?: () => void;
 }
 
-export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubmitting }: ToolsSectionProps) => {
+export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubmitting, onBlur }: ToolsSectionProps) => {
   const [showToolSelector, setShowToolSelector] = useState(false);
   const [configTool, setConfigTool] = useState<AgentTool | null>(null);
   const [showConfig, setShowConfig] = useState(false);
@@ -57,6 +58,10 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     const agentTools = newSelectedTools.map(componentToAgentTool);
     setSelectedTools(agentTools);
     setShowToolSelector(false);
+
+    if (onBlur) {
+      onBlur();
+    }
   };
 
   const handleRemoveTool = (tool: AgentTool) => {

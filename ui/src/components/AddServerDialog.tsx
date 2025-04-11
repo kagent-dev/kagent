@@ -9,6 +9,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { SseMcpServerConfig, StdioMcpServerConfig, ToolServer } from "@/types/datamodel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { isResourceNameValid } from "@/lib/utils";
 
 interface AddServerDialogProps {
   open: boolean;
@@ -107,13 +108,6 @@ export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDi
     }
     
     return cleaned;
-  };
-
-  // Validate RFC 1123 subdomain
-  const validateRfc1123Subdomain = (name: string): boolean => {
-    // RFC 1123 subdomain regex pattern
-    const rfc1123Pattern = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
-    return rfc1123Pattern.test(name);
   };
 
   // Handle server name input changes
@@ -288,7 +282,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDi
     }
     
     // Ensure the server name conforms to RFC 1123
-    if (!validateRfc1123Subdomain(finalServerName)) {
+    if (!isResourceNameValid(finalServerName)) {
       setError("Server name must conform to RFC 1123 subdomain standard (lowercase alphanumeric characters, '-' or '.', must start and end with alphanumeric character)");
       return;
     }
@@ -420,9 +414,9 @@ export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDi
                 placeholder="e.g., my-tool-server" 
                 value={serverName} 
                 onChange={handleServerNameChange}
-                className={!validateRfc1123Subdomain(serverName) && serverName ? "border-red-300" : ""}
+                className={!isResourceNameValid(serverName) && serverName ? "border-red-300" : ""}
               />
-              {!validateRfc1123Subdomain(serverName) && serverName && (
+              {!isResourceNameValid(serverName) && serverName && (
                 <p className="text-xs text-red-500">Name must conform to RFC 1123 subdomain format</p>
               )}
             </div>
