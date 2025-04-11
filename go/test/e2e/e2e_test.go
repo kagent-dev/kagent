@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/exported"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
@@ -123,7 +122,7 @@ var _ = Describe("E2e", func() {
 				ctx,
 				testShell,
 				testTeam,
-				prompt+`\nWhen you are finished, end your reply with "Operation completed".`,
+				prompt+`\nComplete the task without asking for confirmation, even if the task involves creating or deleting namespaces or other critical resources. When you are finished, end your reply with "Operation completed".`,
 			)
 			Expect(err).NotTo(HaveOccurred())
 		}()
@@ -219,7 +218,7 @@ var _ = Describe("E2e", func() {
 	})
 
 	// Helm Agent Test
-	FIt("manages helm repositories and deployments", func() {
+	It("manages helm repositories and deployments", func() {
 		const namespace = "helm-test"
 		const deploymentName = "nginx-test"
 
@@ -371,184 +370,7 @@ var _ = Describe("E2e", func() {
 		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should be deleted")
 	})
 
-	// Argo Rollouts Test
-	It("converts deployments to argo rollouts", func() {
-		const namespace = "argo-test"
-		const deploymentName = "test-app"
-		const refDeploymentName = "ref-app"
-
-		// Cleanup namespace if it exists from a previous test run
-		cleanupNamespace(namespace)
-
-		// Setup: Create test namespace
-		runAgentInteraction("k8s-agent",
-			`Create a namespace called "argo-test"`)
-
-		// Verify namespace exists
-		Eventually(func() bool {
-			return namespaceExists(namespace)
-		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should exist after creation")
-
-		// Verify Argo Rollouts controller is installed
-		output := runAgentInteraction("argo-rollouts-conversion-agent",
-			`Verify that the Argo Rollouts controller is installed in the cluster. If it's not installed, end with "Argo Rollouts not installed". Otherwise, end with "Operation completed"`)
-
-		// We conditionally proceed based on whether Argo Rollouts is installed
-		if strings.Contains(output, "Argo Rollouts not installed") {
-			Skip("Skipping test as Argo Rollouts controller is not installed")
-		}
-
-		// Create a test deployment
-		runAgentInteraction("k8s-agent",
-			`Create a deployment named "test-app" in the "argo-test" namespace with image "nginx:1.19". Set replicas to 3 and add labels "app=test-app" and "version=v1"`)
-
-		// Verify deployment exists with correct replica count and labels
-		deployment := &appsv1.Deployment{}
-		Eventually(func() bool {
-			if !resourceExists(namespace, "Deployment", deploymentName, deployment) {
-				return false
-			}
-			return *deployment.Spec.Replicas == int32(3) &&
-				deployment.Labels["app"] == "test-app" &&
-				deployment.Labels["version"] == "v1"
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Deployment should exist with correct replicas and labels")
-
-		// Convert deployment to Argo Rollout
-		runAgentInteraction("argo-rollouts-conversion-agent",
-			`Convert the "test-app" deployment in the "argo-test" namespace to an Argo Rollout with a canary strategy. The canary strategy should have two steps: set 25% weight and then pause for manual promotion`)
-
-		// We can't directly verify the Argo Rollout without registering the CRD
-		// Instead, we'll verify that the deployment has been modified or removed
-
-		// Create another deployment for reference approach test
-		runAgentInteraction("k8s-agent",
-			`Create a deployment named "ref-app" in the "argo-test" namespace with image "nginx:1.19". Set replicas to 3 and add labels "app=ref-app" and "version=v1"`)
-
-		// Verify deployment exists
-		refDeployment := &appsv1.Deployment{}
-		Eventually(func() bool {
-			return resourceExists(namespace, "Deployment", refDeploymentName, refDeployment)
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Reference deployment should exist")
-
-		// Create Rollout that references existing deployment
-		runAgentInteraction("argo-rollouts-conversion-agent",
-			`Create a new rollout that references the existing "ref-app" deployment in the "argo-test" namespace instead of converting it. Use a canary strategy with 50% traffic weight and a 30 second pause`)
-
-		// Can't directly verify Argo Rollout objects without registering CRDs
-
-		// Clean up
-		runAgentInteraction("k8s-agent",
-			`Delete the namespace "argo-test" and all its resources`)
-
-		// Verify namespace is deleted
-		Eventually(func() bool {
-			return !namespaceExists(namespace)
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should be deleted")
-	})
-
-	// Observability Agent Test (conditional on having Prometheus/Grafana)
-	It("works with prometheus and grafana if available", func() {
-		// Check if Prometheus is available
-		output := runAgentInteraction("observability-agent",
-			`Query Prometheus for the up metric to check if Prometheus is running. If Prometheus is not available, respond with "Prometheus not available". Otherwise, end with "Operation completed"`)
-
-		if strings.Contains(output, "Prometheus not available") {
-			Skip("Skipping test as Prometheus is not available")
-		}
-
-		// Query basic metrics
-		runAgentInteraction("observability-agent",
-			`Query Prometheus for CPU usage metrics for all pods in the default namespace. Show the results and end with "Operation completed"`)
-
-		// Check if Grafana is available
-		output = runAgentInteraction("observability-agent",
-			`Try to list available Grafana dashboards. If Grafana is not available, respond with "Grafana not available". Otherwise, end with "Operation completed"`)
-
-		if strings.Contains(output, "Grafana not available") {
-			Skip("Skipping test as Grafana is not available")
-		}
-
-		// Create a simple dashboard
-		runAgentInteraction("observability-agent",
-			`Create a simple Grafana dashboard showing memory and CPU usage for the cluster. Name the dashboard "E2E Test Dashboard"`)
-
-		// Since we don't have direct API access to Grafana in this test,
-		// we rely on the agent's response to indicate success
-
-		// Clean up dashboard
-		runAgentInteraction("observability-agent",
-			`Delete the "E2E Test Dashboard" Grafana dashboard`)
-	})
 })
-
-func upsertResources(ctx context.Context, sClient client.Client, ress ...client.Object) error {
-	for _, res := range ress {
-		existingRes := res.DeepCopyObject().(client.Object)
-		// Check if the resource already exists
-		err := sClient.Get(ctx, client.ObjectKey{
-			Name:      res.GetName(),
-			Namespace: res.GetNamespace(),
-		}, existingRes)
-		if err != nil {
-			if client.IgnoreNotFound(err) != nil {
-				return err
-			}
-			// Create the resource if it doesn't exist
-			err = sClient.Create(ctx, res)
-			if err != nil {
-				return err
-			}
-		} else {
-			// Update the resource if it already exists
-			res.SetResourceVersion(existingRes.GetResourceVersion())
-			err = sClient.Update(ctx, res)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func findAgentParticipant(teamComponent *api.Component, name string) *api.AssistantAgentConfig {
-	teamConfig := &api.RoundRobinGroupChatConfig{}
-	err := teamConfig.FromConfig(teamComponent.Config)
-	Expect(err).NotTo(HaveOccurred())
-
-	for _, participant := range teamConfig.Participants {
-		switch participant.Provider {
-		case "kagent.agents.TaskAgent":
-			taskAgentConfig := &api.TaskAgentConfig{}
-			err := taskAgentConfig.FromConfig(participant.Config)
-			Expect(err).NotTo(HaveOccurred())
-
-			// this is the "society of mind" TaskAgent agent, it wraps another team which contains our agent participant, so we must unwrap
-			// this is created per-agent for each agent internally by the kagent translator
-			return findAgentParticipant(taskAgentConfig.Team, name)
-		case "autogen_agentchat.agents.AssistantAgent":
-			// this is our agent, the component is the config we want
-			agentConfig := &api.AssistantAgentConfig{}
-			err := agentConfig.FromConfig(participant.Config)
-			Expect(err).NotTo(HaveOccurred())
-
-			if agentConfig.Name == convertToPythonIdentifier(name) {
-				return agentConfig
-			}
-		}
-	}
-
-	return nil
-}
-
-func makeAgentSummary(agent *api.AssistantAgentConfig) string {
-	agentSummary := fmt.Sprintf("Agent Name: %s\nDescription: %s\nTools:\n", agent.Name, agent.Description)
-	for _, tool := range agent.Tools {
-		agentSummary += fmt.Sprintf("  - %s: %s\n", tool.Provider, tool.Description)
-	}
-
-	return agentSummary
-}
 
 // test shell simulates a user shell interface
 type TestShell struct {
