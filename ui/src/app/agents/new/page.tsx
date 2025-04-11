@@ -121,6 +121,7 @@ function AgentPageContent() {
   };
 
   // Add field-level validation functions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const validateField = (fieldName: keyof ValidationErrors, value: any) => {
     const formData: Partial<AgentFormData> = {};
     
