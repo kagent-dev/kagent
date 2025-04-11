@@ -884,6 +884,34 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 			Config:        api.MustToConfig(config),
 		}, nil
 
+	case v1alpha1.Ollama:
+		config := &api.OllamaClientConfiguration{
+			OllamaCreateArguments: api.OllamaCreateArguments{
+				Model: modelConfig.Spec.Model,
+				Host:  modelConfig.Spec.Ollama.Host,
+			},
+			FollowRedirects: true,
+		}
+
+		if modelConfig.Spec.Ollama != nil {
+			ollamaConfig := modelConfig.Spec.Ollama
+
+			if ollamaConfig.ResponseFormat != "" {
+				config.ResponseFormat = ollamaConfig.ResponseFormat
+			}
+
+			if ollamaConfig.Options != nil {
+				config.Options = ollamaConfig.Options
+			}
+		}
+
+		return &api.Component{
+			Provider:      "autogen_ext.models.ollama.OllamaChatCompletionClient",
+			ComponentType: "model",
+			Version:       1,
+			Config:        api.MustToConfig(config),
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
 	}

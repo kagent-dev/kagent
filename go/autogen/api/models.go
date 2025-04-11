@@ -103,3 +103,27 @@ func (c *AnthropicClientConfiguration) ToConfig() (map[string]interface{}, error
 func (c *AnthropicClientConfiguration) FromConfig(config map[string]interface{}) error {
 	return fromConfig(c, config)
 }
+
+type OllamaCreateArguments struct {
+	Model          string `json:"model"`
+	Host           string `json:"host"`
+	ResponseFormat string `json:"response_format"`
+}
+
+type OllamaClientConfiguration struct {
+	FollowRedirects   bool              `json:"follow_redirects"`
+	Timeout           int               `json:"timeout"`
+	Headers           map[string]string `json:"headers"`
+	ModelCapabilities interface{}       `json:"model_capabilities,omitempty"`
+	ModelInfo         *ModelInfo        `json:"model_info"`
+	Options           map[string]string `json:"options"`
+	OllamaCreateArguments
+}
+
+func (c *OllamaClientConfiguration) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *OllamaClientConfiguration) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
