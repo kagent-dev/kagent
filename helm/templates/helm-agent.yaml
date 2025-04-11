@@ -155,6 +155,8 @@ spec:
     - provider: kagent.tools.k8s.GetResources
     - provider: kagent.tools.k8s.GetAvailableAPIResources
     - provider: kagent.tools.k8s.ApplyManifest
+    - provider: kagent.tools.k8s.CreateResource
+    - provider: kagent.tools.k8s.DeleteResource
     - provider: kagent.tools.docs.QueryTool
       config:
         docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com

@@ -67,89 +67,7 @@ var _ = Describe("E2e", func() {
 
 		Expect(agentTeam).NotTo(BeNil(), fmt.Sprintf("Agent with label %s not found", agentName))
 
-		agentParticipant := findAgentParticipant(agentTeam.Component, agentName)
-		Expect(agentParticipant).NotTo(BeNil(), fmt.Sprintf("Agent participant with name %s not found in team %s", agentName, agentTeam.Component.Label))
-
-		// construct a new team with a user-assistant to help achieve consistency with tests
-		// NOTE(ilackarms): team resources need to go in kagent namespace to make use of the helm-chart installed agent under test
-		userAgent := &v1alpha1.Agent{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("e2e-test-agent-%s", agentName),
-				Namespace: kagentNamespace,
-			},
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Team",
-				APIVersion: "Agent.dev/v1alpha1",
-			},
-			Spec: v1alpha1.AgentSpec{
-				Description: "",
-				SystemMessage: fmt.Sprintf(`You are AgentTester, an AI agent created by Solo.io, designed to test and validate the performance of other Kubernetes DevOps agents. Your primary role is to simulate a user, interacting with the agent under test to ensure it executes its responsibilities correctly. You are provided with a description of the agent under test and a summary of its tools, which you use to assess its responses.
-
-Your core tasks are:
-- Logically verify the agent’s responses for accuracy, relevance, and correctness.
-- Identify errors, invalid information, or tool-access issues in the agent’s output.
-- Provide clear, actionable feedback to correct the agent—e.g., "Try again, you have access to this tool," or "This response is incorrect, please re-evaluate."
-- Maintain a professional, concise, and persistent tone, focusing on improving the agent’s performance.
-
-Behavioral Guidelines:
-- Act as a user would, posing realistic queries or tasks based on the agent’s role.
-- Do not assume the agent’s tools or capabilities beyond what’s provided in the summary.
-- If the agent claims it lacks access to a tool it should have, instruct it to retry with confidence.
-- Avoid unnecessary elaboration—keep feedback direct and solution-oriented.
-
-The current date is {{.%s}}. Use the following summary of the agent under test’s tools to guide your evaluation: 
-
-{{.%s}}.
-
-When the given task is considered complete, end the session by replying with "Operation completed".
-`,
-					time.Now().String(),
-					makeAgentSummary(agentParticipant),
-				),
-			},
-		}
-		testTeam := &v1alpha1.Team{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("e2e-test-team-%s", agentName),
-				Namespace: kagentNamespace,
-			},
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: v1alpha1.GroupVersion.String(),
-				Kind:       "Team",
-			},
-			Spec: v1alpha1.TeamSpec{
-				Participants: []string{
-					userAgent.Name,
-					agentName,
-				},
-				Description:          fmt.Sprintf("A team whose role it is to test the %s agent", agentName),
-				RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
-				TerminationCondition: v1alpha1.TerminationCondition{
-					TextMessageTermination: &v1alpha1.TextMessageTermination{
-						Source: convertToPythonIdentifier(userAgent.Name),
-					},
-				},
-				MaxTurns: 0,
-			},
-		}
-		// upsert both the team and the user agent
-		err = upsertResources(ctx, k8sClient, testTeam, userAgent)
-		Expect(err).NotTo(HaveOccurred())
-
-		// eventuall fetch the team again to get the ID
-		var apiTestTeam *autogen_client.Team
-		Eventually(func() error {
-			var err error
-			apiTestTeam, err = agentClient.GetTeam(testTeam.Name, GlobalUserID)
-			if err != nil {
-				return err
-			}
-			if apiTestTeam == nil {
-				return fmt.Errorf("team %v not found", testTeam.Name)
-			}
-			return nil
-		}, 30*time.Second, 1*time.Second).Should(Succeed(), "Failed to fetch test team after creating it")
-		Expect(err).NotTo(HaveOccurred())
+		apiTestTeam := agentTeam
 
 		// reuse existing sessions if available
 		existingSessions, err := agentClient.ListSessions(GlobalUserID)
@@ -174,11 +92,22 @@ When the given task is considered complete, end the session by replying with "Op
 	runAgentInteraction := func(agentLabel, prompt string) string {
 		sess, testTeam := createOrFetchAgentSession(agentLabel)
 
-		run, err := agentClient.CreateRun(&autogen_client.CreateRunRequest{
-			SessionID: sess.ID,
-			UserID:    GlobalUserID,
-		})
-		Expect(err).NotTo(HaveOccurred())
+		// eventually create the run
+		var run *autogen_client.CreateRunResult
+		Eventually(func() error {
+			var err error
+			run, err = agentClient.CreateRun(&autogen_client.CreateRunRequest{
+				SessionID: sess.ID,
+				UserID:    GlobalUserID,
+			})
+			if err != nil {
+				return err
+			}
+			if run == nil {
+				return fmt.Errorf("run for session %v not found", sess.ID)
+			}
+			return nil
+		}, 30*time.Second, 1*time.Second).Should(Succeed(), "Failed to create test run")
 
 		wsClient, err := exported.NewWebsocketClient(WSEndpoint, run.ID, exported.DefaultConfig)
 		Expect(err).NotTo(HaveOccurred())
@@ -198,20 +127,23 @@ When the given task is considered complete, end the session by replying with "Op
 			)
 			Expect(err).NotTo(HaveOccurred())
 		}()
-		for {
-			select {
-			case <-time.After(time.Second * 5):
-				// check that output contains "Operation completed"
-				// if not, continue
-				if strings.Contains(testShell.OutputText, "Operation completed") {
-					// Success case
-					fmt.Printf("Agent %s finished successfully.\nOutput: %s\n", agentLabel, testShell.OutputText)
-					break
+		func() {
+			for {
+				select {
+				case <-time.After(time.Second * 5):
+					// check that output contains "Operation completed"
+					// if not, continue
+					if strings.Contains(testShell.OutputText, "Operation completed") {
+						// Success case
+						fmt.Printf("Agent %s finished successfully.\nOutput: %s\n", agentLabel, testShell.OutputText)
+						return
+					}
+				case <-ctx.Done():
+					Fail(fmt.Sprintf("Timed out waiting for %s agent to respond.\nAgent Output: %s", agentLabel, testShell.OutputText))
+					return
 				}
-			case <-ctx.Done():
-				Fail(fmt.Sprintf("Timed out waiting for %s agent to respond.\nAgent Output: %s", agentLabel, testShell.OutputText))
 			}
-		}
+		}()
 		return testShell.OutputText
 	}
 
@@ -304,7 +236,7 @@ When the given task is considered complete, end the session by replying with "Op
 
 		// Create namespace for test
 		runAgentInteraction("k8s-agent",
-			`Create a namespace called "helm-test". You can do so with your ApplyManifest tool.`)
+			`Create a namespace called "helm-test".`)
 
 		// Verify namespace exists
 		Eventually(func() bool {

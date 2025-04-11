@@ -394,7 +394,7 @@ func (a *apiTranslator) translateTaskAgent(
 	// This is important so we don't output this message in the CLI/UI
 	meta.Name += "-society-of-mind-wrapper"
 	team := &v1alpha1.Team{
-		ObjectMeta: agent.ObjectMeta,
+		ObjectMeta: *meta,
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Team",
 			APIVersion: "kagent.dev/v1alpha1",
