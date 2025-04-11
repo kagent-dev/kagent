@@ -7,9 +7,10 @@ interface ModelSelectionSectionProps {
   setSelectedModel: (model: Model) => void;
   error?: string;
   isSubmitting: boolean;
+  onBlur?: () => void;
 }
 
-export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedModel, error, isSubmitting }: ModelSelectionSectionProps) => {
+export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedModel, error, isSubmitting, onBlur }: ModelSelectionSectionProps) => {
   return (
     <>
       <label className="text-sm mb-2 block">Model</label>
@@ -18,7 +19,12 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
         disabled={isSubmitting || allModels.length === 0} 
         onValueChange={(value) => {
           const model = allModels.find((m) => m.name === value);
-          if (model) setSelectedModel(model);
+          if (model) {
+            setSelectedModel(model);
+            if (onBlur) {
+              onBlur();
+            }
+          }
         }}
       >
         <SelectTrigger className={`${error ? "border-red-500" : ""}`}>
