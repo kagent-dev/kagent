@@ -110,9 +110,6 @@ spec:
                       type: string
                     description: Options for the Ollama API
                     type: object
-                  responseFormat:
-                    description: Response format for the Ollama API
-                    type: string
                 type: object
               openAI:
                 description: OpenAI-specific configuration

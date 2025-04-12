@@ -896,15 +896,12 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 		if modelConfig.Spec.Ollama != nil {
 			ollamaConfig := modelConfig.Spec.Ollama
 
-			if ollamaConfig.ResponseFormat != "" {
-				config.ResponseFormat = ollamaConfig.ResponseFormat
-			}
-
 			if ollamaConfig.Options != nil {
 				config.Options = ollamaConfig.Options
 			}
 		}
 
+		fmt.Printf("config: %+v\n", config)
 		return &api.Component{
 			Provider:      "autogen_ext.models.ollama.OllamaChatCompletionClient",
 			ComponentType: "model",

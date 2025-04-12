@@ -27,6 +27,7 @@ dependencies = [
   "opentelemetry-instrumentation-openai>= 0.38.0",
   "opentelemetry-instrumentation-httpx >= 0.51.0",
   "anthropic>=0.49.0",
+  "ollama>=0.4.7",
 ]
 
 [project.optional-dependencies]

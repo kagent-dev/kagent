@@ -141,10 +141,6 @@ type OllamaConfig struct {
 	// +optional
 	Host string `json:"host,omitempty"`
 
-	// Response format for the Ollama API
-	// +optional
-	ResponseFormat string `json:"responseFormat,omitempty"`
-
 	// Options for the Ollama API
 	// +optional
 	Options map[string]string `json:"options,omitempty"`

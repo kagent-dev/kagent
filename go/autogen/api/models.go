@@ -105,9 +105,8 @@ func (c *AnthropicClientConfiguration) FromConfig(config map[string]interface{})
 }
 
 type OllamaCreateArguments struct {
-	Model          string `json:"model"`
-	Host           string `json:"host"`
-	ResponseFormat string `json:"response_format"`
+	Model string `json:"model"`
+	Host  string `json:"host"`
 }
 
 type OllamaClientConfiguration struct {
