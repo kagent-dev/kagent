@@ -901,7 +901,6 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 			}
 		}
 
-		fmt.Printf("config: %+v\n", config)
 		return &api.Component{
 			Provider:      "autogen_ext.models.ollama.OllamaChatCompletionClient",
 			ComponentType: "model",
