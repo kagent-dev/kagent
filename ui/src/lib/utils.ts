@@ -24,14 +24,18 @@ export function getWsUrl() {
 }
 
 export function getBackendUrl() {
-  let url = "";
+  // The NEXT_PUBLIC_BACKEND_URL is set in the Helm chart to the Kubernetes service name
+  if (process.env.NEXT_PUBLIC_BACKEND_URL) {
+    return process.env.NEXT_PUBLIC_BACKEND_URL;
+  }
 
   if (process.env.NODE_ENV === "production") {
-    url = process.env.NEXT_PUBLIC_BACKEND_URL || "http://0.0.0.0/api";
-  } else {
-    url = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8083/api";
+    // This is more of a fallback; the NEXT_PUBLIC_BACKEND_URL should be set in the Helm chart
+    return "http://kagent.kagent.svc.cluster.local/api";
   }
-  return url;
+
+  // Fallback for local development
+  return "http://localhost:8083/api";
 }
 
 export function getWebSocketUrl() {
@@ -77,7 +81,7 @@ export const isResourceNameValid = (name: string): boolean => {
 
 export const messageUtils = {
   isToolCallContent(content: unknown): content is FunctionCall[] {
-    if (!Array.isArray(content)) return false;
+    if (!Array.isArray(content) || content.length === 0) return false;
     return content.every((item) => typeof item === "object" && item !== null && "id" in item && "arguments" in item && "name" in item);
   },
 

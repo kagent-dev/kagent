@@ -3,7 +3,7 @@
 import { AgentMessageConfig, AgentResponse, GetSessionRunsResponse, Message, Run, Session } from "@/types/datamodel";
 import { getTeam } from "./teams";
 import { getSession, getSessionRuns, getSessions } from "./sessions";
-import { fetchApi, getCurrentUserId, createErrorResponse } from "./utils";
+import { fetchApi, getCurrentUserId } from "./utils";
 import { createRunWithSession } from "@/lib/ws";
 
 /**

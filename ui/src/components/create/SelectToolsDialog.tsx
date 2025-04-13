@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import {  Component, ToolConfig } from "@/types/datamodel";
 import ProviderFilter from "./ProviderFilter";
 import ToolItem from "./ToolItem";
-import { getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider } from "@/lib/data";
+import { getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider } from "@/lib/toolUtils";
 
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 10;

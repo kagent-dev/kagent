@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState } from "react";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isInlineTool, isMcpTool, isSameTool } from "@/lib/data";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isInlineTool, isMcpTool, isSameTool } from "@/lib/toolUtils";
 import { Label } from "@/components/ui/label";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import { AgentTool, Component, ToolConfig } from "@/types/datamodel";

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
+import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
 import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
@@ -17,6 +17,7 @@ export default function ServersPage() {
   const [servers, setServers] = useState<ToolServerWithTools[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [serverError, setServerError] = useState<string | null>(null);
 
   // Dialog states

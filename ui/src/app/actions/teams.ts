@@ -1,11 +1,11 @@
 "use server";
 
 import { BaseResponse } from "@/lib/types";
-import { Agent, AgentResponse, AgentTool, Component, TeamConfig } from "@/types/datamodel";
+import { Agent, AgentResponse, AgentTool, Component } from "@/types/datamodel";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { isInlineTool, isMcpTool } from "@/lib/data";
+import { isInlineTool, isMcpTool } from "@/lib/toolUtils";
 
 /**
  * Converts a tool to AgentTool format
@@ -26,6 +26,7 @@ function convertToAgentTool(tool: unknown): AgentTool {
 
   // Check if it's a Component<ToolConfig>
   if (tool && typeof tool === 'object' && 'provider' in tool) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const componentTool = tool as Component<any>;
     return {
       type: "Inline",
@@ -138,7 +139,13 @@ export async function getTeam(teamLabel: string | number): Promise<BaseResponse<
 
     const response: AgentResponse = {
       ...data,
-      tools,
+      agent: {
+        ...data.agent,
+        spec: {
+          ...data.agent.spec,
+          tools,
+        },
+      },
     };
 
     return { success: true, data: response };

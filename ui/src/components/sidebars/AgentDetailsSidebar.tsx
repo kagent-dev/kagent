@@ -9,7 +9,7 @@ import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel
 import { AgentActions } from "./AgentActions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
-import { getToolIdentifier, getToolProvider, getToolDisplayName } from "@/lib/data";
+import { getToolIdentifier, getToolProvider, getToolDisplayName } from "@/lib/toolUtils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
@@ -39,8 +39,7 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
             for (const tool of response.data.agent.spec.tools) {
               const toolIdentifier = getToolIdentifier(tool);
               const toolProvider = getToolProvider(tool);
-              const displayName = getToolDisplayName(tool);
-              
+
               try {
                 // For MCP tools, we need to use the SseMcpToolAdapter provider and the tool name
                 if (tool.type === "McpServer" && tool.mcpServer?.toolNames?.[0]) {
@@ -106,7 +105,7 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
 
     return (
       <SidebarMenu>
-        {tools.map((tool, index) => {
+        {tools.map((tool) => {
           const toolIdentifier = getToolIdentifier(tool);
           const toolProvider = getToolProvider(tool);
           const displayName = getToolDisplayName(tool);
