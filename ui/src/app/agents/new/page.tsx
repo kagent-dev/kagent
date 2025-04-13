@@ -12,12 +12,11 @@ import { ModelSelectionSection } from "@/components/create/ModelSelectionSection
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
-import type { AgentTool } from "@/types/datamodel";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
-import { extractSocietyOfMindAgentTools } from "@/lib/toolUtils";
 import { AgentFormData } from "@/components/AgentsProvider";
+import { AgentTool } from "@/types/datamodel";
 
 interface ValidationErrors {
   name?: string;
@@ -81,8 +80,7 @@ function AgentPageContent() {
               setName(agent.metadata.name || "");
               setDescription(agent.spec.description || "");
               setSystemPrompt(agent.spec.systemMessage || "");
-              setSelectedTools(extractSocietyOfMindAgentTools(agentResponse) || []);
-
+              setSelectedTools(agent.spec.tools || []);
               setSelectedModel({
                 model: agentResponse.model,
                 name: agent.spec.modelConfigRef,
@@ -104,7 +102,7 @@ function AgentPageContent() {
     };
 
     fetchAgentData();
-  }, [isEditMode, agentId, getAgentById, models]);
+  }, [isEditMode, agentId, getAgentById]);
 
   const validateForm = () => {
     const formData = {

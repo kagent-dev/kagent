@@ -141,24 +141,25 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   };
 
   // Get agent by ID function
-  const getAgentById = async (name: string): Promise<AgentResponse | null> => {
+  const getAgentById = async (id: string): Promise<AgentResponse | null> => {
     try {
-      // First ensure we have the latest teams data
-      const { data: teams } = await getTeams();
-      if (!teams) {
-        console.error("Failed to get teams");
+      // Fetch all teams
+      const teamsResult = await getTeams();
+      if (!teamsResult.data || teamsResult.error) {
+        console.error("Failed to get teams:", teamsResult.error);
         setError("Failed to get teams");
         return null;
       }
 
+      const teams = teamsResult.data;
+      
       // Find the team/agent with the matching ID
-      const agent = teams.find((team) => String(team.agent.metadata.name) === name);
+      const agent = teams.find((team) => String(team.id) === id);
 
       if (!agent) {
-        console.warn(`Agent with name ${name} not found`);
+        console.warn(`Agent with ID ${id} not found`);
         return null;
       }
-
       return agent;
     } catch (error) {
       console.error("Error getting agent by ID:", error);

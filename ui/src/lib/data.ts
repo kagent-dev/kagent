@@ -34,14 +34,17 @@ export const getToolDisplayName = (tool?: AgentTool | Component<ToolConfig>): st
     return tool.label || "No name";
   }
 
-
+  // Handle AgentTool types
   if (isMcpTool(tool) && tool.mcpServer) {
     // For McpServer tools, use the first tool name if available
     return tool.mcpServer.toolNames.length > 0 ? tool.mcpServer.toolNames[0] : tool.mcpServer.toolServer;
   } else if (isInlineTool(tool) && tool.inline) {
-    // For Inline tools, use the provider
-    return tool.inline.provider || "Inline Tool";
+    // For Inline tools, use the label if available, otherwise fall back to provider and make sure to use the last part of the provider
+    const providerParts = tool.inline.provider.split(".");
+    const providerName = providerParts[providerParts.length - 1];
+    return tool.inline.label || providerName || "Inline Tool";
   } else {
+    console.warn("Unknown tool type:", tool);
     return "Unknown Tool";
   }
 };
@@ -49,23 +52,24 @@ export const getToolDisplayName = (tool?: AgentTool | Component<ToolConfig>): st
 export const getToolDescription = (tool?: AgentTool | Component<ToolConfig>): string => {
   if (!tool) return "No description";
 
-    // Check if the tool is of Component<ToolConfig> type
-    if (typeof tool === "object" && "provider" in tool && "description" in tool) {
-      if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
-        return (tool.config as MCPToolConfig).tool.description || "No description";
-      }
-      return tool.description || "No description";
+  // Check if the tool is of Component<ToolConfig> type
+  if (typeof tool === "object" && "provider" in tool && "description" in tool) {
+    if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+      return (tool.config as MCPToolConfig).tool.description || "No description";
     }
+    return tool.description || "No description";
+  }
 
+  // Handle AgentTool types
   if (isInlineTool(tool) && tool.inline) {
     return tool.inline.description || "No description";
   } else if (isMcpTool(tool)) {
-    return `${tool.mcpServer?.toolServer || "unknown server"}`;
+    return "MCP Server Tool";
   } else {
+    console.warn("Unknown tool type:", tool);
     return "No description";
   }
 };
-
 
 export const getToolIdentifier = (tool?: AgentTool | Component<ToolConfig>): string => {
   if (!tool) return "unknown";
@@ -89,6 +93,7 @@ export const getToolIdentifier = (tool?: AgentTool | Component<ToolConfig>): str
   } else if (isInlineTool(tool) && tool.inline) {
     return `component-${tool.inline.provider}`;
   } else {
+    console.warn("Unknown tool type:", tool);
     return `unknown-${JSON.stringify(tool).slice(0, 20)}`;
   }
 };
@@ -101,11 +106,13 @@ export const getToolProvider = (tool?: AgentTool | Component<ToolConfig>): strin
     return tool.provider;
   }
   
+  // Handle AgentTool types
   if (isInlineTool(tool) && tool.inline) {
     return tool.inline.provider;
   } else if (isMcpTool(tool) && tool.mcpServer) {
     return tool.mcpServer.toolServer;
   } else {
+    console.warn("Unknown tool type:", tool);
     return "unknown";
   }
 };

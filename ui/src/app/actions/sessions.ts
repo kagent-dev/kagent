@@ -3,18 +3,28 @@
 import { BaseResponse, CreateSessionRequest } from "@/lib/types";
 import { Run, Session } from "@/types/datamodel";
 import { revalidatePath } from "next/cache";
-import { fetchApi } from "./utils";
+import { fetchApi, createErrorResponse } from "./utils";
 
+/**
+ * Gets all runs for a session
+ * @param sessionId The session ID
+ * @returns A promise with the session runs
+ */
 export async function getSessionRuns(sessionId: string): Promise<BaseResponse<Run[]>> {
   try {
     const data = await fetchApi<Run[]>(`/sessions/${sessionId}/runs`);
     return { success: true, data };
   } catch (error) {
-    console.error("Error getting session runs:", error);
-    return { success: false, error: "Failed to get session runs. Please try again." };
+    return createErrorResponse<Run[]>(error, "Error getting session runs");
   }
 }
-export async function deleteSession(sessionId: number) {
+
+/**
+ * Deletes a session
+ * @param sessionId The session ID
+ * @returns A promise with the delete result
+ */
+export async function deleteSession(sessionId: number): Promise<BaseResponse<void>> {
   try {
     await fetchApi(`/sessions/${sessionId}`, {
       method: "DELETE",
@@ -23,33 +33,45 @@ export async function deleteSession(sessionId: number) {
       },
     });
 
+    revalidatePath("/");
     return { success: true };
   } catch (error) {
-    console.error("Error deleting session:", error);
-    return { success: false, error: "Failed to delete session. Please try again." };
+    return createErrorResponse<void>(error, "Error deleting session");
   }
 }
 
+/**
+ * Gets a session by ID
+ * @param sessionId The session ID
+ * @returns A promise with the session data
+ */
 export async function getSession(sessionId: string): Promise<BaseResponse<Session>> {
   try {
     const data = await fetchApi<Session>(`/sessions/${sessionId}`);
     return { success: true, data };
   } catch (error) {
-    console.error("Error getting session:", error);
-    return { success: false, error: "Failed to get session. Please try again." };
+    return createErrorResponse<Session>(error, "Error getting session");
   }
 }
 
+/**
+ * Gets all sessions
+ * @returns A promise with all sessions
+ */
 export async function getSessions(): Promise<BaseResponse<Session[]>> {
   try {
     const data = await fetchApi<Session[]>(`/sessions`);
     return { success: true, data };
   } catch (error) {
-    console.error("Error getting sessions:", error);
-    return { success: false, error: "Failed to get sessions. Please try again." };
+    return createErrorResponse<Session[]>(error, "Error getting sessions");
   }
 }
 
+/**
+ * Creates a new session
+ * @param session The session creation request
+ * @returns A promise with the created session
+ */
 export async function createSession(session: CreateSessionRequest): Promise<BaseResponse<Session>> {
   try {
     const response = await fetchApi<Session>(`/sessions`, {
@@ -67,10 +89,9 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
       throw new Error("Failed to create session");
     }
 
-    revalidatePath(`/agents/${response.id}/chat`);
+    revalidatePath(`/agents/${response.team_id}/chat`);
     return { success: true, data: response };
   } catch (error) {
-    console.error("Error creating team:", error);
-    return { success: false, error: "Failed to create team. Please try again." };
+    return createErrorResponse<Session>(error, "Error creating session");
   }
 }

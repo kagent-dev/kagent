@@ -366,7 +366,8 @@ export interface AgentTool {
 export interface InlineTool {
   provider: string;
   description?: string;
-  config?: Record<string, any>;
+  config?: any;
+  label?: string;
 }
 
 export interface McpServerTool {

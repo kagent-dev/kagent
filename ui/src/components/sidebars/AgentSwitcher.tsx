@@ -21,12 +21,19 @@ export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
   const { isMobile } = useSidebar();
   const [agentResponses, setAgentResponses] = useState<AgentResponse[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<AgentResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSessions = async () => {
-      const data = await getChatData(agentId, null);
-      if (data.agent) {
-        setSelectedTeam(data.agent);
+      try {
+        const data = await getChatData(agentId, null);
+        if (data.agent) {
+          setSelectedTeam(data.agent);
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+        setError(errorMessage);
+        console.error("Failed to fetch chat data:", error);
       }
     };
     fetchSessions();
@@ -34,15 +41,26 @@ export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
 
   useEffect(() => {
     const fetchTeams = async () => {
-      const { data } = await getTeams();
-
-      if (data) {
-        setAgentResponses(data);
+      try {
+        const response = await getTeams();
+        if (response.success && response.data) {
+          setAgentResponses(response.data);
+        } else {
+          setError(response.error || "Failed to fetch teams");
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+        setError(errorMessage);
+        console.error("Failed to fetch teams:", error);
       }
     };
 
     fetchTeams();
   }, []);
+
+  if (error) {
+    return <div className="p-4 text-red-500">{error}</div>;
+  }
 
   if (!selectedTeam) {
     return null;

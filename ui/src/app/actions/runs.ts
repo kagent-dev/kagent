@@ -1,8 +1,13 @@
 "use server";
 
 import { BaseResponse, CreateRunRequest, CreateRunResponse } from "@/lib/types";
-import { fetchApi } from "./utils";
+import { fetchApi, createErrorResponse } from "./utils";
 
+/**
+ * Creates a new run
+ * @param payload The run creation payload
+ * @returns A promise with the created run
+ */
 export async function createRun(payload: CreateRunRequest): Promise<BaseResponse<CreateRunResponse>> {
   try {
     const response = await fetchApi<CreateRunResponse>(`/runs`, {
@@ -19,7 +24,6 @@ export async function createRun(payload: CreateRunRequest): Promise<BaseResponse
 
     return { success: true, data: response };
   } catch (error) {
-    console.error("Error creating run:", error);
-    return { success: false, error: "Failed to create run. Please try again." };
+    return createErrorResponse<CreateRunResponse>(error, "Error creating run");
   }
 }

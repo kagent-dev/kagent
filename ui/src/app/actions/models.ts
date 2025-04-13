@@ -1,38 +1,46 @@
 "use server";
-import { fetchApi } from "./utils";
+import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse, Model } from "@/lib/types";
 
+/**
+ * Gets all available models
+ * @returns A promise with all models
+ */
 export async function getModels(): Promise<BaseResponse<Model[]>> {
-  const response = await fetchApi<Model[]>("/modelconfigs");
+  try {
+    const response = await fetchApi<Model[]>("/modelconfigs");
 
-  if (!response) {
+    if (!response) {
+      throw new Error("Failed to get models");
+    }
+
     return {
-      success: false,
-      error: "Failed to get models. Please try again.",
-      data: [],
+      success: true,
+      data: response,
     };
+  } catch (error) {
+    return createErrorResponse<Model[]>(error, "Error getting models");
   }
-
-  return {
-    success: true,
-    data: response,
-  };
 }
 
+/**
+ * Gets a specific model by name
+ * @param configName The model configuration name
+ * @returns A promise with the model data
+ */
+export async function getModel(configName: string): Promise<BaseResponse<Model>> {
+  try {
+    const response = await fetchApi<Model>(`/modelconfigs/${configName}`);
 
-export async function getModel(configName: string) {
-  const response = await fetchApi<Model>(`/modelconfigs/${configName}`);
+    if (!response) {
+      throw new Error("Failed to get model");
+    }
 
-  if (!response) {
     return {
-      success: false,
-      error: "Failed to get model. Please try again.",
-      data: null,
+      success: true,
+      data: response,
     };
+  } catch (error) {
+    return createErrorResponse<Model>(error, "Error getting model");
   }
-
-  return {
-    success: true,
-    data: response,
-  };
 }
