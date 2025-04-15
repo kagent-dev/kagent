@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/autogen/api"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -239,7 +240,11 @@ func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req 
 	// reconcile the agent team itself
 	toolServer := &v1alpha1.ToolServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, toolServer); err != nil {
-		return fmt.Errorf("failed to get agent %s: %v", req.Name, err)
+		// if the tool server is not found, we can ignore it
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get tool server %s: %v", req.Name, err)
 	}
 
 	serverID, reconcileErr := a.reconcileToolServer(ctx, toolServer)

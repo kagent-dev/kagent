@@ -128,7 +128,7 @@ export const componentToAgentTool = (component: Component<ToolConfig>): AgentToo
     return {
       type: "McpServer",
       mcpServer: {
-        toolServer: mcpConfig.tool.name || "unknown",
+        toolServer: component.label || mcpConfig.tool.name || "unknown",
         toolNames: [mcpConfig.tool.name || "unknown"]
       }
     };
@@ -151,7 +151,7 @@ export const findComponentForAgentTool = (agentTool: AgentTool, components: Comp
     return components.find(
       (c) => 
         c.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter" && 
-        (c.config as MCPToolConfig).tool.name === agentTool.mcpServer.toolNames[0]
+        ((c.config as MCPToolConfig).tool.name === agentTool.mcpServer.toolNames[0] || c.label === agentTool.mcpServer.toolServer)
     );
   } else if (isInlineTool(agentTool)) {
     // isInlineTool type guard ensures inline exists and has required properties

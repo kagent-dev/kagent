@@ -18,8 +18,9 @@ package controller
 
 import (
 	"context"
-	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -55,7 +56,7 @@ func (r *ToolServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{
 		// loop forever because we need to refresh tools server status
 		Requeue:      true,
-		RequeueAfter: 5 * time.Second,
+		RequeueAfter: 60 * time.Second,
 	}, r.Reconciler.ReconcileAutogenToolServer(ctx, req)
 }
 

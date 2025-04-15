@@ -56,7 +56,27 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   const handleToolSelect = (newSelectedTools: Component<ToolConfig>[]) => {
     // Convert Component<ToolConfig>[] to AgentTool[]
     const agentTools = newSelectedTools.map(componentToAgentTool);
-    setSelectedTools(agentTools);
+    
+    // Ensure MCP tools have the correct toolServer field set to the label
+    // The label contains the name of the ToolServer CRD.
+    const updatedAgentTools = agentTools.map(tool => {
+      if (isMcpTool(tool) && tool.mcpServer) {
+        // Find the corresponding component
+        const component = findComponentForAgentTool(tool, allTools);
+        if (component && component.label) {
+          return {
+            ...tool,
+            mcpServer: {
+              ...tool.mcpServer,
+              toolServer: component.label
+            }
+          };
+        }
+      }
+      return tool;
+    });
+    
+    setSelectedTools(updatedAgentTools);
     setShowToolSelector(false);
 
     if (onBlur) {
@@ -75,13 +95,28 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     setConfigTool((prevTool) => {
       if (!prevTool) return null;
 
-      return {
-        ...prevTool,
-        config: {
-          ...prevTool.inline?.config, 
-          [field]: value,
-        },
-      };
+      if (isMcpTool(prevTool) && field === "toolServer") {
+        return {
+          ...prevTool,
+          mcpServer: {
+            ...prevTool.mcpServer,
+            toolServer: value
+          }
+        };
+      } else if (isInlineTool(prevTool)) {
+        return {
+          ...prevTool,
+          inline: {
+            ...prevTool.inline,
+            config: {
+              ...prevTool.inline?.config, 
+              [field]: value,
+            },
+          },
+        };
+      }
+      
+      return prevTool;
     });
   };
 
