@@ -8,15 +8,13 @@ import (
 	"github.com/gorilla/mux"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/handlers"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	// Default namespace for resources
-	DefaultResourceNamespace = "kagent"
-
 	// API Path constants
 	APIPathHealth      = "/health"
 	APIPathModelConfig = "/api/modelconfigs"
@@ -30,7 +28,7 @@ const (
 
 var defaultModelConfig = types.NamespacedName{
 	Name:      "default-model-config",
-	Namespace: DefaultResourceNamespace,
+	Namespace: common.GetResourceNamespace(),
 }
 
 // ServerConfig holds the configuration for the HTTP server

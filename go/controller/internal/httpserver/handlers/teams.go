@@ -9,14 +9,12 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"github.com/kagent-dev/kagent/go/controller/internal/client_wrapper"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-// DefaultResourceNamespace is the default namespace for resources
-const DefaultResourceNamespace = "kagent"
 
 // TeamsHandler handles team-related requests
 type TeamsHandler struct {
@@ -67,7 +65,7 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 		modelConfig := &v1alpha1.ModelConfig{}
 		if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
 			Name:      team.Spec.ModelConfigRef,
-			Namespace: DefaultResourceNamespace,
+			Namespace: common.GetResourceNamespace(),
 		}, modelConfig); err != nil {
 			log.Error(err, "Failed to get model config", "modelConfigRef", team.Spec.ModelConfigRef)
 			continue
@@ -105,7 +103,7 @@ func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) 
 	existingTeam := &v1alpha1.Agent{}
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
 		Name:      teamRequest.Name,
-		Namespace: DefaultResourceNamespace,
+		Namespace: common.GetResourceNamespace(),
 	}, existingTeam); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get team", err))
 		return
@@ -136,7 +134,7 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 	log = log.WithValues("teamName", teamRequest.Name)
 
 	// Default to kagent namespace
-	teamRequest.Namespace = DefaultResourceNamespace
+	teamRequest.Namespace = common.GetResourceNamespace()
 
 	kubeClientWrapper := client_wrapper.NewKubeClientWrapper(h.KubeClient)
 	kubeClientWrapper.AddInMemory(teamRequest)
@@ -233,7 +231,7 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	team := &v1alpha1.Agent{}
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
 		Name:      teamLabel,
-		Namespace: DefaultResourceNamespace,
+		Namespace: common.GetResourceNamespace(),
 	}, team); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Team not found in Kubernetes", err))
 		return
@@ -244,7 +242,7 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	modelConfig := &v1alpha1.ModelConfig{}
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
 		Name:      team.Spec.ModelConfigRef,
-		Namespace: DefaultResourceNamespace,
+		Namespace: common.GetResourceNamespace(),
 	}, modelConfig); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get model config", err))
 		return
@@ -278,7 +276,7 @@ func (h *TeamsHandler) HandleDeleteTeam(w ErrorResponseWriter, r *http.Request) 
 	team := &v1alpha1.Agent{}
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
 		Name:      teamLabel,
-		Namespace: DefaultResourceNamespace,
+		Namespace: common.GetResourceNamespace(),
 	}, team); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Team not found in Kubernetes", err))
 		return

@@ -5,6 +5,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -55,7 +56,7 @@ func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *ht
 	}
 
 	log = log.WithValues("toolServerName", toolServerRequest.Name)
-	toolServerRequest.Namespace = DefaultResourceNamespace
+	toolServerRequest.Namespace = common.GetResourceNamespace()
 
 	if err := h.KubeClient.Create(r.Context(), toolServerRequest); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create tool server in Kubernetes", err))
@@ -80,7 +81,7 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 	toolServer := &v1alpha1.ToolServer{}
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
 		Name:      toolServerName,
-		Namespace: DefaultResourceNamespace,
+		Namespace: common.GetResourceNamespace(),
 	}, toolServer); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Tool server not found in Kubernetes", err))
 		return

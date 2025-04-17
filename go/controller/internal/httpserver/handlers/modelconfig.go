@@ -5,6 +5,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -57,7 +58,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	modelConfig := &v1alpha1.ModelConfig{}
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
 		Name:      configName,
-		Namespace: DefaultResourceNamespace,
+		Namespace: common.GetResourceNamespace(),
 	}, modelConfig); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get model config", err))
 		return

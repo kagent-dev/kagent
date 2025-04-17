@@ -58,6 +58,10 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           ports:
             - name: http
               containerPort: {{ .Values.service.ports.app.targetPort }}
