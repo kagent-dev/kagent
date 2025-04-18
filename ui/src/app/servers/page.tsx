@@ -17,12 +17,11 @@ export default function ServersPage() {
   const [servers, setServers] = useState<ToolServerWithTools[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [serverError, setServerError] = useState<string | null>(null);
 
   // Dialog states
   const [showAddServer, setShowAddServer] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
+  const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -81,7 +80,6 @@ export default function ServersPage() {
   const handleAddServer = async (server: ToolServer) => {
     try {
       setIsLoading(true);
-      setServerError(null);
 
       const response = await createServer(server);
 
@@ -95,7 +93,6 @@ export default function ServersPage() {
     } catch (error) {
       console.error("Error adding server:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      setServerError(errorMessage);
       toast.error(`Failed to add server: ${errorMessage}`);
       throw error; // Re-throw to be caught by the dialog
     } finally {
@@ -151,16 +148,26 @@ export default function ServersPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <DropdownMenu>
+                      <DropdownMenu 
+                        open={openDropdownMenu === serverName} 
+                        onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? serverName : null)}
+                      >
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="text-red-600" onClick={() => setShowConfirmDelete(serverName)}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Remove Server
+                           <DropdownMenuItem 
+                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                             onSelect={(e) => {
+                               e.preventDefault();
+                               setOpenDropdownMenu(null);
+                                setShowConfirmDelete(serverName);
+                             }}
+                           >
+                             <Trash2 className="h-4 w-4 mr-2" />
+                             Remove Server
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -217,14 +224,17 @@ export default function ServersPage() {
       <AddServerDialog 
         open={showAddServer} 
         onOpenChange={setShowAddServer} 
-        onAddServer={handleAddServer} 
-        onError={setServerError}
+        onAddServer={handleAddServer}
       />
 
       {/* Confirm delete dialog */}
       <ConfirmDialog
         open={showConfirmDelete !== null}
-        onOpenChange={() => setShowConfirmDelete(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowConfirmDelete(null);
+          }
+        }}
         title="Delete Server"
         description="Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
         onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete)}
