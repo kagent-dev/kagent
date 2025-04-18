@@ -63,7 +63,7 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		// original kagent installation that had CRDs installed together with the kagent chart
 		if strings.Contains(output, "exists and cannot be imported into the current release") {
 			s.Stop()
-			c.Println("Warning: CRDs already exist, proceeding with installation")
+			c.Println("Warning: CRDs already exist but not managed by helm, you might need to delete them manually to make them fully managed by helm.")
 			s.Start()
 		} else {
 			c.Println("Error installing kagent-crds:", output)
