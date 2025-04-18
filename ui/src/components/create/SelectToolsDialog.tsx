@@ -15,7 +15,13 @@ import { getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvi
 const MAX_TOOLS_LIMIT = 10;
 
 // Extract category from tool identifier
-const getToolCategory = (toolId: string) => {
+const getToolCategory = (tool: Component<ToolConfig>) => {
+  if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+    // In case of MCP server tools, the server name is stored in the label
+    return tool.label || "MCP Server"; // Fallback if label is undefined
+  }
+
+  const toolId = getToolIdentifier(tool);
   const parts = toolId.split(".");
   // If pattern is like kagent.tools.grafana.something, return grafana
   if (parts.length >= 3) {
@@ -61,7 +67,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       // Initialize all categories as expanded
       const categories: { [key: string]: boolean } = {};
       availableTools.forEach((tool) => {
-        const category = getToolCategory(tool.provider);
+        const category = getToolCategory(tool);
         categories[category] = true;
       });
       setExpandedCategories(categories);
@@ -101,7 +107,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
     // Group by categories
     sortedTools.forEach((tool) => {
-      const category = getToolCategory(tool.provider);
+      const category = getToolCategory(tool);
       if (!groups[category]) {
         groups[category] = [];
       }
