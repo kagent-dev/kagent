@@ -38,6 +38,7 @@ export interface FunctionExecutionResult {
 export interface BaseMessageConfig {
   source: string;
   models_usage?: RequestUsage;
+  metadata?: Record<string, string>;
 }
 
 export interface TextMessageConfig extends BaseMessageConfig {

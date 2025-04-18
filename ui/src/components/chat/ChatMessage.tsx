@@ -39,6 +39,7 @@ export default function ChatMessage({ message, run }: ChatMessageProps) {
       <div className="text-sm p-4">
         <span className="font-semibold">Task completed</span>
         <ul className="mt-2">
+          <li>Stop reason: {message.config.task_result.stop_reason}</li>
           <li>Duration: {Math.floor(message.config.duration)} seconds</li>
           <li>Messages sent: {message.config.task_result.messages.length}</li>
         </ul>
