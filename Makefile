@@ -100,6 +100,11 @@ helm-install: helm-version check-openai-key kind-load-docker-images
 		--set app.image.tag=$(APP_IMAGE_TAG) \
 		--set openai.apiKey=$(OPENAI_API_KEY)
 
+.PHONY: helm-uninstall
+helm-uninstall:
+	helm uninstall kagent --namespace kagent
+	helm uninstall kagent-crds --namespace kagent
+
 .PHONY: helm-publish
 helm-publish: helm-version
 	helm push kagent-crds-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
