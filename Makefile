@@ -42,7 +42,7 @@ push: push-controller push-ui push-app
 .PHONY: controller-manifests
 controller-manifests:
 	make -C go manifests
-	cp go/config/crd/bases/* helm/crds/
+	cp go/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
 build-controller: controller-manifests
@@ -80,12 +80,18 @@ kind-load-docker-images: build
 
 .PHONY: helm-version
 helm-version:
-	VERSION=$(VERSION) envsubst < helm/Chart-template.yaml > helm/Chart.yaml
-	helm package helm/
+	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
+	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
+	helm package helm/kagent-crds
+	helm package helm/kagent
 
 .PHONY: helm-install
 helm-install: helm-version check-openai-key kind-load-docker-images
-	helm upgrade --install kagent helm/ \
+	helm upgrade --install kagent-crds helm/kagent-crds \
+		--namespace kagent \
+		--create-namespace \
+		--wait
+	helm upgrade --install kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
 		--wait \
@@ -96,4 +102,5 @@ helm-install: helm-version check-openai-key kind-load-docker-images
 
 .PHONY: helm-publish
 helm-publish: helm-version
+	helm push kagent-crds-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
 	helm push kagent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
