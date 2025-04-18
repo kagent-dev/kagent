@@ -138,7 +138,8 @@ export const componentToAgentTool = (component: Component<ToolConfig>): AgentToo
       inline: {
         provider: component.provider,
         label: component.label || undefined,
-        description: component.description || undefined
+        description: component.description || undefined,
+        config: component.config || undefined
       }
     };
   }
