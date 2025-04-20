@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { ChatStatus, setupWebSocket, WebSocketManager } from "./ws";
-import { AgentMessageConfig, InitialMessage, Message, Run, Session, WebSocketMessage, SessionWithRuns, AgentResponse, RunStatus } from "@/types/datamodel";
+import { AgentMessageConfig, InitialMessage, Message, Run, Session, WebSocketMessage, SessionWithRuns, AgentResponse } from "@/types/datamodel";
 import { loadExistingChat, sendMessage, startNewChat } from "@/app/actions/chat";
 import { messageUtils } from "./utils";
 

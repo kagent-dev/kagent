@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, FunctionSquare } from "lucide-react";
 import { Model } from "@/lib/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";

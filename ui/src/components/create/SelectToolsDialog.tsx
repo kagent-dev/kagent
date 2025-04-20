@@ -201,9 +201,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                 <div className="space-y-3">
                   {Object.entries(groupedAvailableTools).map(([category, tools]) => {
                     const toolsSelectedInCategory = tools.filter(isToolSelected).length;
-                    const allInCategorySelected = toolsSelectedInCategory === tools.length;
-                    const canAddMoreFromCategory = tools.length - toolsSelectedInCategory + selectedCount <= MAX_TOOLS_LIMIT;
-
                     return (
                       <div key={category} className="border rounded-lg overflow-hidden bg-card">
                         <div

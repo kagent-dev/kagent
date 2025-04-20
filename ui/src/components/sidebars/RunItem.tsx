@@ -1,4 +1,4 @@
-import { AgentMessageConfig, Run, TextMessageConfig } from "@/types/datamodel";
+import { AgentMessageConfig, Run } from "@/types/datamodel";
 import {
   AlertDialog,
   AlertDialogTrigger,
