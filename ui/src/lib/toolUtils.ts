@@ -77,20 +77,26 @@ export const getToolIdentifier = (tool?: AgentTool | Component<ToolConfig>): str
   // Handle Component<ToolConfig> type
   if (typeof tool === "object" && "provider" in tool) {
     if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
-      // For MCP adapter tools
+      // For MCP adapter components, use toolServer (from label) and tool name
       const mcpConfig = tool.config as MCPToolConfig;
-      return `mcptool-${mcpConfig.tool.name}`;
+      const toolServer = tool.label || mcpConfig.tool.name || "unknown"; // Prefer label as toolServer
+      const toolName = mcpConfig.tool.name || "unknown";
+      return `mcptool-${toolServer}-${toolName}`;
     }
-    
-    // For regular component tools
+
+    // For regular component tools (includes Inline)
     return `component-${tool.provider}`;
   }
 
   // Handle AgentTool types
   if (isMcpTool(tool) && tool.mcpServer) {
+    // For MCP agent tools, use toolServer and first tool name
     const toolName = tool.mcpServer.toolNames[0] || "unknown";
-    return `mcptool-${tool.mcpServer.toolServer}-${toolName}`;
+    // Ensure mcpServer and toolServer exist before accessing
+    const toolServer = tool.mcpServer?.toolServer || "unknown";
+    return `mcptool-${toolServer}-${toolName}`;
   } else if (isInlineTool(tool) && tool.inline) {
+    // For Inline agent tools
     return `component-${tool.inline.provider}`;
   } else {
     console.warn("Unknown tool type:", tool);
@@ -138,24 +144,22 @@ export const componentToAgentTool = (component: Component<ToolConfig>): AgentToo
       inline: {
         provider: component.provider,
         label: component.label || undefined,
-        description: component.description || undefined
+        description: component.description || undefined,
+        config: component.config || undefined
       }
     };
   }
 };
 
-
-export const findComponentForAgentTool = (agentTool: AgentTool, components: Component<ToolConfig>[]): Component<ToolConfig> | undefined => {
-  if (isMcpTool(agentTool)) {
-    // isMcpTool type guard ensures mcpServer exists and has required properties
-    return components.find(
-      (c) => 
-        c.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter" && 
-        ((c.config as MCPToolConfig).tool.name === agentTool.mcpServer.toolNames[0] || c.label === agentTool.mcpServer.toolServer)
-    );
-  } else if (isInlineTool(agentTool)) {
-    // isInlineTool type guard ensures inline exists and has required properties
-    return components.find((c) => c.provider === agentTool.inline.provider);
+export const findComponentForAgentTool = (
+  agentTool: AgentTool,
+  components: Component<ToolConfig>[]
+): Component<ToolConfig> | undefined => {
+  const agentToolId = getToolIdentifier(agentTool);
+  if (agentToolId === "unknown") {
+    console.warn("Could not get identifier for agent tool:", agentTool);
+    return undefined;
   }
-  return undefined;
+
+  return components.find((c) => getToolIdentifier(c) === agentToolId);
 };

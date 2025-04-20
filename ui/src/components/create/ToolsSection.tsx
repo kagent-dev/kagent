@@ -54,29 +54,38 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   };
 
   const handleToolSelect = (newSelectedTools: Component<ToolConfig>[]) => {
-    // Convert Component<ToolConfig>[] to AgentTool[]
-    const agentTools = newSelectedTools.map(componentToAgentTool);
-    
-    // Ensure MCP tools have the correct toolServer field set to the label
-    // The label contains the name of the ToolServer CRD.
-    const updatedAgentTools = agentTools.map(tool => {
-      if (isMcpTool(tool) && tool.mcpServer) {
-        // Find the corresponding component
-        const component = findComponentForAgentTool(tool, allTools);
-        if (component && component.label) {
+    // Create a map of existing AgentTools keyed by their identifier for quick lookup
+    const existingToolsMap = new Map<string, AgentTool>();
+    selectedTools.forEach(tool => {
+      existingToolsMap.set(getToolIdentifier(tool), tool);
+    });
+
+    // Convert the new selection (Component<ToolConfig>[]) into AgentTool[], preserving existing config
+    const mergedAgentTools = newSelectedTools.map(component => {
+      const toolIdentifier = getToolIdentifier(component);
+      const existingTool = existingToolsMap.get(toolIdentifier);
+
+      if (existingTool) {
+        // If the tool already existed, keep its configuration
+        return existingTool;
+      } else {
+        // If it's a new tool, convert it to an AgentTool
+        const newAgentTool = componentToAgentTool(component);
+
+        // Ensure MCP tools get their label set as toolServer
+        if (isMcpTool(newAgentTool) && newAgentTool.mcpServer && component.label) {
           return {
-            ...tool,
+            ...newAgentTool,
             mcpServer: {
-              ...tool.mcpServer,
+              ...newAgentTool.mcpServer,
               toolServer: component.label
             }
           };
         }
+        return newAgentTool;
       }
-      return tool;
     });
-    
-    setSelectedTools(updatedAgentTools);
+    setSelectedTools(mergedAgentTools);
     setShowToolSelector(false);
 
     if (onBlur) {

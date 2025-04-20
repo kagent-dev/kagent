@@ -37,7 +37,6 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
     if (!response.ok) {
       // Try to extract error message from response
       let errorMessage = `Request failed with status ${response.status}. ${url}`;
-      
       try {
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
@@ -83,7 +82,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
     });
 
     // Include more error details for debugging
-    throw new Error(`Failed to fetch (${url}): ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(`${error instanceof Error ? error.message : "Unknown error"}`);
   }
 }
 

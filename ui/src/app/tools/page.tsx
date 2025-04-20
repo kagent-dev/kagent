@@ -1,36 +1,35 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, FunctionSquare, Filter, Info, AlertCircle, Server } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Search, FunctionSquare, Filter, Info, AlertCircle, Server, ChevronDown, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider } from "@/lib/toolUtils";
 import {  Component, ToolConfig, ToolServerConfiguration } from "@/types/datamodel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getTools } from "../actions/tools";
 import { getServers } from "../actions/servers";
 import Link from "next/link";
+import CategoryFilter from "@/components/tools/CategoryFilter";
+import McpIcon from "@/components/icons/McpIcon";
 
-// Extract category from tool identifier
-const getToolCategory = (component: Component<ToolConfig>): string => {
-  const providerId = getToolIdentifier(component);
-  const parts = providerId.split(".");
-
-  if (parts.length >= 3 && parts[0] === "kagent" && parts[1] === "tools") {
-    return parts[2];
+const getToolCategory = (tool: Component<ToolConfig>) => {
+  if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+    return tool.label || "MCP Server";
   }
 
-  if (component.provider) {
-    const providerParts = component.provider.split(".");
-    if (providerParts.length >= 3) {
-      return providerParts[2];
-    }
+  const toolId = getToolIdentifier(tool);
+  const parts = toolId.split(".");
+  if (parts.length >= 3 && parts[1] === "tools") {
+    return parts[2]; // e.g., kagent.tools.grafana -> grafana
   }
-
-  return "other";
+  if (parts.length >= 2) {
+    return parts[1]; // e.g., kagent.builtin -> builtin
+  }
+  return "other"; // Default category
 };
 
 export default function ToolsPage() {
@@ -53,6 +52,7 @@ export default function ToolsPage() {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+  const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
 
   // Fetch data on component mount
   useEffect(() => {
@@ -85,7 +85,11 @@ export default function ToolsPage() {
           // Process discovered tools from this server
           if (server.discoveredTools && Array.isArray(server.discoveredTools)) {
             server.discoveredTools.forEach(tool => {
-              toolsFromServers.push(tool.component);
+              const labeledTool = {
+                ...tool.component,
+                label: server.name
+              };
+              toolsFromServers.push(labeledTool);
             });
           }
         });
@@ -118,10 +122,13 @@ export default function ToolsPage() {
       // Convert map back to array
       const consolidatedTools = Array.from(toolMap.values());
       
-      // Extract unique categories
+      // Extract unique categories and initialize expanded state
       const uniqueCategories = new Set<string>();
+      const initialExpandedState: { [key: string]: boolean } = {};
       consolidatedTools.forEach(tool => {
-        uniqueCategories.add(getToolCategory(tool));
+        const category = getToolCategory(tool);
+        uniqueCategories.add(category);
+        initialExpandedState[category] = true;
       });
 
       // Update state with consolidated data
@@ -132,6 +139,8 @@ export default function ToolsPage() {
         isLoading: false,
         error: null
       });
+      setExpandedCategories(initialExpandedState);
+
     } catch (error) {
       console.error("Error fetching data:", error);
       setToolsData(prev => ({
@@ -159,32 +168,59 @@ export default function ToolsPage() {
   const clearCategories = () => setSelectedCategories(new Set());
 
   // Filter tools based on search and categories
-  const filteredTools = toolsData.tools.filter(tool => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch =
-      getToolDisplayName(tool)?.toLowerCase().includes(searchLower) ||
-      getToolDescription(tool)?.toLowerCase().includes(searchLower) ||
-      tool.provider?.toLowerCase().includes(searchLower) ||
-      getToolIdentifier(tool)?.toLowerCase().includes(searchLower);
+  const filteredTools = useMemo(() => {
+    return toolsData.tools.filter(tool => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch =
+        getToolDisplayName(tool)?.toLowerCase().includes(searchLower) ||
+        getToolDescription(tool)?.toLowerCase().includes(searchLower) ||
+        getToolProvider(tool)?.toLowerCase().includes(searchLower) ||
+        getToolIdentifier(tool)?.toLowerCase().includes(searchLower);
 
-    const toolCategory = getToolCategory(tool);
-    const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
+      const toolCategory = getToolCategory(tool);
+      const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
 
-    return matchesSearch && matchesCategory;
-  });
+      return matchesSearch && matchesCategory;
+    });
+  }, [toolsData.tools, searchTerm, selectedCategories]);
 
   // Group tools by category
-  const toolsByCategory: Record<string, Component<ToolConfig>[]> = {};
-  filteredTools.forEach(tool => {
-    const category = getToolCategory(tool);
-    if (!toolsByCategory[category]) {
-      toolsByCategory[category] = [];
-    }
-    toolsByCategory[category].push(tool);
-  });
+  const toolsByCategory = useMemo(() => {
+    const groups: Record<string, Component<ToolConfig>[]> = {};
+    const sortedTools = [...filteredTools].sort((a, b) => {
+      const aName = getToolDisplayName(a) || "";
+      const bName = getToolDisplayName(b) || "";
+      return aName.localeCompare(bName);
+    });
+
+    sortedTools.forEach(tool => {
+      const category = getToolCategory(tool);
+      if (!groups[category]) {
+        groups[category] = [];
+      }
+      groups[category].push(tool);
+    });
+    
+    return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
+           .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
+  }, [filteredTools]);
+
+  // Handler to toggle category expansion
+  const toggleCategory = (category: string) => {
+    setExpandedCategories((prev) => ({ ...prev, [category]: !prev[category] }));
+  };
+
+  // Helper to highlight search term
+  const highlightMatch = (text: string | undefined | null, highlight: string) => {
+    if (!text || !highlight) return text;
+    const parts = text.split(new RegExp(`(${highlight})`, 'gi'));
+    return parts.map((part, i) =>
+      part.toLowerCase() === highlight.toLowerCase() ? <mark key={i} className="bg-yellow-200 px-0 py-0 rounded">{part}</mark> : part
+    );
+  };
 
   return (
-    <div className="mt-12 mx-auto max-w-6xl px-6">
+    <div className="mt-12 mx-auto max-w-6xl px-6 pb-12">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Tools Library</h1>
         <Link href="/servers" className="text-blue-600 hover:text-blue-800 text-sm">
@@ -223,32 +259,14 @@ export default function ToolsPage() {
       </div>
 
       {/* Category filters */}
-      {showFilters && (
-        <div className="mb-6 p-4 border rounded-md bg-secondary/10">
-          <h3 className="text-sm font-medium mb-3">Filter by Category</h3>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {Array.from(toolsData.categories)
-              .sort()
-              .map(category => (
-                <Badge 
-                  key={category} 
-                  variant={selectedCategories.has(category) ? "default" : "outline"} 
-                  className="cursor-pointer capitalize" 
-                  onClick={() => handleToggleCategory(category)}
-                >
-                  {category}
-                </Badge>
-              ))}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={clearCategories}>
-              Clear All
-            </Button>
-            <Button variant="ghost" size="sm" onClick={selectAllCategories}>
-              Select All
-            </Button>
-          </div>
-        </div>
+      {showFilters && toolsData.categories.size > 1 && (
+        <CategoryFilter
+          categories={toolsData.categories}
+          selectedCategories={selectedCategories}
+          onToggleCategory={handleToggleCategory}
+          onSelectAll={selectAllCategories}
+          onClearAll={clearCategories}
+        />
       )}
 
       {/* Tools counter */}
@@ -264,64 +282,72 @@ export default function ToolsPage() {
           <p className="text-muted-foreground">Loading tools...</p>
         </div>
       ) : filteredTools.length > 0 ? (
-        <ScrollArea className="h-[650px] pr-4 -mr-4">
-          <div className="space-y-8">
+        <ScrollArea className="h-[calc(100vh-300px)] pr-4 -mr-4">
+          <div className="space-y-4">
             {Object.entries(toolsByCategory)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([category, categoryTools]) => (
-                <div key={category}>
-                  <div className="flex items-center gap-2 mb-3 pb-2 border-b">
-                    <h3 className="text-lg font-semibold uppercase">{category}</h3>
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                      {categoryTools.length} tool{categoryTools.length !== 1 ? "s" : ""}
-                    </Badge>
-                  </div>
+              .map(([category, categoryTools]) => {
+                // Check if any tool in this category is an MCP tool
+                const hasMcpTool = categoryTools.some(tool => tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter");
+                return (
+                  <div key={category} className="border rounded-lg overflow-hidden bg-card shadow-sm">
+                    <div
+                      className="flex items-center justify-between p-3 bg-secondary/50 cursor-pointer hover:bg-secondary/70"
+                      onClick={() => toggleCategory(category)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {expandedCategories[category] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        {hasMcpTool && <McpIcon className="w-3.5 h-3.5 text-purple-600" />}
+                        <h3 className="font-semibold capitalize text-sm">{highlightMatch(category, searchTerm)}</h3>
+                        <Badge variant="secondary" className="font-mono text-xs">{categoryTools.length}</Badge>
+                      </div>
+                    </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {categoryTools
-                      .sort((a, b) => {
-                        const aName = getToolDisplayName(a) || "";
-                        const bName = getToolDisplayName(b) || "";
-                        return aName.localeCompare(bName);
-                      })
-                      .map(tool => (
-                        <div 
-                          key={getToolIdentifier(tool)} 
-                          className="p-4 border rounded-md hover:bg-secondary/5 transition-colors"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-start gap-2">
-                              <FunctionSquare className="h-5 w-5 text-blue-500 mt-0.5" />
-                              <div>
-                                <div className="font-medium">{getToolDisplayName(tool)}</div>
-                                <div className="text-sm text-muted-foreground mt-1">
-                                  {getToolDescription(tool)}
+                    {expandedCategories[category] && (
+                      <div className="divide-y border-t">
+                        {categoryTools
+                          .map(tool => (
+                            <div
+                              key={getToolIdentifier(tool)}
+                              className="p-3 transition-colors hover:bg-muted/50"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                  <FunctionSquare className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-sm truncate">{highlightMatch(getToolDisplayName(tool), searchTerm)}</div>
+                                    <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                      {highlightMatch(getToolDescription(tool), searchTerm)}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground/80 mt-1.5 flex items-center gap-1.5 font-mono">
+                                       <Server className="h-3 w-3" />
+                                       <span className="truncate">{highlightMatch(tool.label || 'Unknown Server', searchTerm)}</span>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground/80 mt-1 flex items-center gap-1.5 font-mono">
+                                      Provider: <span className="truncate">{highlightMatch(getToolProvider(tool), searchTerm)}</span>
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="text-xs text-muted-foreground mt-2 flex items-center">
-                                  <Server className="h-3 w-3 mr-1" />
-                                  {tool.label}
-                                </div>
+
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0">
+                                        <Info className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="left" className="max-w-xs">
+                                      <p className="font-mono text-xs break-all">{getToolIdentifier(tool)}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
                               </div>
                             </div>
-
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                                    <Info className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="left" className="max-w-sm">
-                                  <p className="font-mono text-xs">{getToolIdentifier(tool)}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                        </div>
-                      ))}
+                          ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </ScrollArea>
       ) : (

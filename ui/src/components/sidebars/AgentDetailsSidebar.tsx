@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { AgentResponse, AgentTool } from "@/types/datamodel";
 import { getTeam } from "@/app/actions/teams";
-import { getToolByProvider } from "@/app/actions/tools";
+import { getToolByProvider, getTools } from "@/app/actions/tools";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { AgentActions } from "./AgentActions";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -30,6 +30,12 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
       setError(null);
       try {
         const response = await getTeam(selectedAgentId);
+        const allTools = await getTools();
+        if (!allTools.success || !allTools.data) {
+          setError("Failed to get tools");
+          return;
+        }
+
         if (response.success && response.data) {
           setSelectedTeam(response.data);
           
@@ -46,15 +52,15 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
                   const toolName = tool.mcpServer.toolNames[0];
                   const mcpProvider = "autogen_ext.tools.mcp.SseMcpToolAdapter";
                   
-                  const toolResponse = await getToolByProvider(mcpProvider, toolName);
-                  descriptions[toolIdentifier] = toolResponse.success && toolResponse.data?.description 
-                    ? toolResponse.data.description 
+                  const toolResponse = await getToolByProvider(allTools.data, mcpProvider, toolName);
+                  descriptions[toolIdentifier] = toolResponse?.description 
+                    ? toolResponse.description 
                     : "No description available";
                 } else {
                   // For non-MCP tools, use the provider directly
-                  const toolResponse = await getToolByProvider(toolProvider);
-                  descriptions[toolIdentifier] = toolResponse.success && toolResponse.data?.description 
-                    ? toolResponse.data.description 
+                  const toolResponse = await getToolByProvider(allTools.data, toolProvider);
+                  descriptions[toolIdentifier] = toolResponse?.description 
+                    ? toolResponse.description 
                     : "No description available";
                 }
               } catch (error) {

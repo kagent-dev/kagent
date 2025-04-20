@@ -101,6 +101,7 @@ const useChatStore = create<ChatState>((set, get) => ({
           ...run,
           messages: [...run.messages, systemMessage],
         },
+        status: (message.status as ChatStatus) || "ready",
       }));
       return;
     }
@@ -171,6 +172,7 @@ const useChatStore = create<ChatState>((set, get) => ({
               run_id: run.id,
               message_meta: {},
             },
+            status: (message.status as ChatStatus) || "ready",
           };
         } else {
           // This is a new complete message (not related to streaming)
@@ -183,7 +185,11 @@ const useChatStore = create<ChatState>((set, get) => ({
 
           // Check the finalMessage is not included in the messages array (avoid duplicates)
           if (state.messages.find((m) => m.config.source === finalMessage.config.source && m.config.content === finalMessage.config.content)) {
-            return state;
+            // If message already exists, just update the status if needed
+            return {
+              ...state,
+              status: (message.status as ChatStatus) || state.status,
+            };
           }
 
           const finalMessages = [...state.messages, finalMessage];
@@ -207,6 +213,7 @@ const useChatStore = create<ChatState>((set, get) => ({
             messages: finalMessages,
             run: updatedRun,
             sessions: updatedSessions,
+            status: (message.status as ChatStatus) || "ready",
           };
         }
       });

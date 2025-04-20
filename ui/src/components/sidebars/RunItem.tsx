@@ -1,4 +1,4 @@
-import { Run } from "@/types/datamodel";
+import { AgentMessageConfig, Run } from "@/types/datamodel";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -15,6 +15,7 @@ import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } fr
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 
 interface RunItemProps {
   sessionId: number;
@@ -23,14 +24,41 @@ interface RunItemProps {
   agentId?: number;
 }
 
+
+function  isNestedMessageContent(content: unknown): content is AgentMessageConfig[] {
+  if (!Array.isArray(content)) return false;
+  return content.every(
+    (item) =>
+      typeof item === "object" &&
+      item !== null &&
+      "source" in item &&
+      "content" in item &&
+      "type" in item
+  );
+}
+
+const getTaskTitle = (task: AgentMessageConfig): string => {
+  if (typeof task.content === "string") {
+    return task.content;
+  }
+  if (isNestedMessageContent(task.content)) {
+
+    const nested = task.content as AgentMessageConfig[];
+    return nested[0].content as string;
+  }
+  return "(new chat)";
+}
+
 const RunItem = ({ sessionId, run, agentId, onDelete }: RunItemProps) => {
+  console.log("run", run);
   return (
     <>
       <SidebarMenu>
         <SidebarMenuItem key={sessionId}>
           <SidebarMenuButton asChild>
-            <Link href={`/agents/${agentId}/chat/${sessionId}`}>
-              <span className="truncate max-w-[160px] text-sm ">{String(run.task?.content || "(new chat)")}</span>
+            <Link href={`/agents/${agentId}/chat/${sessionId}`} className="flex items-center justify-between w-full gap-2">
+              <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm">{getTaskTitle(run.task)}</span>
+              <Badge variant="outline" className="whitespace-nowrap">{run.status}</Badge>
             </Link>
           </SidebarMenuButton>
           <DropdownMenu>
@@ -41,11 +69,11 @@ const RunItem = ({ sessionId, run, agentId, onDelete }: RunItemProps) => {
               </SidebarMenuAction>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button  variant={"ghost"}>
-                      <Trash2 className="text-muted-foreground h-4 w-4" />
+                    <Button variant={"ghost"} className="w-full justify-start px-2 py-1.5 text-red-500 hover:text-red-500">
+                      <Trash2 className="mr-2 h-4 w-4" />
                       <span>Delete</span>
                     </Button>
                   </AlertDialogTrigger>

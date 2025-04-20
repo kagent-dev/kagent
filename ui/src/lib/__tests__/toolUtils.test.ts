@@ -208,7 +208,7 @@ describe('Tool Utility Functions', () => {
           }
         } as MCPToolConfig
       };
-      expect(getToolIdentifier(mcpAdapterTool)).toBe("mcptool-MCP Tool Name");
+      expect(getToolIdentifier(mcpAdapterTool)).toBe("mcptool-Adapter Label-MCP Tool Name");
     });
 
     it('should handle regular component tools', () => {
