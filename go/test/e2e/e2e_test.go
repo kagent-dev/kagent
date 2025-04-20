@@ -54,7 +54,7 @@ var _ = Describe("E2e", func() {
 				APIKeySecretKey:  apikeySecretKey,
 				OpenAI: &v1alpha1.OpenAIConfig{
 					Temperature: "0.7",
-					MaxTokens:   ptrToInt(2048),
+					MaxTokens:   2048,
 					TopP:        "0.95",
 				},
 			},

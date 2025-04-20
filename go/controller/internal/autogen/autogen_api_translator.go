@@ -142,25 +142,28 @@ func NewAutogenApiTranslator(
 }
 
 func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v1alpha1.Agent) (*autogen_client.Team, error) {
-	return a.translateGroupChatForAgent(ctx, agent, nil, &teamOptions{
-		userProxy:         true,
-		wrapSocietyOfMind: true,
-	})
+	return a.translateGroupChatForAgent(ctx, agent, nil, defaultTeamOptions())
 }
 
 func (a *apiTranslator) TranslateGroupChatForTeam(
 	ctx context.Context,
 	team *v1alpha1.Team,
 ) (*autogen_client.Team, error) {
-	return a.translateGroupChatForTeam(ctx, team, nil, &teamOptions{
-		userProxy:         true,
-		wrapSocietyOfMind: true,
-	})
+	return a.translateGroupChatForTeam(ctx, team, nil, defaultTeamOptions())
 }
 
 type teamOptions struct {
 	userProxy         bool
 	wrapSocietyOfMind bool
+	stream            bool
+}
+
+func defaultTeamOptions() *teamOptions {
+	return &teamOptions{
+		userProxy:         true,
+		wrapSocietyOfMind: true,
+		stream:            true,
+	}
 }
 
 func (a *apiTranslator) translateGroupChatForAgent(
@@ -304,6 +307,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 				modelClientWithStreaming,
 				modelClientWithoutStreaming,
 				modelContext,
+				opts,
 			)
 		}
 		if err != nil {
@@ -405,31 +409,10 @@ func (a *apiTranslator) translateTaskAgent(
 	agent, parent *v1alpha1.Agent,
 	modelContext *api.Component,
 ) (*api.Component, error) {
-	// generate an internal round robin "team" for the society of mind agent
-	meta := agent.ObjectMeta.DeepCopy()
-	// This is important so we don't output this message in the CLI/UI
-	meta.Name = "society-of-mind-team"
-	team := &v1alpha1.Team{
-		ObjectMeta: agent.ObjectMeta,
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Team",
-			APIVersion: "kagent.dev/v1alpha1",
-		},
-		Spec: v1alpha1.TeamSpec{
-			Participants:         []string{agent.Name},
-			Description:          agent.Spec.Description,
-			ModelConfig:          agent.Spec.ModelConfigRef,
-			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
-			TerminationCondition: v1alpha1.TerminationCondition{
-				TextMessageTermination: &v1alpha1.TextMessageTermination{
-					Source: convertToPythonIdentifier(agent.Name),
-				},
-			},
-		},
-	}
+
+	team := simpleRoundRobinTeam(agent, "society-of-mind-team")
 
 	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, parent, &teamOptions{
-		userProxy:         false,
 		wrapSocietyOfMind: true,
 	})
 	if err != nil {
@@ -450,6 +433,32 @@ func (a *apiTranslator) translateTaskAgent(
 	}, nil
 }
 
+func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
+	// generate an internal round robin "team" for the society of mind agent
+	meta := agent.ObjectMeta.DeepCopy()
+	// This is important so we don't output this message in the CLI/UI
+	meta.Name = name
+	team := &v1alpha1.Team{
+		ObjectMeta: *meta,
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Team",
+			APIVersion: "kagent.dev/v1alpha1",
+		},
+		Spec: v1alpha1.TeamSpec{
+			Participants:         []string{agent.Name},
+			Description:          agent.Spec.Description,
+			ModelConfig:          agent.Spec.ModelConfigRef,
+			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
+			TerminationCondition: v1alpha1.TerminationCondition{
+				TextMessageTermination: &v1alpha1.TextMessageTermination{
+					Source: convertToPythonIdentifier(agent.Name),
+				},
+			},
+		},
+	}
+	return team
+}
+
 func (a *apiTranslator) translateAssistantAgent(
 	ctx context.Context,
 	kube client.Client,
@@ -457,6 +466,7 @@ func (a *apiTranslator) translateAssistantAgent(
 	modelClientWithStreaming *api.Component,
 	modelClientWithoutStreaming *api.Component,
 	modelContext *api.Component,
+	opts *teamOptions,
 ) (*api.Component, error) {
 
 	tools := []*api.Component{}
@@ -495,25 +505,24 @@ func (a *apiTranslator) translateAssistantAgent(
 			if err != nil {
 				return nil, err
 			}
-			autogenTool, err := a.translateGroupChatForAgent(ctx, &toolAgent, agent, &teamOptions{
-				userProxy:         false,
+
+			team := simpleRoundRobinTeam(&toolAgent, toolAgent.Name)
+			autogenTool, err := a.translateGroupChatForTeam(ctx, team, agent, &teamOptions{
 				wrapSocietyOfMind: true,
 			})
 			if err != nil {
 				return nil, err
 			}
 
-			toolConfig := &api.TeamToolConfig{
-				Name:        toolAgent.Name,
-				Description: toolAgent.Spec.Description,
-				Team:        autogenTool.Component,
-			}
-
 			tool := &api.Component{
 				Provider:      "autogen_agentchat.tools.TeamTool",
 				ComponentType: "tool",
 				Version:       1,
-				Config:        api.MustToConfig(toolConfig),
+				Config: api.MustToConfig(&api.TeamToolConfig{
+					Name:        toolAgent.Name,
+					Description: toolAgent.Spec.Description,
+					Team:        autogenTool.Component,
+				}),
 			}
 
 			tools = append(tools, tool)
@@ -528,23 +537,31 @@ func (a *apiTranslator) translateAssistantAgent(
 		sysMsg = ""
 	}
 
+	cfg := &api.AssistantAgentConfig{
+		Name:         convertToPythonIdentifier(agent.Name),
+		Tools:        tools,
+		ModelContext: modelContext,
+		Description:  agent.Spec.Description,
+		// TODO(ilackarms): convert to non-ptr with omitempty?
+		SystemMessage:         sysMsg,
+		ReflectOnToolUse:      false,
+		ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
+	}
+
+	if opts.stream {
+		cfg.ModelClient = modelClientWithStreaming
+		cfg.ModelClientStream = true
+	} else {
+		cfg.ModelClient = modelClientWithoutStreaming
+		cfg.ModelClientStream = false
+	}
+
 	return &api.Component{
 		Provider:      "autogen_agentchat.agents.AssistantAgent",
 		ComponentType: "agent",
 		Version:       1,
 		Description:   agent.Spec.Description,
-		Config: api.MustToConfig(&api.AssistantAgentConfig{
-			Name:         convertToPythonIdentifier(agent.Name),
-			ModelClient:  modelClientWithStreaming,
-			Tools:        tools,
-			ModelContext: modelContext,
-			Description:  agent.Spec.Description,
-			// TODO(ilackarms): convert to non-ptr with omitempty?
-			SystemMessage:         sysMsg,
-			ReflectOnToolUse:      false,
-			ModelClientStream:     true,
-			ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-		}),
+		Config:        api.MustToConfig(cfg),
 	}, nil
 }
 
