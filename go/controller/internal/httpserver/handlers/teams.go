@@ -145,7 +145,7 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 	)
 
 	log.V(1).Info("Translating agent to Autogen format")
-	autogenTeam, err := apiTranslator.TranslateGroupChatForAgent(r.Context(), teamRequest)
+	autogenTeam, err := apiTranslator.TranslateGroupChatForAgent(r.Context(), teamRequest, nil)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to translate agent to Autogen format", err))
 		return

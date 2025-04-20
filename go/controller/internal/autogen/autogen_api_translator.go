@@ -52,7 +52,7 @@ type ApiTranslator interface {
 
 	TranslateGroupChatForAgent(
 		ctx context.Context,
-		team *v1alpha1.Agent,
+		agent *v1alpha1.Agent,
 	) (*autogen_client.Team, error)
 
 	TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServer, error)
@@ -142,6 +142,33 @@ func NewAutogenApiTranslator(
 }
 
 func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v1alpha1.Agent) (*autogen_client.Team, error) {
+	return a.translateGroupChatForAgent(ctx, agent, nil, &teamOptions{
+		userProxy:         true,
+		wrapSocietyOfMind: true,
+	})
+}
+
+func (a *apiTranslator) TranslateGroupChatForTeam(
+	ctx context.Context,
+	team *v1alpha1.Team,
+) (*autogen_client.Team, error) {
+	return a.translateGroupChatForTeam(ctx, team, nil, &teamOptions{
+		userProxy:         true,
+		wrapSocietyOfMind: true,
+	})
+}
+
+type teamOptions struct {
+	userProxy         bool
+	wrapSocietyOfMind bool
+}
+
+func (a *apiTranslator) translateGroupChatForAgent(
+	ctx context.Context,
+	agent *v1alpha1.Agent,
+	parent *v1alpha1.Agent,
+	opts *teamOptions,
+) (*autogen_client.Team, error) {
 	modelConfig := a.defaultModelConfig
 	// Use the provided model config if set, otherwise use the default one
 	if agent.Spec.ModelConfigRef != "" {
@@ -172,20 +199,14 @@ func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v
 		},
 	}
 
-	return a.TranslateGroupChatForTeam(ctx, team)
-}
-
-func (a *apiTranslator) TranslateGroupChatForTeam(
-	ctx context.Context,
-	team *v1alpha1.Team,
-) (*autogen_client.Team, error) {
-	return a.translateGroupChatForTeam(ctx, team, true)
+	return a.translateGroupChatForTeam(ctx, team, parent, opts)
 }
 
 func (a *apiTranslator) translateGroupChatForTeam(
 	ctx context.Context,
 	team *v1alpha1.Team,
-	topLevelTeam bool,
+	parent *v1alpha1.Agent,
+	opts *teamOptions,
 ) (*autogen_client.Team, error) {
 	// get model config
 	roundRobinTeamConfig := team.Spec.RoundRobinTeamConfig
@@ -268,19 +289,18 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		}
 
 		var participant *api.Component
-		if topLevelTeam {
+		if opts.wrapSocietyOfMind {
 			participant, err = a.translateTaskAgent(
 				ctx,
 				agent,
+				parent,
 				modelContext,
 			)
 		} else {
-			participant, err = translateAssistantAgent(
+			participant, err = a.translateAssistantAgent(
 				ctx,
 				a.kube,
-				agent.Name,
-				agent.Namespace,
-				agent.Spec,
+				agent,
 				modelClientWithStreaming,
 				modelClientWithoutStreaming,
 				modelContext,
@@ -294,7 +314,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	}
 
 	//  add user proxy agent to top level
-	if topLevelTeam {
+	if opts.userProxy {
 		participants = append(participants, userProxyAgent)
 	}
 
@@ -382,7 +402,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 // internally we convert all agents to a society-of-mind agent
 func (a *apiTranslator) translateTaskAgent(
 	ctx context.Context,
-	agent *v1alpha1.Agent,
+	agent, parent *v1alpha1.Agent,
 	modelContext *api.Component,
 ) (*api.Component, error) {
 	// generate an internal round robin "team" for the society of mind agent
@@ -408,7 +428,10 @@ func (a *apiTranslator) translateTaskAgent(
 		},
 	}
 
-	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, false)
+	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, parent, &teamOptions{
+		userProxy:         false,
+		wrapSocietyOfMind: true,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -427,19 +450,17 @@ func (a *apiTranslator) translateTaskAgent(
 	}, nil
 }
 
-func translateAssistantAgent(
+func (a *apiTranslator) translateAssistantAgent(
 	ctx context.Context,
 	kube client.Client,
-	agentName string,
-	agentNamespace string,
-	agentSpec v1alpha1.AgentSpec,
+	agent *v1alpha1.Agent,
 	modelClientWithStreaming *api.Component,
 	modelClientWithoutStreaming *api.Component,
 	modelContext *api.Component,
 ) (*api.Component, error) {
 
 	tools := []*api.Component{}
-	for _, tool := range agentSpec.Tools {
+	for _, tool := range agent.Spec.Tools {
 		switch {
 		case tool.Inline != nil:
 			autogenTool, err := translateBuiltinTool(
@@ -457,20 +478,53 @@ func translateAssistantAgent(
 					kube,
 					tool.McpServer.ToolServer,
 					toolName,
-					agentNamespace,
+					agent.Namespace,
 				)
 				if err != nil {
 					return nil, err
 				}
 				tools = append(tools, autogenTool)
 			}
+		case tool.Agent != nil:
+			// Translate a nested tool
+			toolAgent := v1alpha1.Agent{}
+			err := kube.Get(ctx, types.NamespacedName{
+				Name:      tool.Agent.AgentName,
+				Namespace: agent.Namespace,
+			}, &toolAgent)
+			if err != nil {
+				return nil, err
+			}
+			autogenTool, err := a.translateGroupChatForAgent(ctx, &toolAgent, agent, &teamOptions{
+				userProxy:         false,
+				wrapSocietyOfMind: true,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			toolConfig := &api.TeamToolConfig{
+				Name:        toolAgent.Name,
+				Description: toolAgent.Spec.Description,
+				Team:        autogenTool.Component,
+			}
+
+			tool := &api.Component{
+				Provider:      "autogen_agentchat.tools.TeamTool",
+				ComponentType: "tool",
+				Version:       1,
+				Config:        api.MustToConfig(toolConfig),
+			}
+
+			tools = append(tools, tool)
+
 		default:
 			return nil, fmt.Errorf("tool must have a provider or tool server")
 		}
 	}
 
-	sysMsg := agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix
-	if agentSpec.SystemMessage == "" {
+	sysMsg := agent.Spec.SystemMessage + "\n" + defaultSystemMessageSuffix
+	if agent.Spec.SystemMessage == "" {
 		sysMsg = ""
 	}
 
@@ -478,13 +532,13 @@ func translateAssistantAgent(
 		Provider:      "autogen_agentchat.agents.AssistantAgent",
 		ComponentType: "agent",
 		Version:       1,
-		Description:   agentSpec.Description,
+		Description:   agent.Spec.Description,
 		Config: api.MustToConfig(&api.AssistantAgentConfig{
-			Name:         convertToPythonIdentifier(agentName),
+			Name:         convertToPythonIdentifier(agent.Name),
 			ModelClient:  modelClientWithStreaming,
 			Tools:        tools,
 			ModelContext: modelContext,
-			Description:  agentSpec.Description,
+			Description:  agent.Spec.Description,
 			// TODO(ilackarms): convert to non-ptr with omitempty?
 			SystemMessage:         sysMsg,
 			ReflectOnToolUse:      false,
