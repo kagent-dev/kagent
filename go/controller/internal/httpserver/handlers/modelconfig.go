@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
@@ -69,7 +68,11 @@ func flattenStructToMap(data interface{}, targetMap map[string]interface{}) {
 		key := tagParts[0]
 
 		// Add to map
-		targetMap[key] = fieldValue.Interface()
+		if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
+			targetMap[key] = nil
+		} else {
+			targetMap[key] = fieldValue.Interface()
+		}
 	}
 }
 
@@ -249,75 +252,19 @@ func (h *ModelConfigHandler) HandleListSupportedProviders(w ErrorResponseWriter,
 }
 
 type CreateModelConfigRequest struct {
-	Name        string            `json:"name"`
-	Provider    Provider          `json:"provider"`
-	Model       string            `json:"model"`
-	APIKey      string            `json:"apiKey"`
-	ModelParams map[string]string `json:"modelParams"`
+	Name            string                      `json:"name"`
+	Provider        Provider                    `json:"provider"`
+	Model           string                      `json:"model"`
+	APIKey          string                      `json:"apiKey"`
+	OpenAIParams    *v1alpha1.OpenAIConfig      `json:"openAI,omitempty"`
+	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
+	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
 }
 
 type Provider struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
-}
-
-// getProviderConfig returns the appropriate provider config struct based on the provider type
-func getProviderConfig(providerType string) (interface{}, error) {
-	switch strings.ToLower(providerType) {
-	case "openai":
-		return &v1alpha1.OpenAIConfig{}, nil
-	case "anthropic":
-		return &v1alpha1.AnthropicConfig{}, nil
-	case "azureopenai":
-		return &v1alpha1.AzureOpenAIConfig{}, nil
-	case "ollama":
-		return &v1alpha1.OllamaConfig{}, nil
-	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", providerType)
-	}
-}
-
-// setProviderConfig sets the appropriate provider config in the ModelConfigSpec
-func setProviderConfig(spec *v1alpha1.ModelConfigSpec, providerType string, config interface{}) error {
-	switch strings.ToLower(providerType) {
-	case "openai":
-		spec.OpenAI = config.(*v1alpha1.OpenAIConfig)
-	case "anthropic":
-		spec.Anthropic = config.(*v1alpha1.AnthropicConfig)
-	case "azureopenai":
-		spec.AzureOpenAI = config.(*v1alpha1.AzureOpenAIConfig)
-	case "ollama":
-		spec.Ollama = config.(*v1alpha1.OllamaConfig)
-	default:
-		return fmt.Errorf("unsupported provider type: %s", providerType)
-	}
-	return nil
-}
-
-// convertValue converts a string value to the appropriate type based on the field's type
-func convertValue(value string, fieldType reflect.Type) (interface{}, error) {
-	switch fieldType.Kind() {
-	case reflect.String:
-		return value, nil
-	case reflect.Int:
-		return strconv.Atoi(value)
-	case reflect.Ptr:
-		if fieldType.Elem().Kind() == reflect.Int {
-			if value == "" {
-				return nil, nil
-			}
-			v, err := strconv.Atoi(value)
-			if err != nil {
-				return nil, err
-			}
-			return &v, nil
-		}
-	case reflect.Map:
-		if fieldType.Key().Kind() == reflect.String && fieldType.Elem().Kind() == reflect.String {
-			return value, nil
-		}
-	}
-	return nil, fmt.Errorf("unsupported field type: %v", fieldType)
 }
 
 func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *http.Request) {
@@ -349,7 +296,8 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	// --- Secret Creation ---
-	isOllama := strings.EqualFold(req.Provider.Type, string(v1alpha1.Ollama))
+	providerTypeEnum := v1alpha1.ModelProvider(req.Provider.Type)
+	isOllama := providerTypeEnum == v1alpha1.Ollama
 	apiKey := req.APIKey
 
 	// Validate API key presence *unless* it's Ollama
@@ -385,52 +333,6 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 	log.V(1).Info("Successfully created API key secret")
 
-	log.V(1).Info("Validating provider config and model parameters")
-	providerConfig, err := getProviderConfig(req.Provider.Type)
-	if err != nil {
-		log.Error(err, "Invalid provider type")
-		w.RespondWithError(errors.NewBadRequestError("Invalid provider type", err))
-		return
-	}
-
-	// Set model params in provider config
-	providerValue := reflect.ValueOf(providerConfig).Elem()
-	providerType := providerValue.Type()
-
-	for key, value := range req.ModelParams {
-		field, found := providerType.FieldByNameFunc(func(fieldName string) bool {
-			field, _ := providerType.FieldByName(fieldName)
-			jsonTag := field.Tag.Get("json")
-			jsonName := strings.Split(jsonTag, ",")[0]
-			return strings.EqualFold(jsonName, key)
-		})
-
-		if !found {
-			log.Error(nil, "Invalid model parameter provided", "parameter", key)
-			w.RespondWithError(errors.NewBadRequestError("Invalid model parameter provided", nil))
-			return
-		}
-
-		// Convert and set the value
-		convertedValue, err := convertValue(value, field.Type)
-		if err != nil {
-			errMsg := fmt.Sprintf("Invalid value for parameter %s: %v", key, err)
-			log.Error(err, "Failed to convert model parameter value", "parameter", key, "value", value)
-			w.RespondWithError(errors.NewBadRequestError(errMsg, nil))
-			return
-		}
-
-		fieldValue := providerValue.FieldByName(field.Name)
-		if fieldValue.CanSet() {
-			fieldValue.Set(reflect.ValueOf(convertedValue))
-			log.V(1).Info("Set model parameter", "parameter", key, "value", value)
-		} else {
-			log.V(1).Info("Cannot set model parameter", "parameter", key)
-		}
-	}
-	log.V(1).Info("Successfully validated and set model parameters")
-
-	log.V(1).Info("Creating ModelConfig resource")
 	modelConfig := &v1alpha1.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
@@ -438,15 +340,59 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		},
 		Spec: v1alpha1.ModelConfigSpec{
 			Model:            req.Model,
-			Provider:         v1alpha1.ModelProvider(req.Provider.Name),
+			Provider:         providerTypeEnum,
 			APIKeySecretName: secretName,
 			APIKeySecretKey:  secretKey,
 		},
 	}
 
-	if err := setProviderConfig(&modelConfig.Spec, req.Provider.Type, providerConfig); err != nil {
-		log.Error(err, "Failed to set provider config in spec")
-		w.RespondWithError(errors.NewInternalServerError("Failed to set provider config", err))
+	var providerConfigErr error
+	switch providerTypeEnum {
+	case v1alpha1.OpenAI:
+		if req.OpenAIParams != nil {
+			modelConfig.Spec.OpenAI = req.OpenAIParams
+			log.V(1).Info("Assigned OpenAI params to spec")
+		} else {
+			log.V(1).Info("No OpenAI params provided in create.")
+		}
+	case v1alpha1.Anthropic:
+		if req.AnthropicParams != nil {
+			modelConfig.Spec.Anthropic = req.AnthropicParams
+			log.V(1).Info("Assigned Anthropic params to spec")
+		} else {
+			log.V(1).Info("No Anthropic params provided in create.")
+		}
+	case v1alpha1.AzureOpenAI:
+		if req.AzureParams == nil {
+			providerConfigErr = fmt.Errorf("azureOpenAI parameters are required for AzureOpenAI provider")
+		} else {
+			// Basic validation for required Azure fields (can be enhanced)
+			if req.AzureParams.Endpoint == "" || req.AzureParams.APIVersion == "" {
+				providerConfigErr = fmt.Errorf("missing required AzureOpenAI parameters: azureEndpoint, apiVersion")
+			} else {
+				modelConfig.Spec.AzureOpenAI = req.AzureParams
+				log.V(1).Info("Assigned AzureOpenAI params to spec")
+			}
+		}
+	case v1alpha1.Ollama:
+		if req.OllamaParams != nil {
+			modelConfig.Spec.Ollama = req.OllamaParams
+			log.V(1).Info("Assigned Ollama params to spec")
+		} else {
+			log.V(1).Info("No Ollama params provided in create.")
+		}
+	default:
+		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
+	}
+
+	if providerConfigErr != nil {
+		log.Error(providerConfigErr, "Failed to assign provider config")
+		// Clean up the created secret if config assignment fails
+		log.V(1).Info("Attempting to clean up secret due to config assignment failure")
+		if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
+			log.Error(cleanupErr, "Failed to cleanup secret after config assignment failure")
+		}
+		w.RespondWithError(errors.NewBadRequestError(providerConfigErr.Error(), providerConfigErr))
 		return
 	}
 
@@ -468,10 +414,13 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 // UpdateModelConfigRequest defines the structure for updating a model config.
 // It's similar to Create, but APIKey is optional.
 type UpdateModelConfigRequest struct {
-	Provider    Provider          `json:"provider"`
-	Model       string            `json:"model"`
-	APIKey      *string           `json:"apiKey,omitempty"`
-	ModelParams map[string]string `json:"modelParams"`
+	Provider        Provider                    `json:"provider"`
+	Model           string                      `json:"model"`
+	APIKey          *string                     `json:"apiKey,omitempty"`
+	OpenAIParams    *v1alpha1.OpenAIConfig      `json:"openAI,omitempty"`
+	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
+	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
 }
 
 func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *http.Request) {
@@ -509,46 +458,6 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		w.RespondWithError(errors.NewInternalServerError("Failed to get model config", err))
 		return
 	}
-
-	// Get and validate provider config based on new request data
-	log.V(1).Info("Validating provider config and model parameters for update")
-	providerConfig, err := getProviderConfig(req.Provider.Type)
-	if err != nil {
-		log.Error(err, "Invalid provider type")
-		w.RespondWithError(errors.NewBadRequestError("Invalid provider type", err))
-		return
-	}
-
-	// Set model params in the new provider config struct
-	providerValue := reflect.ValueOf(providerConfig).Elem()
-	providerType := providerValue.Type()
-	for key, value := range req.ModelParams {
-		field, found := providerType.FieldByNameFunc(func(fieldName string) bool {
-			field, _ := providerType.FieldByName(fieldName)
-			jsonTag := field.Tag.Get("json")
-			jsonName := strings.Split(jsonTag, ",")[0]
-			return strings.EqualFold(jsonName, key)
-		})
-		if !found {
-			log.Error(nil, "Invalid model parameter provided during update", "parameter", key)
-			w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Invalid model parameter: %s", key), nil))
-			return
-		}
-		convertedValue, err := convertValue(value, field.Type)
-		if err != nil {
-			errMsg := fmt.Sprintf("Invalid value for parameter %s: %v", key, err)
-			log.Error(err, "Failed to convert model parameter value during update", "parameter", key, "value", value)
-			w.RespondWithError(errors.NewBadRequestError(errMsg, nil))
-			return
-		}
-		fieldValue := providerValue.FieldByName(field.Name)
-		if fieldValue.CanSet() {
-			fieldValue.Set(reflect.ValueOf(convertedValue))
-		} else {
-			log.V(1).Info("Cannot set model parameter during update", "parameter", key)
-		}
-	}
-	log.V(1).Info("Successfully validated and populated new provider config for update")
 
 	// --- Update Secret if API Key is provided (and not Ollama) ---
 	secretName := configName
@@ -607,9 +516,50 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	modelConfig.Spec.Provider = v1alpha1.ModelProvider(req.Provider.Name)
 	modelConfig.Spec.APIKeySecretKey = secretKey
 
-	if err := setProviderConfig(&modelConfig.Spec, req.Provider.Type, providerConfig); err != nil {
-		log.Error(err, "Failed to set provider config in spec during update")
-		w.RespondWithError(errors.NewInternalServerError("Failed to set provider config", err))
+	var providerConfigErr error
+	switch modelConfig.Spec.Provider {
+	case v1alpha1.OpenAI:
+		if req.OpenAIParams != nil {
+			modelConfig.Spec.OpenAI = req.OpenAIParams
+			log.V(1).Info("Assigned updated OpenAI params to spec")
+		} else {
+			log.V(1).Info("No OpenAI params provided in update.")
+		}
+	case v1alpha1.Anthropic:
+		if req.AnthropicParams != nil {
+			modelConfig.Spec.Anthropic = req.AnthropicParams
+			log.V(1).Info("Assigned updated Anthropic params to spec")
+		} else {
+			log.V(1).Info("No Anthropic params provided in update.")
+		}
+	case v1alpha1.AzureOpenAI:
+		if req.AzureParams == nil {
+			// Allow clearing Azure params if provider changes AWAY from Azure,
+			// but require params if provider IS Azure.
+			providerConfigErr = fmt.Errorf("azureOpenAI parameters are required when provider is AzureOpenAI")
+		} else {
+			// Basic validation for required Azure fields
+			if req.AzureParams.Endpoint == "" || req.AzureParams.APIVersion == "" {
+				providerConfigErr = fmt.Errorf("missing required AzureOpenAI parameters: azureEndpoint, apiVersion")
+			} else {
+				modelConfig.Spec.AzureOpenAI = req.AzureParams
+				log.V(1).Info("Assigned updated AzureOpenAI params to spec")
+			}
+		}
+	case v1alpha1.Ollama:
+		if req.OllamaParams != nil {
+			modelConfig.Spec.Ollama = req.OllamaParams
+			log.V(1).Info("Assigned updated Ollama params to spec")
+		} else {
+			log.V(1).Info("No Ollama params provided in update.")
+		}
+	default:
+		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)
+	}
+
+	if providerConfigErr != nil {
+		log.Error(providerConfigErr, "Failed to assign provider config during update")
+		w.RespondWithError(errors.NewBadRequestError(providerConfigErr.Error(), providerConfigErr))
 		return
 	}
 
@@ -621,7 +571,16 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 
 	log.Info("Successfully updated model config", "name", configName)
 	updatedParams := make(map[string]interface{})
-	flattenStructToMap(providerConfig, updatedParams)
+	if modelConfig.Spec.OpenAI != nil {
+		flattenStructToMap(modelConfig.Spec.OpenAI, updatedParams)
+	} else if modelConfig.Spec.Anthropic != nil {
+		flattenStructToMap(modelConfig.Spec.Anthropic, updatedParams)
+	} else if modelConfig.Spec.AzureOpenAI != nil {
+		flattenStructToMap(modelConfig.Spec.AzureOpenAI, updatedParams)
+	} else if modelConfig.Spec.Ollama != nil {
+		flattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
+	}
+
 	responseItem := ModelConfigResponse{
 		Name:             modelConfig.Name,
 		Namespace:        modelConfig.Namespace,

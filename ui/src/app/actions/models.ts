@@ -1,31 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-import { BaseResponse, Model } from "@/lib/types";
-
-export interface Provider {
-  name: string;
-  type: string;
-  requiredParams: string[];
-  optionalParams: string[];
-}
-
-export interface CreateModelConfigRequest {
-  name: string;
-  provider: Provider;
-  model: string;
-  apiKey: string;
-  modelParams: Record<string, string>;
-}
-
-// Define UpdateModelConfigRequest separately
-export interface UpdateModelConfigRequest {
-  name: string;       // Name is usually needed for identification, though not sent in URL
-  provider: Provider;
-  model: string;
-  apiKey?: string;      // Optional for updates
-  modelParams: Record<string, string>;
-}
+import { BaseResponse, Model, CreateModelConfigPayload, UpdateModelConfigPayload, Provider } from "@/lib/types";
 
 /**
  * Gets all available models
@@ -99,7 +75,7 @@ export async function getSupportedProviders(): Promise<BaseResponse<Provider[]>>
  * @param config The model configuration to create
  * @returns A promise with the created model
  */
-export async function createModelConfig(config: CreateModelConfigRequest): Promise<BaseResponse<Model>> {
+export async function createModelConfig(config: CreateModelConfigPayload): Promise<BaseResponse<Model>> {
   try {
     const response = await fetchApi<Model>("/modelconfigs", {
       method: "POST",
@@ -127,17 +103,12 @@ export async function createModelConfig(config: CreateModelConfigRequest): Promi
  */
 export async function updateModelConfig(
   configName: string,
-  config: Partial<UpdateModelConfigRequest> // Use Partial as not all fields might be sent every time
+  config: UpdateModelConfigPayload
 ): Promise<BaseResponse<Model>> {
   try {
-    // Filter out undefined fields before sending, especially apiKey
-    const payload = Object.fromEntries(
-      Object.entries(config).filter(([, value]) => value !== undefined)
-    );
-
     const response = await fetchApi<Model>(`/modelconfigs/${configName}`, {
       method: "PUT", // Or PATCH depending on backend implementation
-      body: JSON.stringify(payload),
+      body: JSON.stringify(config),
       headers: {
         "Content-Type": "application/json",
       },

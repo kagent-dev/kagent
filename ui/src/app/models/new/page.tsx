@@ -7,7 +7,8 @@ import { Loader2, Eye, EyeOff, Pencil, ExternalLinkIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { getModel, getSupportedProviders, createModelConfig, updateModelConfig, Provider, CreateModelConfigRequest } from "@/app/actions/models";
+import { getModel, getSupportedProviders, createModelConfig, updateModelConfig } from "@/app/actions/models";
+import { CreateModelConfigPayload, UpdateModelConfigPayload, Provider } from "@/lib/types";
 import { toast } from "sonner";
 import { isResourceNameValid } from "@/lib/utils";
 import {
@@ -249,54 +250,94 @@ function ModelPageContent() {
       toast.error("Please fill in all required fields and correct any errors.");
       return;
     }
+    setIsSubmitting(true);
+    setErrors({});
 
-    try {
-      setIsSubmitting(true);
-      
-      // Merge required and *non-empty* optional params
-      const mergedParams = requiredParams.reduce((acc, { key, value }) => {
-        if (key.trim()) acc[key.trim()] = value;
+    // Combine required and optional params into a single map for backend
+    const allParams = [...requiredParams, ...optionalParams]
+      .filter(p => p.key.trim() !== "" && p.value.trim() !== "") // Filter out empty keys or values
+      .reduce((acc, param) => {
+        acc[param.key.trim()] = param.value.trim();
         return acc;
       }, {} as Record<string, string>);
 
-      optionalParams.forEach(({ key, value }) => {
-        if (key.trim() && value.trim()) { 
-          mergedParams[key.trim()] = value.trim();
+    // Construct the payload based on the selected provider
+    const payload: CreateModelConfigPayload = {
+      name: name.trim(),
+      provider: {
+        name: selectedProvider.name,
+        type: selectedProvider.type,
+      },
+      model: model.trim(),
+      apiKey: apiKey.trim(),
+    };
+
+    // Add provider-specific params under the correct key
+    const providerType = selectedProvider.type;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const providerParams: Record<string, any> = {};
+
+    // Define known numeric keys based on Go structs
+    const numericKeys = new Set([
+        'maxTokens',
+        'topK',
+        'seed',
+        'n',
+        'timeout'
+    ]);
+
+    // Populate providerParams from allParams based on the expected structure
+    Object.entries(allParams).forEach(([key, value]) => {
+      if (numericKeys.has(key)) {
+        const numValue = parseInt(value, 10);
+        if (!isNaN(numValue)) {
+          providerParams[key] = numValue;
+        } else {
+          console.warn(`Invalid number for parameter '${key}': '${value}'. Omitting.`);
         }
-      });
+      } else {
+        providerParams[key] = value;
+      }
+    });
 
-      const modelSubmitData = {
-        name,
-        provider: selectedProvider,
-        model,
-        modelParams: mergedParams,
-        // Conditionally include apiKey only if it's not empty AND not Ollama
-        ...(apiKey.trim() && !isOllamaSelected && { apiKey: apiKey.trim() }),
-      };
+    if (providerType === 'OpenAI') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      payload.openAI = providerParams as any;
+    } else if (providerType === 'Anthropic') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      payload.anthropic = providerParams as any;
+    } else if (providerType === 'AzureOpenAI') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      payload.azureOpenAI = providerParams as any;
+    } else if (providerType === 'Ollama') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      payload.ollama = providerParams as any;
+    }
 
+    try {
       let response;
       if (isEditMode && modelId) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { name: _, ...updateData } = modelSubmitData;
-        response = await updateModelConfig(modelId, updateData);
+        const updatePayload: UpdateModelConfigPayload = {
+          ...payload,
+          apiKey: apiKey.trim() ? apiKey.trim() : null, // Set to null if empty for update
+        };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (updatePayload as any).name; // Name cannot be updated
+        response = await updateModelConfig(modelId, updatePayload);
       } else {
-        // Create action: Special check for API key presence (unless Ollama)
-        if (!isOllamaSelected && !modelSubmitData.apiKey) {
-           toast.error("API Key is required to create this model.");
-           setIsSubmitting(false);
-           return;
-        }
-        response = await createModelConfig(modelSubmitData as CreateModelConfigRequest);
+        response = await createModelConfig(payload);
       }
 
-      if (!response.success) {
-        throw new Error(response.error || `Failed to ${isEditMode ? 'update' : 'create'} model`);
+      if (response.success) {
+        toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
+        router.push("/models");
+      } else {
+        throw new Error(response.error || "Failed to save model configuration");
       }
-
-      toast.success(`Model ${isEditMode ? "updated" : "created"} successfully`);
-      router.push("/models");
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to save model";
+      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred";
+      console.error("Submission error:", err);
+      setError(errorMessage);
       toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
