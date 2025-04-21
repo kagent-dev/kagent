@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, FunctionSquare } from "lucide-react";
 import { Model } from "@/lib/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
@@ -17,6 +16,7 @@ import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { AgentTool } from "@/types/datamodel";
+import { toast } from "sonner";
 
 interface ValidationErrors {
   name?: string;
@@ -52,7 +52,6 @@ function AgentPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(isEditMode);
   const [errors, setErrors] = useState<ValidationErrors>({});
-  const [generalError, setGeneralError] = useState("");
 
   useEffect(() => {
     if (models && models.length > 0 && !selectedModel) {
@@ -69,7 +68,7 @@ function AgentPageContent() {
           const agentResponse = await getAgentById(agentId);
 
           if (!agentResponse) {
-            setGeneralError("Agent not found");
+            toast.error("Agent not found");
             setIsLoading(false);
             return;
           }
@@ -87,14 +86,14 @@ function AgentPageContent() {
               });
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
-              setGeneralError("Failed to extract agent data from team structure");
+              toast.error("Failed to extract agent data from team structure");
             }
           } else {
-            setGeneralError("Agent not found");
+            toast.error("Agent not found");
           }
         } catch (error) {
           console.error("Error fetching agent:", error);
-          setGeneralError("Failed to load agent data");
+          toast.error("Failed to load agent data");
         } finally {
           setIsLoading(false);
         }
@@ -146,7 +145,6 @@ function AgentPageContent() {
 
     try {
       setIsSubmitting(true);
-      setGeneralError("");
       if (!selectedModel) {
         throw new Error("Model is required to create the agent.");
       }
@@ -176,7 +174,8 @@ function AgentPageContent() {
       router.push(`/agents`);
     } catch (error) {
       console.error(`Error ${isEditMode ? "updating" : "creating"} agent:`, error);
-      setGeneralError(`Failed to ${isEditMode ? "update" : "create"} agent. Please try again.`);
+      const errorMessage = error instanceof Error ? error.message : `Failed to ${isEditMode ? "update" : "create"} agent. Please try again.`;
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -191,12 +190,6 @@ function AgentPageContent() {
       <div className="min-h-screen p-8">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-2xl font-bold mb-8">{isEditMode ? "Edit Agent" : "Create New Agent"}</h1>
-
-          {generalError && (
-            <Alert variant="destructive" className="mb-6">
-              <AlertDescription>{generalError}</AlertDescription>
-            </Alert>
-          )}
 
           <div className="space-y-6">
             <Card>

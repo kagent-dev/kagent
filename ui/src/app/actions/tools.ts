@@ -33,46 +33,39 @@ export async function getTools(): Promise<BaseResponse<Component<ToolConfig>[]>>
   }
 }
 
+
+
 /**
  * Gets a specific tool by its provider name and optionally tool name
+ * @param allTools The list of all tools
  * @param provider The tool provider name
  * @param toolName Optional tool name for MCP tools
  * @returns A promise with the tool data
  */
-export async function getToolByProvider(provider: string, toolName?: string): Promise<BaseResponse<Component<ToolConfig>>> {
-  try {
-    const response = await getTools();
-    if (!response.success || !response.data) {
-      throw new Error("Failed to get tools");
-    }
+export async function getToolByProvider(allTools: Component<ToolConfig>[], provider: string, toolName?: string): Promise<Component<ToolConfig> | null> {
 
-    // For MCP tools, we need to match both provider and tool name
-    if (provider === "autogen_ext.tools.mcp.SseMcpToolAdapter" && toolName) {
-      const tool = response.data.find(t => 
-        t.provider === provider && 
-        (t.config as MCPToolConfig)?.tool?.name === toolName
-      );
-      
-      if (tool) {
-        // For MCP tools, use the description from the tool object
-        return { 
-          success: true, 
-          data: {
-            ...tool,
-            description: (tool.config as MCPToolConfig)?.tool?.description || "No description available"
-          }
-        };
-      }
-    } else {
-      // For non-MCP tools, just match the provider
-      const tool = response.data.find(t => t.provider === provider);
-      if (tool) {
-        return { success: true, data: tool };
-      }
-    }
+  // For MCP tools, we need to match both provider and tool name
+  if (provider === "autogen_ext.tools.mcp.SseMcpToolAdapter" && toolName) {
+    const tool = allTools.find(t =>
+      t.provider === provider &&
+      (t.config as MCPToolConfig)?.tool?.name === toolName
+    );
 
-    throw new Error(`Tool with provider ${provider}${toolName ? ` and name ${toolName}` : ''} not found`);
-  } catch (error) {
-    return createErrorResponse<Component<ToolConfig>>(error, "Error getting tool");
+    if (tool) {
+      // For MCP tools, use the description from the tool object
+      return {
+        ...tool,
+        description: (tool.config as MCPToolConfig)?.tool?.description || "No description available"
+      }
+    };
+  } else {
+    // For non-MCP tools, just match the provider
+    const tool = allTools.find(t => t.provider === provider);
+    if (tool) {
+      return tool;
+    }
   }
+
+  throw new Error(`Tool with provider ${provider}${toolName ? ` and name ${toolName}` : ''} not found`);
+
 }

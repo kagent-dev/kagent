@@ -1,25 +1,31 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Filter, ChevronDown, ChevronRight, AlertCircle } from "lucide-react";
+import { Search, Filter, ChevronDown, ChevronRight, AlertCircle, PlusCircle, XCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import {  Component, ToolConfig } from "@/types/datamodel";
+import { Component, ToolConfig } from "@/types/datamodel";
 import ProviderFilter from "./ProviderFilter";
-import ToolItem from "./ToolItem";
+import Link from "next/link";
 import { getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider } from "@/lib/toolUtils";
 
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 10;
 
 // Extract category from tool identifier
-const getToolCategory = (toolId: string) => {
+const getToolCategory = (tool: Component<ToolConfig>) => {
+  if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+    return tool.label || "MCP Server";
+  }
+
+  const toolId = getToolIdentifier(tool);
   const parts = toolId.split(".");
-  // If pattern is like kagent.tools.grafana.something, return grafana
-  if (parts.length >= 3) {
-    return parts[2]; // Return the category part
+  if (parts.length >= 3 && parts[1] === "tools") {
+    return parts[2]; // e.g., kagent.tools.grafana -> grafana
+  }
+  if (parts.length >= 2) {
+    return parts[1]; // e.g., kagent.builtin -> builtin
   }
   return "other"; // Default category
 };
@@ -33,106 +39,82 @@ interface SelectToolsDialogProps {
 }
 
 export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected }) => {
-  // State hooks
   const [searchTerm, setSearchTerm] = useState("");
-  const [activeTab, setActiveTab] = useState("all");
   const [localSelectedComponents, setLocalSelectedComponents] = useState<Component<ToolConfig>[]>([]);
-  const [providers, setProviders] = useState<Set<string>>(new Set());
-  const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
+  const [categories, setCategories] = useState<Set<string>>(new Set());
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
+
   // Initialize state when dialog opens
   useEffect(() => {
     if (open) {
       setLocalSelectedComponents(selectedTools);
       setSearchTerm("");
 
-      // Extract unique providers
-      const uniqueProviders = new Set<string>();
+      const uniqueCategories = new Set<string>();
+      const categoryCollapseState: { [key: string]: boolean } = {};
       availableTools.forEach((tool) => {
-        if (tool.provider) {
-          uniqueProviders.add(getToolProvider(tool));
-        }
+        const category = getToolCategory(tool);
+        uniqueCategories.add(category);
+        categoryCollapseState[category] = true;
       });
 
-      setProviders(uniqueProviders);
-      setSelectedProviders(new Set());
-
-      // Initialize all categories as expanded
-      const categories: { [key: string]: boolean } = {};
-      availableTools.forEach((tool) => {
-        const category = getToolCategory(tool.provider);
-        categories[category] = true;
-      });
-      setExpandedCategories(categories);
-      setActiveTab("all");
+      setCategories(uniqueCategories);
+      setSelectedCategories(new Set());
+      setExpandedCategories(categoryCollapseState);
+      setShowFilters(false);
     }
   }, [open, selectedTools, availableTools]);
 
-  // Filter tools based on search, tab, and provider selections
-  const filteredTools = useMemo(() => {
+  // Filter tools based on search and category selections
+  const filteredAvailableTools = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
-
     return availableTools.filter((tool) => {
-      // Search matching - use getToolDisplayName and getToolDescription
       const toolName = getToolDisplayName(tool).toLowerCase();
       const toolDescription = getToolDescription(tool)?.toLowerCase() ?? "";
-      const matchesSearch = toolName.includes(searchLower) || toolDescription.includes(searchLower) || tool.provider.toLowerCase().includes(searchLower);
+      const toolProvider = getToolProvider(tool)?.trim();
 
-      // Tab matching
-      const isSelected = localSelectedComponents.some((t) => getToolIdentifier(t) === getToolIdentifier(tool));
-      const matchesTab = activeTab === "all" || (activeTab === "selected" && isSelected);
+      const matchesSearch = toolName.includes(searchLower) || toolDescription.includes(searchLower) || (toolProvider && toolProvider.toLowerCase().includes(searchLower));
 
-      // Provider matching
-      const matchesProvider = selectedProviders.size === 0 || selectedProviders.has(tool.provider);
-
-      return matchesSearch && matchesTab && matchesProvider;
+      const toolCategory = getToolCategory(tool);
+      const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
+      return matchesSearch && matchesCategory;
     });
-  }, [availableTools, searchTerm, activeTab, localSelectedComponents, selectedProviders]);
+  }, [availableTools, searchTerm, selectedCategories]);
 
-  // Group tools by category
-  const groupedTools = useMemo(() => {
+  // Group available tools by category
+  const groupedAvailableTools = useMemo(() => {
     const groups: { [key: string]: Component<ToolConfig>[] } = {};
-
-    // Sort tools first - new tools at the top within each category
-    const sortedTools = [...filteredTools].sort((a, b) => {
+    const sortedTools = [...filteredAvailableTools].sort((a, b) => {
       return getToolDisplayName(a).localeCompare(getToolDisplayName(b));
     });
-
-    // Group by categories
     sortedTools.forEach((tool) => {
-      const category = getToolCategory(tool.provider);
+      const category = getToolCategory(tool);
       if (!groups[category]) {
         groups[category] = [];
       }
       groups[category].push(tool);
     });
+    // Sort categories alphabetically
+    return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
+           .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
+  }, [filteredAvailableTools]);
 
-    return groups;
-  }, [filteredTools]);
+  const selectedCount = localSelectedComponents.length;
+  const isLimitReached = selectedCount >= MAX_TOOLS_LIMIT;
 
-  // Check if selection limit is reached
-  const isLimitReached = localSelectedComponents.length >= MAX_TOOLS_LIMIT;
-
-  // Helper functions for tool state
   const isToolSelected = (tool: Component<ToolConfig>) => localSelectedComponents.some((t) => getToolIdentifier(t) === getToolIdentifier(tool));
 
-  // Event handlers
-  const handleToggleTool = (tool: Component<ToolConfig>) => {
-    const isCurrentlySelected = isToolSelected(tool);
-
-    // If tool is not selected and we've reached limit, don't allow adding
-    if (!isCurrentlySelected && isLimitReached) {
-      return;
+  // Handlers
+  const handleAddTool = (tool: Component<ToolConfig>) => {
+    if (!isLimitReached && !isToolSelected(tool)) {
+      setLocalSelectedComponents((prev) => [...prev, tool]);
     }
+  };
 
-    setLocalSelectedComponents((prev) => {
-      if (isCurrentlySelected) {
-        return prev.filter((t) => getToolIdentifier(t) !== getToolIdentifier(tool));
-      } else {
-        return [...prev, tool];
-      }
-    });
+  const handleRemoveTool = (tool: Component<ToolConfig>) => {
+    setLocalSelectedComponents((prev) => prev.filter((t) => getToolIdentifier(t) !== getToolIdentifier(tool)));
   };
 
   const handleSave = () => {
@@ -140,176 +122,202 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     onOpenChange(false);
   };
 
-  const handleToggleProvider = (provider: string) => {
-    setSelectedProviders((prev) => {
+  const handleCancel = () => {
+    onOpenChange(false);
+  };
+
+  const handleToggleCategoryFilter = (category: string) => {
+    const trimmedCategory = category.trim();
+    if (!trimmedCategory) return;
+
+    setSelectedCategories((prev) => {
       const newSelection = new Set(prev);
-      if (newSelection.has(provider)) {
-        newSelection.delete(provider);
+      if (newSelection.has(trimmedCategory)) {
+        newSelection.delete(trimmedCategory);
       } else {
-        newSelection.add(provider);
+        newSelection.add(trimmedCategory);
       }
       return newSelection;
     });
   };
 
-  // Toggle category expansion
   const toggleCategory = (category: string) => {
-    setExpandedCategories((prev) => ({
-      ...prev,
-      [category]: !prev[category],
-    }));
+    setExpandedCategories((prev) => ({ ...prev, [category]: !prev[category] }));
   };
 
-  // Selection control functions
-  const selectAllProviders = () => setSelectedProviders(new Set(providers));
-  const clearProviders = () => setSelectedProviders(new Set());
+  const selectAllCategories = () => setSelectedCategories(new Set(categories));
+  const clearCategories = () => setSelectedCategories(new Set());
 
-  // Modified to respect the tool limit
-  const selectAllTools = () => {
-    if (filteredTools.length <= MAX_TOOLS_LIMIT) {
-      setLocalSelectedComponents(filteredTools);
-    } else {
-      setLocalSelectedComponents(filteredTools.slice(0, MAX_TOOLS_LIMIT));
-    }
+  const clearAllSelectedTools = () => setLocalSelectedComponents([]);
+
+  // Helper to highlight search term
+  const highlightMatch = (text: string, highlight: string) => {
+    if (!highlight) return text;
+    const parts = text.split(new RegExp(`(${highlight})`, 'gi'));
+    return parts.map((part, i) =>
+      part.toLowerCase() === highlight.toLowerCase() ? <mark key={i} className="bg-yellow-200 px-0 py-0 rounded">{part}</mark> : part
+    );
   };
-
-  const clearToolSelection = () => setLocalSelectedComponents([]);
-
-  // Stats
-  const totalTools = availableTools.length;
-  const selectedCount = localSelectedComponents.length;
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(isOpen) => {
-        // Auto-save if closing with newly discovered tools
-        if (!isOpen) {
-          onToolsSelected(localSelectedComponents);
-        }
-        onOpenChange(isOpen);
-      }}
-    >
-      <DialogContent className="max-w-4xl max-h-[85vh] h-auto">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={handleCancel}>
+      <DialogContent className="max-w-6xl max-h-[90vh] h-[85vh] flex flex-col p-0">
+        <DialogHeader className="p-6 pb-4 border-b">
           <DialogTitle className="text-xl">Select Tools</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            The tools are grouped by category. You can select a tool by clicking on it. To add your own tools, you can use the <Link href="/tools" className="text-violet-600 hover:text-violet-700">Tools</Link> page.
+          </DialogDescription>
         </DialogHeader>
 
-        {/* Tool limit warning */}
-        {isLimitReached && (
-          <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2 text-amber-800">
-            <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="font-medium">Tool limit reached</p>
-              <p className="text-sm">You can select a maximum of {MAX_TOOLS_LIMIT} tools. Deselect some tools to select new ones.</p>
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Panel: Available Tools */}
+          <div className="w-1/2 border-r flex flex-col p-4 space-y-4">
+            {/* Search and Filter Area */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Search tools..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 h-10" />
+              </div>
+              {categories.size > 1 && (
+                 <Button variant="outline" size="icon" onClick={() => setShowFilters(!showFilters)} className={showFilters ? "bg-secondary" : ""}>
+                   <Filter className="h-4 w-4" />
+                 </Button>
+               )}
             </div>
-          </div>
-        )}
 
-        {/* Search and filter area */}
-        <div className="space-y-4">
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search tools by name, description or provider..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
-            </div>
-            <Button variant="outline" size="icon" onClick={() => setShowFilters(!showFilters)} className={showFilters ? "bg-secondary" : ""}>
-              <Filter className="h-4 w-4" />
-            </Button>
-          </div>
+            {showFilters && categories.size > 1 && (
+              <ProviderFilter
+                providers={categories}
+                selectedProviders={selectedCategories}
+                onToggleProvider={handleToggleCategoryFilter}
+                onSelectAll={selectAllCategories}
+                onSelectNone={clearCategories}
+              />
+            )}
 
-          {showFilters && (
-            <ProviderFilter providers={providers} selectedProviders={selectedProviders} onToggleProvider={handleToggleProvider} onSelectAll={selectAllProviders} onSelectNone={clearProviders} />
-          )}
-        </div>
+            {/* Available Tools List */}
+            <ScrollArea className="flex-1 -mr-4 pr-4">
+              {Object.keys(groupedAvailableTools).length > 0 ? (
+                <div className="space-y-3">
+                  {Object.entries(groupedAvailableTools).map(([category, tools]) => {
+                    const toolsSelectedInCategory = tools.filter(isToolSelected).length;
+                    return (
+                      <div key={category} className="border rounded-lg overflow-hidden bg-card">
+                        <div
+                          className="flex items-center justify-between p-3 bg-secondary/50 cursor-pointer hover:bg-secondary/70"
+                          onClick={() => toggleCategory(category)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {expandedCategories[category] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            <h3 className="font-semibold capitalize text-sm">{highlightMatch(category, searchTerm)}</h3>
+                            <Badge variant="secondary" className="font-mono text-xs">{tools.length}</Badge>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            {toolsSelectedInCategory > 0 && (
+                               <Badge variant="outline">{toolsSelectedInCategory} selected</Badge>
+                            )}
+                          </div>
+                        </div>
 
-        {/* Tabs and selection actions */}
-        <div className="flex items-center justify-between">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList>
-              <TabsTrigger value="all">
-                All Tools
-                <Badge variant="outline" className="ml-1 bg-background">
-                  {totalTools}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="selected">
-                Selected
-                <Badge variant="outline" className="ml-1 bg-background">
-                  {selectedCount}
-                </Badge>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={selectAllTools} disabled={isLimitReached && selectedCount === 0}>
-              Select All
-            </Button>
-            <Button variant="ghost" size="sm" onClick={clearToolSelection}>
-              Clear
-            </Button>
-          </div>
-        </div>
-
-        {/* Tools list by category */}
-        <ScrollArea className="h-[400px] pr-4 -mr-4 overflow-y-auto">
-          {Object.keys(groupedTools).length > 0 ? (
-            <div className="space-y-2">
-              {Object.entries(groupedTools).map(([category, tools]) => (
-                <div key={category} className="border rounded-lg overflow-hidden">
-                  {/* Category header */}
-                  <div className="flex items-center justify-between p-3 bg-secondary/30 cursor-pointer" onClick={() => toggleCategory(category)}>
-                    <div className="flex items-center">
-                      {expandedCategories[category] ? <ChevronDown className="w-4 h-4 mr-2" /> : <ChevronRight className="w-4 h-4 mr-2" />}
-                      <h3 className="font-medium capitalize">{category}</h3>
-                      <Badge variant="outline" className="ml-2 bg-background">
-                        {tools.length}
-                      </Badge>
-                    </div>
-                    <div className="text-xs text-muted-foreground">{tools.filter((tool) => isToolSelected(tool)).length} selected</div>
-                  </div>
-
-                  {/* Tools in category */}
-                  {expandedCategories[category] && (
-                    <div className="divide-y">
-                      {tools.map((tool) => (
-                        <ToolItem
-                          key={getToolIdentifier(tool)}
-                          tool={tool}
-                          isSelected={isToolSelected(tool)}
-                          onToggle={handleToggleTool}
-                          disabled={!isToolSelected(tool) && isLimitReached}
-                          displayName={getToolDisplayName(tool)}
-                          description={getToolDescription(tool)}
-                        />
-                      ))}
-                    </div>
-                  )}
+                        {expandedCategories[category] && (
+                          <div className="divide-y border-t">
+                            {tools.map((tool) => {
+                              const isSelected = isToolSelected(tool);
+                              const isDisabled = !isSelected && isLimitReached;
+                              return (
+                                <div
+                                  key={getToolIdentifier(tool)}
+                                  className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-muted/50'}`}
+                                  onClick={() => !isDisabled && handleAddTool(tool)}
+                                >
+                                  <div className="flex-1 overflow-hidden pr-2">
+                                    <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(getToolDisplayName(tool), searchTerm)}</p>
+                                    {getToolDescription(tool) && <p className="text-xs text-muted-foreground">{highlightMatch(getToolDescription(tool) || "", searchTerm)}</p>}
+                                    <p className="text-xs text-muted-foreground/80 font-mono mt-1">{highlightMatch(getToolProvider(tool), searchTerm)}</p>
+                                  </div>
+                                  {!isSelected && !isDisabled && (
+                                     <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 text-green-600 hover:text-green-700" >
+                                       <PlusCircle className="h-4 w-4"/>
+                                     </Button>
+                                   )}
+                                  {isSelected && (
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={(e) => {e.stopPropagation(); handleRemoveTool(tool);}}>
+                                       <XCircle className="h-4 w-4"/>
+                                     </Button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
+              ) : (
+                <div className="flex flex-col items-center justify-center h-[200px] text-center p-4 text-muted-foreground">
+                  <Search className="h-10 w-10 mb-3 opacity-50" />
+                  <p className="font-medium">No tools found</p>
+                  <p className="text-sm">Try adjusting your search or filters.</p>
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+
+          {/* Right Panel: Selected Tools */}
+          <div className="w-1/2 flex flex-col p-4 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold text-base">Selected Tools ({selectedCount}/{MAX_TOOLS_LIMIT})</h3>
+              <Button variant="ghost" size="sm" onClick={clearAllSelectedTools} disabled={selectedCount === 0}>
+                Clear All
+              </Button>
             </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-[200px] text-center p-4">
-              <Search className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
-              <h3 className="font-medium text-lg">No tools found</h3>
-              <p className="text-muted-foreground mt-1">Try adjusting your search or filters to find what you&apos;re looking for.</p>
-            </div>
-          )}
-        </ScrollArea>
+
+            {isLimitReached && (
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2 text-amber-800 text-sm">
+                <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  Tool limit reached. Deselect a tool to add another.
+                </div>
+              </div>
+            )}
+
+            <ScrollArea className="flex-1 -mr-4 pr-4">
+              {localSelectedComponents.length > 0 ? (
+                <div className="space-y-2">
+                  {localSelectedComponents.map((tool) => (
+                     <div key={getToolIdentifier(tool)} className="flex items-center justify-between p-3 border rounded-md bg-card group min-w-0">
+                       <div className="flex-1 overflow-hidden pr-2">
+                          <p className="font-medium text-sm truncate overflow-hidden">{getToolDisplayName(tool)}</p>
+                          {getToolDescription(tool) && <p className="text-xs text-muted-foreground">{getToolDescription(tool)}</p>}
+                          <p className="text-xs text-muted-foreground/80 font-mono mt-1">{getToolProvider(tool)}</p>
+                       </div>
+                       <Button variant="ghost" size="icon" className="flex-shrink-0 h-7 w-7 text-destructive hover:text-destructive/80 opacity-50 group-hover:opacity-100" onClick={() => handleRemoveTool(tool)}>
+                         <XCircle className="h-4 w-4"/>
+                       </Button>
+                     </div>
+                  ))}
+                </div>
+              ) : (
+                 <div className="flex flex-col items-center justify-center h-full text-center p-4 text-muted-foreground">
+                   <p className="text-sm">No tools selected yet.</p>
+                   <p className="text-xs mt-1">Click on a tool from the left panel to add it.</p>
+                 </div>
+              )}
+            </ScrollArea>
+          </div>
+        </div>
 
         {/* Footer with actions */}
-        <DialogFooter className="mt-4 pt-4 border-t">
+        <DialogFooter className="p-4 border-t mt-auto">
           <div className="flex justify-between w-full items-center">
-            <div className="text-sm flex items-center">
-              <Badge variant="outline" className="mr-2">
-                {selectedCount} tool{selectedCount !== 1 ? "s" : ""} selected
-              </Badge>
-              <span className="text-muted-foreground">(Maximum: {MAX_TOOLS_LIMIT})</span>
+            <div className="text-sm text-muted-foreground">
+              Select up to {MAX_TOOLS_LIMIT} tools for your agent.
             </div>
             <div className="flex gap-2">
-              <Button className="bg-violet-500 hover:bg-violet-600 text-white" onClick={handleSave}>
-                Save Selection
+              <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+              <Button className="bg-violet-600 hover:bg-violet-700 text-white" onClick={handleSave}>
+                Save Selection ({selectedCount})
               </Button>
             </div>
           </div>
