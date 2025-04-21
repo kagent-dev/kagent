@@ -78,10 +78,10 @@ Kagent has 4 core components:
   - [ ] Multi-Agent support
   - [ ] True Graph Execution
   - [ ] Workflows
-  - [ ] Multiple LLM Provider support
+  - [x] Multiple LLM Provider support
 - [ ] [Tools:](https://github.com/kagent-dev/kagent/issues/133)
-  - [ ] Tool Discovery
-  - [ ] Expose built-in tools as MCP server
+  - [x] Tool Discovery
+  - [x] Expose built-in tools as MCP server
 
 ## Local development
 
