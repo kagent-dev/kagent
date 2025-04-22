@@ -297,53 +297,46 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 
 	// --- Secret Creation ---
 	providerTypeEnum := v1alpha1.ModelProvider(req.Provider.Type)
-	isOllama := providerTypeEnum == v1alpha1.Ollama
-	apiKey := req.APIKey
-
-	// Validate API key presence *unless* it's Ollama
-	if !isOllama && apiKey == "" {
-		log.Error(nil, "API key is required for non-Ollama providers")
-		w.RespondWithError(errors.NewBadRequestError("API key is required for this provider", nil))
-		return
+	modelConfigSpec := v1alpha1.ModelConfigSpec{
+		Model:    req.Model,
+		Provider: providerTypeEnum,
 	}
+	secret := &corev1.Secret{}
 
-	// For Ollama, use a placeholder value if apiKey is empty, as secret data cannot be truly empty
-	if isOllama && apiKey == "" {
-		apiKey = "ollama-no-key"
-		log.V(1).Info("Ollama provider selected, using placeholder for secret data")
-	}
+	// If the provider is Ollama, we don't need to create a secret.
+	if providerTypeEnum == v1alpha1.Ollama {
+		log.V(1).Info("Ollama provider, skipping secret creation")
+	} else {
+		apiKey := req.APIKey
+		secretName := req.Name
+		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
+		log.V(1).Info("Creating API key secret", "secretName", secretName, "secretKey", secretKey)
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: common.GetResourceNamespace(),
+			},
+			StringData: map[string]string{
+				secretKey: apiKey,
+			},
+		}
 
-	secretName := req.Name
-	secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-	log.V(1).Info("Creating API key secret", "secretName", secretName, "secretKey", secretKey)
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: common.GetResourceNamespace(),
-		},
-		StringData: map[string]string{
-			secretKey: apiKey,
-		},
+		if err := h.KubeClient.Create(r.Context(), secret); err != nil {
+			log.Error(err, "Failed to create API key secret")
+			w.RespondWithError(errors.NewInternalServerError("Failed to create API key secret", err))
+			return
+		}
+		log.V(1).Info("Successfully created API key secret")
+		modelConfigSpec.APIKeySecretName = secretName
+		modelConfigSpec.APIKeySecretKey = secretKey
 	}
-
-	if err := h.KubeClient.Create(r.Context(), secret); err != nil {
-		log.Error(err, "Failed to create API key secret")
-		w.RespondWithError(errors.NewInternalServerError("Failed to create API key secret", err))
-		return
-	}
-	log.V(1).Info("Successfully created API key secret")
 
 	modelConfig := &v1alpha1.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
 			Namespace: common.GetResourceNamespace(),
 		},
-		Spec: v1alpha1.ModelConfigSpec{
-			Model:            req.Model,
-			Provider:         providerTypeEnum,
-			APIKeySecretName: secretName,
-			APIKeySecretKey:  secretKey,
-		},
+		Spec: modelConfigSpec,
 	}
 
 	var providerConfigErr error
@@ -389,8 +382,10 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		log.Error(providerConfigErr, "Failed to assign provider config")
 		// Clean up the created secret if config assignment fails
 		log.V(1).Info("Attempting to clean up secret due to config assignment failure")
-		if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
-			log.Error(cleanupErr, "Failed to cleanup secret after config assignment failure")
+		if providerTypeEnum != v1alpha1.Ollama {
+			if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
+				log.Error(cleanupErr, "Failed to cleanup secret after config assignment failure")
+			}
 		}
 		w.RespondWithError(errors.NewBadRequestError(providerConfigErr.Error(), providerConfigErr))
 		return
@@ -400,8 +395,10 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		log.Error(err, "Failed to create ModelConfig resource")
 		// If we fail to create the ModelConfig, we should clean up the secret
 		log.V(1).Info("Attempting to clean up secret after ModelConfig creation failure")
-		if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
-			log.Error(cleanupErr, "Failed to cleanup secret after ModelConfig creation failure")
+		if providerTypeEnum != v1alpha1.Ollama {
+			if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
+				log.Error(cleanupErr, "Failed to cleanup secret after ModelConfig creation failure")
+			}
 		}
 		w.RespondWithError(errors.NewInternalServerError("Failed to create model config", err))
 		return
@@ -459,13 +456,20 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	// --- Update Secret if API Key is provided (and not Ollama) ---
-	secretName := configName
-	secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-	isOllama := strings.EqualFold(req.Provider.Type, string(v1alpha1.Ollama))
-	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != ""
+	modelConfig.Spec = v1alpha1.ModelConfigSpec{
+		Model:       req.Model,
+		Provider:    v1alpha1.ModelProvider(req.Provider.Type),
+		OpenAI:      nil,
+		Anthropic:   nil,
+		AzureOpenAI: nil,
+		Ollama:      nil,
+	}
 
-	if !isOllama && shouldUpdateSecret {
+	// --- Update Secret if API Key is provided (and not Ollama) ---
+	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.Ollama
+	if shouldUpdateSecret {
+		secretName := configName
+		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
 		log.V(1).Info("Updating API key secret", "secretName", secretName, "secretKey", secretKey)
 		existingSecret := &corev1.Secret{}
 		err = h.KubeClient.Get(r.Context(), types.NamespacedName{Name: secretName, Namespace: common.GetResourceNamespace()}, existingSecret)
@@ -500,21 +504,9 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 			}
 		}
 		log.V(1).Info("Successfully updated API key secret")
-	} else if isOllama {
-		log.V(1).Info("Skipping secret update for Ollama provider")
-	} else {
-		log.V(1).Info("API key not provided, secret will not be updated")
+		modelConfig.Spec.APIKeySecretName = secretName
+		modelConfig.Spec.APIKeySecretKey = secretKey
 	}
-
-	log.V(1).Info("Updating ModelConfig spec")
-	modelConfig.Spec.OpenAI = nil
-	modelConfig.Spec.Anthropic = nil
-	modelConfig.Spec.AzureOpenAI = nil
-	modelConfig.Spec.Ollama = nil
-
-	modelConfig.Spec.Model = req.Model
-	modelConfig.Spec.Provider = v1alpha1.ModelProvider(req.Provider.Name)
-	modelConfig.Spec.APIKeySecretKey = secretKey
 
 	var providerConfigErr error
 	switch modelConfig.Spec.Provider {
