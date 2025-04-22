@@ -87,6 +87,8 @@ contrib:
       enabled: true
     helm:
       enabled: true
+    promql:
+      enabled: true
     observability:
       prometheus:
         url: ""

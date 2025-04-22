@@ -38,7 +38,7 @@ type AgentSpec struct {
 }
 
 // ToolProviderType represents the tool provider type
-// +kubebuilder:validation:Enum=Inline;McpServer
+// +kubebuilder:validation:Enum=Inline;McpServer;Agent
 type ToolProviderType string
 
 const (
@@ -54,7 +54,6 @@ const (
 // +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
 // +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
 type Tool struct {
-	// +kubebuilder:validation:Enum=Inline;McpServer
 	ToolProvider ToolProviderType `json:"type,omitempty"`
 	// +optional
 	Inline *InlineTool `json:"inline,omitempty"`
@@ -68,7 +67,7 @@ type AgentTool struct {
 	// The name of the Agent resource to use as a tool.
 	// This should be a reference to an Agent resource in the same namespace.
 	// +kubebuilder:validation:MinLength=1
-	AgentName string `json:"agentName,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 type InlineTool struct {

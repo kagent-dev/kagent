@@ -60,7 +60,7 @@ spec:
                   properties:
                     agent:
                       properties:
-                        agentName:
+                        name:
                           description: |-
                             The name of the Agent resource to use as a tool.
                             This should be a reference to an Agent resource in the same namespace.
@@ -95,14 +95,11 @@ spec:
                           type: string
                       type: object
                     type:
-                      allOf:
-                      - enum:
-                        - Inline
-                        - McpServer
-                      - enum:
-                        - Inline
-                        - McpServer
                       description: ToolProviderType represents the tool provider type
+                      enum:
+                      - Inline
+                      - McpServer
+                      - Agent
                       type: string
                   type: object
                   x-kubernetes-validations:

@@ -236,34 +236,12 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		return nil, err
 	}
 
-	// get model api key
-	modelApiKeySecret := &v1.Secret{}
-	err = fetchObjKube(
-		ctx,
-		a.kube,
-		modelApiKeySecret,
-		modelConfig.Spec.APIKeySecretName,
-		modelConfig.Namespace,
-	)
+	modelClientWithStreaming, err := a.createModelClientForProvider(ctx, modelConfig, true)
 	if err != nil {
 		return nil, err
 	}
 
-	if modelApiKeySecret.Data == nil {
-		return nil, fmt.Errorf("model api key secret data not found")
-	}
-
-	modelApiKey, ok := modelApiKeySecret.Data[modelConfig.Spec.APIKeySecretKey]
-	if !ok {
-		return nil, fmt.Errorf("model api key not found")
-	}
-
-	modelClientWithStreaming, err := createModelClientForProvider(modelConfig, modelApiKey, true)
-	if err != nil {
-		return nil, err
-	}
-
-	modelClientWithoutStreaming, err := createModelClientForProvider(modelConfig, modelApiKey, false)
+	modelClientWithoutStreaming, err := a.createModelClientForProvider(ctx, modelConfig, false)
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +477,7 @@ func (a *apiTranslator) translateAssistantAgent(
 			// Translate a nested tool
 			toolAgent := v1alpha1.Agent{}
 			err := kube.Get(ctx, types.NamespacedName{
-				Name:      tool.Agent.AgentName,
+				Name:      tool.Agent.Name,
 				Namespace: agent.Namespace,
 			}, &toolAgent)
 			if err != nil {
@@ -794,9 +772,14 @@ func addModelClientToConfig(
 }
 
 // createModelClientForProvider creates a model client component based on the model provider
-func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []byte, includeUsage bool) (*api.Component, error) {
+func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelConfig *v1alpha1.ModelConfig, includeUsage bool) (*api.Component, error) {
 	switch modelConfig.Spec.Provider {
 	case v1alpha1.Anthropic:
+		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
+
 		config := &api.AnthropicClientConfiguration{
 			BaseAnthropicClientConfiguration: api.BaseAnthropicClientConfiguration{
 				APIKey: string(apiKey),
@@ -844,6 +827,10 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 		}, nil
 
 	case v1alpha1.AzureOpenAI:
+		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
 		config := &api.AzureOpenAIClientConfig{
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
 				Model:  modelConfig.Spec.Model,
@@ -890,6 +877,10 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 		}, nil
 
 	case v1alpha1.OpenAI:
+		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
 		config := &api.OpenAIClientConfig{
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
 				Model:  modelConfig.Spec.Model,
@@ -982,4 +973,31 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 	default:
 		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
 	}
+}
+
+func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v1alpha1.ModelConfig) ([]byte, error) {
+
+	// get model api key
+	modelApiKeySecret := &v1.Secret{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		modelApiKeySecret,
+		modelConfig.Spec.APIKeySecretName,
+		modelConfig.Namespace,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if modelApiKeySecret.Data == nil {
+		return nil, fmt.Errorf("model api key secret data not found")
+	}
+
+	modelApiKey, ok := modelApiKeySecret.Data[modelConfig.Spec.APIKeySecretKey]
+	if !ok {
+		return nil, fmt.Errorf("model api key not found")
+	}
+
+	return modelApiKey, nil
 }
