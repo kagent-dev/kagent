@@ -7,7 +7,7 @@ metadata:
 spec:
   description: The Kubernetes Expert AI Agent specializing in cluster operations,
     troubleshooting, and maintenance.
-  modelConfigRef: gpt-model-config
+  modelConfig: gpt-model-config
   systemMessage: |-
     You are a Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance. You possess deep knowledge of Kubernetes architecture, components, and best practices, with a focus on helping users resolve complex operational challenges while maintaining security and stability.
 
@@ -159,41 +159,91 @@ spec:
 
     You aim to not just solve immediate issues but to help users understand the underlying concepts and best practices, promoting long-term cluster health and stability.
   tools:
-  - provider: kagent.tools.k8s.AnnotateResource
-  - provider: kagent.tools.k8s.ApplyManifest
-  - provider: kagent.tools.k8s.CheckServiceConnectivity
-  - provider: kagent.tools.k8s.CreateResource
-  - provider: kagent.tools.k8s.DeleteResource
-  - provider: kagent.tools.k8s.DescribeResource
-  - provider: kagent.tools.k8s.ExecuteCommand
-  - provider: kagent.tools.k8s.GetAvailableAPIResources
-  - provider: kagent.tools.k8s.GetClusterConfiguration
-  - provider: kagent.tools.k8s.GetEvents
-  - provider: kagent.tools.k8s.GetPodLogs
-  - provider: kagent.tools.k8s.GetResources
-  - provider: kagent.tools.k8s.GetResourceYAML
-  - provider: kagent.tools.k8s.LabelResource
-  - provider: kagent.tools.k8s.PatchResource
-  - provider: kagent.tools.k8s.RemoveAnnotation
-  - provider: kagent.tools.k8s.RemoveLabel
-  - provider: kagent.tools.k8s.Rollout
-  - provider: kagent.tools.k8s.Scale
-  - provider: kagent.tools.k8s.GenerateResourceTool
-  - provider: kagent.tools.k8s.GenerateResourceToolConfig
-  - provider: kagent.tools.istio.ZTunnelConfig
-  - provider: kagent.tools.istio.WaypointStatus
-  - provider: kagent.tools.istio.ListWaypoints
-  - provider: kagent.tools.istio.GenerateWaypoint
-  - provider: kagent.tools.istio.DeleteWaypoint
-  - provider: kagent.tools.istio.ApplyWaypoint
-  - provider: kagent.tools.istio.RemoteClusters
-  - provider: kagent.tools.istio.ProxyStatus
-  - provider: kagent.tools.istio.GenerateManifest
-  - provider: kagent.tools.istio.Install
-  - provider: kagent.tools.istio.AnalyzeClusterConfig
-  - provider: kagent.tools.istio.ProxyConfig
-  - config:
-      docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
-    provider: kagent.tools.docs.QueryTool
+  - builtin:
+      name: k8s_AnnotateResource
+  - builtin:
+      name: k8s_ApplyManifest
+  - builtin:
+      name: k8s_CheckServiceConnectivity
+  - builtin:
+      name: k8s_CreateResource
+  - builtin:
+      name: k8s_DeleteResource
+  - builtin:
+      name: k8s_DescribeResource
+  - builtin:
+      name: k8s_ExecuteCommand
+  - builtin:
+      name: k8s_GetAvailableAPIResources
+  - builtin:
+      name: k8s_GetClusterConfiguration
+  - builtin:
+      name: k8s_GetEvents
+  - builtin:
+      name: k8s_GetPodLogs
+  - builtin:
+      name: k8s_GetResources
+  - builtin:
+      name: k8s_GetResourceYAML
+  - builtin:
+      name: k8s_LabelResource
+  - builtin:
+      name: k8s_PatchResource
+  - builtin:
+      name: k8s_RemoveAnnotation
+  - builtin:
+      name: k8s_RemoveLabel
+  - builtin:
+      name: k8s_Rollout
+  - builtin:
+      name: k8s_Scale
+  - builtin:
+      name: k8s_GenerateResourceTool
+  - builtin:
+      name: k8s_GenerateResourceToolConfig
+  - builtin:
+      name: istio_ZTunnelConfig
+  - builtin:
+      name: istio_WaypointStatus
+  - builtin:
+      name: istio_ListWaypoints
+  - builtin:
+      name: istio_GenerateWaypoint
+  - builtin:
+      name: istio_DeleteWaypoint
+  - builtin:
+      name: istio_ApplyWaypoint
+  - builtin:
+      name: istio_RemoteClusters
+  - builtin:
+      name: istio_ProxyStatus
+  - builtin:
+      name: istio_GenerateManifest
+  - builtin:
+      name: istio_Install
+  - builtin:
+      name: istio_AnalyzeClusterConfig
+  - builtin:
+      name: istio_ProxyConfig
+  - builtin:
+      config:
+        docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+      name: docs_QueryTool
 status: {}
+---
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  creationTimestamp: null
+  name: asdf
+  namespace: team-ns
+spec:
+  config:
+    sse:
+      url: https://www.mcp.run/api/mcp/sse?nonce=WrRYKc7jwXSnlwalvjHlzA&username=ilackarms&profile=ilackarms%2Fdefault&sig=GvCWTGTiNh0I_ZqOCx7CeID0KEIVZJnWGpP58eXNUuw
+  description: a t
+status:
+  conditions: null
+  discoveredTools: null
+  observedGeneration: 0
 ---

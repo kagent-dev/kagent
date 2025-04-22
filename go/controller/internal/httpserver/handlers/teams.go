@@ -64,15 +64,15 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 		// Get the model config for the team
 		modelConfig := &v1alpha1.ModelConfig{}
 		if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-			Name:      team.Spec.ModelConfigRef,
+			Name:      team.Spec.ModelConfig,
 			Namespace: common.GetResourceNamespace(),
 		}, modelConfig); err != nil {
-			log.Error(err, "Failed to get model config", "modelConfigRef", team.Spec.ModelConfigRef)
+			log.Error(err, "Failed to get model config", "modelConfigRef", team.Spec.ModelConfig)
 			continue
 		}
 
 		if modelConfig == nil {
-			log.V(1).Info("Model config not found", "modelConfigRef", team.Spec.ModelConfigRef)
+			log.V(1).Info("Model config not found", "modelConfigRef", team.Spec.ModelConfig)
 			continue
 		}
 
@@ -238,10 +238,10 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	}
 
 	// Get the model config for the team
-	log.V(1).Info("Getting model config", "modelConfigRef", team.Spec.ModelConfigRef)
+	log.V(1).Info("Getting model config", "modelConfigRef", team.Spec.ModelConfig)
 	modelConfig := &v1alpha1.ModelConfig{}
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      team.Spec.ModelConfigRef,
+		Name:      team.Spec.ModelConfig,
 		Namespace: common.GetResourceNamespace(),
 	}, modelConfig); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get model config", err))

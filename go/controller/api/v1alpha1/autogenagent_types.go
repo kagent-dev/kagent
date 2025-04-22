@@ -32,7 +32,7 @@ type AgentSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// +optional
-	ModelConfigRef string `json:"modelConfigRef"`
+	ModelConfig string `json:"modelConfig,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
 }
@@ -42,27 +42,29 @@ type AgentSpec struct {
 type ToolProviderType string
 
 const (
-	Inline    ToolProviderType = "Inline"
-	McpServer ToolProviderType = "McpServer"
+	ToolProviderType_Builtin   ToolProviderType = "Builtin"
+	ToolProviderType_McpServer ToolProviderType = "McpServer"
+	ToolProviderType_Agent     ToolProviderType = "Agent"
 )
 
-// +kubebuilder:validation:XValidation:message="type.inline must be nil if the type is not Inline",rule="!(has(self.inline) && self.type != 'Inline')"
-// +kubebuilder:validation:XValidation:message="type.inline must be specified for Inline filter.type",rule="!(!has(self.inline) && self.type == 'Inline')"
+// +kubebuilder:validation:XValidation:message="type.builtin must be nil if the type is not Builtin",rule="!(has(self.builtin) && self.type != 'Builtin')"
+// +kubebuilder:validation:XValidation:message="type.builtin must be specified for Builtin filter.type",rule="!(!has(self.builtin) && self.type == 'Builtin')"
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be nil if the type is not McpServer",rule="!(has(self.mcpServer) && self.type != 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be specified for McpServer filter.type",rule="!(!has(self.mcpServer) && self.type == 'McpServer')"
 type Tool struct {
-	// +kubebuilder:validation:Enum=Inline;McpServer
-	ToolProvider ToolProviderType `json:"type,omitempty"`
+	// +kubebuilder:validation:Enum=Builtin;McpServer;Agent
+	Type ToolProviderType `json:"type,omitempty"`
 	// +optional
-	Inline *InlineTool `json:"inline,omitempty"`
+	Builtin *BuiltinTool `json:"builtin,omitempty"`
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
+	// +optional
+	Agent *AgentTool `json:"agent,omitempty"`
 }
 
-type InlineTool struct {
-	Provider string `json:"provider,omitempty"`
-	// Description is a brief description of the tool.
-	Description string `json:"description,omitempty"`
+type BuiltinTool struct {
+	// the name of the builtin tool
+	Name string `json:"name,omitempty"`
 	// note: this implementation is due to the kubebuilder limitation https://github.com/kubernetes-sigs/controller-tools/issues/636
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
@@ -70,12 +72,17 @@ type InlineTool struct {
 }
 
 type McpServerTool struct {
-	// the name of the ToolServer that provides the tool. must exist in the same namespace as the Agent
+	// the name of the ToolServer that provides the tool. can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
 	ToolServer string `json:"toolServer,omitempty"`
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
 	ToolNames []string `json:"toolNames,omitempty"`
+}
+
+type AgentTool struct {
+	// reference to the Agent that provides the tool. can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
+	Agent string `json:"agent,omitempty"`
 }
 
 type AnyType struct {
