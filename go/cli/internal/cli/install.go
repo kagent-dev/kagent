@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -63,7 +64,9 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		// original kagent installation that had CRDs installed together with the kagent chart
 		if strings.Contains(output, "exists and cannot be imported into the current release") {
 			s.Stop()
-			c.Println("Warning: CRDs already exist but not managed by helm, you might need to delete them manually to make them fully managed by helm.")
+			c.Println("Warning: CRDs exist but aren't managed by helm.")
+			c.Println("Run `uninstall` or delete them manually to")
+			c.Println("ensure they're fully managed on next install.")
 			s.Start()
 		} else {
 			c.Println("Error installing kagent-crds:", output)
@@ -100,6 +103,37 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 
 	s.Stop()
 	c.Println("kagent installed successfully")
+}
+
+// deleteCRDs manually deletes Kubernetes CRDs for kagent
+// This is a workaround for the fact that helm doesn't delete CRDs automatically
+func deleteCRDs(ctx context.Context, c *ishell.Context) error {
+	crds := []string{
+		"agents.kagent.dev",
+		"modelconfigs.kagent.dev",
+		"teams.kagent.dev",
+		"toolservers.kagent.dev",
+	}
+
+	var deleteErrors []string
+
+	for _, crd := range crds {
+		deleteCmd := exec.CommandContext(ctx, "kubectl", "delete", "crd", crd)
+		if out, err := deleteCmd.CombinedOutput(); err != nil {
+			if !strings.Contains(string(out), "not found") {
+				errMsg := fmt.Sprintf("Error deleting CRD %s: %s", crd, string(out))
+				c.Printf(errMsg)
+				deleteErrors = append(deleteErrors, errMsg)
+			}
+		} else {
+			c.Printf("Successfully deleted CRD %s\n", crd)
+		}
+	}
+
+	if len(deleteErrors) > 0 {
+		return fmt.Errorf("failed to delete some CRDs: %s", strings.Join(deleteErrors, "; "))
+	}
+	return nil
 }
 
 func UninstallCmd(ctx context.Context, c *ishell.Context) {
@@ -146,7 +180,12 @@ func UninstallCmd(ctx context.Context, c *ishell.Context) {
 		// Check if this is because kagent-crds doesn't exist
 		output := string(out)
 		if strings.Contains(output, "not found") {
-			c.Println("Warning: kagent-crds release not found, skipping uninstallation")
+			c.Println("Warning: kagent-crds release not found, try to delete crds directly")
+			// delete the CRDs directly, this is a workaround for the fact that helm doesn't delete CRDs
+			if err := deleteCRDs(ctx, c); err != nil {
+				c.Println("Error deleting CRDs:", err)
+				return
+			}
 		} else {
 			c.Println("Error uninstalling kagent-crds:", output)
 			return
