@@ -63,16 +63,47 @@ func BugReportCmd(c *ishell.Context) {
 				continue
 			}
 			podName := strings.TrimPrefix(pod, "pod/")
-			cmd = exec.Command("kubectl", "logs", "-n", "kagent", podName)
-			logs, err := cmd.CombinedOutput()
+
+			// Get container names for this pod
+			containerCmd := exec.Command("kubectl", "get", "pod", podName, "-n", "kagent", "-o", "jsonpath='{.spec.containers[*].name}'")
+			containerOutput, err := containerCmd.CombinedOutput()
 			if err != nil {
-				c.Printf("Error getting logs for pod %s: %v\n", podName, err)
+				c.Printf("Error getting containers for pod %s: %v\n", podName, err)
 				continue
 			}
 
-			filename := filepath.Join(reportDir, fmt.Sprintf("%s-logs.txt", podName))
-			if err := os.WriteFile(filename, logs, 0644); err != nil {
-				c.Printf("Error writing logs for pod %s: %v\n", podName, err)
+			// Parse container names
+			containerStr := strings.Trim(string(containerOutput), "'")
+			containers := strings.Fields(containerStr)
+
+			if len(containers) == 0 {
+				// Fallback to getting logs without specifying container
+				cmd = exec.Command("kubectl", "logs", "-n", "kagent", podName)
+				logs, err := cmd.CombinedOutput()
+				if err != nil {
+					c.Printf("Error getting logs for pod %s: %v\n", podName, err)
+					continue
+				}
+
+				filename := filepath.Join(reportDir, fmt.Sprintf("%s-logs.txt", podName))
+				if err := os.WriteFile(filename, logs, 0644); err != nil {
+					c.Printf("Error writing logs for pod %s: %v\n", podName, err)
+				}
+			} else {
+				// Get logs for each container
+				for _, container := range containers {
+					cmd = exec.Command("kubectl", "logs", "-n", "kagent", podName, "-c", container)
+					logs, err := cmd.CombinedOutput()
+					if err != nil {
+						c.Printf("Error getting logs for container %s in pod %s: %v\n", container, podName, err)
+						continue
+					}
+
+					filename := filepath.Join(reportDir, fmt.Sprintf("%s-%s-logs.txt", podName, container))
+					if err := os.WriteFile(filename, logs, 0644); err != nil {
+						c.Printf("Error writing logs for container %s in pod %s: %v\n", container, podName, err)
+					}
+				}
 			}
 		}
 	}
@@ -90,4 +121,5 @@ func BugReportCmd(c *ishell.Context) {
 	}
 
 	c.Printf("Bug report generated in directory: %s\n", reportDir)
+	c.Println("WARNING: Please review and scrub any sensitive information from agent.yaml before sharing the bug report.")
 }
