@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -142,20 +143,41 @@ func NewAutogenApiTranslator(
 }
 
 func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v1alpha1.Agent) (*autogen_client.Team, error) {
-	return a.translateGroupChatForAgent(ctx, agent, nil, defaultTeamOptions())
+	return a.translateGroupChatForAgent(ctx, agent, defaultTeamOptions(), &tState{})
 }
 
 func (a *apiTranslator) TranslateGroupChatForTeam(
 	ctx context.Context,
 	team *v1alpha1.Team,
 ) (*autogen_client.Team, error) {
-	return a.translateGroupChatForTeam(ctx, team, nil, defaultTeamOptions())
+	return a.translateGroupChatForTeam(ctx, team, defaultTeamOptions(), &tState{})
 }
 
 type teamOptions struct {
 	userProxy         bool
 	wrapSocietyOfMind bool
 	stream            bool
+}
+
+const MAX_DEPTH = 10
+
+type tState struct {
+	// used to prevent infinite loops
+	// The recursion limit is 10
+	depth uint8
+	// used to enforce DAG
+	// The final member of the list will be the "parent" agent
+	visitedAgents []string
+}
+
+func (s *tState) with(agent *v1alpha1.Agent) *tState {
+	s.depth++
+	s.visitedAgents = append(s.visitedAgents, agent.Name)
+	return s
+}
+
+func (t *tState) isVisited(agentName string) bool {
+	return slices.Contains(t.visitedAgents, agentName)
 }
 
 func defaultTeamOptions() *teamOptions {
@@ -169,8 +191,8 @@ func defaultTeamOptions() *teamOptions {
 func (a *apiTranslator) translateGroupChatForAgent(
 	ctx context.Context,
 	agent *v1alpha1.Agent,
-	parent *v1alpha1.Agent,
 	opts *teamOptions,
+	state *tState,
 ) (*autogen_client.Team, error) {
 	modelConfig := a.defaultModelConfig
 	// Use the provided model config if set, otherwise use the default one
@@ -202,14 +224,14 @@ func (a *apiTranslator) translateGroupChatForAgent(
 		},
 	}
 
-	return a.translateGroupChatForTeam(ctx, team, parent, opts)
+	return a.translateGroupChatForTeam(ctx, team, opts, state)
 }
 
 func (a *apiTranslator) translateGroupChatForTeam(
 	ctx context.Context,
 	team *v1alpha1.Team,
-	parent *v1alpha1.Agent,
 	opts *teamOptions,
+	state *tState,
 ) (*autogen_client.Team, error) {
 	// get model config
 	roundRobinTeamConfig := team.Spec.RoundRobinTeamConfig
@@ -274,18 +296,19 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			participant, err = a.translateTaskAgent(
 				ctx,
 				agent,
-				parent,
 				modelContext,
+				opts,
+				state,
 			)
 		} else {
 			participant, err = a.translateAssistantAgent(
 				ctx,
-				a.kube,
 				agent,
 				modelClientWithStreaming,
 				modelClientWithoutStreaming,
 				modelContext,
 				opts,
+				state,
 			)
 		}
 		if err != nil {
@@ -384,15 +407,15 @@ func (a *apiTranslator) translateGroupChatForTeam(
 // internally we convert all agents to a society-of-mind agent
 func (a *apiTranslator) translateTaskAgent(
 	ctx context.Context,
-	agent, parent *v1alpha1.Agent,
+	agent *v1alpha1.Agent,
 	modelContext *api.Component,
+	opts *teamOptions,
+	state *tState,
 ) (*api.Component, error) {
 
 	team := simpleRoundRobinTeam(agent, "society-of-mind-team")
 
-	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, parent, &teamOptions{
-		// wrapSocietyOfMind: true,
-	})
+	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{}, state)
 	if err != nil {
 		return nil, err
 	}
@@ -439,12 +462,12 @@ func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
 
 func (a *apiTranslator) translateAssistantAgent(
 	ctx context.Context,
-	kube client.Client,
 	agent *v1alpha1.Agent,
 	modelClientWithStreaming *api.Component,
 	modelClientWithoutStreaming *api.Component,
 	modelContext *api.Component,
 	opts *teamOptions,
+	state *tState,
 ) (*api.Component, error) {
 
 	tools := []*api.Component{}
@@ -463,7 +486,7 @@ func (a *apiTranslator) translateAssistantAgent(
 			for _, toolName := range tool.McpServer.ToolNames {
 				autogenTool, err := translateToolServerTool(
 					ctx,
-					kube,
+					a.kube,
 					tool.McpServer.ToolServer,
 					toolName,
 					agent.Namespace,
@@ -474,9 +497,21 @@ func (a *apiTranslator) translateAssistantAgent(
 				tools = append(tools, autogenTool)
 			}
 		case tool.Agent != nil:
+			if tool.Agent.Name == agent.Name {
+				return nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agent.Name)
+			}
+
+			if state.isVisited(tool.Agent.Name) {
+				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agent.Name, tool.Agent.Name)
+			}
+
+			if state.depth > MAX_DEPTH {
+				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agent.Name, tool.Agent.Name)
+			}
+
 			// Translate a nested tool
 			toolAgent := v1alpha1.Agent{}
-			err := kube.Get(ctx, types.NamespacedName{
+			err := a.kube.Get(ctx, types.NamespacedName{
 				Name:      tool.Agent.Name,
 				Namespace: agent.Namespace,
 			}, &toolAgent)
@@ -485,9 +520,9 @@ func (a *apiTranslator) translateAssistantAgent(
 			}
 
 			team := simpleRoundRobinTeam(&toolAgent, toolAgent.Name)
-			autogenTool, err := a.translateGroupChatForTeam(ctx, team, agent, &teamOptions{
+			autogenTool, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{
 				wrapSocietyOfMind: true,
-			})
+			}, state.with(agent))
 			if err != nil {
 				return nil, err
 			}
