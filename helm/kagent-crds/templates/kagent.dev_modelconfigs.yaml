@@ -67,7 +67,7 @@ spec:
                 type: object
               apiKeySecretKey:
                 type: string
-              apiKeySecretName:
+              apiKeySecretRef:
                 type: string
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
@@ -162,7 +162,7 @@ spec:
                 type: string
             required:
             - apiKeySecretKey
-            - apiKeySecretName
+            - apiKeySecretRef
             - model
             - provider
             type: object
