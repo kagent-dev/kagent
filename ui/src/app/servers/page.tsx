@@ -110,7 +110,7 @@ export default function ServersPage() {
           </Link>
         </div>
         {servers.length > 0 && (
-          <Button onClick={() => setShowAddServer(true)} className="border-blue-500 text-blue-600 hover:bg-blue-50" variant="outline">
+          <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add Server
           </Button>
@@ -213,7 +213,7 @@ export default function ServersPage() {
           <Server className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
           <h3 className="font-medium text-lg">No servers connected</h3>
           <p className="text-muted-foreground mt-1 mb-4">Add a tool server to discover and use tools.</p>
-          <Button onClick={() => setShowAddServer(true)} className="bg-blue-500 hover:bg-blue-600 text-white">
+          <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add Server
           </Button>

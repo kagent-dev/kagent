@@ -163,7 +163,12 @@ type ModelConfigSpec struct {
 	// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama
 	Provider ModelProvider `json:"provider"`
 
+	// The reference to the secret that contains the API key. Can either be a reference to the name of a secrert in the same namespace as the referencing ModelConfig, or a reference to the name of a Secret in a different namespace in the form <namespace>/<name>
+	// +optional
 	APIKeySecretRef string `json:"apiKeySecretRef"`
+
+	// The key in the secret that contains the API key
+	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey"`
 
 	// OpenAI-specific configuration

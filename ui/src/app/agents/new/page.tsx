@@ -43,7 +43,8 @@ function AgentPageContent() {
   const [systemPrompt, setSystemPrompt] = useState("");
 
   // Default to the first model
-  const [selectedModel, setSelectedModel] = useState<Model | null>(models && models.length > 0 ? models[0] : null);
+  type SelectedModelType = Pick<Model, 'name' | 'model'>;
+  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { name: models[0].name, model: models[0].model } : null);
 
   // Tools state - now using AgentTool interface correctly
   const [selectedTools, setSelectedTools] = useState<AgentTool[]>([]);
@@ -238,7 +239,7 @@ function AgentPageContent() {
                   allModels={models} 
                   selectedModel={selectedModel} 
                   setSelectedModel={(model) => {
-                    setSelectedModel(model);
+                    setSelectedModel(model as Pick<Model, 'name' | 'model'>);
                     validateField('model', model);
                   }} 
                   error={errors.model} 
