@@ -66,8 +66,13 @@ spec:
                     type: string
                 type: object
               apiKeySecretKey:
+                description: The key in the secret that contains the API key
                 type: string
               apiKeySecretRef:
+                description: The reference to the secret that contains the API key.
+                  Can either be a reference to the name of a secrert in the same namespace
+                  as the referencing ModelConfig, or a reference to the name of a
+                  Secret in a different namespace in the form <namespace>/<name>
                 type: string
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
@@ -161,8 +166,6 @@ spec:
                 description: The provider of the model
                 type: string
             required:
-            - apiKeySecretKey
-            - apiKeySecretRef
             - model
             - provider
             type: object
