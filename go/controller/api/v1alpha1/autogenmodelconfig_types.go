@@ -159,8 +159,13 @@ type ModelConfigSpec struct {
 	// +kubebuilder:default=OpenAI
 	Provider ModelProvider `json:"provider"`
 
+	// The name of the secret that contains the API key
+	// +optional
 	APIKeySecretName string `json:"apiKeySecretName"`
-	APIKeySecretKey  string `json:"apiKeySecretKey"`
+
+	// The key in the secret that contains the API key
+	// +optional
+	APIKeySecretKey string `json:"apiKeySecretKey"`
 
 	// OpenAI-specific configuration
 	// +optional

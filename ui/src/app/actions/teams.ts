@@ -95,7 +95,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     spec: {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
-      modelConfigRef: agentFormData.model.name,
+      modelConfigRef: agentFormData.model.name || "",
       tools: agentFormData.tools.map((tool) => {
         // Convert to the proper Tool structure based on the tool type
         if (isInlineTool(tool) && tool.inline) {

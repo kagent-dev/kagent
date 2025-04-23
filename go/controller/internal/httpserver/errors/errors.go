@@ -65,3 +65,11 @@ func NewValidationError(message string, err error) *APIError {
 		Err:     err,
 	}
 }
+
+func NewConflictError(message string, err error) *APIError {
+	return &APIError{
+		Code:    http.StatusConflict,
+		Message: message,
+		Err:     err,
+	}
+}
