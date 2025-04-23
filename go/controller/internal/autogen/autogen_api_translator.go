@@ -61,6 +61,7 @@ var (
 		"k8s_ApplyManifest":                        "kagent.tools.k8s.ApplyManifest",
 		"k8s_CheckServiceConnectivity":             "kagent.tools.k8s.CheckServiceConnectivity",
 		"k8s_CreateResource":                       "kagent.tools.k8s.CreateResource",
+		"k8s_CreateResourceFromUrl":                "kagent.tools.k8s.CreateResourceFromUrl",
 		"k8s_DeleteResource":                       "kagent.tools.k8s.DeleteResource",
 		"k8s_DescribeResource":                     "kagent.tools.k8s.DescribeResource",
 		"k8s_ExecuteCommand":                       "kagent.tools.k8s.ExecuteCommand",
