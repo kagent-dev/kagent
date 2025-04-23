@@ -60,7 +60,7 @@ var _ = Describe("E2e", func() {
 			},
 		}
 
-		// Agent with required ModelConfigRef
+		// Agent with required ModelConfig
 		kubeExpert := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "kube-expert",
@@ -73,7 +73,7 @@ var _ = Describe("E2e", func() {
 			Spec: v1alpha1.AgentSpec{
 				Description:   "The Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.",
 				SystemMessage: readFileAsString("systemprompts/kube-expert-system-prompt.txt"),
-				ModelConfig:   modelConfig.Name, // Added required ModelConfigRef
+				ModelConfig:   modelConfig.Name, // Added required ModelConfig
 				Tools: []*v1alpha1.Tool{
 					{Builtin: &v1alpha1.BuiltinTool{Name: "k8s_AnnotateResource"}},
 					{Builtin: &v1alpha1.BuiltinTool{Name: "k8s_ApplyManifest"}},

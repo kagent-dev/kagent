@@ -20,7 +20,7 @@ spec:
       name: Accepted
       type: string
     - description: The ModelConfig resource referenced by this agent.
-      jsonPath: .spec.modelConfigRef
+      jsonPath: .spec.modelConfig
       name: ModelConfig
       type: string
     name: v1alpha1

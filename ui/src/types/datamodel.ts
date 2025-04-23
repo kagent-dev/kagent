@@ -381,7 +381,7 @@ export interface AgentResourceSpec {
   systemMessage: string;
   tools: AgentTool[];
   // Name of the model config resource
-  modelConfigRef: string;
+  modelConfig: string;
 }
 export interface Agent {
   metadata: ResourceMetadata;
