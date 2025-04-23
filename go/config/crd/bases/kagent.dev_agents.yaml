@@ -99,8 +99,9 @@ spec:
                     type:
                       allOf:
                       - enum:
-                        - Inline
+                        - Builtin
                         - McpServer
+                        - Agent
                       - enum:
                         - Builtin
                         - McpServer

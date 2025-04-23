@@ -38,7 +38,7 @@ type AgentSpec struct {
 }
 
 // ToolProviderType represents the tool provider type
-// +kubebuilder:validation:Enum=Inline;McpServer
+// +kubebuilder:validation:Enum=Builtin;McpServer;Agent
 type ToolProviderType string
 
 const (
