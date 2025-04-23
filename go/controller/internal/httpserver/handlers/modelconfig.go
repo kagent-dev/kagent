@@ -109,7 +109,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 			Namespace:        config.Namespace,
 			ProviderName:     string(config.Spec.Provider),
 			Model:            config.Spec.Model,
-			APIKeySecretName: config.Spec.APIKeySecretName,
+			APIKeySecretName: config.Spec.APIKeySecretRef,
 			APIKeySecretKey:  config.Spec.APIKeySecretKey,
 			ModelParams:      modelParams,
 		}
@@ -167,7 +167,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		Namespace:        modelConfig.Namespace,
 		ProviderName:     string(modelConfig.Spec.Provider),
 		Model:            modelConfig.Spec.Model,
-		APIKeySecretName: modelConfig.Spec.APIKeySecretName,
+		APIKeySecretName: modelConfig.Spec.APIKeySecretRef,
 		APIKeySecretKey:  modelConfig.Spec.APIKeySecretKey,
 		ModelParams:      modelParams,
 	}
@@ -327,7 +327,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 			return
 		}
 		log.V(1).Info("Successfully created API key secret")
-		modelConfigSpec.APIKeySecretName = secretName
+		modelConfigSpec.APIKeySecretRef = secretName
 		modelConfigSpec.APIKeySecretKey = secretKey
 	}
 
@@ -504,7 +504,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 			}
 		}
 		log.V(1).Info("Successfully updated API key secret")
-		modelConfig.Spec.APIKeySecretName = secretName
+		modelConfig.Spec.APIKeySecretRef = secretName
 		modelConfig.Spec.APIKeySecretKey = secretKey
 	}
 
@@ -578,7 +578,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		Namespace:        modelConfig.Namespace,
 		ProviderName:     string(modelConfig.Spec.Provider),
 		Model:            modelConfig.Spec.Model,
-		APIKeySecretName: modelConfig.Spec.APIKeySecretName,
+		APIKeySecretName: modelConfig.Spec.APIKeySecretRef,
 		APIKeySecretKey:  modelConfig.Spec.APIKeySecretKey,
 		ModelParams:      updatedParams,
 	}
