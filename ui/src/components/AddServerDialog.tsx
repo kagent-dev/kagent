@@ -309,6 +309,11 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
         url: url.trim(),
       };
 
+      // Add http:// protocol if missing
+      if (params.url && !params.url.match(/^[a-z]+:\/\//i)) {
+        params.url = `http://${params.url}`;
+      }
+
       // Add optional parameters if they exist
       if (headers.trim()) {
         try {
@@ -588,7 +593,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                 <div className="space-y-2">
                   <Label htmlFor="url">Server URL</Label>
                   <Input id="url" placeholder="e.g., https://example.com/mcp-endpoint" value={url} onChange={(e) => setUrl(e.target.value)} />
-                  <p className="text-xs text-muted-foreground">Enter the URL of the MCP server endpoint</p>
+                  <p className="text-xs text-muted-foreground">Enter the URL of the MCP server endpoint. If you omit the protocol (http://, https://), http:// will be added automatically.</p>
                 </div>
 
                 <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced} className="border rounded-md p-2">
