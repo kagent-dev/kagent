@@ -165,3 +165,18 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $(1)-$(3) $(1)
 endef
+
+##@ Docker
+
+# Container registry settings
+DOCKER_REGISTRY ?= ghcr.io
+DOCKER_REPO ?= kagent-dev/kagent
+IMAGE_NAME ?= controller
+
+.PHONY: docker-build
+docker-build: ## Build the Docker image
+	docker build -t $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(IMAGE_NAME):$(VERSION) -f Dockerfile .
+
+.PHONY: docker-push
+docker-push: ## Push the Docker image to registry
+	docker push $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(IMAGE_NAME):$(VERSION)

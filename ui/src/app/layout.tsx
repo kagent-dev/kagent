@@ -21,7 +21,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <TooltipProvider>
       <AgentsProvider>
-        <html lang="en" className="">
+        <html lang="en" 
+                          
+                                   
+        >
           <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
                 <Header />

@@ -19,6 +19,8 @@ This directory contains the Go components of the Kagent project, including the c
   - `hack/`: Helper scripts and tools
 
 - **config/**: Configuration files for the controller
+  - `crd/`: Custom Resource Definitions
+  - `rbac/`: Role-Based Access Control configurations
 
 - **bin/**: Output directory for compiled binaries
 
@@ -105,24 +107,22 @@ make run
 
 ### Deploying to Kubernetes
 
-To deploy the controller to a Kubernetes cluster:
+Before deploying to Kubernetes, you need to create a kustomization.yaml file in the config/crd directory:
 
 ```bash
-# Install CRDs
+# Create a kustomization.yaml file in config/crd
+cat > config/crd/kustomization.yaml << EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- bases/kagent.dev_agents.yaml
+- bases/kagent.dev_modelconfigs.yaml
+- bases/kagent.dev_teams.yaml
+- bases/kagent.dev_toolservers.yaml
+EOF
+
+# Now you can install the CRDs
 make install
-
-# Deploy the controller
-make deploy
-```
-
-To undeploy:
-
-```bash
-# Undeploy the controller
-make undeploy
-
-# Uninstall CRDs
-make uninstall
 ```
 
 ## Development
@@ -141,10 +141,9 @@ make generate
 
 ```bash
 # Run unit tests
-make test
+go test ./...
 
-# Run end-to-end tests (requires a running Kind cluster)
-make test-e2e
+# Note: The 'make test' and 'make test-e2e' targets are not currently defined in the Makefile
 ```
 
 ### Linting
@@ -155,6 +154,19 @@ make lint
 
 # Fix linting issues automatically where possible
 make lint-fix
+```
+
+### Other Makefile Targets
+
+```bash
+# Format Go code
+make fmt
+
+# Run go vet
+make vet
+
+# Verify golangci-lint configuration
+make lint-config
 ```
 
 ## Building the Installer
