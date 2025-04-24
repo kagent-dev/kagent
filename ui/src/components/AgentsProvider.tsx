@@ -4,8 +4,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { getTeams, createAgent } from "@/app/actions/teams";
 import { Component, ToolConfig, Agent, AgentTool, AgentResponse } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
-import type { BaseResponse, Model } from "@/lib/types";
-import { getModels } from "@/app/actions/models";
+import type { BaseResponse, ModelConfig } from "@/lib/types";
+import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
 interface ValidationErrors {
@@ -21,13 +21,13 @@ export interface AgentFormData {
   name: string;
   description: string;
   systemPrompt: string;
-  model: Partial<Model>;
+  model: Partial<ModelConfig>;
   tools: AgentTool[];
 }
 
 interface AgentsContextType {
   agents: AgentResponse[];
-  models: Model[];
+  models: ModelConfig[];
   loading: boolean;
   error: string;
   tools: Component<ToolConfig>[];
@@ -57,7 +57,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [tools, setTools] = useState<Component<ToolConfig>[]>([]);
-  const [models, setModels] = useState<Model[]>([]);
+  const [models, setModels] = useState<ModelConfig[]>([]);
 
   const fetchTeams = async () => {
     try {
@@ -80,7 +80,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const fetchModels = async () => {
     try {
       setLoading(true);
-      const response = await getModels();
+      const response = await getModelConfigs();
       if (!response.data || response.error) {
         throw new Error(response.error || "Failed to fetch models");
       }

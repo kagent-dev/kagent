@@ -3,8 +3,8 @@ import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Model } from "@/lib/types";
-import { getModels, deleteModelConfig } from "@/app/actions/models";
+import { ModelConfig } from "@/lib/types";
+import { getModelConfigs, deleteModelConfig } from "@/app/actions/modelConfigs";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { toast } from "sonner";
@@ -19,11 +19,11 @@ import {
 
 export default function ModelsPage() {
     const router = useRouter();
-    const [models, setModels] = useState<Model[]>([]);
+    const [models, setModels] = useState<ModelConfig[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-    const [modelToDelete, setModelToDelete] = useState<Model | null>(null);
+    const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
 
     useEffect(() => {
         fetchModels();
@@ -32,7 +32,7 @@ export default function ModelsPage() {
     const fetchModels = async () => {
         try {
             setLoading(true);
-            const response = await getModels();
+            const response = await getModelConfigs();
             if (!response.success || !response.data) {
                 throw new Error(response.error || "Failed to fetch models");
             }
@@ -56,11 +56,11 @@ export default function ModelsPage() {
         setExpandedRows(newExpandedRows);
     };
 
-    const handleEdit = (model: Model) => {
+    const handleEdit = (model: ModelConfig) => {
         router.push(`/models/new?edit=true&id=${model.name}`);
     };
 
-    const handleDelete = async (model: Model) => {
+    const handleDelete = async (model: ModelConfig) => {
         setModelToDelete(model);
     };
 

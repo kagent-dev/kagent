@@ -143,3 +143,12 @@ type CreateSession struct {
 	TeamID int    `json:"team_id"`
 	Name   string `json:"name"`
 }
+
+// ProviderModels maps provider names to a list of their supported model names.
+type ProviderModels map[string][]ModelInfo
+
+// ModelInfo holds details about a specific model.
+type ModelInfo struct {
+	Name            string `json:"name"`
+	FunctionCalling bool   `json:"function_calling"`
+}
