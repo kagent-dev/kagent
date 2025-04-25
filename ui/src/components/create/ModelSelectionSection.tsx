@@ -3,8 +3,8 @@ import type { Model } from "@/lib/types";
 
 interface ModelSelectionSectionProps {
   allModels: Model[];
-  selectedModel: Model | null;
-  setSelectedModel: (model: Model) => void;
+  selectedModel: Partial<Model> | null;
+  setSelectedModel: (model: Partial<Model>) => void;
   error?: string;
   isSubmitting: boolean;
   onBlur?: () => void;

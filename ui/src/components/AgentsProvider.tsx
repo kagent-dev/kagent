@@ -21,7 +21,7 @@ export interface AgentFormData {
   name: string;
   description: string;
   systemPrompt: string;
-  model: Model;
+  model: Partial<Model>;
   tools: AgentTool[];
 }
 
