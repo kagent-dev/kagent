@@ -14,6 +14,7 @@ import { FinishStep } from './steps/FinishStep';
 
 interface OnboardingWizardProps {
   onOnboardingComplete: () => void;
+  onSkip: () => void;
 }
 
 interface OnboardingStateData {
@@ -42,7 +43,7 @@ export const K8S_AGENT_DEFAULTS = {
 - Your response will include a summary of actions you took and an explanation of the result`
 };
 
-export function OnboardingWizard({ onOnboardingComplete }: OnboardingWizardProps) {
+export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [onboardingData, setOnboardingData] = useState<OnboardingStateData>({
@@ -195,8 +196,16 @@ export function OnboardingWizard({ onOnboardingComplete }: OnboardingWizardProps
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
-      <Card className="w-full max-w-2xl">
+      <Card className="w-full max-w-2xl relative">
         {renderCurrentStep()}
+        <div className="absolute bottom-4 right-4">
+          <button
+            onClick={onSkip}
+            className="text-sm text-muted-foreground hover:text-primary underline cursor-pointer"
+          >
+            Skip wizard
+          </button>
+        </div>
       </Card>
     </div>
   );

@@ -19,12 +19,18 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
     setIsOnboarding(false);
   };
 
+  const handleSkipWizard = () => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, 'true');
+    setIsOnboarding(false);
+    // You might want to show a toast here as well, depending on your UI library setup
+  };
+
   if (isOnboarding === null) {
     return null; 
   }
 
   if (isOnboarding) {
-    return <OnboardingWizard onOnboardingComplete={handleOnboardingComplete} />;
+    return <OnboardingWizard onOnboardingComplete={handleOnboardingComplete} onSkip={handleSkipWizard} />;
   }
 
   return <>{children}</>;
