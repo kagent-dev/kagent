@@ -41,7 +41,7 @@ spec:
                   fieldPath: metadata.namespace
             {{- range $key, $value := .Values.controller.extraEnvValue }}
             - name: {{ $key }}
-              value: {{ value | quote }}
+              value: {{ $value | quote }}
             {{- end }}
         - name: app
           securityContext:
@@ -68,7 +68,7 @@ spec:
                   fieldPath: metadata.namespace
             {{- range $key, $value := .Values.app.extraEnvValue }}
             - name: {{ $key }}
-              value: {{ value | quote }}
+              value: {{ $value | quote }}
             {{- end }}
           ports:
             - name: http
@@ -92,7 +92,7 @@ spec:
               value: "http://{{ include "kagent.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/api"
             {{- range $key, $value := .Values.ui.extraEnvValue }}
             - name: {{ $key }}
-              value: {{ value | quote }}
+              value: {{ $value | quote }}
             {{- end }}
           ports:
             - name: http
