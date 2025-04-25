@@ -7,6 +7,7 @@ import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from 
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
 
 const agentSetupSchema = z.object({
     agentName: z.string().min(1, "Agent name is required."),
