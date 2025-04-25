@@ -66,6 +66,8 @@ body:
         2. 
         3. 
         4.
+    validations:
+      required: true
 
   - type: textarea
     id: expected_behavior
@@ -93,6 +95,18 @@ body:
         - Device (if relevant): e.g., iPhone 13, Desktop PC
 
   - type: textarea
+    id: cli_bug_report
+    attributes:
+      label: 🔧 CLI Bug Report
+      description: |
+        **To upload a bug report file:**
+        1. Run `kagent bug-report` in your terminal to generate a report
+        2. Click in the text area below and click the `Paste, drop, or click to add files` button that appears at the bottom, or simply drag and drop your file here
+
+        Alternatively, you can copy and paste the output directly.
+      placeholder: Upload your bug report file by clicking here or drag and drop it into this area
+
+  - type: textarea
     id: additional_context
     attributes:
       label: 🔍 Additional Context
@@ -101,7 +115,6 @@ body:
         - Did this work before? When did it start failing?
         - Any workarounds you've tried?
         - Links to related issues or external resources
-
   - type: textarea
     id: logs
     attributes:
