@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e-test:
+    env:
+      VERSION: v0.0.1-test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v4.2.0
+      with:
+        version: v3.17.0
+
+    - name: Create k8s Kind Cluster
+      uses: helm/kind-action@v1
+      with:
+        cluster_name: kagent
+
+    - name: Install Kagent
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+        make helm-install
+        kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
+
+
+    - name: Run E2E tests
+      env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+          make e2e-test

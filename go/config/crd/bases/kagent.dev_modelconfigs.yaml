@@ -66,8 +66,10 @@ spec:
                     type: string
                 type: object
               apiKeySecretKey:
+                description: The key in the secret that contains the API key
                 type: string
               apiKeySecretName:
+                description: The name of the secret that contains the API key
                 type: string
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
@@ -155,8 +157,6 @@ spec:
                 - Ollama
                 type: string
             required:
-            - apiKeySecretKey
-            - apiKeySecretName
             - model
             - provider
             type: object

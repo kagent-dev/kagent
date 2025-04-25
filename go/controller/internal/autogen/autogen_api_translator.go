@@ -278,6 +278,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	}
 
 	var participants []*api.Component
+
 	for _, agentName := range team.Spec.Participants {
 		agent := &v1alpha1.Agent{}
 		err := fetchObjKube(
@@ -291,17 +292,19 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			return nil, err
 		}
 
-		var participant *api.Component
 		if opts.wrapSocietyOfMind {
-			participant, err = a.translateTaskAgent(
+			participant, err := a.translateTaskAgent(
 				ctx,
 				agent,
 				modelContext,
-				opts,
 				state,
 			)
+			if err != nil {
+				return nil, err
+			}
+			participants = append(participants, participant)
 		} else {
-			participant, err = a.translateAssistantAgent(
+			participant, err := a.translateAssistantAgent(
 				ctx,
 				agent,
 				modelClientWithStreaming,
@@ -310,12 +313,12 @@ func (a *apiTranslator) translateGroupChatForTeam(
 				opts,
 				state,
 			)
-		}
-		if err != nil {
-			return nil, err
-		}
+			if err != nil {
+				return nil, err
+			}
 
-		participants = append(participants, participant)
+			participants = append(participants, participant)
+		}
 	}
 
 	//  add user proxy agent to top level
@@ -409,11 +412,11 @@ func (a *apiTranslator) translateTaskAgent(
 	ctx context.Context,
 	agent *v1alpha1.Agent,
 	modelContext *api.Component,
-	opts *teamOptions,
 	state *tState,
 ) (*api.Component, error) {
 
-	team := simpleRoundRobinTeam(agent, "society-of-mind-team")
+	name := agent.Name + "-society-of-mind-wrapper"
+	team := simpleRoundRobinTeam(agent, name)
 
 	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{}, state)
 	if err != nil {
