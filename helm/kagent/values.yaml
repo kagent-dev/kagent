@@ -5,6 +5,7 @@ global:
   tag: ""
 
 openai:
+  enabled: true
   secretName: "kagent-openai"
   apiKey: ""
   secretKey: "OPENAI_API_KEY"
@@ -83,12 +84,16 @@ contrib:
   agents:
     k8s:
       enabled: true
+      modelConfigRef: default-model-config
     istio:
       enabled: true
+      modelConfigRef: default-model-config
     helm:
       enabled: true
+      modelConfigRef: default-model-config
     promql:
       enabled: true
+      modelConfigRef: default-model-config
     observability:
       prometheus:
         url: ""
@@ -100,8 +105,10 @@ contrib:
         password: ""
         apiKey: ""
       enabled: true
+      modelConfigRef: default-model-config
     argoRolloutsConversion:
       enabled: true
+      modelConfigRef: default-model-config
 
 otel:
   tracing:
