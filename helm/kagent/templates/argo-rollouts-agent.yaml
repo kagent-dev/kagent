@@ -237,7 +237,7 @@ spec:
     should run next to the Deployment before deleting the Deployment or scaling down the Deployment. Not following this
     approach might result in downtime. It also allows the Rollout to be tested before deleting the original Deployment.
     Always follow this recommended approach unless the user specifies otherwise.
-  modelConfigRef: default-model-config
+  modelConfigRef: {{ .Values.contrib.agents.argoRolloutsConversion.modelConfigRef }}
   tools:
     - type: Inline
       inline:

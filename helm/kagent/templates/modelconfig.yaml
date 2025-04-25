@@ -1,3 +1,4 @@
+{{ if .Values.openai.enabled }}
 apiVersion: kagent.dev/v1alpha1
 kind: ModelConfig
 metadata:
@@ -9,3 +10,4 @@ spec:
   apiKeySecretKey: {{ .Values.openai.secretKey }}
   model: gpt-4o
   provider: OpenAI
+{{ end }}

@@ -75,7 +75,7 @@ spec:
     - ALWAYS format your response as Markdown
     - Your response will include a summary of actions you took and an explanation of the result
     - If you created any artifacts such as files or resources, you will include those in your response as well
-  modelConfigRef: default-model-config
+  modelConfigRef: {{ .Values.contrib.agents.observability.modelConfigRef }}
   tools:
     - type: Inline
       inline:

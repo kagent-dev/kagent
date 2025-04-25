@@ -8,7 +8,7 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: GeneratePromQLTool generates PromQL queries from natural language descriptions.
-  modelConfigRef: default-model-config
+  modelConfigRef: {{ .Values.contrib.agents.promql.modelConfigRef }}
   systemMessage: |-
     # PromQL Query Generator
 

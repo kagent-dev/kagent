@@ -117,7 +117,7 @@ spec:
     4. Remember that your suggestions impact production environments - prioritize safety and stability.
 
     Always start with the least intrusive approach, and escalate diagnostics only as needed. When in doubt, gather more information before recommending changes.
-  modelConfigRef: default-model-config
+  modelConfigRef: {{ .Values.contrib.agents.k8s.modelConfigRef }}
   tools:
     - type: Inline
       inline:
