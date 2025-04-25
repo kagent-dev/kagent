@@ -7,10 +7,10 @@ import Link from "next/link";
 
 interface AgentActionsProps {
   onCopyJson?: () => void;
-  agentName: string;
+  agentId: number;
 }
 
-export function AgentActions({ onCopyJson, agentName }: AgentActionsProps) {
+export function AgentActions({ onCopyJson, agentId }: AgentActionsProps) {
   const { isMobile } = useSidebar();
 
   return (
@@ -36,7 +36,7 @@ export function AgentActions({ onCopyJson, agentName }: AgentActionsProps) {
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem asChild>
-                <Link href={`/agents/new?edit=true&id=${agentName}`} className="cursor-pointer">
+                <Link href={`/agents/new?edit=true&id=${agentId}`} className="cursor-pointer">
                   <Edit2 />
                   Edit...
                 </Link>

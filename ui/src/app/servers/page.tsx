@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/data";
+import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
 import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
@@ -21,6 +21,7 @@ export default function ServersPage() {
   // Dialog states
   const [showAddServer, setShowAddServer] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
+  const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -58,7 +59,6 @@ export default function ServersPage() {
     try {
       setIsLoading(true);
 
-      console.log('deleting server:', serverName);
       const response = await deleteServer(serverName);
 
       if (response.success) {
@@ -92,7 +92,9 @@ export default function ServersPage() {
       fetchServers();
     } catch (error) {
       console.error("Error adding server:", error);
-      toast.error(`Failed to add server: ${error instanceof Error ? error.message : "Unknown error"}`);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Failed to add server: ${errorMessage}`);
+      throw error; // Re-throw to be caught by the dialog
     } finally {
       setIsLoading(false);
     }
@@ -108,7 +110,7 @@ export default function ServersPage() {
           </Link>
         </div>
         {servers.length > 0 && (
-          <Button onClick={() => setShowAddServer(true)} className="border-blue-500 text-blue-600 hover:bg-blue-50" variant="outline">
+          <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add Server
           </Button>
@@ -146,16 +148,26 @@ export default function ServersPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <DropdownMenu>
+                      <DropdownMenu 
+                        open={openDropdownMenu === serverName} 
+                        onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? serverName : null)}
+                      >
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="text-red-600" onClick={() => setShowConfirmDelete(serverName)}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Remove Server
+                           <DropdownMenuItem 
+                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                             onSelect={(e) => {
+                               e.preventDefault();
+                               setOpenDropdownMenu(null);
+                                setShowConfirmDelete(serverName);
+                             }}
+                           >
+                             <Trash2 className="h-4 w-4 mr-2" />
+                             Remove Server
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -201,7 +213,7 @@ export default function ServersPage() {
           <Server className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
           <h3 className="font-medium text-lg">No servers connected</h3>
           <p className="text-muted-foreground mt-1 mb-4">Add a tool server to discover and use tools.</p>
-          <Button onClick={() => setShowAddServer(true)} className="bg-blue-500 hover:bg-blue-600 text-white">
+          <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add Server
           </Button>
@@ -209,12 +221,20 @@ export default function ServersPage() {
       )}
 
       {/* Add server dialog */}
-      <AddServerDialog open={showAddServer} onOpenChange={setShowAddServer} onAddServer={handleAddServer} />
+      <AddServerDialog 
+        open={showAddServer} 
+        onOpenChange={setShowAddServer} 
+        onAddServer={handleAddServer}
+      />
 
       {/* Confirm delete dialog */}
       <ConfirmDialog
         open={showConfirmDelete !== null}
-        onOpenChange={() => setShowConfirmDelete(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowConfirmDelete(null);
+          }
+        }}
         title="Delete Server"
         description="Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
         onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete)}

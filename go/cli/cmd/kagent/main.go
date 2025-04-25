@@ -212,6 +212,32 @@ Examples:
 
 	shell.AddCmd(getCmd)
 
+	bugReportCmd := &ishell.Cmd{
+		Name:    "bug-report",
+		Aliases: []string{"br"},
+		Help:    "Generate a bug report with system information",
+		LongHelp: `Generate a bug report containing:
+- Agent, ModelConfig, and ToolServers YAMLs
+- Secret names (without values)
+- Pod logs
+- Versions and images used
+
+The report will be saved in a new directory with timestamp.
+
+Example:
+  bug-report
+`,
+		Func: func(c *ishell.Context) {
+			if err := checkServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
+			cli.BugReportCmd(c)
+		},
+	}
+
+	shell.AddCmd(bugReportCmd)
+
 	shell.NotFound(func(c *ishell.Context) {
 		// Hidden create command
 		if len(c.Args) > 0 && c.Args[0] == "create" {

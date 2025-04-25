@@ -9,10 +9,10 @@ export default async function ChatLayout({ params }: { params: Promise<{ agentId
   const { agentId } = await params;
 
   try {
-    const teamData = await getTeam(String(agentId));
+    const response = await getTeam(String(agentId));
     
-    if (!teamData.success || !teamData.data) {
-      return <ErrorState message="Agent not found" />;
+    if (!response.success || !response.data) {
+      return <ErrorState message={response.error || "Agent not found"} />;
     }
 
     return (
@@ -27,6 +27,7 @@ export default async function ChatLayout({ params }: { params: Promise<{ agentId
       </SidebarProvider>
     );
   } catch (error) {
-    return <ErrorState message={error instanceof Error ? error.message : "An unexpected error occurred"} />;
+    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+    return <ErrorState message={errorMessage} />;
   }
 }

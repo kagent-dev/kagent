@@ -44,6 +44,7 @@ spec:
           metadata:
             type: object
           spec:
+            description: ModelConfigSpec defines the desired state of ModelConfig.
             properties:
               anthropic:
                 description: Anthropic-specific configuration
@@ -98,6 +99,18 @@ spec:
                 type: object
               model:
                 type: string
+              ollama:
+                description: Ollama-specific configuration
+                properties:
+                  host:
+                    description: Host for the Ollama API
+                    type: string
+                  options:
+                    additionalProperties:
+                      type: string
+                    description: Options for the Ollama API
+                    type: object
+                type: object
               openAI:
                 description: OpenAI-specific configuration
                 properties:
@@ -138,10 +151,12 @@ spec:
                   - Anthropic
                   - OpenAI
                   - AzureOpenAI
+                  - Ollama
                 - enum:
                   - Anthropic
                   - OpenAI
                   - AzureOpenAI
+                  - Ollama
                 default: OpenAI
                 description: The provider of the model
                 type: string
@@ -162,6 +177,10 @@ spec:
               rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
             - message: provider.azureOpenAI must be specified for AzureOpenAI provider
               rule: '!(!has(self.azureOpenAI) && self.provider == ''AzureOpenAI'')'
+            - message: provider.ollama must be nil if the provider is not Ollama
+              rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
+            - message: provider.ollama must be specified for Ollama provider
+              rule: '!(!has(self.ollama) && self.provider == ''Ollama'')'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

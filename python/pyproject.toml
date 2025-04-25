@@ -10,10 +10,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "autogen-core>=0.4.3",
-  "autogen-ext[anthropic,azure,mcp,openai]>=0.4.3",
+  "autogen-ext[anthropic,azure,mcp,ollama,openai]>=0.4.3",
   "autogen-agentchat>=0.4.3",
   "autogenstudio>=0.4.3",
-  "openai==1.60.0",
+  "openai>=1.72.0",
   "tiktoken==0.8.0",
   "python-dotenv>=1.0.1",
   "pyyaml>=6.0.2",
@@ -26,7 +26,7 @@ dependencies = [
   "opentelemetry-exporter-otlp-proto-grpc>=1.30.0",
   "opentelemetry-instrumentation-openai>= 0.38.0",
   "opentelemetry-instrumentation-httpx >= 0.51.0",
-  "anthropic>=0.49.0",
+  "anthropic>=0.49.0"
 ]
 
 [project.optional-dependencies]
@@ -47,10 +47,10 @@ kagent-engine = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]
-autogenstudio = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "faec0c007eba443a6a755fd363abbad82195bcb9" }
-autogen-agentchat = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-agentchat", rev = "faec0c007eba443a6a755fd363abbad82195bcb9" }
-autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "faec0c007eba443a6a755fd363abbad82195bcb9" }
-autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "faec0c007eba443a6a755fd363abbad82195bcb9" }
+autogenstudio = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "586bda8587c3c8bb8e98e6310c39628e08252fa3" }
+autogen-agentchat = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-agentchat", rev = "586bda8587c3c8bb8e98e6310c39628e08252fa3" }
+autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "586bda8587c3c8bb8e98e6310c39628e08252fa3" }
+autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "586bda8587c3c8bb8e98e6310c39628e08252fa3" }
 kagent = { workspace = true }
 
 [tool.ruff]

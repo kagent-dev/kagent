@@ -9,15 +9,15 @@ type ModelInfo struct {
 }
 
 type OpenAICreateArgumentsConfig struct {
-	FrequencyPenalty *float64           `json:"frequency_penalty,omitempty"`
+	FrequencyPenalty float64            `json:"frequency_penalty,omitempty"`
 	LogitBias        map[string]float64 `json:"logit_bias,omitempty"`
-	MaxTokens        *int               `json:"max_tokens,omitempty"`
-	N                *int               `json:"n,omitempty"`
-	PresencePenalty  *float64           `json:"presence_penalty,omitempty"`
-	Seed             *int               `json:"seed,omitempty"`
-	Temperature      *float64           `json:"temperature,omitempty"`
-	TopP             *float64           `json:"top_p,omitempty"`
-	User             *string            `json:"user,omitempty"`
+	MaxTokens        int                `json:"max_tokens,omitempty"`
+	N                int                `json:"n,omitempty"`
+	PresencePenalty  float64            `json:"presence_penalty,omitempty"`
+	Seed             int                `json:"seed,omitempty"`
+	Temperature      float64            `json:"temperature,omitempty"`
+	TopP             float64            `json:"top_p,omitempty"`
+	User             string             `json:"user,omitempty"`
 }
 
 type StreamOptions struct {
@@ -101,5 +101,28 @@ func (c *AnthropicClientConfiguration) ToConfig() (map[string]interface{}, error
 }
 
 func (c *AnthropicClientConfiguration) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
+
+type OllamaCreateArguments struct {
+	Model string `json:"model"`
+	Host  string `json:"host"`
+}
+
+type OllamaClientConfiguration struct {
+	FollowRedirects   bool              `json:"follow_redirects"`
+	Timeout           int               `json:"timeout"`
+	Headers           map[string]string `json:"headers"`
+	ModelCapabilities interface{}       `json:"model_capabilities,omitempty"`
+	ModelInfo         *ModelInfo        `json:"model_info"`
+	Options           map[string]string `json:"options"`
+	OllamaCreateArguments
+}
+
+func (c *OllamaClientConfiguration) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *OllamaClientConfiguration) FromConfig(config map[string]interface{}) error {
 	return fromConfig(c, config)
 }

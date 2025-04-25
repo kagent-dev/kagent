@@ -157,16 +157,23 @@ func printRuns(runs []*autogen_client.Run) error {
 	rows := make([][]string, len(runs))
 	for i, run := range runs {
 
-		// Truncate task content to first 10 characters if possible
-		content := run.Task.Content
-		if len(content) > 10 {
-			content = content[:10] + "..."
+		contentStr := "[N/A]" // Default content if type assertion fails or content is nil
+		if run.Task.Content != nil {
+			if content, ok := run.Task.Content.(string); ok {
+				if len(content) > 10 {
+					contentStr = content[:10] + "..."
+				} else {
+					contentStr = content
+				}
+			} else {
+				contentStr = "[non-string]"
+			}
 		}
 
 		rows[i] = []string{
 			strconv.Itoa(i),
 			run.ID,
-			content,
+			contentStr,
 			strconv.Itoa(len(run.Messages)),
 			run.Status,
 			run.CreatedAt,

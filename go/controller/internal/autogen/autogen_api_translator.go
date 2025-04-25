@@ -743,7 +743,9 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 			anthropicConfig := modelConfig.Spec.Anthropic
 
 			config.BaseURL = anthropicConfig.BaseURL
-			config.MaxTokens = anthropicConfig.MaxTokens
+			if anthropicConfig.MaxTokens > 0 {
+				config.MaxTokens = anthropicConfig.MaxTokens
+			}
 
 			if anthropicConfig.Temperature != "" {
 				temp, err := strconv.ParseFloat(anthropicConfig.Temperature, 64)
@@ -802,14 +804,14 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 			if azureConfig.Temperature != "" {
 				temp, err := strconv.ParseFloat(azureConfig.Temperature, 64)
 				if err == nil {
-					config.Temperature = &temp
+					config.Temperature = temp
 				}
 			}
 
 			if azureConfig.TopP != "" {
 				topP, err := strconv.ParseFloat(azureConfig.TopP, 64)
 				if err == nil {
-					config.TopP = &topP
+					config.TopP = topP
 				}
 			}
 		}
@@ -847,41 +849,65 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 				config.Organization = &openAIConfig.Organization
 			}
 
-			if *openAIConfig.MaxTokens > 0 {
+			if openAIConfig.MaxTokens > 0 {
 				config.MaxTokens = openAIConfig.MaxTokens
 			}
 
 			if openAIConfig.Temperature != "" {
 				temp, err := strconv.ParseFloat(openAIConfig.Temperature, 64)
 				if err == nil {
-					config.Temperature = &temp
+					config.Temperature = temp
 				}
 			}
 
 			if openAIConfig.TopP != "" {
 				topP, err := strconv.ParseFloat(openAIConfig.TopP, 64)
 				if err == nil {
-					config.TopP = &topP
+					config.TopP = topP
 				}
 			}
 
 			if openAIConfig.FrequencyPenalty != "" {
 				freqP, err := strconv.ParseFloat(openAIConfig.FrequencyPenalty, 64)
 				if err == nil {
-					config.FrequencyPenalty = &freqP
+					config.FrequencyPenalty = freqP
 				}
 			}
 
 			if openAIConfig.PresencePenalty != "" {
 				presP, err := strconv.ParseFloat(openAIConfig.PresencePenalty, 64)
 				if err == nil {
-					config.PresencePenalty = &presP
+					config.PresencePenalty = presP
 				}
 			}
 		}
 
 		return &api.Component{
 			Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
+			ComponentType: "model",
+			Version:       1,
+			Config:        api.MustToConfig(config),
+		}, nil
+
+	case v1alpha1.Ollama:
+		config := &api.OllamaClientConfiguration{
+			OllamaCreateArguments: api.OllamaCreateArguments{
+				Model: modelConfig.Spec.Model,
+				Host:  modelConfig.Spec.Ollama.Host,
+			},
+			FollowRedirects: true,
+		}
+
+		if modelConfig.Spec.Ollama != nil {
+			ollamaConfig := modelConfig.Spec.Ollama
+
+			if ollamaConfig.Options != nil {
+				config.Options = ollamaConfig.Options
+			}
+		}
+
+		return &api.Component{
+			Provider:      "autogen_ext.models.ollama.OllamaChatCompletionClient",
 			ComponentType: "model",
 			Version:       1,
 			Config:        api.MustToConfig(config),

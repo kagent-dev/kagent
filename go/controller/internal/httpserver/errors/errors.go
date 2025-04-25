@@ -25,6 +25,11 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
+// StatusCode returns the HTTP status code
+func (e *APIError) StatusCode() int {
+	return e.Code
+}
+
 // NewBadRequestError creates a new bad request error
 func NewBadRequestError(message string, err error) *APIError {
 	return &APIError{
@@ -56,6 +61,14 @@ func NewInternalServerError(message string, err error) *APIError {
 func NewValidationError(message string, err error) *APIError {
 	return &APIError{
 		Code:    http.StatusUnprocessableEntity,
+		Message: message,
+		Err:     err,
+	}
+}
+
+func NewConflictError(message string, err error) *APIError {
+	return &APIError{
+		Code:    http.StatusConflict,
 		Message: message,
 		Err:     err,
 	}

@@ -6,60 +6,108 @@ import { getSession, getSessionRuns, getSessions } from "./sessions";
 import { fetchApi, getCurrentUserId } from "./utils";
 import { createRunWithSession } from "@/lib/ws";
 
+/**
+ * Starts a new chat with an agent
+ * @param agentId The agent ID
+ * @returns A promise with the team, session, and run data
+ */
 export async function startNewChat(agentId: string): Promise<{ team: AgentResponse; session: Session; run: Run }> {
-  const userId = await getCurrentUserId();
-  const teamData = await getTeam(agentId);
+  try {
+    const userId = await getCurrentUserId();
+    const teamData = await getTeam(agentId);
 
-  if (!teamData.success || !teamData.data) {
-    throw new Error("Agent not found");
+    if (!teamData.success || !teamData.data) {
+      throw new Error("Agent not found");
+    }
+
+    // Create new session and run
+    const { session, run } = await createRunWithSession(agentId, userId);
+    return { team: teamData.data, session, run };
+  } catch (error) {
+    console.error("Error starting new chat:", error);
+    throw error;
   }
-
-  // Create new session and run
-  const { session, run } = await createRunWithSession(agentId, userId);
-  return { team: teamData.data, session, run };
 }
 
-export async function sendMessage(content: string, runId: string, sessionId: number) {
-  const userId = await getCurrentUserId();
+/**
+ * Creates a message for a run
+ * @param content The message content
+ * @param runId The run ID
+ * @param sessionId The session ID
+ * @returns A promise with the created message
+ */
+export async function sendMessage(content: string, runId: string, sessionId: number): Promise<Message> {
+  try {
+    const userId = await getCurrentUserId();
 
-  const createMessage = (config: AgentMessageConfig, runId: string, sessionId: number, userId: string): Message => ({
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    config,
-    session_id: sessionId,
-    run_id: runId,
-    user_id: userId,
-    message_meta: {},
-  });
+    const createMessage = (config: AgentMessageConfig, runId: string, sessionId: number, userId: string): Message => ({
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      config,
+      session_id: sessionId,
+      run_id: runId,
+      user_id: userId,
+      message_meta: {},
+    });
 
-  const message = createMessage({ content, source: "user" }, runId, sessionId, userId);
-  return message;
+    const message = createMessage({ content, source: "user" }, runId, sessionId, userId);
+    return message;
+  } catch (error) {
+    console.error("Error sending message:", error);
+    throw error;
+  }
 }
 
-export async function loadExistingChat(chatId: string) {
-  const sessionData = await getSession(chatId);
-  if (!sessionData.success || !sessionData.data) {
-    throw new Error("Session not found");
+/**
+ * Loads an existing chat
+ * @param chatId The chat ID
+ * @returns A promise with the chat data
+ */
+export async function loadExistingChat(chatId: string): Promise<{ session: Session; run: Run; team: AgentResponse; messages: Message[] }> {
+  try {
+    const sessionData = await getSession(chatId);
+    if (!sessionData.success || !sessionData.data) {
+      throw new Error("Session not found");
+    }
+
+    const runData = await getSessionRuns(chatId);
+    if (!runData.success || !runData.data) {
+      throw new Error("Run not found");
+    }
+
+    // Fetch agent details
+    const teamData = await getTeam(String(sessionData.data.team_id));
+    if (!teamData.success || !teamData.data) {
+      throw new Error("Agent not found");
+    }
+
+    return {
+      session: sessionData.data,
+      run: runData.data[0],
+      team: teamData.data,
+      messages: runData.data[0].messages || [],
+    };
+  } catch (error) {
+    console.error("Error loading existing chat:", error);
+    throw error;
   }
-
-  const runData = await getSessionRuns(chatId);
-  if (!runData.success || !runData.data) {
-    throw new Error("Run not found");
-  }
-
-  // Fetch agent details
-  const teamData = await getTeam(String(sessionData.data.team_id));
-
-  return {
-    session: sessionData.data,
-    run: runData.data[0],
-    team: teamData.data,
-    messages: runData.data[0].messages || [],
-  };
 }
 
-
-export async function getChatData(agentId: number, chatId: string | null): Promise<{ notFound?: boolean; agent?: AgentResponse; sessions?: { session: Session; runs: Run[] }[]; viewState?: { session: Session; run: Run } | null }> {
+/**
+ * Gets chat data for an agent
+ * @param agentId The agent ID
+ * @param chatId The chat ID (optional)
+ * @returns A promise with the chat data
+ */
+export async function getChatData(
+  agentId: number, 
+  chatId: string | null
+): Promise<{ 
+  notFound?: boolean; 
+  agent?: AgentResponse; 
+  sessions?: { session: Session; runs: Run[] }[]; 
+  viewState?: { session: Session; run: Run } | null 
+}> {
   try {
     // Fetch agent details
     const agentData = await getTeam(agentId);
@@ -79,8 +127,13 @@ export async function getChatData(agentId: number, chatId: string | null): Promi
     // Fetch runs for each session
     const sessionsWithRuns = await Promise.all(
       agentSessions.map(async (session) => {
-        const { runs } = await fetchApi<GetSessionRunsResponse>(`/sessions/${session.id}/runs`);
-        return { session, runs };
+        try {
+          const { runs } = await fetchApi<GetSessionRunsResponse>(`/sessions/${session.id}/runs`);
+          return { session, runs };
+        } catch (error) {
+          console.error(`Error fetching runs for session ${session.id}:`, error);
+          return { session, runs: [] };
+        }
       })
     );
 
@@ -108,6 +161,7 @@ export async function getChatData(agentId: number, chatId: string | null): Promi
       viewState: null,
     };
   } catch (error) {
+    console.error("Error getting chat data:", error);
     throw new Error(error instanceof Error ? error.message : "An unexpected error occurred");
   }
 }

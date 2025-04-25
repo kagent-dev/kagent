@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState } from "react";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isInlineTool, isMcpTool, isSameTool } from "@/lib/data";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isInlineTool, isMcpTool, isSameTool } from "@/lib/toolUtils";
 import { Label } from "@/components/ui/label";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import { AgentTool, Component, ToolConfig } from "@/types/datamodel";
@@ -54,9 +54,38 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   };
 
   const handleToolSelect = (newSelectedTools: Component<ToolConfig>[]) => {
-    // Convert Component<ToolConfig>[] to AgentTool[]
-    const agentTools = newSelectedTools.map(componentToAgentTool);
-    setSelectedTools(agentTools);
+    // Create a map of existing AgentTools keyed by their identifier for quick lookup
+    const existingToolsMap = new Map<string, AgentTool>();
+    selectedTools.forEach(tool => {
+      existingToolsMap.set(getToolIdentifier(tool), tool);
+    });
+
+    // Convert the new selection (Component<ToolConfig>[]) into AgentTool[], preserving existing config
+    const mergedAgentTools = newSelectedTools.map(component => {
+      const toolIdentifier = getToolIdentifier(component);
+      const existingTool = existingToolsMap.get(toolIdentifier);
+
+      if (existingTool) {
+        // If the tool already existed, keep its configuration
+        return existingTool;
+      } else {
+        // If it's a new tool, convert it to an AgentTool
+        const newAgentTool = componentToAgentTool(component);
+
+        // Ensure MCP tools get their label set as toolServer
+        if (isMcpTool(newAgentTool) && newAgentTool.mcpServer && component.label) {
+          return {
+            ...newAgentTool,
+            mcpServer: {
+              ...newAgentTool.mcpServer,
+              toolServer: component.label
+            }
+          };
+        }
+        return newAgentTool;
+      }
+    });
+    setSelectedTools(mergedAgentTools);
     setShowToolSelector(false);
 
     if (onBlur) {
@@ -75,13 +104,28 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     setConfigTool((prevTool) => {
       if (!prevTool) return null;
 
-      return {
-        ...prevTool,
-        config: {
-          ...prevTool.inline?.config, 
-          [field]: value,
-        },
-      };
+      if (isMcpTool(prevTool) && field === "toolServer") {
+        return {
+          ...prevTool,
+          mcpServer: {
+            ...prevTool.mcpServer,
+            toolServer: value
+          }
+        };
+      } else if (isInlineTool(prevTool)) {
+        return {
+          ...prevTool,
+          inline: {
+            ...prevTool.inline,
+            config: {
+              ...prevTool.inline?.config, 
+              [field]: value,
+            },
+          },
+        };
+      }
+      
+      return prevTool;
     });
   };
 

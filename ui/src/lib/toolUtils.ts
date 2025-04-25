@@ -1,166 +1,165 @@
-/**
- * This utility file provides functions to convert between different tool types
- */
+import { AgentTool, Component, MCPToolConfig, ToolConfig, McpServerTool, InlineTool } from "@/types/datamodel";
 
-import { AgentConfig, AgentResponse, AgentTool, AssistantAgentConfig, Component, MCPToolConfig, RoundRobinGroupChatConfig, SelectorGroupChatConfig, TeamConfig, ToolConfig } from "@/types/datamodel";
-import { getToolIdentifier, getToolProvider } from "./data";
+export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer: McpServerTool } => {
+  if (!tool || typeof tool !== "object") return false;
 
-export function isMCPToolConfig(config: ToolConfig): config is MCPToolConfig {
+  const possibleTool = tool as Partial<AgentTool>;
+
   return (
-    config &&
-    typeof config === "object" &&
-    "server_params" in config &&
-    "tool" in config &&
-    typeof config.tool === "object" &&
-    "name" in config.tool
+    possibleTool.type === "McpServer" &&
+    !!possibleTool.mcpServer &&
+    typeof possibleTool.mcpServer === "object" &&
+    typeof possibleTool.mcpServer.toolServer === "string" &&
+    Array.isArray(possibleTool.mcpServer.toolNames)
   );
-}
+};
 
-/**
- * Converts a Component<ToolConfig> to an AgentTool
- */
-export function componentToAgentTool(component: Component<ToolConfig>): AgentTool {
-  // Check if it's an MCP tool first
-  if (isMCPToolConfig(component.config)) {
-    const mcpConfig = component.config;
-    
+export const isInlineTool = (tool: unknown): tool is { type: "Inline"; inline: InlineTool } => {
+  if (!tool || typeof tool !== "object") return false;
+
+  const possibleTool = tool as Partial<AgentTool>;
+
+  return possibleTool.type === "Inline" && !!possibleTool.inline && typeof possibleTool.inline === "object" && typeof possibleTool.inline.provider === "string";
+};
+
+export const getToolDisplayName = (tool?: AgentTool | Component<ToolConfig>): string => {
+  if (!tool) return "No name";
+
+  // Check if the tool is of Component<ToolConfig> type
+  if (typeof tool === "object" && "provider" in tool && "label" in tool) {
+    if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+      // Use the config.tool.name for the display name
+      return (tool.config as MCPToolConfig).tool.name || "No name";
+    }
+    return tool.label || "No name";
+  }
+
+  // Handle AgentTool types
+  if (isMcpTool(tool) && tool.mcpServer) {
+    // For McpServer tools, use the first tool name if available
+    return tool.mcpServer.toolNames.length > 0 ? tool.mcpServer.toolNames[0] : tool.mcpServer.toolServer;
+  } else if (isInlineTool(tool) && tool.inline) {
+    // For Inline tools, use the label if available, otherwise fall back to provider and make sure to use the last part of the provider
+    const providerParts = tool.inline.provider.split(".");
+    const providerName = providerParts[providerParts.length - 1];
+    return tool.inline.label || providerName || "Inline Tool";
+  } else {
+    console.warn("Unknown tool type:", tool);
+    return "Unknown Tool";
+  }
+};
+
+export const getToolDescription = (tool?: AgentTool | Component<ToolConfig>): string => {
+  if (!tool) return "No description";
+
+  // Check if the tool is of Component<ToolConfig> type
+  if (typeof tool === "object" && "provider" in tool && "description" in tool) {
+    if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+      return (tool.config as MCPToolConfig).tool.description || "No description";
+    }
+    return tool.description || "No description";
+  }
+
+  // Handle AgentTool types
+  if (isInlineTool(tool) && tool.inline) {
+    return tool.inline.description || "No description";
+  } else if (isMcpTool(tool)) {
+    return "MCP Server Tool";
+  } else {
+    console.warn("Unknown tool type:", tool);
+    return "No description";
+  }
+};
+
+export const getToolIdentifier = (tool?: AgentTool | Component<ToolConfig>): string => {
+  if (!tool) return "unknown";
+
+  // Handle Component<ToolConfig> type
+  if (typeof tool === "object" && "provider" in tool) {
+    if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+      // For MCP adapter components, use toolServer (from label) and tool name
+      const mcpConfig = tool.config as MCPToolConfig;
+      const toolServer = tool.label || mcpConfig.tool.name || "unknown"; // Prefer label as toolServer
+      const toolName = mcpConfig.tool.name || "unknown";
+      return `mcptool-${toolServer}-${toolName}`;
+    }
+
+    // For regular component tools (includes Inline)
+    return `component-${tool.provider}`;
+  }
+
+  // Handle AgentTool types
+  if (isMcpTool(tool) && tool.mcpServer) {
+    // For MCP agent tools, use toolServer and first tool name
+    const toolName = tool.mcpServer.toolNames[0] || "unknown";
+    // Ensure mcpServer and toolServer exist before accessing
+    const toolServer = tool.mcpServer?.toolServer || "unknown";
+    return `mcptool-${toolServer}-${toolName}`;
+  } else if (isInlineTool(tool) && tool.inline) {
+    // For Inline agent tools
+    return `component-${tool.inline.provider}`;
+  } else {
+    console.warn("Unknown tool type:", tool);
+    return `unknown-${JSON.stringify(tool).slice(0, 20)}`;
+  }
+};
+
+export const getToolProvider = (tool?: AgentTool | Component<ToolConfig>): string => {
+  if (!tool) return "unknown";
+
+  // Check if the tool is of Component<ToolConfig> type
+  if (typeof tool === "object" && "provider" in tool) {
+    return tool.provider;
+  }
+  
+  // Handle AgentTool types
+  if (isInlineTool(tool) && tool.inline) {
+    return tool.inline.provider;
+  } else if (isMcpTool(tool) && tool.mcpServer) {
+    return tool.mcpServer.toolServer;
+  } else {
+    console.warn("Unknown tool type:", tool);
+    return "unknown";
+  }
+};
+
+export const isSameTool = (toolA?: AgentTool, toolB?: AgentTool): boolean => {
+  if (!toolA || !toolB) return false;
+  return getToolIdentifier(toolA) === getToolIdentifier(toolB);
+};
+
+export const componentToAgentTool = (component: Component<ToolConfig>): AgentTool => {
+  if (component.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+    const mcpConfig = component.config as MCPToolConfig;
     return {
       type: "McpServer",
       mcpServer: {
-        toolServer: component.label || "",
-        toolNames: [mcpConfig.tool.name]
+        toolServer: component.label || mcpConfig.tool.name || "unknown",
+        toolNames: [mcpConfig.tool.name || "unknown"]
       }
     };
   } else {
-    const r ={ 
+    return {
       type: "Inline",
       inline: {
         provider: component.provider,
-        description: component.description || "",
-        config: component.config
+        label: component.label || undefined,
+        description: component.description || undefined,
+        config: component.config || undefined
       }
-    } as AgentTool;
-    return r;
+    };
   }
-}
+};
 
-/**
- * Finds a Component<ToolConfig> matching an AgentTool from a list of available tools
- * @param agentTool The AgentTool to find
- * @param availableTools List of available Component<ToolConfig>
- * @returns The matching Component<ToolConfig> or undefined if not found
- */
-export function findComponentForAgentTool(
+export const findComponentForAgentTool = (
   agentTool: AgentTool,
-  availableTools: Component<ToolConfig>[]
-): Component<ToolConfig> | undefined {
-  return availableTools.find((tool) =>  getToolIdentifier(tool) === getToolIdentifier(agentTool));
-}
-
-/**
- * Type guard to check if config is RoundRobinGroupChatConfig
- */
-function isRoundRobinGroupChatConfig(config: TeamConfig): config is RoundRobinGroupChatConfig {
-  return (config as RoundRobinGroupChatConfig).participants !== undefined;
-}
-
-/**
- * Type guard to check if config is SelectorGroupChatConfig
- */
-function isSelectorGroupChatConfig(config: TeamConfig): config is SelectorGroupChatConfig {
-  return (config as SelectorGroupChatConfig).participants !== undefined;
-}
-
-/**
- * Type guard to check if config is AssistantAgentConfig
- */
-function isAssistantAgentConfig(config: AgentConfig): config is AssistantAgentConfig {
-  return (config as AssistantAgentConfig).tools !== undefined;
-}
-
-/**
- * Extracts all tools from any agent within the society_of_mind_agent in the provided JSON
- * @param agentResponse - The agent response data
- * @param societyOfMindAgentLabel - Optional label for the society of mind agent (defaults to "society_of_mind_agent")
- * @returns Array of AgentTool objects or undefined if not found
- */
-export function extractSocietyOfMindAgentTools(
-  agentResponse: AgentResponse, 
-  societyOfMindAgentLabel: string = "society_of_mind_agent"
-): AgentTool[] | undefined {
-  try {
-    // Get the component from the response
-    const component = agentResponse.component;
-    
-    // Check if the component config is a RoundRobinGroupChatConfig or SelectorGroupChatConfig
-    if (!isRoundRobinGroupChatConfig(component.config) && !isSelectorGroupChatConfig(component.config)) {
-      console.error("Component config does not have participants");
-      return undefined;
-    }
-    
-    // Find the society_of_mind_agent participant
-    const societyOfMindAgent = component.config.participants.find(
-      (participant) => participant.label === societyOfMindAgentLabel
-    );
-    
-    if (!societyOfMindAgent || !societyOfMindAgent.config) {
-      console.error(`Could not find agent with label: ${societyOfMindAgentLabel}`);
-      return undefined;
-    }
-    
-    // Ensure the agent has a team property with a valid config
-    if (!('team' in societyOfMindAgent.config)) {
-      console.error(`Agent with label ${societyOfMindAgentLabel} does not have a team configuration`);
-      return undefined;
-    }
-    
-    const team = societyOfMindAgent.config.team;
-    
-    // Check if the team config is a RoundRobinGroupChatConfig or SelectorGroupChatConfig
-    if (!isRoundRobinGroupChatConfig(team.config) && !isSelectorGroupChatConfig(team.config)) {
-      console.error("Team config does not have participants");
-      return undefined;
-    }
-    
-    // Find all agents in the team that have tools
-    const agentsWithTools = team.config.participants.filter(
-      (participant) => {
-        if (participant.component_type !== "agent" || !participant.config) {
-          return false;
-        }
-        
-        return isAssistantAgentConfig(participant.config) && participant.config.tools && participant.config.tools.length > 0;
-      }
-    );
-    
-    if (agentsWithTools.length === 0) {
-      console.error("No agents with tools found in the team configuration");
-      return undefined;
-    }
-    
-    // If we're looking for tools from all agents, we can combine them
-    const allTools: AgentTool[] = [];
-    
-    agentsWithTools.forEach(agent => {
-      if (isAssistantAgentConfig(agent.config) && agent.config.tools) {
-        // Convert Component<ToolConfig> to AgentTool
-        const agentTools = agent.config.tools.map(tool => {
-          const toolType = getToolProvider(tool)
-          return {
-            type: toolType === "autogen_ext.tools.mcp.SseMcpToolAdapter" ? "McpServer" : "Inline",
-            provider: tool.provider,
-            description: tool.description || "",
-            config: tool.config ? JSON.parse(JSON.stringify(tool.config)) : {},
-          } as AgentTool
-        });
-        
-        allTools.push(...agentTools);
-      }
-    });
-    
-    return allTools.length > 0 ? allTools : undefined;
-  } catch (error) {
-    console.error("Error extracting tools:", error);
+  components: Component<ToolConfig>[]
+): Component<ToolConfig> | undefined => {
+  const agentToolId = getToolIdentifier(agentTool);
+  if (agentToolId === "unknown") {
+    console.warn("Could not get identifier for agent tool:", agentTool);
     return undefined;
   }
-}
+
+  return components.find((c) => getToolIdentifier(c) === agentToolId);
+};

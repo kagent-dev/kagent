@@ -8,15 +8,13 @@ import (
 	"github.com/gorilla/mux"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/handlers"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	// Default namespace for resources
-	DefaultResourceNamespace = "kagent"
-
 	// API Path constants
 	APIPathHealth      = "/health"
 	APIPathModelConfig = "/api/modelconfigs"
@@ -25,11 +23,13 @@ const (
 	APIPathTools       = "/api/tools"
 	APIPathToolServers = "/api/toolservers"
 	APIPathTeams       = "/api/teams"
+	APIPathAgents      = "/api/agents"
+	APIPathProviders   = "/api/providers"
 )
 
 var defaultModelConfig = types.NamespacedName{
 	Name:      "default-model-config",
-	Namespace: DefaultResourceNamespace,
+	Namespace: common.GetResourceNamespace(),
 }
 
 // ServerConfig holds the configuration for the HTTP server
@@ -113,6 +113,9 @@ func (s *HTTPServer) setupRoutes() {
 	// Model configs
 	s.router.HandleFunc(APIPathModelConfig, adaptHandler(s.handlers.ModelConfig.HandleListModelConfigs)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathModelConfig+"/{configName}", adaptHandler(s.handlers.ModelConfig.HandleGetModelConfig)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelConfig, adaptHandler(s.handlers.ModelConfig.HandleCreateModelConfig)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathModelConfig+"/{configName}", adaptHandler(s.handlers.ModelConfig.HandleDeleteModelConfig)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathModelConfig+"/{configName}", adaptHandler(s.handlers.ModelConfig.HandleUpdateModelConfig)).Methods(http.MethodPut)
 
 	// Runs
 	s.router.HandleFunc(APIPathRuns, adaptHandler(s.handlers.Runs.HandleCreateRun)).Methods(http.MethodPost)
@@ -137,6 +140,13 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathTeams, adaptHandler(s.handlers.Teams.HandleUpdateTeam)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathTeams+"/{teamID}", adaptHandler(s.handlers.Teams.HandleGetTeam)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathTeams+"/{teamLabel}", adaptHandler(s.handlers.Teams.HandleDeleteTeam)).Methods(http.MethodDelete)
+
+	// Agents
+	s.router.HandleFunc(APIPathAgents+"/{agentId}/invoke", adaptHandler(s.handlers.Invoke.HandleInvokeAgent)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgents+"/{agentId}/start", adaptHandler(s.handlers.Invoke.HandleStartAgent)).Methods(http.MethodPost)
+
+	// Providers
+	s.router.HandleFunc(APIPathProviders, adaptHandler(s.handlers.ModelConfig.HandleListSupportedProviders)).Methods(http.MethodGet)
 
 	// Use middleware for common functionality
 	s.router.Use(contentTypeMiddleware)

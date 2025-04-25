@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Terminal, Globe, Loader2, ChevronDown, ChevronUp, PlusCircle, Trash2, Code, InfoIcon } from "lucide-react";
+import { Terminal, Globe, Loader2, ChevronDown, ChevronUp, PlusCircle, Trash2, Code, InfoIcon, AlertCircle } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { SseMcpServerConfig, StdioMcpServerConfig, ToolServer } from "@/types/datamodel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +15,7 @@ interface AddServerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAddServer: (serverConfig: ToolServer) => void;
+  onError?: (error: string) => void;
 }
 
 interface ArgPair {
@@ -26,7 +27,7 @@ interface EnvPair {
   value: string;
 }
 
-export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDialogProps) {
+export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
   const [activeTab, setActiveTab] = useState<"command" | "url">("command");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -288,6 +289,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDi
     }
 
     setIsSubmitting(true);
+    setError(null); // Clear any previous errors
 
     let params: StdioMcpServerConfig | SseMcpServerConfig;
     if (activeTab === "command") {
@@ -352,9 +354,18 @@ export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDi
       },
     };
 
-    onAddServer(newServer);
-    resetForm();
-    setIsSubmitting(false);
+    try {
+      onAddServer(newServer);
+      resetForm();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
+      setError(errorMessage);
+      if (onError) {
+        onError(errorMessage);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const resetForm = () => {
@@ -382,6 +393,29 @@ export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDi
     onOpenChange(false);
   };
 
+  // Format error message to be more user-friendly
+  const formatErrorMessage = (errorMsg: string): string => {
+    // Handle common backend errors
+    if (errorMsg.includes("already exists")) {
+      return "A server with this name already exists. Please choose a different name.";
+    }
+    
+    if (errorMsg.includes("Failed to create server")) {
+      return "Failed to create server. Please check your configuration and try again.";
+    }
+    
+    if (errorMsg.includes("Network error")) {
+      return "Network error: Could not connect to the server. Please check your connection and try again.";
+    }
+    
+    if (errorMsg.includes("Request timed out")) {
+      return "Request timed out: The server took too long to respond. Please try again later.";
+    }
+    
+    // Return the original error if no specific formatting is needed
+    return errorMsg;
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-2xl">
@@ -390,7 +424,15 @@ export function AddServerDialog({ open, onOpenChange, onAddServer }: AddServerDi
         </DialogHeader>
 
         <div className="py-4">
-          {error && <div className="mb-4 p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-start">
+              <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="font-medium">Error</p>
+                <p>{formatErrorMessage(error)}</p>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-4">
             <div className="space-y-2">

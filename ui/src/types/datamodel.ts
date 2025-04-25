@@ -38,6 +38,7 @@ export interface FunctionExecutionResult {
 export interface BaseMessageConfig {
   source: string;
   models_usage?: RequestUsage;
+  metadata?: Record<string, string>;
 }
 
 export interface TextMessageConfig extends BaseMessageConfig {
@@ -366,7 +367,8 @@ export interface AgentTool {
 export interface InlineTool {
   provider: string;
   description?: string;
-  config?: Record<string, any>;
+  config?: any;
+  label?: string;
 }
 
 export interface McpServerTool {

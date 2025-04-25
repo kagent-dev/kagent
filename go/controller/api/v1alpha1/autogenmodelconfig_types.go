@@ -25,13 +25,14 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama
 type ModelProvider string
 
 const (
 	Anthropic   ModelProvider = "Anthropic"
 	AzureOpenAI ModelProvider = "AzureOpenAI"
 	OpenAI      ModelProvider = "OpenAI"
+	Ollama      ModelProvider = "Ollama"
 )
 
 // AnthropicConfig contains Anthropic-specific configuration options
@@ -73,7 +74,7 @@ type OpenAIConfig struct {
 
 	// Maximum tokens to generate
 	// +optional
-	MaxTokens *int `json:"maxTokens,omitempty"`
+	MaxTokens int `json:"maxTokens,omitempty"`
 
 	// Top-p sampling parameter
 	// +optional
@@ -134,6 +135,17 @@ type AzureOpenAIConfig struct {
 	TopP string `json:"topP,omitempty"`
 }
 
+// OllamaConfig contains Ollama-specific configuration options
+type OllamaConfig struct {
+	// Host for the Ollama API
+	// +optional
+	Host string `json:"host,omitempty"`
+
+	// Options for the Ollama API
+	// +optional
+	Options map[string]string `json:"options,omitempty"`
+}
+
 // ModelConfigSpec defines the desired state of ModelConfig.
 //
 // +kubebuilder:validation:XValidation:message="provider.openAI must be nil if the provider is not OpenAI",rule="!(has(self.openAI) && self.provider != 'OpenAI')"
@@ -141,17 +153,23 @@ type AzureOpenAIConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.anthropic must be specified for Anthropic provider",rule="!(!has(self.anthropic) && self.provider == 'Anthropic')"
 // +kubebuilder:validation:XValidation:message="provider.azureOpenAI must be nil if the provider is not AzureOpenAI",rule="!(has(self.azureOpenAI) && self.provider != 'AzureOpenAI')"
 // +kubebuilder:validation:XValidation:message="provider.azureOpenAI must be specified for AzureOpenAI provider",rule="!(!has(self.azureOpenAI) && self.provider == 'AzureOpenAI')"
-
+// +kubebuilder:validation:XValidation:message="provider.ollama must be nil if the provider is not Ollama",rule="!(has(self.ollama) && self.provider != 'Ollama')"
+// +kubebuilder:validation:XValidation:message="provider.ollama must be specified for Ollama provider",rule="!(!has(self.ollama) && self.provider == 'Ollama')"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
 	// The provider of the model
 	// +kubebuilder:default=OpenAI
-	// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI
+	// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama
 	Provider ModelProvider `json:"provider"`
 
+	// The name of the secret that contains the API key
+	// +optional
 	APIKeySecretName string `json:"apiKeySecretName"`
-	APIKeySecretKey  string `json:"apiKeySecretKey"`
+
+	// The key in the secret that contains the API key
+	// +optional
+	APIKeySecretKey string `json:"apiKeySecretKey"`
 
 	// OpenAI-specific configuration
 	// +optional
@@ -164,6 +182,10 @@ type ModelConfigSpec struct {
 	// Azure OpenAI-specific configuration
 	// +optional
 	AzureOpenAI *AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+
+	// Ollama-specific configuration
+	// +optional
+	Ollama *OllamaConfig `json:"ollama,omitempty"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.

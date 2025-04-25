@@ -58,6 +58,10 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           ports:
             - name: http
               containerPort: {{ .Values.service.ports.app.targetPort }}
@@ -75,6 +79,9 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.ui.image.registry }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.global.tag .Values.ui.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
+          env:
+            - name: NEXT_PUBLIC_BACKEND_URL
+              value: "http://{{ include "kagent.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/api"
           ports:
             - name: http
               containerPort: {{ .Values.service.ports.ui.targetPort }}

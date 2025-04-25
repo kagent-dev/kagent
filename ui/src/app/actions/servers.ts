@@ -1,6 +1,6 @@
 'use server'
 import { ToolServer, ToolServerWithTools } from "@/types/datamodel";
-import { fetchApi } from "./utils";
+import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse } from "@/lib/types";
 import { revalidatePath } from "next/cache";
 
@@ -9,28 +9,28 @@ import { revalidatePath } from "next/cache";
  * @returns Promise with server data
  */
 export async function getServers(): Promise<BaseResponse<ToolServerWithTools[]>> {
-  const response = await fetchApi<ToolServerWithTools[]>("/toolservers");
+  try {
+    const response = await fetchApi<ToolServerWithTools[]>("/toolservers");
 
-  if (!response) {
+    if (!response) {
+      throw new Error("Failed to get tool servers");
+    }
+
     return {
-      success: false,
-      error: "Failed to get tool servers. Please try again.",
-      data: [],
+      success: true,
+      data: response,
     };
+  } catch (error) {
+    return createErrorResponse<ToolServerWithTools[]>(error, "Error getting tool servers");
   }
-
-  return {
-    success: true,
-    data: response,
-  };
 }
 
 /**
  * Deletes a server
- * @param serverName NAme of the server to delete
+ * @param serverName Name of the server to delete
  * @returns Promise with delete result
  */
-export async function deleteServer(serverName: string) {
+export async function deleteServer(serverName: string): Promise<BaseResponse<void>> {
   try {
     await fetchApi(`/toolservers/${serverName}`, {
       method: "DELETE",
@@ -39,11 +39,10 @@ export async function deleteServer(serverName: string) {
       },
     });
 
-     revalidatePath("/servers");
+    revalidatePath("/servers");
     return { success: true };
   } catch (error) {
-    console.error("Error deleting tool server:", error);
-    return { success: false, error: "Failed to delete tool server. Please try again." };
+    return createErrorResponse<void>(error, "Error deleting tool server");
   }
 }
 
@@ -53,23 +52,20 @@ export async function deleteServer(serverName: string) {
  * @returns Promise with create result
  */
 export async function createServer(serverData: ToolServer): Promise<BaseResponse<ToolServer>> {
-  const response = await fetchApi<ToolServer>("/toolservers", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(serverData),
-  });
+  try {
+    const response = await fetchApi<ToolServer>("/toolservers", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(serverData),
+    });
 
-  if (!response) {
     return {
-      success: false,
-      error: "Failed to create server. Please try again.",
+      success: true,
+      data: response,
     };
+  } catch (error) {
+    return createErrorResponse<ToolServer>(error, "Error creating tool server");
   }
-
-  return {
-    success: true,
-    data: response,
-  };
 }

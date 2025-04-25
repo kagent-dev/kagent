@@ -107,9 +107,9 @@ type Run struct {
 }
 
 type Task struct {
-	Source      string `json:"source"`
-	Content     string `json:"content"`
-	MessageType string `json:"message_type"`
+	Source      string      `json:"source"`
+	Content     interface{} `json:"content"`
+	MessageType string      `json:"message_type"`
 }
 
 type TeamResult struct {
