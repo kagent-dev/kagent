@@ -3,6 +3,7 @@
 import { BaseResponse } from "@/lib/types";
 import { fetchApi, createErrorResponse } from "./utils";
 import { Component, ToolConfig, MCPToolConfig } from "@/types/datamodel";
+import { isMcpProvider } from "@/lib/toolUtils";
 
 /**
  * Gets all available tools
@@ -33,8 +34,6 @@ export async function getTools(): Promise<BaseResponse<Component<ToolConfig>[]>>
   }
 }
 
-
-
 /**
  * Gets a specific tool by its provider name and optionally tool name
  * @param allTools The list of all tools
@@ -45,7 +44,7 @@ export async function getTools(): Promise<BaseResponse<Component<ToolConfig>[]>>
 export async function getToolByProvider(allTools: Component<ToolConfig>[], provider: string, toolName?: string): Promise<Component<ToolConfig> | null> {
 
   // For MCP tools, we need to match both provider and tool name
-  if (provider === "autogen_ext.tools.mcp.SseMcpToolAdapter" && toolName) {
+  if (isMcpProvider(provider) && toolName) {
     const tool = allTools.find(t =>
       t.provider === provider &&
       (t.config as MCPToolConfig)?.tool?.name === toolName

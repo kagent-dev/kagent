@@ -27,7 +27,7 @@ export const getToolDisplayName = (tool?: AgentTool | Component<ToolConfig>): st
 
   // Check if the tool is of Component<ToolConfig> type
   if (typeof tool === "object" && "provider" in tool && "label" in tool) {
-    if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+    if (isMcpProvider(tool.provider)) {
       // Use the config.tool.name for the display name
       return (tool.config as MCPToolConfig).tool.name || "No name";
     }
@@ -54,7 +54,7 @@ export const getToolDescription = (tool?: AgentTool | Component<ToolConfig>): st
 
   // Check if the tool is of Component<ToolConfig> type
   if (typeof tool === "object" && "provider" in tool && "description" in tool) {
-    if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+    if (isMcpProvider(tool.provider)) {
       return (tool.config as MCPToolConfig).tool.description || "No description";
     }
     return tool.description || "No description";
@@ -76,7 +76,7 @@ export const getToolIdentifier = (tool?: AgentTool | Component<ToolConfig>): str
 
   // Handle Component<ToolConfig> type
   if (typeof tool === "object" && "provider" in tool) {
-    if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+    if (isMcpProvider(tool.provider)) {
       // For MCP adapter components, use toolServer (from label) and tool name
       const mcpConfig = tool.config as MCPToolConfig;
       const toolServer = tool.label || mcpConfig.tool.name || "unknown"; // Prefer label as toolServer
@@ -129,7 +129,7 @@ export const isSameTool = (toolA?: AgentTool, toolB?: AgentTool): boolean => {
 };
 
 export const componentToAgentTool = (component: Component<ToolConfig>): AgentTool => {
-  if (component.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+  if (isMcpProvider(component.provider)) {
     const mcpConfig = component.config as MCPToolConfig;
     return {
       type: "McpServer",
@@ -162,4 +162,25 @@ export const findComponentForAgentTool = (
   }
 
   return components.find((c) => getToolIdentifier(c) === agentToolId);
+};
+
+export function isMcpProvider(provider: string): boolean {
+  return provider === "autogen_ext.tools.mcp.SseMcpToolAdapter" || provider === "autogen_ext.tools.mcp.StdioMcpToolAdapter";
+}
+
+// Extract category from tool identifier
+export const getToolCategory = (tool: Component<ToolConfig>) => {
+  if (isMcpProvider(tool.provider)) {
+    return tool.label || "MCP Server";
+  }
+
+  const toolId = getToolIdentifier(tool);
+  const parts = toolId.split(".");
+  if (parts.length >= 3 && parts[1] === "tools") {
+    return parts[2]; // e.g., kagent.tools.grafana -> grafana
+  }
+  if (parts.length >= 2) {
+    return parts[1]; // e.g., kagent.builtin -> builtin
+  }
+  return "other"; // Default category
 };
