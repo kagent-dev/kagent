@@ -254,6 +254,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	}
 
 	var participants []*api.Component
+
 	for _, agentName := range team.Spec.Participants {
 		agent := &v1alpha1.Agent{}
 		err := fetchObjKube(
@@ -267,15 +268,18 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			return nil, err
 		}
 
-		var participant *api.Component
 		if topLevelTeam {
-			participant, err = a.translateTaskAgent(
+			participant, err := a.translateTaskAgent(
 				ctx,
 				agent,
 				modelContext,
 			)
+			if err != nil {
+				return nil, err
+			}
+			participants = append(participants, participant)
 		} else {
-			participant, err = translateAssistantAgent(
+			participant, err := translateAssistantAgent(
 				ctx,
 				a.kube,
 				agent.Name,
@@ -285,12 +289,12 @@ func (a *apiTranslator) translateGroupChatForTeam(
 				modelClientWithoutStreaming,
 				modelContext,
 			)
-		}
-		if err != nil {
-			return nil, err
-		}
+			if err != nil {
+				return nil, err
+			}
 
-		participants = append(participants, participant)
+			participants = append(participants, participant)
+		}
 	}
 
 	//  add user proxy agent to top level
@@ -388,9 +392,9 @@ func (a *apiTranslator) translateTaskAgent(
 	// generate an internal round robin "team" for the society of mind agent
 	meta := agent.ObjectMeta.DeepCopy()
 	// This is important so we don't output this message in the CLI/UI
-	meta.Name = "society-of-mind-team"
+	meta.Name += "-society-of-mind-wrapper"
 	team := &v1alpha1.Team{
-		ObjectMeta: agent.ObjectMeta,
+		ObjectMeta: *meta,
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Team",
 			APIVersion: "kagent.dev/v1alpha1",
@@ -413,15 +417,16 @@ func (a *apiTranslator) translateTaskAgent(
 		return nil, err
 	}
 
+	agentName := convertToPythonIdentifier(team.Name)
 	return &api.Component{
 		Provider:      "kagent.agents.TaskAgent",
 		ComponentType: "agent",
 		Version:       1,
-		Label:         "society_of_mind_agent",
+		Label:         agentName,
 		Description:   "An agent that runs a team of agents",
 		Config: api.MustToConfig(&api.TaskAgentConfig{
 			Team:         societyOfMindTeam.Component,
-			Name:         "society_of_mind_agent",
+			Name:         agentName,
 			ModelContext: modelContext,
 		}),
 	}, nil
