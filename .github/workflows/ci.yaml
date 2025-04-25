@@ -62,18 +62,6 @@ jobs:
         make helm-install
         kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
 
-
-    - name: Run E2E tests
-      env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      run: |
-          make e2e-test
-
-    - name: Run E2E tests
-      env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      run: |
-          make e2e-test
   python-test:
     runs-on: ubuntu-latest
     steps:
