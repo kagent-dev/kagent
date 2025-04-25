@@ -62,6 +62,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            {{- range $key, $value := .Values.extraEnvValue }}
+            - name: {{ $key }}
+              value: {{ value | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.ports.app.targetPort }}
