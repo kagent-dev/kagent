@@ -148,19 +148,13 @@ spec:
                     type: string
                 type: object
               provider:
-                allOf:
-                - enum:
-                  - Anthropic
-                  - OpenAI
-                  - AzureOpenAI
-                  - Ollama
-                - enum:
-                  - Anthropic
-                  - OpenAI
-                  - AzureOpenAI
-                  - Ollama
                 default: OpenAI
                 description: The provider of the model
+                enum:
+                - Anthropic
+                - OpenAI
+                - AzureOpenAI
+                - Ollama
                 type: string
             required:
             - model
@@ -171,16 +165,10 @@ spec:
               rule: '!(has(self.openAI) && self.provider != ''OpenAI'')'
             - message: provider.anthropic must be nil if the provider is not Anthropic
               rule: '!(has(self.anthropic) && self.provider != ''Anthropic'')'
-            - message: provider.anthropic must be specified for Anthropic provider
-              rule: '!(!has(self.anthropic) && self.provider == ''Anthropic'')'
             - message: provider.azureOpenAI must be nil if the provider is not AzureOpenAI
               rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
-            - message: provider.azureOpenAI must be specified for AzureOpenAI provider
-              rule: '!(!has(self.azureOpenAI) && self.provider == ''AzureOpenAI'')'
             - message: provider.ollama must be nil if the provider is not Ollama
               rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
-            - message: provider.ollama must be specified for Ollama provider
-              rule: '!(!has(self.ollama) && self.provider == ''Ollama'')'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

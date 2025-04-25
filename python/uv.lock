@@ -141,16 +141,16 @@ wheels = [
 
 [[package]]
 name = "autogen-agentchat"
-version = "0.5.1"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169#bec1baa06c2c16a73e216e88a951a1d93fafb169" }
+version = "0.5.4"
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=8b4fb7d#8b4fb7d547bc3181c130493043af33b0d024d535" }
 dependencies = [
     { name = "autogen-core" },
 ]
 
 [[package]]
 name = "autogen-core"
-version = "0.5.1"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169#bec1baa06c2c16a73e216e88a951a1d93fafb169" }
+version = "0.5.4"
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=8b4fb7d#8b4fb7d547bc3181c130493043af33b0d024d535" }
 dependencies = [
     { name = "jsonref" },
     { name = "opentelemetry-api" },
@@ -162,8 +162,8 @@ dependencies = [
 
 [[package]]
 name = "autogen-ext"
-version = "0.5.1"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169#bec1baa06c2c16a73e216e88a951a1d93fafb169" }
+version = "0.5.4"
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=8b4fb7d#8b4fb7d547bc3181c130493043af33b0d024d535" }
 dependencies = [
     { name = "autogen-core" },
 ]
@@ -186,7 +186,6 @@ magentic-one = [
     { name = "playwright" },
 ]
 mcp = [
-    { name = "json-schema-to-pydantic" },
     { name = "mcp" },
 ]
 ollama = [
@@ -202,7 +201,7 @@ openai = [
 [[package]]
 name = "autogenstudio"
 version = "0.4.2"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169#bec1baa06c2c16a73e216e88a951a1d93fafb169" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=8b4fb7d#8b4fb7d547bc3181c130493043af33b0d024d535" }
 dependencies = [
     { name = "aiofiles" },
     { name = "alembic" },
@@ -1141,18 +1140,6 @@ wheels = [
 ]
 
 [[package]]
-name = "json-schema-to-pydantic"
-version = "0.2.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/0e/5a/82ce52917b4b021e739dc02384bb3257b5ddd04e40211eacdc32c88bdda5/json_schema_to_pydantic-0.2.4.tar.gz", hash = "sha256:c24060aa7694ae7be0465ce11339a6d1cc8a72cd8f4378c889d19722fa7da1ee", size = 37816 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/86/35135e8e4b1da50e6e8ed2afcacce589e576f3460c892d5e616390a4eb71/json_schema_to_pydantic-0.2.4-py3-none-any.whl", hash = "sha256:5c46675df0ab2685d92ed805da38348a34488654cb95ceb1a564dda23dcc3a89", size = 11940 },
-]
-
-[[package]]
 name = "jsonref"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1230,7 +1217,6 @@ dependencies = [
     { name = "autogenstudio" },
     { name = "mcp" },
     { name = "numpy" },
-    { name = "ollama" },
     { name = "openai" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
@@ -1260,15 +1246,14 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.49.0" },
-    { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169" },
-    { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169" },
-    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169" },
-    { name = "autogenstudio", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=bec1baa06c2c16a73e216e88a951a1d93fafb169" },
+    { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=8b4fb7d" },
+    { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=8b4fb7d" },
+    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=8b4fb7d" },
+    { name = "autogenstudio", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-studio&rev=8b4fb7d" },
     { name = "ipykernel", marker = "extra == 'jupyter-executor'", specifier = ">=6.29.5" },
     { name = "mcp", specifier = ">=1.2.0" },
     { name = "nbclient", marker = "extra == 'jupyter-executor'", specifier = ">=0.10.2" },
     { name = "numpy", specifier = ">=2.2.3" },
-    { name = "ollama", specifier = ">=0.4.7" },
     { name = "openai", specifier = ">=1.72.0" },
     { name = "opentelemetry-api", specifier = ">=1.30.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.30.0" },
@@ -1319,7 +1304,7 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8c/de/8eb6fffecd9c5f129461edcdd7e1ac944f9de15783e3d89c84ed6e0374bc/lxml-5.3.2-cp310-cp310-musllinux_1_2_ppc64le.whl", hash = "sha256:aa837e6ee9534de8d63bc4c1249e83882a7ac22bd24523f83fad68e6ffdf41ae", size = 5652903 },
     { url = "https://files.pythonhosted.org/packages/95/79/80f4102a08495c100014593680f3f0f7bd7c1333b13520aed855fc993326/lxml-5.3.2-cp310-cp310-musllinux_1_2_s390x.whl", hash = "sha256:da4c9223319400b97a2acdfb10926b807e51b69eb7eb80aad4942c0516934858", size = 5491813 },
     { url = "https://files.pythonhosted.org/packages/15/f5/9b1f7edf6565ee31e4300edb1bcc61eaebe50a3cff4053c0206d8dc772f2/lxml-5.3.2-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:dc0e9bdb3aa4d1de703a437576007d366b54f52c9897cae1a3716bb44fc1fc85", size = 5227837 },
-    { url = "https://files.pythonhosted.org/packages/5c/17/c31d94364c02e3492215658917f5590c00edce8074aeb06d05b7771465d9/lxml-5.3.2-cp310-cp310-win32.whl", hash = "sha256:5f94909a1022c8ea12711db7e08752ca7cf83e5b57a87b59e8a583c5f35016ad", size = 3477533 },
+    { url = "https://files.pythonhosted.org/packages/dd/53/a187c4ccfcd5fbfca01e6c96da39499d8b801ab5dcf57717db95d7a968a8/lxml-5.3.2-cp310-cp310-win32.win32.whl", hash = "sha256:dd755a0a78dd0b2c43f972e7b51a43be518ebc130c9f1a7c4480cf08b4385486", size = 3477533 },
     { url = "https://files.pythonhosted.org/packages/f2/2c/397c5a9d76a7a0faf9e5b13143ae1a7e223e71d2197a45da71c21aacb3d4/lxml-5.3.2-cp310-cp310-win_amd64.whl", hash = "sha256:d64ea1686474074b38da13ae218d9fde0d1dc6525266976808f41ac98d9d7980", size = 3805160 },
     { url = "https://files.pythonhosted.org/packages/84/b8/2b727f5a90902f7cc5548349f563b60911ca05f3b92e35dfa751349f265f/lxml-5.3.2-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:9d61a7d0d208ace43986a92b111e035881c4ed45b1f5b7a270070acae8b0bfb4", size = 8163457 },
     { url = "https://files.pythonhosted.org/packages/91/84/23135b2dc72b3440d68c8f39ace2bb00fe78e3a2255f7c74f7e76f22498e/lxml-5.3.2-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:856dfd7eda0b75c29ac80a31a6411ca12209183e866c33faf46e77ace3ce8a79", size = 4433445 },

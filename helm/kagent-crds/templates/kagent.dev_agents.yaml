@@ -58,6 +58,15 @@ spec:
               tools:
                 items:
                   properties:
+                    agent:
+                      properties:
+                        name:
+                          description: |-
+                            The name of the Agent resource to use as a tool.
+                            This should be a reference to an Agent resource in the same namespace.
+                          minLength: 1
+                          type: string
+                      type: object
                     inline:
                       properties:
                         config:
@@ -86,14 +95,11 @@ spec:
                           type: string
                       type: object
                     type:
-                      allOf:
-                      - enum:
-                        - Inline
-                        - McpServer
-                      - enum:
-                        - Inline
-                        - McpServer
                       description: ToolProviderType represents the tool provider type
+                      enum:
+                      - Inline
+                      - McpServer
+                      - Agent
                       type: string
                   type: object
                   x-kubernetes-validations:
@@ -105,6 +111,10 @@ spec:
                     rule: '!(has(self.mcpServer) && self.type != ''McpServer'')'
                   - message: type.mcpServer must be specified for McpServer filter.type
                     rule: '!(!has(self.mcpServer) && self.type == ''McpServer'')'
+                  - message: type.agent must be nil if the type is not Agent
+                    rule: '!(has(self.agent) && self.type != ''Agent'')'
+                  - message: type.agent must be specified for Agent filter.type
+                    rule: '!(!has(self.agent) && self.type == ''Agent'')'
                 maxItems: 20
                 type: array
             type: object

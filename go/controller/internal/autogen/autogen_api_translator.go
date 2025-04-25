@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -52,7 +53,7 @@ type ApiTranslator interface {
 
 	TranslateGroupChatForAgent(
 		ctx context.Context,
-		team *v1alpha1.Agent,
+		agent *v1alpha1.Agent,
 	) (*autogen_client.Team, error)
 
 	TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServer, error)
@@ -142,6 +143,57 @@ func NewAutogenApiTranslator(
 }
 
 func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v1alpha1.Agent) (*autogen_client.Team, error) {
+	return a.translateGroupChatForAgent(ctx, agent, defaultTeamOptions(), &tState{})
+}
+
+func (a *apiTranslator) TranslateGroupChatForTeam(
+	ctx context.Context,
+	team *v1alpha1.Team,
+) (*autogen_client.Team, error) {
+	return a.translateGroupChatForTeam(ctx, team, defaultTeamOptions(), &tState{})
+}
+
+type teamOptions struct {
+	userProxy         bool
+	wrapSocietyOfMind bool
+	stream            bool
+}
+
+const MAX_DEPTH = 10
+
+type tState struct {
+	// used to prevent infinite loops
+	// The recursion limit is 10
+	depth uint8
+	// used to enforce DAG
+	// The final member of the list will be the "parent" agent
+	visitedAgents []string
+}
+
+func (s *tState) with(agent *v1alpha1.Agent) *tState {
+	s.depth++
+	s.visitedAgents = append(s.visitedAgents, agent.Name)
+	return s
+}
+
+func (t *tState) isVisited(agentName string) bool {
+	return slices.Contains(t.visitedAgents, agentName)
+}
+
+func defaultTeamOptions() *teamOptions {
+	return &teamOptions{
+		userProxy:         true,
+		wrapSocietyOfMind: true,
+		stream:            true,
+	}
+}
+
+func (a *apiTranslator) translateGroupChatForAgent(
+	ctx context.Context,
+	agent *v1alpha1.Agent,
+	opts *teamOptions,
+	state *tState,
+) (*autogen_client.Team, error) {
 	modelConfig := a.defaultModelConfig
 	// Use the provided model config if set, otherwise use the default one
 	if agent.Spec.ModelConfigRef != "" {
@@ -172,20 +224,14 @@ func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v
 		},
 	}
 
-	return a.TranslateGroupChatForTeam(ctx, team)
-}
-
-func (a *apiTranslator) TranslateGroupChatForTeam(
-	ctx context.Context,
-	team *v1alpha1.Team,
-) (*autogen_client.Team, error) {
-	return a.translateGroupChatForTeam(ctx, team, true)
+	return a.translateGroupChatForTeam(ctx, team, opts, state)
 }
 
 func (a *apiTranslator) translateGroupChatForTeam(
 	ctx context.Context,
 	team *v1alpha1.Team,
-	topLevelTeam bool,
+	opts *teamOptions,
+	state *tState,
 ) (*autogen_client.Team, error) {
 	// get model config
 	roundRobinTeamConfig := team.Spec.RoundRobinTeamConfig
@@ -212,34 +258,12 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		return nil, err
 	}
 
-	// get model api key
-	modelApiKeySecret := &v1.Secret{}
-	err = fetchObjKube(
-		ctx,
-		a.kube,
-		modelApiKeySecret,
-		modelConfig.Spec.APIKeySecretName,
-		modelConfig.Namespace,
-	)
+	modelClientWithStreaming, err := a.createModelClientForProvider(ctx, modelConfig, true)
 	if err != nil {
 		return nil, err
 	}
 
-	if modelApiKeySecret.Data == nil {
-		return nil, fmt.Errorf("model api key secret data not found")
-	}
-
-	modelApiKey, ok := modelApiKeySecret.Data[modelConfig.Spec.APIKeySecretKey]
-	if !ok {
-		return nil, fmt.Errorf("model api key not found")
-	}
-
-	modelClientWithStreaming, err := createModelClientForProvider(modelConfig, modelApiKey, true)
-	if err != nil {
-		return nil, err
-	}
-
-	modelClientWithoutStreaming, err := createModelClientForProvider(modelConfig, modelApiKey, false)
+	modelClientWithoutStreaming, err := a.createModelClientForProvider(ctx, modelConfig, false)
 	if err != nil {
 		return nil, err
 	}
@@ -268,26 +292,26 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			return nil, err
 		}
 
-		if topLevelTeam {
+		if opts.wrapSocietyOfMind {
 			participant, err := a.translateTaskAgent(
 				ctx,
 				agent,
 				modelContext,
+				state,
 			)
 			if err != nil {
 				return nil, err
 			}
 			participants = append(participants, participant)
 		} else {
-			participant, err := translateAssistantAgent(
+			participant, err := a.translateAssistantAgent(
 				ctx,
-				a.kube,
-				agent.Name,
-				agent.Namespace,
-				agent.Spec,
+				agent,
 				modelClientWithStreaming,
 				modelClientWithoutStreaming,
 				modelContext,
+				opts,
+				state,
 			)
 			if err != nil {
 				return nil, err
@@ -298,7 +322,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	}
 
 	//  add user proxy agent to top level
-	if topLevelTeam {
+	if opts.userProxy {
 		participants = append(participants, userProxyAgent)
 	}
 
@@ -388,11 +412,36 @@ func (a *apiTranslator) translateTaskAgent(
 	ctx context.Context,
 	agent *v1alpha1.Agent,
 	modelContext *api.Component,
+	state *tState,
 ) (*api.Component, error) {
+
+	name := agent.Name + "-society-of-mind-wrapper"
+	team := simpleRoundRobinTeam(agent, name)
+
+	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{}, state)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.Component{
+		Provider:      "kagent.agents.TaskAgent",
+		ComponentType: "agent",
+		Version:       1,
+		Label:         "society_of_mind_agent",
+		Description:   "An agent that runs a team of agents",
+		Config: api.MustToConfig(&api.TaskAgentConfig{
+			Team:         societyOfMindTeam.Component,
+			Name:         "society_of_mind_agent",
+			ModelContext: modelContext,
+		}),
+	}, nil
+}
+
+func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
 	// generate an internal round robin "team" for the society of mind agent
 	meta := agent.ObjectMeta.DeepCopy()
 	// This is important so we don't output this message in the CLI/UI
-	meta.Name += "-society-of-mind-wrapper"
+	meta.Name = name
 	team := &v1alpha1.Team{
 		ObjectMeta: *meta,
 		TypeMeta: metav1.TypeMeta{
@@ -411,40 +460,21 @@ func (a *apiTranslator) translateTaskAgent(
 			},
 		},
 	}
-
-	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, false)
-	if err != nil {
-		return nil, err
-	}
-
-	agentName := convertToPythonIdentifier(team.Name)
-	return &api.Component{
-		Provider:      "kagent.agents.TaskAgent",
-		ComponentType: "agent",
-		Version:       1,
-		Label:         agentName,
-		Description:   "An agent that runs a team of agents",
-		Config: api.MustToConfig(&api.TaskAgentConfig{
-			Team:         societyOfMindTeam.Component,
-			Name:         agentName,
-			ModelContext: modelContext,
-		}),
-	}, nil
+	return team
 }
 
-func translateAssistantAgent(
+func (a *apiTranslator) translateAssistantAgent(
 	ctx context.Context,
-	kube client.Client,
-	agentName string,
-	agentNamespace string,
-	agentSpec v1alpha1.AgentSpec,
+	agent *v1alpha1.Agent,
 	modelClientWithStreaming *api.Component,
 	modelClientWithoutStreaming *api.Component,
 	modelContext *api.Component,
+	opts *teamOptions,
+	state *tState,
 ) (*api.Component, error) {
 
 	tools := []*api.Component{}
-	for _, tool := range agentSpec.Tools {
+	for _, tool := range agent.Spec.Tools {
 		switch {
 		case tool.Inline != nil:
 			autogenTool, err := translateBuiltinTool(
@@ -459,43 +489,95 @@ func translateAssistantAgent(
 			for _, toolName := range tool.McpServer.ToolNames {
 				autogenTool, err := translateToolServerTool(
 					ctx,
-					kube,
+					a.kube,
 					tool.McpServer.ToolServer,
 					toolName,
-					agentNamespace,
+					agent.Namespace,
 				)
 				if err != nil {
 					return nil, err
 				}
 				tools = append(tools, autogenTool)
 			}
+		case tool.Agent != nil:
+			if tool.Agent.Name == agent.Name {
+				return nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agent.Name)
+			}
+
+			if state.isVisited(tool.Agent.Name) {
+				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agent.Name, tool.Agent.Name)
+			}
+
+			if state.depth > MAX_DEPTH {
+				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agent.Name, tool.Agent.Name)
+			}
+
+			// Translate a nested tool
+			toolAgent := v1alpha1.Agent{}
+			err := a.kube.Get(ctx, types.NamespacedName{
+				Name:      tool.Agent.Name,
+				Namespace: agent.Namespace,
+			}, &toolAgent)
+			if err != nil {
+				return nil, err
+			}
+
+			team := simpleRoundRobinTeam(&toolAgent, toolAgent.Name)
+			autogenTool, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{
+				wrapSocietyOfMind: true,
+			}, state.with(agent))
+			if err != nil {
+				return nil, err
+			}
+
+			tool := &api.Component{
+				Provider:      "autogen_agentchat.tools.TeamTool",
+				ComponentType: "tool",
+				Version:       1,
+				Config: api.MustToConfig(&api.TeamToolConfig{
+					Name:        toolAgent.Name,
+					Description: toolAgent.Spec.Description,
+					Team:        autogenTool.Component,
+				}),
+			}
+
+			tools = append(tools, tool)
+
 		default:
 			return nil, fmt.Errorf("tool must have a provider or tool server")
 		}
 	}
 
-	sysMsg := agentSpec.SystemMessage + "\n" + defaultSystemMessageSuffix
-	if agentSpec.SystemMessage == "" {
+	sysMsg := agent.Spec.SystemMessage + "\n" + defaultSystemMessageSuffix
+	if agent.Spec.SystemMessage == "" {
 		sysMsg = ""
+	}
+
+	cfg := &api.AssistantAgentConfig{
+		Name:         convertToPythonIdentifier(agent.Name),
+		Tools:        tools,
+		ModelContext: modelContext,
+		Description:  agent.Spec.Description,
+		// TODO(ilackarms): convert to non-ptr with omitempty?
+		SystemMessage:         sysMsg,
+		ReflectOnToolUse:      false,
+		ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
+	}
+
+	if opts.stream {
+		cfg.ModelClient = modelClientWithStreaming
+		cfg.ModelClientStream = true
+	} else {
+		cfg.ModelClient = modelClientWithoutStreaming
+		cfg.ModelClientStream = false
 	}
 
 	return &api.Component{
 		Provider:      "autogen_agentchat.agents.AssistantAgent",
 		ComponentType: "agent",
 		Version:       1,
-		Description:   agentSpec.Description,
-		Config: api.MustToConfig(&api.AssistantAgentConfig{
-			Name:         convertToPythonIdentifier(agentName),
-			ModelClient:  modelClientWithStreaming,
-			Tools:        tools,
-			ModelContext: modelContext,
-			Description:  agentSpec.Description,
-			// TODO(ilackarms): convert to non-ptr with omitempty?
-			SystemMessage:         sysMsg,
-			ReflectOnToolUse:      false,
-			ModelClientStream:     true,
-			ToolCallSummaryFormat: "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-		}),
+		Description:   agent.Spec.Description,
+		Config:        api.MustToConfig(cfg),
 	}, nil
 }
 
@@ -728,9 +810,14 @@ func addModelClientToConfig(
 }
 
 // createModelClientForProvider creates a model client component based on the model provider
-func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []byte, includeUsage bool) (*api.Component, error) {
+func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelConfig *v1alpha1.ModelConfig, includeUsage bool) (*api.Component, error) {
 	switch modelConfig.Spec.Provider {
 	case v1alpha1.Anthropic:
+		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
+
 		config := &api.AnthropicClientConfiguration{
 			BaseAnthropicClientConfiguration: api.BaseAnthropicClientConfiguration{
 				APIKey: string(apiKey),
@@ -778,6 +865,10 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 		}, nil
 
 	case v1alpha1.AzureOpenAI:
+		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
 		config := &api.AzureOpenAIClientConfig{
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
 				Model:  modelConfig.Spec.Model,
@@ -824,6 +915,10 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 		}, nil
 
 	case v1alpha1.OpenAI:
+		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
 		config := &api.OpenAIClientConfig{
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
 				Model:  modelConfig.Spec.Model,
@@ -916,4 +1011,31 @@ func createModelClientForProvider(modelConfig *v1alpha1.ModelConfig, apiKey []by
 	default:
 		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
 	}
+}
+
+func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v1alpha1.ModelConfig) ([]byte, error) {
+
+	// get model api key
+	modelApiKeySecret := &v1.Secret{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		modelApiKeySecret,
+		modelConfig.Spec.APIKeySecretName,
+		modelConfig.Namespace,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if modelApiKeySecret.Data == nil {
+		return nil, fmt.Errorf("model api key secret data not found")
+	}
+
+	modelApiKey, ok := modelApiKeySecret.Data[modelConfig.Spec.APIKeySecretKey]
+	if !ok {
+		return nil, fmt.Errorf("model api key not found")
+	}
+
+	return modelApiKey, nil
 }

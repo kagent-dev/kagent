@@ -90,9 +90,9 @@ spec:
           base_url: {{ .Values.contrib.agents.observability.prometheus.url | default "prometheus.kagent:9090" | quote }}
           username: {{ .Values.contrib.agents.observability.prometheus.username | default "" | quote }}
           password: {{ .Values.contrib.agents.observability.prometheus.password | default "" | quote }}
-    - type: Inline
-      inline:
-        provider: kagent.tools.prometheus.GeneratePromQLTool
+    - type: Agent
+      agent:
+        name: promql-agent
     - type: Inline
       inline:
         provider: kagent.tools.grafana.DashboardManagementTool
