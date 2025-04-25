@@ -8,27 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Component, ToolConfig } from "@/types/datamodel";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider } from "@/lib/toolUtils";
+import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider } from "@/lib/toolUtils";
 
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 10;
-
-// Extract category from tool identifier
-const getToolCategory = (tool: Component<ToolConfig>) => {
-  if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
-    return tool.label || "MCP Server";
-  }
-
-  const toolId = getToolIdentifier(tool);
-  const parts = toolId.split(".");
-  if (parts.length >= 3 && parts[1] === "tools") {
-    return parts[2]; // e.g., kagent.tools.grafana -> grafana
-  }
-  if (parts.length >= 2) {
-    return parts[1]; // e.g., kagent.builtin -> builtin
-  }
-  return "other"; // Default category
-};
 
 interface SelectToolsDialogProps {
   open: boolean;

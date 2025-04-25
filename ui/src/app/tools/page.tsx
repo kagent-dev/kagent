@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider } from "@/lib/toolUtils";
+import { getToolCategory, getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isMcpProvider } from "@/lib/toolUtils";
 import {  Component, ToolConfig, ToolServerConfiguration } from "@/types/datamodel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -15,22 +15,6 @@ import { getServers } from "../actions/servers";
 import Link from "next/link";
 import CategoryFilter from "@/components/tools/CategoryFilter";
 import McpIcon from "@/components/icons/McpIcon";
-
-const getToolCategory = (tool: Component<ToolConfig>) => {
-  if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
-    return tool.label || "MCP Server";
-  }
-
-  const toolId = getToolIdentifier(tool);
-  const parts = toolId.split(".");
-  if (parts.length >= 3 && parts[1] === "tools") {
-    return parts[2]; // e.g., kagent.tools.grafana -> grafana
-  }
-  if (parts.length >= 2) {
-    return parts[1]; // e.g., kagent.builtin -> builtin
-  }
-  return "other"; // Default category
-};
 
 export default function ToolsPage() {
   // Consolidated state
@@ -73,7 +57,7 @@ export default function ToolsPage() {
       // Process servers
       const serversMap = new Map<string, { name: string; label: string; config: ToolServerConfiguration }>();
       const toolsFromServers: Component<ToolConfig>[] = [];
-      
+
       if (serversResponse.success && serversResponse.data) {
         serversResponse.data.forEach(server => {
           serversMap.set(server.name, {
@@ -287,7 +271,7 @@ export default function ToolsPage() {
             {Object.entries(toolsByCategory)
               .map(([category, categoryTools]) => {
                 // Check if any tool in this category is an MCP tool
-                const hasMcpTool = categoryTools.some(tool => tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter");
+                const hasMcpTool = categoryTools.some(tool => isMcpProvider(tool.provider));
                 return (
                   <div key={category} className="border rounded-lg overflow-hidden bg-card shadow-sm">
                     <div
