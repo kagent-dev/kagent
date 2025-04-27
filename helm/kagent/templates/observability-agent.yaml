@@ -79,23 +79,23 @@ spec:
   tools:
     - type: Builtin
       builtin:
-        name: k8s_GetResources
+        name: kagent.tools.k8s.GetResources
     - type: Builtin
       builtin:
-        name: k8s_GetAvailableAPIResources
+        name: kagent.tools.k8s.GetAvailableAPIResources
     - type: Builtin
       builtin:
-        name: prometheus_QueryTool
+        name: kagent.tools.prometheus.QueryTool
         config:
           base_url: {{ .Values.contrib.agents.observability.prometheus.url | default "prometheus.kagent:9090" | quote }}
           username: {{ .Values.contrib.agents.observability.prometheus.username | default "" | quote }}
           password: {{ .Values.contrib.agents.observability.prometheus.password | default "" | quote }}
     - type: Builtin
       builtin:
-        name: prometheus_GeneratePromQLTool
+        name: kagent.tools.prometheus.GeneratePromQLTool
     - type: Builtin
       builtin:
-        name: grafana_DashboardManagementTool
+        name: kagent.tools.grafana.DashboardManagementTool
         config:
           base_url: {{ .Values.contrib.agents.observability.grafana.url | default "grafana.kagent:3000" | quote }}
           username: {{ .Values.contrib.agents.observability.grafana.username | default "" | quote }}

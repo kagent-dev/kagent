@@ -148,34 +148,34 @@ spec:
   tools:
     - type: Builtin
       builtin:
-        name: helm_ListReleases
+        name: kagent.tools.helm.ListReleases
     - type: Builtin
       builtin:
-        name: helm_GetRelease
+        name: kagent.tools.helm.GetRelease
     - type: Builtin
       builtin:
-        name: helm_Upgrade
+        name: kagent.tools.helm.Upgrade
     - type: Builtin
       builtin:
-        name: helm_Uninstall
+        name: kagent.tools.helm.Uninstall
     - type: Builtin
       builtin:
-        name: helm_RepoAdd
+        name: kagent.tools.helm.RepoAdd
     - type: Builtin
       builtin:
-        name: helm_RepoUpdate
+        name: kagent.tools.helm.RepoUpdate
     - type: Builtin
       builtin:
-        name: k8s_GetResources
+        name: kagent.tools.k8s.GetResources
     - type: Builtin
       builtin:
-        name: k8s_GetAvailableAPIResources
+        name: kagent.tools.k8s.GetAvailableAPIResources
     - type: Builtin
       builtin:
-        name: k8s_ApplyManifest
+        name: kagent.tools.k8s.ApplyManifest
     - type: Builtin
       builtin:
-        name: docs_QueryTool
+        name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
 {{- end }}

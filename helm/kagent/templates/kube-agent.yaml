@@ -121,61 +121,61 @@ spec:
   tools:
     - type: Builtin
       builtin:
-        name: k8s_CheckServiceConnectivity
+        name: kagent.tools.k8s.CheckServiceConnectivity
     - type: Builtin
       builtin:
-        name: k8s_PatchResource
+        name: kagent.tools.k8s.PatchResource
     - type: Builtin
       builtin:
-        name: k8s_RemoveAnnotation
+        name: kagent.tools.k8s.RemoveAnnotation
     - type: Builtin
       builtin:
-        name: k8s_AnnotateResource
+        name: kagent.tools.k8s.AnnotateResource
     - type: Builtin
       builtin:
-        name: k8s_RemoveLabel
+        name: kagent.tools.k8s.RemoveLabel
     - type: Builtin
       builtin:
-        name: k8s_LabelResource
+        name: kagent.tools.k8s.LabelResource
     - type: Builtin
       builtin:
-        name: k8s_CreateResource
+        name: kagent.tools.k8s.CreateResource
     - type: Builtin
       builtin:
-        name: k8s_CreateResourceFromUrl
+        name: kagent.tools.k8s.CreateResourceFromUrl
     - type: Builtin
       builtin:
-        name: k8s_GetEvents
+        name: kagent.tools.k8s.GetEvents
     - type: Builtin
       builtin:
-        name: k8s_GetAvailableAPIResources
+        name: kagent.tools.k8s.GetAvailableAPIResources
     - type: Builtin
       builtin:
-        name: k8s_GetClusterConfiguration
+        name: kagent.tools.k8s.GetClusterConfiguration
     - type: Builtin
       builtin:
-        name: k8s_DescribeResource
+        name: kagent.tools.k8s.DescribeResource
     - type: Builtin
       builtin:
-        name: k8s_DeleteResource
+        name: kagent.tools.k8s.DeleteResource
     - type: Builtin
       builtin:
-        name: k8s_GetResourceYAML
+        name: kagent.tools.k8s.GetResourceYAML
     - type: Builtin
       builtin:
-        name: k8s_ExecuteCommand
+        name: kagent.tools.k8s.ExecuteCommand
     - type: Builtin
       builtin:
-        name: k8s_ApplyManifest
+        name: kagent.tools.k8s.ApplyManifest
     - type: Builtin
       builtin:
-        name: k8s_GetResources
+        name: kagent.tools.k8s.GetResources
     - type: Builtin
       builtin:
-        name: k8s_GetPodLogs
+        name: kagent.tools.k8s.GetPodLogs
     - type: Builtin
       builtin:
-        name: docs_QueryTool
+        name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
 {{- end }}

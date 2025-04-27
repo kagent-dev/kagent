@@ -324,64 +324,64 @@ spec:
   tools:
     - type: Builtin
       builtin:
-        name: k8s_CreateResource
+        name: kagent.tools.k8s.CreateResource
     - type: Builtin
       builtin:
-        name: k8s_CreateResourceFromUrl
+        name: kagent.tools.k8s.CreateResourceFromUrl
     - type: Builtin
       builtin:
-        name: k8s_DeleteResource
+        name: kagent.tools.k8s.DeleteResource
     - type: Builtin
       builtin:
-        name: k8s_DescribeResource
+        name: kagent.tools.k8s.DescribeResource
     - type: Builtin
       builtin:
-        name: k8s_GetResources
+        name: kagent.tools.k8s.GetResources
     - type: Builtin
       builtin:
-        name: k8s_PatchResource
+        name: kagent.tools.k8s.PatchResource
     - type: Builtin
       builtin:
-        name: k8s_GenerateResourceTool
+        name: kagent.tools.k8s.GenerateResourceTool
     - type: Builtin
       builtin:
-        name: istio_ZTunnelConfig
+        name: kagent.tools.istio.ZTunnelConfig
     - type: Builtin
       builtin:
-        name: istio_WaypointStatus
+        name: kagent.tools.istio.WaypointStatus
     - type: Builtin
       builtin:
-        name: istio_ListWaypoints
+        name: kagent.tools.istio.ListWaypoints
     - type: Builtin
       builtin:
-        name: istio_GenerateWaypoint
+        name: kagent.tools.istio.GenerateWaypoint
     - type: Builtin
       builtin:
-        name: istio_DeleteWaypoint
+        name: kagent.tools.istio.DeleteWaypoint
     - type: Builtin
       builtin:
-        name: istio_ApplyWaypoint
+        name: kagent.tools.istio.ApplyWaypoint
     - type: Builtin
       builtin:
-        name: istio_RemoteClusters
+        name: kagent.tools.istio.RemoteClusters
     - type: Builtin
       builtin:
-        name: istio_ProxyStatus
+        name: kagent.tools.istio.ProxyStatus
     - type: Builtin
       builtin:
-        name: istio_GenerateManifest
+        name: kagent.tools.istio.GenerateManifest
     - type: Builtin
       builtin:
-        name: istio_InstallIstio
+        name: kagent.tools.istio.InstallIstio
     - type: Builtin
       builtin:
-        name: istio_AnalyzeClusterConfig
+        name: kagent.tools.istio.AnalyzeClusterConfig
     - type: Builtin
       builtin:
-        name: istio_ProxyConfig
+        name: kagent.tools.istio.ProxyConfig
     - type: Builtin
       builtin:
-        name: docs_QueryTool
+        name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
 {{- end }}

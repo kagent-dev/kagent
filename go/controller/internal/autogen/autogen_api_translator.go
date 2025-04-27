@@ -42,87 +42,6 @@ var (
 		"kagent.tools.prometheus.GeneratePromQLTool",
 		"kagent.tools.k8s.GenerateResourceTool",
 	}
-
-	// TODO(ilackarms): must make sure that all new builtin tools are added here & their names are documented
-	BuiltinToolNameToProviders = map[string]string{
-		"istio_AnalyzeClusterConfig":               "kagent.tools.istio.AnalyzeClusterConfig",
-		"istio_ApplyWaypoint":                      "kagent.tools.istio.ApplyWaypoint",
-		"istio_DeleteWaypoint":                     "kagent.tools.istio.DeleteWaypoint",
-		"istio_GenerateManifest":                   "kagent.tools.istio.GenerateManifest",
-		"istio_GenerateWaypoint":                   "kagent.tools.istio.GenerateWaypoint",
-		"istio_InstallIstio":                       "kagent.tools.istio.InstallIstio",
-		"istio_ListWaypoints":                      "kagent.tools.istio.ListWaypoints",
-		"istio_ProxyConfig":                        "kagent.tools.istio.ProxyConfig",
-		"istio_ProxyStatus":                        "kagent.tools.istio.ProxyStatus",
-		"istio_RemoteClusters":                     "kagent.tools.istio.RemoteClusters",
-		"istio_WaypointStatus":                     "kagent.tools.istio.WaypointStatus",
-		"istio_ZTunnelConfig":                      "kagent.tools.istio.ZTunnelConfig",
-		"k8s_AnnotateResource":                     "kagent.tools.k8s.AnnotateResource",
-		"k8s_ApplyManifest":                        "kagent.tools.k8s.ApplyManifest",
-		"k8s_CheckServiceConnectivity":             "kagent.tools.k8s.CheckServiceConnectivity",
-		"k8s_CreateResource":                       "kagent.tools.k8s.CreateResource",
-		"k8s_CreateResourceFromUrl":                "kagent.tools.k8s.CreateResourceFromUrl",
-		"k8s_DeleteResource":                       "kagent.tools.k8s.DeleteResource",
-		"k8s_DescribeResource":                     "kagent.tools.k8s.DescribeResource",
-		"k8s_ExecuteCommand":                       "kagent.tools.k8s.ExecuteCommand",
-		"k8s_GetAvailableAPIResources":             "kagent.tools.k8s.GetAvailableAPIResources",
-		"k8s_GetClusterConfiguration":              "kagent.tools.k8s.GetClusterConfiguration",
-		"k8s_GetEvents":                            "kagent.tools.k8s.GetEvents",
-		"k8s_GetPodLogs":                           "kagent.tools.k8s.GetPodLogs",
-		"k8s_GetResources":                         "kagent.tools.k8s.GetResources",
-		"k8s_GetResourceYAML":                      "kagent.tools.k8s.GetResourceYAML",
-		"k8s_LabelResource":                        "kagent.tools.k8s.LabelResource",
-		"k8s_PatchResource":                        "kagent.tools.k8s.PatchResource",
-		"k8s_RemoveAnnotation":                     "kagent.tools.k8s.RemoveAnnotation",
-		"k8s_RemoveLabel":                          "kagent.tools.k8s.RemoveLabel",
-		"k8s_Rollout":                              "kagent.tools.k8s.Rollout",
-		"k8s_Scale":                                "kagent.tools.k8s.Scale",
-		"k8s_GenerateResourceTool":                 "kagent.tools.k8s.GenerateResourceTool",
-		"prometheus_AlertmanagersTool":             "kagent.tools.prometheus.AlertmanagersTool",
-		"prometheus_AlertsTool":                    "kagent.tools.prometheus.AlertsTool",
-		"prometheus_BuildInfoTool":                 "kagent.tools.prometheus.BuildInfoTool",
-		"prometheus_CleanTombstonesTool":           "kagent.tools.prometheus.CleanTombstonesTool",
-		"prometheus_CreateSnapshotTool":            "kagent.tools.prometheus.CreateSnapshotTool",
-		"prometheus_DeleteSeriesTool":              "kagent.tools.prometheus.DeleteSeriesTool",
-		"prometheus_LabelNamesTool":                "kagent.tools.prometheus.LabelNamesTool",
-		"prometheus_LabelValuesTool":               "kagent.tools.prometheus.LabelValuesTool",
-		"prometheus_MetadataTool":                  "kagent.tools.prometheus.MetadataTool",
-		"prometheus_QueryRangeTool":                "kagent.tools.prometheus.QueryRangeTool",
-		"prometheus_QueryTool":                     "kagent.tools.prometheus.QueryTool",
-		"prometheus_RulesTool":                     "kagent.tools.prometheus.RulesTool",
-		"prometheus_RuntimeInfoTool":               "kagent.tools.prometheus.RuntimeInfoTool",
-		"prometheus_SeriesQueryTool":               "kagent.tools.prometheus.SeriesQueryTool",
-		"prometheus_StatusConfigTool":              "kagent.tools.prometheus.StatusConfigTool",
-		"prometheus_StatusFlagsTool":               "kagent.tools.prometheus.StatusFlagsTool",
-		"prometheus_TargetMetadataTool":            "kagent.tools.prometheus.TargetMetadataTool",
-		"prometheus_TargetsTool":                   "kagent.tools.prometheus.TargetsTool",
-		"prometheus_TSDBStatusTool":                "kagent.tools.prometheus.TSDBStatusTool",
-		"prometheus_WALReplayTool":                 "kagent.tools.prometheus.WALReplayTool",
-		"prometheus_GeneratePromQLTool":            "kagent.tools.prometheus.GeneratePromQLTool",
-		"docs_QueryTool":                           "kagent.tools.docs.QueryTool",
-		"helm_GetRelease":                          "kagent.tools.helm.GetRelease",
-		"helm_ListReleases":                        "kagent.tools.helm.ListReleases",
-		"helm_RepoAdd":                             "kagent.tools.helm.RepoAdd",
-		"helm_RepoUpdate":                          "kagent.tools.helm.RepoUpdate",
-		"helm_Uninstall":                           "kagent.tools.helm.Uninstall",
-		"helm_Upgrade":                             "kagent.tools.helm.Upgrade",
-		"argo_PauseRollout":                        "kagent.tools.argo.PauseRollout",
-		"argo_PromoteRollout":                      "kagent.tools.argo.PromoteRollout",
-		"argo_SetRolloutImage":                     "kagent.tools.argo.SetRolloutImage",
-		"argo_VerifyKubectlPluginInstall":          "kagent.tools.argo.VerifyKubectlPluginInstall",
-		"argo_VerifyArgoRolloutsControllerInstall": "kagent.tools.argo.VerifyArgoRolloutsControllerInstall",
-		"argo_CheckPluginLogsTool":                 "kagent.tools.argo.CheckPluginLogsTool",
-		"argo_VerifyGatewayPluginTool":             "kagent.tools.argo.VerifyGatewayPluginTool",
-		"grafana_OrgManagementTool":                "kagent.tools.grafana.OrgManagementTool",
-		"grafana_TeamManagementTool":               "kagent.tools.grafana.TeamManagementTool",
-		"grafana_AlertManagementTool":              "kagent.tools.grafana.AlertManagementTool",
-		"grafana_AnnotationManagementTool":         "kagent.tools.grafana.AnnotationManagementTool",
-		"grafana_MiscManagementTool":               "kagent.tools.grafana.MiscManagementTool",
-		"grafana_DashboardManagementTool":          "kagent.tools.grafana.DashboardManagementTool",
-		"grafana_FolderManagementTool":             "kagent.tools.grafana.FolderManagementTool",
-		"grafana_DataSourceManagementTool":         "kagent.tools.grafana.DataSourceManagementTool",
-		"grafana_UserManagementTool":               "kagent.tools.grafana.UserManagementTool",
-	}
 )
 
 type ApiTranslator interface {
@@ -140,9 +59,8 @@ type ApiTranslator interface {
 }
 
 type apiTranslator struct {
-	kube                       client.Client
-	defaultModelConfig         types.NamespacedName
-	builtinToolNameToProviders map[string]string
+	kube               client.Client
+	defaultModelConfig types.NamespacedName
 }
 
 func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServer, error) {
@@ -218,9 +136,8 @@ func NewAutogenApiTranslator(
 	defaultModelConfig types.NamespacedName,
 ) ApiTranslator {
 	return &apiTranslator{
-		kube:                       kube,
-		defaultModelConfig:         defaultModelConfig,
-		builtinToolNameToProviders: BuiltinToolNameToProviders,
+		kube:               kube,
+		defaultModelConfig: defaultModelConfig,
 	}
 }
 
@@ -367,7 +284,6 @@ func (a *apiTranslator) translateGroupChatForTeam(
 				modelClientWithStreaming,
 				modelClientWithoutStreaming,
 				modelContext,
-				a.builtinToolNameToProviders,
 			)
 		}
 		if err != nil {
@@ -520,7 +436,6 @@ func translateAssistantAgent(
 	modelClientWithStreaming *api.Component,
 	modelClientWithoutStreaming *api.Component,
 	modelContext *api.Component,
-	builtinToolNameToProviders map[string]string,
 ) (*api.Component, error) {
 
 	tools := []*api.Component{}
@@ -530,7 +445,6 @@ func translateAssistantAgent(
 			autogenTool, err := translateBuiltinTool(
 				modelClientWithoutStreaming,
 				tool.Builtin,
-				builtinToolNameToProviders,
 			)
 			if err != nil {
 				return nil, err
@@ -583,7 +497,6 @@ func translateAssistantAgent(
 func translateBuiltinTool(
 	modelClient *api.Component,
 	tool *v1alpha1.BuiltinTool,
-	builtinToolNameToProviders map[string]string,
 ) (*api.Component, error) {
 
 	toolConfig, err := convertMapFromAnytype(tool.Config)
@@ -600,13 +513,8 @@ func translateBuiltinTool(
 	providerParts := strings.Split(tool.Name, ".")
 	toolLabel := providerParts[len(providerParts)-1]
 
-	provider, ok := builtinToolNameToProviders[tool.Name]
-	if !ok {
-		return nil, fmt.Errorf("provider for builtin tool %v not found", tool.Name)
-	}
-
 	return &api.Component{
-		Provider:      provider,
+		Provider:      tool.Name,
 		ComponentType: "tool",
 		Version:       1,
 		Config:        toolConfig,

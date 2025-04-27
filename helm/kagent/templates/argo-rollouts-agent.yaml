@@ -241,24 +241,24 @@ spec:
   tools:
     - type: Builtin
       builtin:
-        name: argo_VerifyArgoRolloutsControllerInstall
+        name: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
     - type: Builtin
       builtin:
-        name: k8s_GetResources
+        name: kagent.tools.k8s.GetResources
     - type: Builtin
       builtin:
-        name: k8s_GetResourceYAML
+        name: kagent.tools.k8s.GetResourceYAML
     - type: Builtin
       builtin:
-        name: k8s_CreateResource
+        name: kagent.tools.k8s.CreateResource
     - type: Builtin
       builtin:
-        name: k8s_DeleteResource
+        name: kagent.tools.k8s.DeleteResource
     - type: Builtin
       builtin:
-        name: k8s_ApplyManifest
+        name: kagent.tools.k8s.ApplyManifest
     - type: Builtin
       builtin:
-        name: k8s_DescribeResource
+        name: kagent.tools.k8s.DescribeResource
     
 {{- end }}
