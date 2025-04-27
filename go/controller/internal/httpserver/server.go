@@ -25,6 +25,7 @@ const (
 	APIPathTeams       = "/api/teams"
 	APIPathAgents      = "/api/agents"
 	APIPathProviders   = "/api/providers"
+	APIPathModels      = "/api/models"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -146,7 +147,10 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{agentId}/start", adaptHandler(s.handlers.Invoke.HandleStartAgent)).Methods(http.MethodPost)
 
 	// Providers
-	s.router.HandleFunc(APIPathProviders, adaptHandler(s.handlers.ModelConfig.HandleListSupportedProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathProviders, adaptHandler(s.handlers.Provider.HandleListSupportedProviders)).Methods(http.MethodGet)
+
+	// Models
+	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)
 
 	// Use middleware for common functionality
 	s.router.Use(contentTypeMiddleware)
