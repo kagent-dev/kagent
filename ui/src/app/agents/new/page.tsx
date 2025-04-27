@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, FunctionSquare } from "lucide-react";
-import { Model } from "@/lib/types";
+import { ModelConfig } from "@/lib/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
@@ -43,7 +43,7 @@ function AgentPageContent() {
   const [systemPrompt, setSystemPrompt] = useState("");
 
   // Default to the first model
-  type SelectedModelType = Pick<Model, 'name' | 'model'>;
+  type SelectedModelType = Pick<ModelConfig, 'name' | 'model'>;
   const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { name: models[0].name, model: models[0].model } : null);
 
   // Tools state - now using AgentTool interface correctly
@@ -239,7 +239,7 @@ function AgentPageContent() {
                   allModels={models} 
                   selectedModel={selectedModel} 
                   setSelectedModel={(model) => {
-                    setSelectedModel(model as Pick<Model, 'name' | 'model'>);
+                    setSelectedModel(model as Pick<ModelConfig, 'name' | 'model'>);
                     validateField('model', model);
                   }} 
                   error={errors.model} 

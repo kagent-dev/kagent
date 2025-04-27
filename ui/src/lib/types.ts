@@ -4,11 +4,11 @@ export interface CreateAgentFormData {
   name: string;
   description: string;
   system_prompt: string;
-  model: Model;
+  model: ModelConfig;
   tools: Component<ToolConfig>[];
 }
 
-export interface Model {
+export interface ModelConfig {
   name: string;
   namespace: string;
   providerName: string;
@@ -54,7 +54,8 @@ export interface Provider {
   optionalParams: string[];
 }
 
-interface OpenAIConfigPayload {
+// Export OpenAIConfigPayload
+export interface OpenAIConfigPayload {
     baseUrl?: string;
     organization?: string;
     temperature?: string;
@@ -67,7 +68,7 @@ interface OpenAIConfigPayload {
     timeout?: number;
 }
 
-interface AnthropicConfigPayload {
+export interface AnthropicConfigPayload {
     baseUrl?: string;
     maxTokens?: number;
     temperature?: string;
@@ -75,7 +76,7 @@ interface AnthropicConfigPayload {
     topK?: number;
 }
 
-interface AzureOpenAIConfigPayload {
+export interface AzureOpenAIConfigPayload {
     azureEndpoint: string
     apiVersion: string;
     azureDeployment?: string;
@@ -85,11 +86,10 @@ interface AzureOpenAIConfigPayload {
     topP?: string;
 }
 
-interface OllamaConfigPayload {
+export interface OllamaConfigPayload {
     host?: string;
     options?: Record<string, string>;
 }
-
 
 export interface CreateModelConfigPayload {
   name: string;

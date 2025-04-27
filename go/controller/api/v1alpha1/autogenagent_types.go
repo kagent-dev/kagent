@@ -51,6 +51,8 @@ const (
 // +kubebuilder:validation:XValidation:message="type.builtin must be specified for Builtin filter.type",rule="!(!has(self.builtin) && self.type == 'Builtin')"
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be nil if the type is not McpServer",rule="!(has(self.mcpServer) && self.type != 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be specified for McpServer filter.type",rule="!(!has(self.mcpServer) && self.type == 'McpServer')"
+// +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
+// +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
 type Tool struct {
 	// +kubebuilder:validation:Enum=Builtin;McpServer;Agent
 	Type ToolProviderType `json:"type,omitempty"`
@@ -60,6 +62,13 @@ type Tool struct {
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
 	Agent *AgentTool `json:"agent,omitempty"`
+}
+
+type AgentTool struct {
+	// Reference to the Agent resource to use as a tool.
+	// Can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
+	// +kubebuilder:validation:MinLength=1
+	Ref string `json:"ref,omitempty"`
 }
 
 type BuiltinTool struct {
@@ -78,11 +87,6 @@ type McpServerTool struct {
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
 	ToolNames []string `json:"toolNames,omitempty"`
-}
-
-type AgentTool struct {
-	// reference to the Agent that provides the tool. can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
-	Agent string `json:"agent,omitempty"`
 }
 
 type AnyType struct {

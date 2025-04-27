@@ -174,10 +174,10 @@ export interface UserProxyAgentConfig {
 
 // Model Configs
 export interface ModelInfo {
-  vision: boolean;
+  vision?: boolean;
   function_calling: boolean;
-  json_output: boolean;
-  family: string;
+  json_output?: boolean;
+  family?: string;
 }
 
 export interface CreateArgumentsConfig {

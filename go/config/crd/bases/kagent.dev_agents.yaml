@@ -60,12 +60,11 @@ spec:
                   properties:
                     agent:
                       properties:
-                        agent:
-                          description: reference to the Agent that provides the tool.
-                            can either be a reference to the name of an Agent in the
-                            same namespace as the referencing Agent, or a reference
-                            to the name of an Agent in a different namespace in the
-                            form <namespace>/<name>
+                        name:
+                          description: |-
+                            The name of the Agent resource to use as a tool.
+                            This should be a reference to an Agent resource in the same namespace.
+                          minLength: 1
                           type: string
                       type: object
                     builtin:
@@ -118,6 +117,10 @@ spec:
                     rule: '!(has(self.mcpServer) && self.type != ''McpServer'')'
                   - message: type.mcpServer must be specified for McpServer filter.type
                     rule: '!(!has(self.mcpServer) && self.type == ''McpServer'')'
+                  - message: type.agent must be nil if the type is not Agent
+                    rule: '!(has(self.agent) && self.type != ''Agent'')'
+                  - message: type.agent must be specified for Agent filter.type
+                    rule: '!(!has(self.agent) && self.type == ''Agent'')'
                 maxItems: 20
                 type: array
             type: object

@@ -150,6 +150,22 @@ describe('Tool Utility Functions', () => {
       expect(getToolDescription(mcpAdapterTool)).toBe("MCP Tool Description");
     });
 
+    it('should handle MCP stdio adapter tools', () => {
+      const mcpAdapterTool: Component<ToolConfig> = {
+        provider: "autogen_ext.tools.mcp.StdioMcpToolAdapter",
+        label: "Adapter Label",
+        description: "Adapter Description",
+        component_type: "tool",
+        config: {
+          tool: {
+            name: "MCP Tool Name",
+            description: "MCP Tool Description"
+          }
+        } as MCPToolConfig
+      };
+      expect(getToolDescription(mcpAdapterTool)).toBe("MCP Tool Description");
+    });
+
     it('should handle regular component tools', () => {
       const componentTool: Component<ToolConfig> = {
         provider: "test.provider",
@@ -198,6 +214,22 @@ describe('Tool Utility Functions', () => {
     it('should handle MCP adapter tools', () => {
       const mcpAdapterTool: Component<ToolConfig> = {
         provider: "autogen_ext.tools.mcp.SseMcpToolAdapter",
+        label: "Adapter Label",
+        description: "Adapter Description",
+        component_type: "tool",
+        config: {
+          tool: {
+            name: "MCP Tool Name",
+            description: "MCP Tool Description"
+          }
+        } as MCPToolConfig
+      };
+      expect(getToolIdentifier(mcpAdapterTool)).toBe("mcptool-Adapter Label-MCP Tool Name");
+    });
+
+    it('should handle MCP stdio adapter tools', () => {
+      const mcpAdapterTool: Component<ToolConfig> = {
+        provider: "autogen_ext.tools.mcp.StdioMcpToolAdapter",
         label: "Adapter Label",
         description: "Adapter Description",
         component_type: "tool",

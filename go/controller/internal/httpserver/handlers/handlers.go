@@ -11,6 +11,8 @@ import (
 type Handlers struct {
 	Health      *HealthHandler
 	ModelConfig *ModelConfigHandler
+	Model       *ModelHandler
+	Provider    *ProviderHandler
 	Runs        *RunsHandler
 	Sessions    *SessionsHandler
 	Teams       *TeamsHandler
@@ -37,6 +39,8 @@ func NewHandlers(kubeClient client.Client, autogenClient *autogen_client.Client,
 	return &Handlers{
 		Health:      NewHealthHandler(),
 		ModelConfig: NewModelConfigHandler(base),
+		Model:       NewModelHandler(base),
+		Provider:    NewProviderHandler(base),
 		Runs:        NewRunsHandler(base),
 		Sessions:    NewSessionsHandler(base),
 		Teams:       NewTeamsHandler(base),
