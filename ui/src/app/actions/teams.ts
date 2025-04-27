@@ -1,7 +1,7 @@
 "use server";
 
 import { BaseResponse } from "@/lib/types";
-import { Agent, AgentResponse, AgentTool, Component } from "@/types/datamodel";
+import { Agent, AgentResponse, Tool, Component } from "@/types/datamodel";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
@@ -10,17 +10,29 @@ import { isInlineTool, isMcpTool } from "@/lib/toolUtils";
 /**
  * Converts a tool to AgentTool format
  * @param tool The tool to convert
- * @returns An AgentTool object
+ * @param allAgents List of all available agents to look up descriptions
+ * @returns An AgentTool object, potentially augmented with description
  */
-function convertToAgentTool(tool: unknown): AgentTool {
-  // Check if the tool is already in AgentTool format
+function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
   if (tool && typeof tool === 'object' && 'type' in tool) {
-    const typedTool = tool as Partial<AgentTool>;
-    if (typedTool.type === "Inline" && typedTool.inline) {
-      return tool as AgentTool;
+    const typedTool = tool as Partial<Tool>;
+    if (typedTool.type === "Inline" && typedTool.inline || 
+        typedTool.type === "McpServer" && typedTool.mcpServer) {
+      return tool as Tool;
     }
-    if (typedTool.type === "McpServer" && typedTool.mcpServer) {
-      return tool as AgentTool;
+    if (typedTool.type === "Agent" && typedTool.agent && typeof typedTool.agent === 'object' && 'name' in typedTool.agent) {
+      const agentName = typedTool.agent.name;
+      const foundAgent = allAgents.find(a => a.agent.metadata.name === agentName);
+      const description = foundAgent?.agent.spec.description;
+      return {
+        ...typedTool,
+        type: "Agent",
+        agent: {
+          ...typedTool.agent,
+          name: agentName,
+          description: description
+        }
+      } as Tool;
     }
   }
 
@@ -36,7 +48,7 @@ function convertToAgentTool(tool: unknown): AgentTool {
         config: componentTool.config || {},
         label: componentTool.label,
       }
-    } as AgentTool;
+    } as Tool;
   }
 
   // Default case - shouldn't happen with proper type checking
@@ -48,18 +60,18 @@ function convertToAgentTool(tool: unknown): AgentTool {
       description: "Unknown tool",
       config: {},
     }
-  } as AgentTool;
+  } as Tool;
 }
 
 /**
- * Extracts tools from an AgentResponse
+ * Extracts tools from an AgentResponse, augmenting AgentTool references with descriptions.
  * @param data The AgentResponse to extract tools from
- * @returns An array of AgentTool objects
+ * @param allAgents List of all available agents to look up descriptions
+ * @returns An array of Tool objects
  */
-function extractToolsFromResponse(data: AgentResponse): AgentTool[] {
-  // First try to get tools from the agent property
+function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[]): Tool[] {
   if (data.agent?.spec?.tools) {
-    return data.agent.spec.tools.map(convertToAgentTool);
+    return data.agent.spec.tools.map(tool => convertToolRepresentation(tool, allAgents));
   }
   return [];
 }
@@ -106,7 +118,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
               config: tool.inline.config ? processConfigObject(tool.inline.config) : {},
               label: tool.inline.label,
             },
-          } as AgentTool;
+          } as Tool;
         }
         
         if (isMcpTool(tool) && tool.mcpServer) {
@@ -116,7 +128,16 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
               toolServer: tool.mcpServer.toolServer,
               toolNames: tool.mcpServer.toolNames,
             },
-          } as AgentTool;
+          } as Tool;
+        }
+
+        if (tool.agent) {
+          return {
+            type: "Agent",
+            agent: {
+              name: tool.agent.name,
+            },
+          } as Tool;
         }
         
         // Default case - shouldn't happen with proper type checking
@@ -134,15 +155,21 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
  */
 export async function getTeam(teamLabel: string | number): Promise<BaseResponse<AgentResponse>> {
   try {
-    const data = await fetchApi<AgentResponse>(`/teams/${teamLabel}`);
-    const tools = extractToolsFromResponse(data);
+    const teamData = await fetchApi<AgentResponse>(`/teams/${teamLabel}`);
+
+    // Fetch all teams to get descriptions for agent tools
+    // We use fetchApi directly to avoid circular dependency/logic issues with calling getTeams() here
+    const allTeamsData = await fetchApi<AgentResponse[]>(`/teams`);
+    
+    // Extract and augment tools using the list of all teams
+    const tools = extractToolsFromResponse(teamData, allTeamsData);
 
     const response: AgentResponse = {
-      ...data,
+      ...teamData,
       agent: {
-        ...data.agent,
+        ...teamData.agent,
         spec: {
-          ...data.agent.spec,
+          ...teamData.agent.spec,
           tools,
         },
       },
@@ -211,11 +238,39 @@ export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
   try {
     const data = await fetchApi<AgentResponse[]>(`/teams`);
     
-    // Convert each team's tools to AgentTool format
-    const convertedData: AgentResponse[] = data.map(team => ({
-      ...team,
-      tools: extractToolsFromResponse(team),
-    }));
+    const validTeams = data.filter(team => !!team.agent);
+    const agentMap = new Map(validTeams.map(agentResp => [agentResp.agent.metadata.name, agentResp]));
+
+    const convertedData: AgentResponse[] = validTeams.map(team => {
+      const augmentedTools = team.agent.spec.tools?.map(tool => {
+        // Check if it's an Agent tool reference needing description
+        if (tool && typeof tool === 'object' && 'type' in tool && tool.type === 'Agent' && tool.agent && typeof tool.agent === 'object' && 'name' in tool.agent) {
+          const agentName = tool.agent.name;
+          const foundAgent = agentMap.get(agentName);
+          return {
+            ...tool,
+            type: "Agent",
+            agent: {
+              ...tool.agent,
+              name: agentName,
+              description: foundAgent?.agent.spec.description
+            }
+          } as Tool;
+        }
+        return tool as Tool;
+      }) || [];
+
+      return {
+        ...team,
+        agent: { 
+          ...team.agent,
+          spec: { 
+            ...team.agent.spec,
+            tools: augmentedTools
+          }
+        },
+      };
+    });
 
     const sortedData = convertedData.sort((a, b) => 
       a.agent.metadata.name.localeCompare(b.agent.metadata.name)

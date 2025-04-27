@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getTeams, createAgent } from "@/app/actions/teams";
-import { Component, ToolConfig, Agent, AgentTool, AgentResponse } from "@/types/datamodel";
+import { Component, ToolConfig, Agent, Tool, AgentResponse } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
 import type { BaseResponse, ModelConfig } from "@/lib/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
@@ -22,7 +22,7 @@ export interface AgentFormData {
   description: string;
   systemPrompt: string;
   model: Partial<ModelConfig>;
-  tools: AgentTool[];
+  tools: Tool[];
 }
 
 interface AgentsContextType {
