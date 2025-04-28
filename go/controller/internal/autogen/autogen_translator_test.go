@@ -79,10 +79,10 @@ var _ = Describe("AutogenClient", func() {
 				Namespace: namespace,
 			},
 			Spec: v1alpha1.ModelConfigSpec{
-				Model:            "gpt-4o",
-				Provider:         v1alpha1.OpenAI,
-				APIKeySecretName: apikeySecret.Name,
-				APIKeySecretKey:  apikeySecretKey,
+				Model:           "gpt-4o",
+				Provider:        v1alpha1.OpenAI,
+				APIKeySecretRef: apikeySecret.Name,
+				APIKeySecretKey: apikeySecretKey,
 				OpenAI: &v1alpha1.OpenAIConfig{
 					Temperature: "0.7",
 					MaxTokens:   1024,
@@ -97,10 +97,10 @@ var _ = Describe("AutogenClient", func() {
 				Namespace: namespace,
 			},
 			Spec: v1alpha1.AgentSpec{
-				Description:    "a test participant",
-				SystemMessage:  "You are a test participant",
-				ModelConfigRef: modelConfig.Name,
-				Tools:          nil,
+				Description:   "a test participant",
+				SystemMessage: "You are a test participant",
+				ModelConfig:   modelConfig.Name,
+				Tools:         nil,
 			},
 		}
 
@@ -110,10 +110,10 @@ var _ = Describe("AutogenClient", func() {
 				Namespace: namespace,
 			},
 			Spec: v1alpha1.AgentSpec{
-				Description:    "a test participant",
-				SystemMessage:  "You are a test participant",
-				ModelConfigRef: modelConfig.Name,
-				Tools:          nil,
+				Description:   "a test participant",
+				SystemMessage: "You are a test participant",
+				ModelConfig:   modelConfig.Name,
+				Tools:         nil,
 			},
 		}
 

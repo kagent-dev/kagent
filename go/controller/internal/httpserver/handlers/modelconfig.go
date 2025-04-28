@@ -19,13 +19,13 @@ import (
 
 // ModelConfigResponse defines the structure for the model config API response.
 type ModelConfigResponse struct {
-	Name             string                 `json:"name"`
-	Namespace        string                 `json:"namespace"`
-	ProviderName     string                 `json:"providerName"`
-	Model            string                 `json:"model"`
-	APIKeySecretName string                 `json:"apiKeySecretName"`
-	APIKeySecretKey  string                 `json:"apiKeySecretKey"`
-	ModelParams      map[string]interface{} `json:"modelParams"`
+	Name            string                 `json:"name"`
+	Namespace       string                 `json:"namespace"`
+	ProviderName    string                 `json:"providerName"`
+	Model           string                 `json:"model"`
+	APIKeySecretRef string                 `json:"apiKeySecretRef"`
+	APIKeySecretKey string                 `json:"apiKeySecretKey"`
+	ModelParams     map[string]interface{} `json:"modelParams"`
 }
 
 // ModelConfigHandler handles model configuration requests
@@ -105,13 +105,13 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		}
 
 		responseItem := ModelConfigResponse{
-			Name:             config.Name,
-			Namespace:        config.Namespace,
-			ProviderName:     string(config.Spec.Provider),
-			Model:            config.Spec.Model,
-			APIKeySecretName: config.Spec.APIKeySecretName,
-			APIKeySecretKey:  config.Spec.APIKeySecretKey,
-			ModelParams:      modelParams,
+			Name:            config.Name,
+			Namespace:       config.Namespace,
+			ProviderName:    string(config.Spec.Provider),
+			Model:           config.Spec.Model,
+			APIKeySecretRef: config.Spec.APIKeySecretRef,
+			APIKeySecretKey: config.Spec.APIKeySecretKey,
+			ModelParams:     modelParams,
 		}
 		configs = append(configs, responseItem)
 	}
@@ -163,13 +163,13 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	}
 
 	responseItem := ModelConfigResponse{
-		Name:             modelConfig.Name,
-		Namespace:        modelConfig.Namespace,
-		ProviderName:     string(modelConfig.Spec.Provider),
-		Model:            modelConfig.Spec.Model,
-		APIKeySecretName: modelConfig.Spec.APIKeySecretName,
-		APIKeySecretKey:  modelConfig.Spec.APIKeySecretKey,
-		ModelParams:      modelParams,
+		Name:            modelConfig.Name,
+		Namespace:       modelConfig.Namespace,
+		ProviderName:    string(modelConfig.Spec.Provider),
+		Model:           modelConfig.Spec.Model,
+		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
+		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
+		ModelParams:     modelParams,
 	}
 
 	log.Info("Successfully retrieved and formatted model config")
@@ -284,7 +284,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 			return
 		}
 		log.V(1).Info("Successfully created API key secret")
-		modelConfigSpec.APIKeySecretName = secretName
+		modelConfigSpec.APIKeySecretRef = secretName
 		modelConfigSpec.APIKeySecretKey = secretKey
 	}
 
@@ -461,7 +461,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 			}
 		}
 		log.V(1).Info("Successfully updated API key secret")
-		modelConfig.Spec.APIKeySecretName = secretName
+		modelConfig.Spec.APIKeySecretRef = secretName
 		modelConfig.Spec.APIKeySecretKey = secretKey
 	}
 
@@ -531,13 +531,13 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	responseItem := ModelConfigResponse{
-		Name:             modelConfig.Name,
-		Namespace:        modelConfig.Namespace,
-		ProviderName:     string(modelConfig.Spec.Provider),
-		Model:            modelConfig.Spec.Model,
-		APIKeySecretName: modelConfig.Spec.APIKeySecretName,
-		APIKeySecretKey:  modelConfig.Spec.APIKeySecretKey,
-		ModelParams:      updatedParams,
+		Name:            modelConfig.Name,
+		Namespace:       modelConfig.Namespace,
+		ProviderName:    string(modelConfig.Spec.Provider),
+		Model:           modelConfig.Spec.Model,
+		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
+		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
+		ModelParams:     updatedParams,
 	}
 	RespondWithJSON(w, http.StatusOK, responseItem)
 }

@@ -453,7 +453,7 @@ func (a *autogenReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.R
 	var agents []*v1alpha1.Agent
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
-		if agent.Spec.ModelConfigRef == req.Name {
+		if getRefFromString(agent.Spec.ModelConfig, agent.Namespace) == req.NamespacedName {
 			agents = append(agents, agent)
 		}
 	}
@@ -473,7 +473,7 @@ func (a *autogenReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req
 
 	var models []string
 	for _, model := range modelsList.Items {
-		if model.Spec.APIKeySecretName == req.Name {
+		if getRefFromString(model.Spec.APIKeySecretRef, model.Namespace) == req.NamespacedName {
 			models = append(models, model.Name)
 		}
 	}
@@ -518,7 +518,7 @@ func (a *autogenReconciler) findTeamsUsingAgent(ctx context.Context, req ctrl.Re
 	for i := range teamsList.Items {
 		team := &teamsList.Items[i]
 		for _, participant := range team.Spec.Participants {
-			if participant == req.Name {
+			if getRefFromString(participant, team.Namespace) == req.NamespacedName {
 				teams = append(teams, team)
 				break
 			}
@@ -541,7 +541,7 @@ func (a *autogenReconciler) findTeamsUsingModel(ctx context.Context, req ctrl.Re
 	var teams []*v1alpha1.Team
 	for i := range teamsList.Items {
 		team := &teamsList.Items[i]
-		if team.Spec.ModelConfig == req.Name {
+		if getRefFromString(team.Spec.ModelConfig, team.Namespace) == req.NamespacedName {
 			teams = append(teams, team)
 		}
 	}
@@ -561,7 +561,7 @@ func (a *autogenReconciler) findTeamsUsingApiKeySecret(ctx context.Context, req 
 
 	var models []string
 	for _, model := range modelsList.Items {
-		if model.Spec.APIKeySecretName == req.Name {
+		if getRefFromString(model.Spec.APIKeySecretRef, model.Namespace) == req.NamespacedName {
 			models = append(models, model.Name)
 		}
 	}
@@ -605,7 +605,7 @@ func (a *autogenReconciler) findAgentsUsingToolServer(ctx context.Context, req c
 	var agents []*v1alpha1.Agent
 	appendAgentIfUsesToolServer := func(agent *v1alpha1.Agent) {
 		for _, tool := range agent.Spec.Tools {
-			if tool.Inline != nil && tool.Inline.Provider == req.Name {
+			if tool.McpServer != nil && getRefFromString(tool.McpServer.ToolServer, agent.Namespace) == req.NamespacedName {
 				agents = append(agents, agent)
 				return
 			}

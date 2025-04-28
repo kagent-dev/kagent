@@ -67,7 +67,7 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
                   if (!foundToolDefinition) {
                     foundToolDefinition = await getToolByProvider(allToolDefinitions, STDIO_MCP_TOOL_PROVIDER_NAME, toolName);
                   }
-                } else if (tool.type === "Inline") {
+                } else if (tool.type === "Builtin") {
                   foundToolDefinition = await getToolByProvider(allToolDefinitions, toolProvider);
                 }
 

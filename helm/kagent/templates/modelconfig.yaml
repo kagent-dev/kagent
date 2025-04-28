@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  apiKeySecretName: {{ .Values.openai.secretName }}
+  apiKeySecretRef: {{ .Values.openai.secretName }}
   apiKeySecretKey: {{ .Values.openai.secretKey }}
   model: gpt-4o
   provider: OpenAI

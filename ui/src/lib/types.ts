@@ -13,7 +13,7 @@ export interface ModelConfig {
   namespace: string;
   providerName: string;
   model: string;
-  apiKeySecretName: string;
+  apiKeySecretRef: string;
   apiKeySecretKey: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   modelParams?: Record<string, any>; // Optional model-specific parameters

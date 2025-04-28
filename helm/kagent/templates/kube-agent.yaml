@@ -117,65 +117,65 @@ spec:
     4. Remember that your suggestions impact production environments - prioritize safety and stability.
 
     Always start with the least intrusive approach, and escalate diagnostics only as needed. When in doubt, gather more information before recommending changes.
-  modelConfigRef: {{ .Values.contrib.agents.k8s.modelConfigRef }}
+  modelConfig: {{ .Values.contrib.agents.k8s.modelConfigRef }}
   tools:
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.CheckServiceConnectivity
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.PatchResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.RemoveAnnotation
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.AnnotateResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.RemoveLabel
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.LabelResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.CreateResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.CreateResourceFromUrl
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetEvents
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetAvailableAPIResources
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetClusterConfiguration
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.DescribeResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.DeleteResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetResourceYAML
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.ExecuteCommand
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.ApplyManifest
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetResources
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetPodLogs
-    - type: Inline
-      inline:
-        provider: kagent.tools.docs.QueryTool
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.CheckServiceConnectivity
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.PatchResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.RemoveAnnotation
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.AnnotateResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.RemoveLabel
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.LabelResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.CreateResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.CreateResourceFromUrl
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetEvents
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetAvailableAPIResources
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetClusterConfiguration
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.DescribeResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.DeleteResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetResourceYAML
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.ExecuteCommand
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.ApplyManifest
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetResources
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetPodLogs
+    - type: Builtin
+      builtin:
+        name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
 {{- end }}

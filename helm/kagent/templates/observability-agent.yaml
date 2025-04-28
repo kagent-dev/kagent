@@ -75,27 +75,27 @@ spec:
     - ALWAYS format your response as Markdown
     - Your response will include a summary of actions you took and an explanation of the result
     - If you created any artifacts such as files or resources, you will include those in your response as well
-  modelConfigRef: {{ .Values.contrib.agents.observability.modelConfigRef }}
+  modelConfig: {{ .Values.contrib.agents.observability.modelConfigRef }}
   tools:
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetResources
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetAvailableAPIResources
-    - type: Inline
-      inline:
-        provider: kagent.tools.prometheus.QueryTool
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetResources
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetAvailableAPIResources
+    - type: Builtin
+      builtin:
+        name: kagent.tools.prometheus.QueryTool
         config:
           base_url: {{ .Values.contrib.agents.observability.prometheus.url | default "prometheus.kagent:9090" | quote }}
           username: {{ .Values.contrib.agents.observability.prometheus.username | default "" | quote }}
           password: {{ .Values.contrib.agents.observability.prometheus.password | default "" | quote }}
     - type: Agent
       agent:
-        name: promql-agent
-    - type: Inline
-      inline:
-        provider: kagent.tools.grafana.DashboardManagementTool
+        ref: promql-agent
+    - type: Builtin
+      builtin:
+        name: kagent.tools.grafana.DashboardManagementTool
         config:
           base_url: {{ .Values.contrib.agents.observability.grafana.url | default "grafana.kagent:3000" | quote }}
           username: {{ .Values.contrib.agents.observability.grafana.username | default "" | quote }}

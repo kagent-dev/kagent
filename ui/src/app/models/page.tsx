@@ -158,7 +158,7 @@ export default function ModelsPage() {
                                             </div>
                                             <div>
                                                 <p className="text-sm font-medium text-muted-foreground">API Key Secret</p>
-                                                <p>{model.apiKeySecretName}</p>
+                                                <p>{model.apiKeySecretRef}</p>
                                             </div>
                                             {model.modelParams && (
                                                 <div className="col-span-2">
