@@ -5,7 +5,7 @@ import { Agent, AgentResponse, Tool, Component } from "@/types/datamodel";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { isInlineTool, isMcpTool } from "@/lib/toolUtils";
+import { isBuiltinTool, isMcpTool, isAgentTool } from "@/lib/toolUtils";
 
 /**
  * Converts a tool to AgentTool format
@@ -14,26 +14,24 @@ import { isInlineTool, isMcpTool } from "@/lib/toolUtils";
  * @returns An AgentTool object, potentially augmented with description
  */
 function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
-  if (tool && typeof tool === 'object' && 'type' in tool) {
-    const typedTool = tool as Partial<Tool>;
-    if (typedTool.type === "Inline" && typedTool.inline || 
-        typedTool.type === "McpServer" && typedTool.mcpServer) {
-      return tool as Tool;
-    }
-    if (typedTool.type === "Agent" && typedTool.agent && typeof typedTool.agent === 'object' && 'name' in typedTool.agent) {
-      const agentName = typedTool.agent.name;
-      const foundAgent = allAgents.find(a => a.agent.metadata.name === agentName);
-      const description = foundAgent?.agent.spec.description;
-      return {
-        ...typedTool,
-        type: "Agent",
-        agent: {
-          ...typedTool.agent,
-          name: agentName,
-          description: description
-        }
-      } as Tool;
-    }
+  const typedTool = tool as Partial<Tool>;
+  if (isBuiltinTool(typedTool)) {
+    return tool as Tool;
+  } else if (isMcpTool(typedTool)) {
+    return tool as Tool;
+  } else if (isAgentTool(typedTool)) {
+    const agentName = typedTool.agent.ref;
+    const foundAgent = allAgents.find(a => a.agent.metadata.name === agentName);
+    const description = foundAgent?.agent.spec.description;
+    return {
+      ...typedTool,
+      type: "Agent",
+      agent: {
+        ...typedTool.agent,
+        ref: agentName,
+        description: description
+      }
+    } as Tool;
   }
 
   // Check if it's a Component<ToolConfig>
@@ -41,9 +39,9 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const componentTool = tool as Component<any>;
     return {
-      type: "Inline",
-      inline: {
-        provider: componentTool.provider,
+      type: "Builtin",
+      builtin: {
+        name: componentTool.provider,
         description: componentTool.description || "",
         config: componentTool.config || {},
         label: componentTool.label,
@@ -54,9 +52,9 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
   // Default case - shouldn't happen with proper type checking
   console.warn("Unknown tool format:", tool);
   return {
-    type: "Inline",
-    inline: {
-      provider: "unknown",
+    type: "Builtin",
+    builtin: {
+      name: "unknown",
       description: "Unknown tool",
       config: {},
     }
@@ -107,16 +105,16 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     spec: {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
-      modelConfigRef: agentFormData.model.name || "",
+      modelConfig: agentFormData.model.name || "",
       tools: agentFormData.tools.map((tool) => {
         // Convert to the proper Tool structure based on the tool type
-        if (isInlineTool(tool) && tool.inline) {
+        if (isBuiltinTool(tool) && tool.builtin) {
           return {
-            type: "Inline",
-            inline: {
-              provider: tool.inline.provider,
-              config: tool.inline.config ? processConfigObject(tool.inline.config) : {},
-              label: tool.inline.label,
+            type: "Builtin",
+            builtin: {
+              name: tool.builtin.name,
+              config: tool.builtin.config ? processConfigObject(tool.builtin.config) : {},
+              label: tool.builtin.label,
             },
           } as Tool;
         }
@@ -135,7 +133,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           return {
             type: "Agent",
             agent: {
-              name: tool.agent.name,
+              ref: tool.agent.ref
             },
           } as Tool;
         }
@@ -244,15 +242,15 @@ export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
     const convertedData: AgentResponse[] = validTeams.map(team => {
       const augmentedTools = team.agent.spec.tools?.map(tool => {
         // Check if it's an Agent tool reference needing description
-        if (tool && typeof tool === 'object' && 'type' in tool && tool.type === 'Agent' && tool.agent && typeof tool.agent === 'object' && 'name' in tool.agent) {
-          const agentName = tool.agent.name;
+        if (isAgentTool(tool)) {
+          const agentName = tool.agent.ref;
           const foundAgent = agentMap.get(agentName);
           return {
             ...tool,
             type: "Agent",
             agent: {
               ...tool.agent,
-              name: agentName,
+              ref: agentName,
               description: foundAgent?.agent.spec.description
             }
           } as Tool;

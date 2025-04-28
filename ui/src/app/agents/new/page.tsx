@@ -83,7 +83,7 @@ function AgentPageContent() {
               setSelectedTools(agent.spec.tools || []);
               setSelectedModel({
                 model: agentResponse.model,
-                name: agent.spec.modelConfigRef,
+                name: agent.spec.modelConfig,
               });
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);

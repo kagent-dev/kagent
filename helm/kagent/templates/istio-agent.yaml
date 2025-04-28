@@ -320,68 +320,68 @@ spec:
     - Multi-cluster connectivity issues
 
       Your primary goal is to provide expert assistance with Kubernetes and Istio environments by leveraging your specialized tools while following best practices for safety, reliability, and performance. Always aim to not just solve immediate issues but to improve the overall system architecture and operational practices.
-  modelConfigRef: {{ .Values.contrib.agents.istio.modelConfigRef }}
+  modelConfig: {{ .Values.contrib.agents.istio.modelConfigRef }}
   tools:
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.CreateResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.CreateResourceFromUrl
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.DeleteResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.DescribeResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetResources
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.PatchResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GenerateResourceTool
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.ZTunnelConfig
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.WaypointStatus
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.ListWaypoints
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.GenerateWaypoint
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.DeleteWaypoint
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.ApplyWaypoint
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.RemoteClusters
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.ProxyStatus
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.GenerateManifest
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.InstallIstio
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.AnalyzeClusterConfig
-    - type: Inline
-      inline:
-        provider: kagent.tools.istio.ProxyConfig
-    - type: Inline
-      inline:
-        provider: kagent.tools.docs.QueryTool
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.CreateResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.CreateResourceFromUrl
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.DeleteResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.DescribeResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetResources
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.PatchResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GenerateResourceTool
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.ZTunnelConfig
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.WaypointStatus
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.ListWaypoints
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.GenerateWaypoint
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.DeleteWaypoint
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.ApplyWaypoint
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.RemoteClusters
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.ProxyStatus
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.GenerateManifest
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.InstallIstio
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.AnalyzeClusterConfig
+    - type: Builtin
+      builtin:
+        name: kagent.tools.istio.ProxyConfig
+    - type: Builtin
+      builtin:
+        name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
 {{- end }}

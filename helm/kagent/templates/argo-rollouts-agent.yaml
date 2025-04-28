@@ -237,28 +237,28 @@ spec:
     should run next to the Deployment before deleting the Deployment or scaling down the Deployment. Not following this
     approach might result in downtime. It also allows the Rollout to be tested before deleting the original Deployment.
     Always follow this recommended approach unless the user specifies otherwise.
-  modelConfigRef: {{ .Values.contrib.agents.argoRolloutsConversion.modelConfigRef }}
+  modelConfig: {{ .Values.contrib.agents.argoRolloutsConversion.modelConfigRef }}
   tools:
-    - type: Inline
-      inline:
-        provider: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetResources
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.GetResourceYAML
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.CreateResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.DeleteResource
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.ApplyManifest
-    - type: Inline
-      inline:
-        provider: kagent.tools.k8s.DescribeResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetResources
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetResourceYAML
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.CreateResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.DeleteResource
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.ApplyManifest
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.DescribeResource
     
 {{- end }}

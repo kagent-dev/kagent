@@ -50,7 +50,6 @@ const getTaskTitle = (task: AgentMessageConfig): string => {
 }
 
 const RunItem = ({ sessionId, run, agentId, onDelete }: RunItemProps) => {
-  console.log("run", run);
   return (
     <>
       <SidebarMenu>

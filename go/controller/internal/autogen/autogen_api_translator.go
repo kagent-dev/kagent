@@ -196,9 +196,9 @@ func (a *apiTranslator) translateGroupChatForAgent(
 ) (*autogen_client.Team, error) {
 	modelConfig := a.defaultModelConfig
 	// Use the provided model config if set, otherwise use the default one
-	if agent.Spec.ModelConfigRef != "" {
+	if agent.Spec.ModelConfig != "" {
 		modelConfig = types.NamespacedName{
-			Name:      agent.Spec.ModelConfigRef,
+			Name:      agent.Spec.ModelConfig,
 			Namespace: agent.Namespace,
 		}
 	}
@@ -451,7 +451,7 @@ func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
 		Spec: v1alpha1.TeamSpec{
 			Participants:         []string{agent.Name},
 			Description:          agent.Spec.Description,
-			ModelConfig:          agent.Spec.ModelConfigRef,
+			ModelConfig:          agent.Spec.ModelConfig,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
 				TextMessageTermination: &v1alpha1.TextMessageTermination{
@@ -476,10 +476,10 @@ func (a *apiTranslator) translateAssistantAgent(
 	tools := []*api.Component{}
 	for _, tool := range agent.Spec.Tools {
 		switch {
-		case tool.Inline != nil:
+		case tool.Builtin != nil:
 			autogenTool, err := translateBuiltinTool(
 				modelClientWithoutStreaming,
-				tool.Inline,
+				tool.Builtin,
 			)
 			if err != nil {
 				return nil, err
@@ -500,24 +500,28 @@ func (a *apiTranslator) translateAssistantAgent(
 				tools = append(tools, autogenTool)
 			}
 		case tool.Agent != nil:
-			if tool.Agent.Name == agent.Name {
+			if tool.Agent.Ref == agent.Name {
 				return nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agent.Name)
 			}
 
-			if state.isVisited(tool.Agent.Name) {
-				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agent.Name, tool.Agent.Name)
+			if state.isVisited(tool.Agent.Ref) {
+				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agent.Name, tool.Agent.Ref)
 			}
 
 			if state.depth > MAX_DEPTH {
-				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agent.Name, tool.Agent.Name)
+				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agent.Name, tool.Agent.Ref)
 			}
 
 			// Translate a nested tool
 			toolAgent := v1alpha1.Agent{}
-			err := a.kube.Get(ctx, types.NamespacedName{
-				Name:      tool.Agent.Name,
-				Namespace: agent.Namespace,
-			}, &toolAgent)
+
+			err := fetchObjKube(
+				ctx,
+				a.kube,
+				&toolAgent,
+				tool.Agent.Ref,
+				agent.Namespace,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -583,7 +587,7 @@ func (a *apiTranslator) translateAssistantAgent(
 
 func translateBuiltinTool(
 	modelClient *api.Component,
-	tool *v1alpha1.InlineTool,
+	tool *v1alpha1.BuiltinTool,
 ) (*api.Component, error) {
 
 	toolConfig, err := convertMapFromAnytype(tool.Config)
@@ -591,18 +595,17 @@ func translateBuiltinTool(
 		return nil, err
 	}
 	// special case where we put the model client in the tool config
-	if toolNeedsModelClient(tool.Provider) {
+	if toolNeedsModelClient(tool.Name) {
 		if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
 			return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
 		}
 	}
 
-	providerParts := strings.Split(tool.Provider, ".")
+	providerParts := strings.Split(tool.Name, ".")
 	toolLabel := providerParts[len(providerParts)-1]
 
 	return &api.Component{
-		Provider:      tool.Provider,
-		Description:   tool.Description,
+		Provider:      tool.Name,
 		ComponentType: "tool",
 		Version:       1,
 		Config:        toolConfig,
@@ -769,10 +772,8 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 }
 
 func fetchObjKube(ctx context.Context, kube client.Client, obj client.Object, objName, objNamespace string) error {
-	err := kube.Get(ctx, types.NamespacedName{
-		Name:      objName,
-		Namespace: objNamespace,
-	}, obj)
+	ref := getRefFromString(objName, objNamespace)
+	err := kube.Get(ctx, ref, obj)
 	if err != nil {
 		return err
 	}
@@ -1021,7 +1022,7 @@ func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v
 		ctx,
 		a.kube,
 		modelApiKeySecret,
-		modelConfig.Spec.APIKeySecretName,
+		modelConfig.Spec.APIKeySecretRef,
 		modelConfig.Namespace,
 	)
 	if err != nil {
@@ -1038,4 +1039,24 @@ func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v
 	}
 
 	return modelApiKey, nil
+}
+
+func getRefFromString(ref string, parentNamespace string) types.NamespacedName {
+	parts := strings.Split(ref, "/")
+	var (
+		namespace string
+		name      string
+	)
+	if len(parts) == 2 {
+		namespace = parts[0]
+		name = parts[1]
+	} else {
+		namespace = parentNamespace
+		name = ref
+	}
+
+	return types.NamespacedName{
+		Namespace: namespace,
+		Name:      name,
+	}
 }
