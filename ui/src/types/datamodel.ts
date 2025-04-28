@@ -366,13 +366,12 @@ export interface Tool {
 }
 
 export interface AgentTool {
-  name: string;
+  ref: string;
   description?: string;
 }
 
 export interface BuiltinTool {
   name: string;
-  provider: string;
   description?: string;
   config?: any;
   label?: string;

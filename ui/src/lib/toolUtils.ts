@@ -4,7 +4,7 @@ export const isAgentTool = (tool: unknown): tool is { type: "Agent"; agent: Agen
   if (!tool || typeof tool !== "object") return false;
 
   const possibleTool = tool as Partial<Tool>;
-  return possibleTool.type === "Agent" && !!possibleTool.agent && typeof possibleTool.agent === "object" && typeof possibleTool.agent.name === "string";
+  return possibleTool.type === "Agent" && !!possibleTool.agent && typeof possibleTool.agent === "object" && typeof possibleTool.agent.ref === "string";
 };
 
 export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer: McpServerTool } => {
@@ -51,7 +51,7 @@ export const getToolDisplayName = (tool?: Tool | Component<ToolConfig>): string 
     const providerName = providerParts[providerParts.length - 1];
     return tool.builtin.label || providerName || "Builtin Tool";
   } else if (isAgentTool(tool) && tool.agent) {
-    return tool.agent.name;
+    return tool.agent.ref;
   } else {
     console.warn("Unknown tool type:", tool);
     return "Unknown Tool";
@@ -61,17 +61,28 @@ export const getToolDisplayName = (tool?: Tool | Component<ToolConfig>): string 
 export const getToolDescription = (tool?: Tool | Component<ToolConfig>): string => {
   if (!tool) return "No description";
 
-  // Check if the tool is of Component<ToolConfig> type
-  if (typeof tool === "object" && "provider" in tool && "description" in tool) {
-    if (isMcpProvider(tool.provider)) {
-      return (tool.config as MCPToolConfig).tool.description || "No description";
+  if (typeof tool === "object" && "provider" in tool) {
+    const component = tool as Component<ToolConfig>; 
+    if (isMcpProvider(component.provider)) {
+      const desc = (component.config as MCPToolConfig)?.tool?.description;
+      return typeof desc === 'string' && desc ? desc : "No description";
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const configDesc = (component.config as any)?.description;
+      if (typeof configDesc === 'string' && configDesc) {
+        return configDesc;
+      }
+      // Fallback if config.description is missing
+      if (typeof component.description === 'string' && component.description) {
+          // Use top-level description as fallback for Components
+          return component.description;
+      }
+      return "No description";
     }
-    return tool.description || "No description";
   }
 
-  // Handle AgentTool types
   if (isBuiltinTool(tool) && tool.builtin) {
-    return tool.builtin.description || "No description";
+    return tool.builtin.description || "No description"; 
   } else if (isMcpTool(tool)) {
     return "MCP Server Tool";
   } else if (isAgentTool(tool) && tool.agent) {
@@ -110,7 +121,7 @@ export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string =
     // For Builtin agent tools
     return `component-${tool.builtin.name}`;
   } else if (isAgentTool(tool) && tool.agent) {
-    return `agent-${tool.agent.name}`;
+    return `agent-${tool.agent.ref}`;
   } else {
     console.warn("Unknown tool type:", tool);
     return `unknown-${JSON.stringify(tool).slice(0, 20)}`;
@@ -131,7 +142,7 @@ export const getToolProvider = (tool?: Tool | Component<ToolConfig>): string => 
   } else if (isMcpTool(tool) && tool.mcpServer) {
     return tool.mcpServer.toolServer;
   } else if (isAgentTool(tool) && tool.agent) {
-    return tool.agent.name;
+    return tool.agent.ref;
   } else {
     console.warn("Unknown tool type:", tool);
     return "unknown";
@@ -154,12 +165,19 @@ export const componentToAgentTool = (component: Component<ToolConfig>): Tool => 
       }
     };
   } else {
+    // Built-in component
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const configDesc = (component.config as any)?.description;
+    const descriptionToStore = (typeof configDesc === 'string' && configDesc)
+        ? configDesc 
+        : (typeof component.description === 'string' && component.description ? component.description : undefined);
+
     return {
       type: "Builtin",
       builtin: {
         name: component.provider,
         label: component.label || undefined,
-        description: component.description || undefined,
+        description: descriptionToStore,
         config: component.config || undefined
       }
     };

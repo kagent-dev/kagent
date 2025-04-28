@@ -191,7 +191,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         toolToAdd = {
           type: "Agent",
           agent: {
-            name: agentResp.agent.metadata.name,
+            ref: agentResp.agent.metadata.name,
             description: agentResp.agent.spec.description
           }
         };
