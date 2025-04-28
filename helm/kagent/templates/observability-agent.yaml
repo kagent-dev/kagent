@@ -92,7 +92,7 @@ spec:
           password: {{ .Values.contrib.agents.observability.prometheus.password | default "" | quote }}
     - type: Agent
       agent:
-        name: promql-agent
+        ref: promql-agent
     - type: Builtin
       builtin:
         name: kagent.tools.grafana.DashboardManagementTool
