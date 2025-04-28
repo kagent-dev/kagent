@@ -23,6 +23,7 @@ controller:
     limits:
       cpu: 500m
       memory: 512Mi
+  env: {} # Additional environment variables for the controller can be added here
 
 app:
   image:
@@ -37,6 +38,7 @@ app:
     limits:
       cpu: 1000m
       memory: 1Gi
+  env: {} # Additional environment variables for the app can be added here
 
 ui:
   image:
@@ -51,6 +53,7 @@ ui:
     limits:
       cpu: 1000m
       memory: 1Gi
+  env: {} # Additional environment variables for the ui can be added here
   
 
 service:
