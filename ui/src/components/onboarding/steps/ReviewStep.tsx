@@ -6,7 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, FunctionSquare } from 'lucide-react';
-import { AgentTool } from "@/types/datamodel";
+import { Tool } from "@/types/datamodel";
 import { getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
 import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
 
@@ -16,7 +16,7 @@ interface OnboardingDataForReview {
     agentInstructions?: string;
     modelConfigName?: string;
     modelName?: string;
-    selectedTools?: AgentTool[];
+    selectedTools?: Tool[];
 }
 
 interface ReviewStepProps {

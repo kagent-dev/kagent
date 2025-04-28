@@ -4,35 +4,51 @@ import { Dialog, DialogContent, DialogTitle, DialogHeader, DialogFooter, DialogD
 import { Input } from "@/components/ui/input";
 import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState } from "react";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isInlineTool, isMcpTool, isSameTool } from "@/lib/toolUtils";
+import { useState, useEffect } from "react";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isAgentTool, isInlineTool, isMcpTool, isSameTool } from "@/lib/toolUtils";
 import { Label } from "@/components/ui/label";
 import { SelectToolsDialog } from "./SelectToolsDialog";
-import { AgentTool, Component, ToolConfig } from "@/types/datamodel";
-import { componentToAgentTool, findComponentForAgentTool } from "@/lib/toolUtils";
+import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
+import { getTeams } from "@/app/actions/teams";
 import { Textarea } from "@/components/ui/textarea";
+import KagentLogo from "../kagent-logo";
 
 interface ToolsSectionProps {
   allTools: Component<ToolConfig>[];
-  selectedTools: AgentTool[];
-  setSelectedTools: (tools: AgentTool[]) => void;
+  selectedTools: Tool[];
+  setSelectedTools: (tools: Tool[]) => void;
   isSubmitting: boolean;
   onBlur?: () => void;
+  currentAgentName?: string;
 }
 
-export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubmitting, onBlur }: ToolsSectionProps) => {
+export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
   const [showToolSelector, setShowToolSelector] = useState(false);
-  const [configTool, setConfigTool] = useState<AgentTool | null>(null);
+  const [configTool, setConfigTool] = useState<Tool | null>(null);
   const [showConfig, setShowConfig] = useState(false);
+  const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(true);
 
-  const selectedToolComponents = selectedTools.map(agentTool => {
-    const component = findComponentForAgentTool(agentTool, allTools);
-    return component;
-  }).filter(Boolean) as Component<ToolConfig>[];
+  useEffect(() => {
+    const fetchAgents = async () => {
+      setLoadingAgents(true);
+      const response = await getTeams();
+      if (response.success && response.data) {
+        const filteredAgents = currentAgentName
+          ? response.data.filter((agentResp: AgentResponse) => agentResp.agent.metadata.name !== currentAgentName)
+          : response.data;
+        setAvailableAgents(filteredAgents);
+      } else {
+        console.error("Failed to fetch agents:", response.error);
+      }
+      setLoadingAgents(false);
+    };
 
-  const openConfigDialog = (agentTool: AgentTool) => {
-    // Create a deep copy of the tool to avoid reference issues
-    const toolCopy = JSON.parse(JSON.stringify(agentTool)) as AgentTool;
+    fetchAgents();
+  }, [currentAgentName]);
+
+  const openConfigDialog = (agentTool: Tool) => {
+    const toolCopy = JSON.parse(JSON.stringify(agentTool)) as Tool;
     setConfigTool(toolCopy);
     setShowConfig(true);
   };
@@ -40,7 +56,6 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   const handleConfigSave = () => {
     if (!configTool) return;
 
-    // Update the selectedTools array with the new config
     const updatedTools = selectedTools.map((tool) => {
       if (isSameTool(tool, configTool)) {
         return configTool;
@@ -53,39 +68,8 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     setConfigTool(null);
   };
 
-  const handleToolSelect = (newSelectedTools: Component<ToolConfig>[]) => {
-    // Create a map of existing AgentTools keyed by their identifier for quick lookup
-    const existingToolsMap = new Map<string, AgentTool>();
-    selectedTools.forEach(tool => {
-      existingToolsMap.set(getToolIdentifier(tool), tool);
-    });
-
-    // Convert the new selection (Component<ToolConfig>[]) into AgentTool[], preserving existing config
-    const mergedAgentTools = newSelectedTools.map(component => {
-      const toolIdentifier = getToolIdentifier(component);
-      const existingTool = existingToolsMap.get(toolIdentifier);
-
-      if (existingTool) {
-        // If the tool already existed, keep its configuration
-        return existingTool;
-      } else {
-        // If it's a new tool, convert it to an AgentTool
-        const newAgentTool = componentToAgentTool(component);
-
-        // Ensure MCP tools get their label set as toolServer
-        if (isMcpTool(newAgentTool) && newAgentTool.mcpServer && component.label) {
-          return {
-            ...newAgentTool,
-            mcpServer: {
-              ...newAgentTool.mcpServer,
-              toolServer: component.label
-            }
-          };
-        }
-        return newAgentTool;
-      }
-    });
-    setSelectedTools(mergedAgentTools);
+  const handleToolSelect = (newSelectedTools: Tool[]) => {
+    setSelectedTools(newSelectedTools);
     setShowToolSelector(false);
 
     if (onBlur) {
@@ -93,7 +77,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     }
   };
 
-  const handleRemoveTool = (tool: AgentTool) => {
+  const handleRemoveTool = (tool: Tool) => {
     const updatedTools = selectedTools.filter((t) => getToolIdentifier(t) !== getToolIdentifier(tool));
     setSelectedTools(updatedTools);
   };
@@ -132,7 +116,6 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   const renderConfigDialog = () => {
     if (!configTool) return null;
 
-    // Get the appropriate config object based on the tool type
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let configObj: Record<string, any> = {};
     let configTitle = "Configure Tool";
@@ -141,8 +124,6 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
       configObj = configTool.inline.config || {};
       configTitle = `Configure ${configTool.inline.provider}`;
     } else if (isMcpTool(configTool) && configTool.mcpServer) {
-      // For McpServer tools, we might not have direct configuration options
-      // Or we might need to structure it differently
       configObj = {
         toolServer: configTool.mcpServer.toolServer,
         toolNames: configTool.mcpServer.toolNames.join(", "),
@@ -177,7 +158,6 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
               {Object.keys(configObj)
                 .filter((k) => k !== "description")
                 .map((field: string) => {
-                  // Handle different types of values
                   const value = configObj[field];
                   const isObject = typeof value === "object" && value !== null;
 
@@ -187,7 +167,6 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
                         {field}
                       </Label>
                       {isObject ? (
-                        // For objects and arrays, show them as JSON
                         <Textarea
                           id={field}
                           value={JSON.stringify(value, null, 2)}
@@ -196,14 +175,12 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
                               const parsed = JSON.parse(e.target.value);
                               handleConfigChange(field, parsed);
                             } catch (err) {
-                              // Handle JSON parse error if needed
                               console.error("Invalid JSON", err);
                             }
                           }}
                           rows={4}
                         />
                       ) : (
-                        // For simple values, use regular input
                         <Input id={field} type="text" value={String(value || "")} onChange={(e) => handleConfigChange(field, e.target.value)} />
                       )}
                     </div>
@@ -235,17 +212,28 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
 
   const renderSelectedTools = () => (
     <div className="space-y-2">
-      {selectedTools.map((agentTool: AgentTool) => {
+      {selectedTools.map((agentTool: Tool) => {
         const displayName = getToolDisplayName(agentTool);
         const displayDescription = getToolDescription(agentTool);
+        const toolIdentifier = getToolIdentifier(agentTool);
+
+        const Icon = FunctionSquare;
+        let iconColor = "text-yellow-500";
+        if (isMcpTool(agentTool)) {
+          iconColor = "text-blue-400";
+        }
 
         return (
-          <Card key={getToolIdentifier(agentTool)}>
+          <Card key={toolIdentifier}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center text-xs">
                   <div className="inline-flex space-x-2 items-center">
-                    <FunctionSquare className={`h-4 w-4 ${isMcpTool(agentTool) ? "text-blue-400" : "text-yellow-500"}`} />
+                    {isAgentTool(agentTool) ? (
+                      <KagentLogo className={`h-4 w-4 ${iconColor}`} />
+                    ) : (
+                      <Icon className={`h-4 w-4 ${iconColor}`} />
+                    )}
                     <div className="inline-flex flex-col space-y-1">
                       <span className="">{displayName}</span>
                       <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
@@ -254,7 +242,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {!isMcpTool(agentTool) && (
+                  {!isMcpTool(agentTool) && !isAgentTool(agentTool) && (
                     <Button variant="outline" size="sm" onClick={() => openConfigDialog(agentTool)} disabled={isSubmitting}>
                       <Settings2 className="h-4 w-4" />
                     </Button>
@@ -275,7 +263,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     <div className="space-y-4">
       {selectedTools.length > 0 && (
         <div className="flex justify-between items-center">
-          <h3 className="text-sm font-medium">Selected Tools</h3>
+          <h3 className="text-sm font-medium">Selected Tools and Agents</h3>
           <Button
             onClick={() => {
               setShowToolSelector(true);
@@ -285,7 +273,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
             className="border bg-transparent"
           >
             <Plus className="h-4 w-4 mr-2" />
-            Add Tools
+            Add Tools & Agents
           </Button>
         </div>
       )}
@@ -294,9 +282,9 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
         {selectedTools.length === 0 ? (
           <Card className="">
             <CardContent className="p-8 flex flex-col items-center justify-center text-center">
-              <FunctionSquare className="h-12 w-12 mb-4" />
-              <h4 className="text-lg font-medium mb-2">No tools selected</h4>
-              <p className="text-muted-foreground text-sm mb-4">Add tools to enhance your agent</p>
+              <KagentLogo className="h-12 w-12 mb-4" />
+              <h4 className="text-lg font-medium mb-2">No tools or agents selected</h4>
+              <p className="text-muted-foreground text-sm mb-4">Add tools or agents to enhance your agent</p>
               <Button
                 onClick={() => {
                   setShowToolSelector(true);
@@ -306,7 +294,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
                 className="flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add Tools
+                Add Tools & Agents
               </Button>
             </CardContent>
           </Card>
@@ -316,12 +304,14 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
       </ScrollArea>
 
       {renderConfigDialog()}
-      <SelectToolsDialog 
-        open={showToolSelector} 
-        onOpenChange={setShowToolSelector} 
-        availableTools={allTools} 
-        selectedTools={selectedToolComponents}
-        onToolsSelected={handleToolSelect} 
+      <SelectToolsDialog
+        open={showToolSelector}
+        onOpenChange={setShowToolSelector}
+        availableTools={allTools}
+        availableAgents={availableAgents}
+        selectedTools={selectedTools}
+        onToolsSelected={handleToolSelect}
+        loadingAgents={loadingAgents}
       />
     </div>
   );

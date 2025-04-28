@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { useAgents, AgentFormData } from "@/components/AgentsProvider";
-import { AgentTool } from "@/types/datamodel";
+import { Tool } from "@/types/datamodel";
 import { WelcomeStep } from './steps/WelcomeStep';
 import { ModelConfigStep } from './steps/ModelConfigStep';
 import { AgentSetupStep, AgentSetupFormData } from './steps/AgentSetupStep';
@@ -23,7 +23,7 @@ interface OnboardingStateData {
     agentName?: string;
     agentDescription?: string;
     agentInstructions?: string;
-    selectedTools?: AgentTool[];
+    selectedTools?: Tool[];
 }
 
 export const K8S_AGENT_DEFAULTS = {
@@ -86,7 +86,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       setCurrentStep(3);
   };
 
-  const handleNextFromToolSelection = (selectedTools: AgentTool[]) => {
+  const handleNextFromToolSelection = (selectedTools: Tool[]) => {
       setOnboardingData(prev => ({
           ...prev,
           selectedTools: selectedTools,

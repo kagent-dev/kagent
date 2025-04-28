@@ -42,7 +42,6 @@ export async function getTools(): Promise<BaseResponse<Component<ToolConfig>[]>>
  * @returns A promise with the tool data
  */
 export async function getToolByProvider(allTools: Component<ToolConfig>[], provider: string, toolName?: string): Promise<Component<ToolConfig> | null> {
-
   // For MCP tools, we need to match both provider and tool name
   if (isMcpProvider(provider) && toolName) {
     const tool = allTools.find(t =>
@@ -65,6 +64,5 @@ export async function getToolByProvider(allTools: Component<ToolConfig>[], provi
     }
   }
 
-  throw new Error(`Tool with provider ${provider}${toolName ? ` and name ${toolName}` : ''} not found`);
-
+  return null;
 }

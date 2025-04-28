@@ -8,13 +8,14 @@ import { Info, ChevronDown, ChevronRight, FunctionSquare, Filter, FilterX, HelpC
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { getToolDisplayName, getToolDescription, getToolIdentifier, componentToAgentTool } from "@/lib/toolUtils";
-import { AgentTool, Component, ToolConfig } from "@/types/datamodel";
+import { getToolDisplayName, getToolDescription, getToolIdentifier, componentToAgentTool, isMcpProvider } from "@/lib/toolUtils";
+import { Tool, Component, ToolConfig } from "@/types/datamodel";
 
 const getToolCategory = (tool: Component<ToolConfig>): string => {
-    if (tool.provider === "autogen_ext.tools.mcp.SseMcpToolAdapter") {
+    if (isMcpProvider(tool.provider)) {
       return tool.label || "MCP Server";
     }
+
     const toolId = getToolIdentifier(tool);
     const parts = toolId.split("-");
     if (parts.length >= 2 && parts[0] === 'component') {
@@ -29,8 +30,8 @@ interface ToolSelectionStepProps {
     availableTools: Component<ToolConfig>[] | null;
     loadingTools: boolean;
     errorTools: string | null;
-    initialSelectedTools: AgentTool[];
-    onNext: (selectedTools: AgentTool[]) => void;
+    initialSelectedTools: Tool[];
+    onNext: (selectedTools: Tool[]) => void;
     onBack: () => void;
 }
 
@@ -42,7 +43,7 @@ export function ToolSelectionStep({
     onNext,
     onBack
 }: ToolSelectionStepProps) {
-    const [selectedTools, setSelectedTools] = useState<AgentTool[]>(initialSelectedTools);
+    const [selectedTools, setSelectedTools] = useState<Tool[]>(initialSelectedTools);
     const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
     const [showAllTools, setShowAllTools] = useState(false);
 
@@ -84,7 +85,7 @@ export function ToolSelectionStep({
 
             if (k8sCategoryKey) {
                 const k8sToolsComponents = toolsByCategory[k8sCategoryKey];
-                const initialSelection: AgentTool[] = [];
+                const initialSelection: Tool[] = [];
                 k8sToolsComponents.forEach(component => {
                     const toolName = getToolDisplayName(component);
                     if (toolsToSelect.includes(toolName)) {
