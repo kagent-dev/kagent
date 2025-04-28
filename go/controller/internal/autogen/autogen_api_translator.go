@@ -418,7 +418,9 @@ func (a *apiTranslator) translateTaskAgent(
 	name := agent.Name + "-society-of-mind-wrapper"
 	team := simpleRoundRobinTeam(agent, name)
 
-	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{}, state)
+	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{
+		stream: true,
+	}, state)
 	if err != nil {
 		return nil, err
 	}
