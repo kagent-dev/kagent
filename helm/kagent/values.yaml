@@ -12,7 +12,7 @@ openai:
 
 controller:
   image:
-    registry: ghcr.io
+    registry: cr.kagent.dev
     repository: kagent-dev/kagent/controller
     tag: ""  # Will default to global, then Chart version
     pullPolicy: IfNotPresent
@@ -26,7 +26,7 @@ controller:
 
 app:
   image:
-    registry: ghcr.io
+    registry: cr.kagent.dev
     repository: kagent-dev/kagent/app
     tag: ""  # Will default to global, then Chart version
     pullPolicy: IfNotPresent
@@ -40,7 +40,7 @@ app:
 
 ui:
   image:
-    registry: ghcr.io
+    registry: cr.kagent.dev
     repository: kagent-dev/kagent/ui
     tag: ""  # Will default to global, then Chart version
     pullPolicy: IfNotPresent
