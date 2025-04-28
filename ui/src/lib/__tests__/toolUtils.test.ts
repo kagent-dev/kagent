@@ -1,6 +1,6 @@
 import { 
   isMcpTool, 
-  isInlineTool, 
+  isBuiltinTool,
   getToolDisplayName, 
   getToolDescription, 
   getToolIdentifier, 
@@ -44,16 +44,16 @@ describe('Tool Utility Functions', () => {
           description: "Test Description"
         }
       };
-      expect(isInlineTool(validInlineTool)).toBe(true);
+      expect(isBuiltinTool(validInlineTool)).toBe(true);
     });
 
     it('should reject invalid inline tools', () => {
-      expect(isInlineTool(null)).toBe(false);
-      expect(isInlineTool(undefined)).toBe(false);
-      expect(isInlineTool({})).toBe(false);
-      expect(isInlineTool({ type: "Inline" })).toBe(false);
-      expect(isInlineTool({ type: "Inline", inline: {} })).toBe(false);
-      expect(isInlineTool({ type: "McpServer" })).toBe(false);
+      expect(isBuiltinTool(null)).toBe(false);
+      expect(isBuiltinTool(undefined)).toBe(false);
+      expect(isBuiltinTool({})).toBe(false);
+      expect(isBuiltinTool({ type: "Inline" })).toBe(false);
+      expect(isBuiltinTool({ type: "Inline", inline: {} })).toBe(false);
+      expect(isBuiltinTool({ type: "McpServer" })).toBe(false);
     });
   });
 

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isAgentTool, isInlineTool, isMcpTool, isSameTool } from "@/lib/toolUtils";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isAgentTool, isBuiltinTool, isMcpTool, isSameTool } from "@/lib/toolUtils";
 import { Label } from "@/components/ui/label";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
@@ -96,13 +96,13 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
             toolServer: value
           }
         };
-      } else if (isInlineTool(prevTool)) {
+      } else if (isBuiltinTool(prevTool)) {
         return {
           ...prevTool,
-          inline: {
-            ...prevTool.inline,
+          builtin: {
+            ...prevTool.builtin,
             config: {
-              ...prevTool.inline?.config, 
+              ...prevTool.builtin?.config,
               [field]: value,
             },
           },
@@ -120,9 +120,9 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     let configObj: Record<string, any> = {};
     let configTitle = "Configure Tool";
 
-    if (isInlineTool(configTool) && configTool.inline) {
-      configObj = configTool.inline.config || {};
-      configTitle = `Configure ${configTool.inline.provider}`;
+    if (isBuiltinTool(configTool) && configTool.builtin) {
+      configObj = configTool.builtin.config || {};
+      configTitle = `Configure ${configTool.builtin.name}`;
     } else if (isMcpTool(configTool) && configTool.mcpServer) {
       configObj = {
         toolServer: configTool.mcpServer.toolServer,

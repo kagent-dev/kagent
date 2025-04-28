@@ -5,7 +5,7 @@ import { Agent, AgentResponse, Tool, Component } from "@/types/datamodel";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { isInlineTool, isMcpTool } from "@/lib/toolUtils";
+import { isBuiltinTool, isMcpTool } from "@/lib/toolUtils";
 
 /**
  * Converts a tool to AgentTool format
@@ -16,7 +16,7 @@ import { isInlineTool, isMcpTool } from "@/lib/toolUtils";
 function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
   if (tool && typeof tool === 'object' && 'type' in tool) {
     const typedTool = tool as Partial<Tool>;
-    if (typedTool.type === "Inline" && typedTool.inline || 
+    if (typedTool.type === "Builtin" && typedTool.builtin ||
         typedTool.type === "McpServer" && typedTool.mcpServer) {
       return tool as Tool;
     }
@@ -41,9 +41,9 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const componentTool = tool as Component<any>;
     return {
-      type: "Inline",
-      inline: {
-        provider: componentTool.provider,
+      type: "Builtin",
+      builtin: {
+        name: componentTool.provider,
         description: componentTool.description || "",
         config: componentTool.config || {},
         label: componentTool.label,
@@ -54,9 +54,9 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
   // Default case - shouldn't happen with proper type checking
   console.warn("Unknown tool format:", tool);
   return {
-    type: "Inline",
-    inline: {
-      provider: "unknown",
+    type: "Builtin",
+    builtin: {
+      name: "unknown",
       description: "Unknown tool",
       config: {},
     }
@@ -110,13 +110,13 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       modelConfig: agentFormData.model.name || "",
       tools: agentFormData.tools.map((tool) => {
         // Convert to the proper Tool structure based on the tool type
-        if (isInlineTool(tool) && tool.inline) {
+        if (isBuiltinTool(tool) && tool.builtin) {
           return {
-            type: "Inline",
-            inline: {
-              provider: tool.inline.provider,
-              config: tool.inline.config ? processConfigObject(tool.inline.config) : {},
-              label: tool.inline.label,
+            type: "Builtin",
+            builtin: {
+              name: tool.builtin.name,
+              config: tool.builtin.config ? processConfigObject(tool.builtin.config) : {},
+              label: tool.builtin.label,
             },
           } as Tool;
         }
