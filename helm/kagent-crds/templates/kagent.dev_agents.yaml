@@ -60,10 +60,10 @@ spec:
                   properties:
                     agent:
                       properties:
-                        name:
+                        ref:
                           description: |-
-                            The name of the Agent resource to use as a tool.
-                            This should be a reference to an Agent resource in the same namespace.
+                            Reference to the Agent resource to use as a tool.
+                            Can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
                           minLength: 1
                           type: string
                       type: object
