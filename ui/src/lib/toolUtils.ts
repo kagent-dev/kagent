@@ -1,9 +1,16 @@
-import { AgentTool, Component, MCPToolConfig, ToolConfig, McpServerTool, InlineTool } from "@/types/datamodel";
+import { Tool, Component, MCPToolConfig, ToolConfig, McpServerTool, InlineTool, AgentTool } from "@/types/datamodel";
+
+export const isAgentTool = (tool: unknown): tool is { type: "Agent"; agent: AgentTool } => {
+  if (!tool || typeof tool !== "object") return false;
+
+  const possibleTool = tool as Partial<Tool>;
+  return possibleTool.type === "Agent" && !!possibleTool.agent && typeof possibleTool.agent === "object" && typeof possibleTool.agent.name === "string";
+};
 
 export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer: McpServerTool } => {
   if (!tool || typeof tool !== "object") return false;
 
-  const possibleTool = tool as Partial<AgentTool>;
+  const possibleTool = tool as Partial<Tool>;
 
   return (
     possibleTool.type === "McpServer" &&
@@ -17,12 +24,12 @@ export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer
 export const isInlineTool = (tool: unknown): tool is { type: "Inline"; inline: InlineTool } => {
   if (!tool || typeof tool !== "object") return false;
 
-  const possibleTool = tool as Partial<AgentTool>;
+  const possibleTool = tool as Partial<Tool>;
 
   return possibleTool.type === "Inline" && !!possibleTool.inline && typeof possibleTool.inline === "object" && typeof possibleTool.inline.provider === "string";
 };
 
-export const getToolDisplayName = (tool?: AgentTool | Component<ToolConfig>): string => {
+export const getToolDisplayName = (tool?: Tool | Component<ToolConfig>): string => {
   if (!tool) return "No name";
 
   // Check if the tool is of Component<ToolConfig> type
@@ -43,13 +50,15 @@ export const getToolDisplayName = (tool?: AgentTool | Component<ToolConfig>): st
     const providerParts = tool.inline.provider.split(".");
     const providerName = providerParts[providerParts.length - 1];
     return tool.inline.label || providerName || "Inline Tool";
+  } else if (isAgentTool(tool) && tool.agent) {
+    return tool.agent.name;
   } else {
     console.warn("Unknown tool type:", tool);
     return "Unknown Tool";
   }
 };
 
-export const getToolDescription = (tool?: AgentTool | Component<ToolConfig>): string => {
+export const getToolDescription = (tool?: Tool | Component<ToolConfig>): string => {
   if (!tool) return "No description";
 
   // Check if the tool is of Component<ToolConfig> type
@@ -65,13 +74,15 @@ export const getToolDescription = (tool?: AgentTool | Component<ToolConfig>): st
     return tool.inline.description || "No description";
   } else if (isMcpTool(tool)) {
     return "MCP Server Tool";
+  } else if (isAgentTool(tool) && tool.agent) {
+    return tool.agent.description || "Agent Tool (No description provided)";
   } else {
     console.warn("Unknown tool type:", tool);
     return "No description";
   }
 };
 
-export const getToolIdentifier = (tool?: AgentTool | Component<ToolConfig>): string => {
+export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string => {
   if (!tool) return "unknown";
 
   // Handle Component<ToolConfig> type
@@ -98,13 +109,15 @@ export const getToolIdentifier = (tool?: AgentTool | Component<ToolConfig>): str
   } else if (isInlineTool(tool) && tool.inline) {
     // For Inline agent tools
     return `component-${tool.inline.provider}`;
+  } else if (isAgentTool(tool) && tool.agent) {
+    return `agent-${tool.agent.name}`;
   } else {
     console.warn("Unknown tool type:", tool);
     return `unknown-${JSON.stringify(tool).slice(0, 20)}`;
   }
 };
 
-export const getToolProvider = (tool?: AgentTool | Component<ToolConfig>): string => {
+export const getToolProvider = (tool?: Tool | Component<ToolConfig>): string => {
   if (!tool) return "unknown";
 
   // Check if the tool is of Component<ToolConfig> type
@@ -117,18 +130,20 @@ export const getToolProvider = (tool?: AgentTool | Component<ToolConfig>): strin
     return tool.inline.provider;
   } else if (isMcpTool(tool) && tool.mcpServer) {
     return tool.mcpServer.toolServer;
+  } else if (isAgentTool(tool) && tool.agent) {
+    return tool.agent.name;
   } else {
     console.warn("Unknown tool type:", tool);
     return "unknown";
   }
 };
 
-export const isSameTool = (toolA?: AgentTool, toolB?: AgentTool): boolean => {
+export const isSameTool = (toolA?: Tool, toolB?: Tool): boolean => {
   if (!toolA || !toolB) return false;
   return getToolIdentifier(toolA) === getToolIdentifier(toolB);
 };
 
-export const componentToAgentTool = (component: Component<ToolConfig>): AgentTool => {
+export const componentToAgentTool = (component: Component<ToolConfig>): Tool => {
   if (isMcpProvider(component.provider)) {
     const mcpConfig = component.config as MCPToolConfig;
     return {
@@ -152,7 +167,7 @@ export const componentToAgentTool = (component: Component<ToolConfig>): AgentToo
 };
 
 export const findComponentForAgentTool = (
-  agentTool: AgentTool,
+  agentTool: Tool,
   components: Component<ToolConfig>[]
 ): Component<ToolConfig> | undefined => {
   const agentToolId = getToolIdentifier(agentTool);
@@ -164,8 +179,10 @@ export const findComponentForAgentTool = (
   return components.find((c) => getToolIdentifier(c) === agentToolId);
 };
 
+export const SSE_MCP_TOOL_PROVIDER_NAME = "autogen_ext.tools.mcp.SseMcpToolAdapter";
+export const STDIO_MCP_TOOL_PROVIDER_NAME = "autogen_ext.tools.mcp.StdioMcpToolAdapter";
 export function isMcpProvider(provider: string): boolean {
-  return provider === "autogen_ext.tools.mcp.SseMcpToolAdapter" || provider === "autogen_ext.tools.mcp.StdioMcpToolAdapter";
+  return provider === SSE_MCP_TOOL_PROVIDER_NAME || provider === STDIO_MCP_TOOL_PROVIDER_NAME;
 }
 
 // Extract category from tool identifier

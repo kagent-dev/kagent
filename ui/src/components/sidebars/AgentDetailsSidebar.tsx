@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import type { AgentResponse, AgentTool } from "@/types/datamodel";
+import type { AgentResponse, Tool, Component, ToolConfig, MCPToolConfig } from "@/types/datamodel";
 import { getTeam } from "@/app/actions/teams";
 import { getToolByProvider, getTools } from "@/app/actions/tools";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { AgentActions } from "./AgentActions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
-import { getToolIdentifier, getToolProvider, getToolDisplayName } from "@/lib/toolUtils";
+import { getToolIdentifier, getToolProvider, getToolDisplayName, SSE_MCP_TOOL_PROVIDER_NAME, STDIO_MCP_TOOL_PROVIDER_NAME, isAgentTool, isMcpProvider } from "@/lib/toolUtils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
@@ -25,70 +25,87 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const fetchTeam = async () => {
+    const fetchTeamAndToolDescriptions = async () => {
       setLoading(true);
       setError(null);
+      setToolDescriptions({});
+
       try {
-        const response = await getTeam(selectedAgentId);
-        const allTools = await getTools();
-        if (!allTools.success || !allTools.data) {
-          setError("Failed to get tools");
+        const teamResponse = await getTeam(selectedAgentId);
+        if (!teamResponse.success || !teamResponse.data) {
+          setError(teamResponse.error || "Failed to fetch team data");
+          setLoading(false);
           return;
         }
+        const currentTeam = teamResponse.data;
+        setSelectedTeam(currentTeam);
 
-        if (response.success && response.data) {
-          setSelectedTeam(response.data);
-          
-          // Fetch descriptions for all tools
-          const descriptions: Record<string, string> = {};
-          if (response.data.agent.spec.tools && Array.isArray(response.data.agent.spec.tools)) {
-            for (const tool of response.data.agent.spec.tools) {
-              const toolIdentifier = getToolIdentifier(tool);
-              const toolProvider = getToolProvider(tool);
+        const allToolsResponse = await getTools();
+        if (!allToolsResponse.success || !allToolsResponse.data) {
+          setError("Failed to get tool definitions");
+        }
+        const allToolDefinitions = allToolsResponse.data || [];
 
-              try {
-                // For MCP tools, we need to use the SseMcpToolAdapter provider and the tool name
+        const descriptions: Record<string, string> = {};
+        const toolsInSpec = currentTeam.agent.spec.tools;
+
+        if (toolsInSpec && Array.isArray(toolsInSpec)) {
+          for (const tool of toolsInSpec) {
+            const toolIdentifier = getToolIdentifier(tool);
+            let description = "No description available";
+
+            try {
+              if (isAgentTool(tool)) {
+                description = tool.agent?.description || "Agent description not found";
+              } else {
+                const toolProvider = getToolProvider(tool);
+                let foundToolDefinition: Component<ToolConfig> | null = null;
+
                 if (tool.type === "McpServer" && tool.mcpServer?.toolNames?.[0]) {
                   const toolName = tool.mcpServer.toolNames[0];
-                  const mcpProvider = "autogen_ext.tools.mcp.SseMcpToolAdapter";
-                  
-                  const toolResponse = await getToolByProvider(allTools.data, mcpProvider, toolName);
-                  descriptions[toolIdentifier] = toolResponse?.description 
-                    ? toolResponse.description 
-                    : "No description available";
-                } else {
-                  // For non-MCP tools, use the provider directly
-                  const toolResponse = await getToolByProvider(allTools.data, toolProvider);
-                  descriptions[toolIdentifier] = toolResponse?.description 
-                    ? toolResponse.description 
-                    : "No description available";
+                  foundToolDefinition = await getToolByProvider(allToolDefinitions, SSE_MCP_TOOL_PROVIDER_NAME, toolName);
+                  if (!foundToolDefinition) {
+                    foundToolDefinition = await getToolByProvider(allToolDefinitions, STDIO_MCP_TOOL_PROVIDER_NAME, toolName);
+                  }
+                } else if (tool.type === "Inline") {
+                  foundToolDefinition = await getToolByProvider(allToolDefinitions, toolProvider);
                 }
-              } catch (error) {
-                console.error(`Failed to fetch description for tool ${toolProvider}:`, error);
-                descriptions[toolIdentifier] = "Failed to load description";
+
+                if (foundToolDefinition?.description) {
+                  description = foundToolDefinition.description;
+                } else if (foundToolDefinition && isMcpProvider(foundToolDefinition.provider)) {
+                  const nestedDescription = (foundToolDefinition.config as MCPToolConfig)?.tool?.description;
+                  if (nestedDescription) {
+                    description = nestedDescription;
+                  }
+                }
               }
+            } catch (err) {
+              console.error(`Failed to process description for tool ${toolIdentifier}:`, err);
+              description = "Failed to load description";
             }
+
+            descriptions[toolIdentifier] = description;
           }
-          setToolDescriptions(descriptions);
-        } else {
-          setError(response.error || "Failed to fetch team data");
         }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+        setToolDescriptions(descriptions);
+
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred";
         setError(errorMessage);
-        console.error("Failed to fetch team:", error);
+        console.error("Failed fetching data:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchTeam();
+    fetchTeamAndToolDescriptions();
   }, [selectedAgentId]);
 
-  const toggleToolExpansion = (toolProvider: string) => {
+  const toggleToolExpansion = (toolIdentifier: string) => {
     setExpandedTools(prev => ({
       ...prev,
-      [toolProvider]: !prev[toolProvider]
+      [toolIdentifier]: !prev[toolIdentifier]
     }));
   };
 
@@ -100,11 +117,11 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
     return <div className="p-4 text-red-500">{error}</div>;
   }
 
-  const renderAgentTools = (tools: AgentTool[] = []) => {    
+  const renderAgentTools = (tools: Tool[] = []) => {
     if (!tools || tools.length === 0) {
       return (
         <SidebarMenu>
-          <div className="text-sm italic">No tools available</div>
+          <div className="text-sm italic">No tools/agents available</div>
         </SidebarMenu>
       );
     }
@@ -113,13 +130,12 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
       <SidebarMenu>
         {tools.map((tool) => {
           const toolIdentifier = getToolIdentifier(tool);
-          const toolProvider = getToolProvider(tool);
+          const provider = getToolProvider(tool) || "unknown";
           const displayName = getToolDisplayName(tool);
-          const description = toolDescriptions[toolIdentifier] || "No description available";
+          const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
           const isExpanded = expandedTools[toolIdentifier] || false;
 
-          // Split the provider at . and get the last part
-          const providerParts = toolProvider.split(".");
+          const providerParts = provider.split(".");
           const providerName = providerParts[providerParts.length - 1];
 
           return (
@@ -169,13 +185,13 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>
             <SidebarGroup>
-              <AgentActions 
+              <AgentActions
                 agentId={selectedAgentId}
-                onCopyJson={() => navigator.clipboard.writeText(JSON.stringify(selectedTeam, null, 2))} 
+                onCopyJson={() => navigator.clipboard.writeText(JSON.stringify(selectedTeam, null, 2))}
               />
             </SidebarGroup>
             <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-              <SidebarGroupLabel>Tools</SidebarGroupLabel>
+              <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
               {selectedTeam && renderAgentTools(selectedTeam.agent.spec.tools)}
             </SidebarGroup>
           </ScrollArea>

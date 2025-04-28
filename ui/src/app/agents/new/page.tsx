@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, FunctionSquare } from "lucide-react";
+import { Loader2, Settings2 } from "lucide-react";
 import { ModelConfig } from "@/lib/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
@@ -15,7 +15,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { AgentTool } from "@/types/datamodel";
+import { Tool } from "@/types/datamodel";
 import { toast } from "sonner";
 
 interface ValidationErrors {
@@ -47,7 +47,7 @@ function AgentPageContent() {
   const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { name: models[0].name, model: models[0].model } : null);
 
   // Tools state - now using AgentTool interface correctly
-  const [selectedTools, setSelectedTools] = useState<AgentTool[]>([]);
+  const [selectedTools, setSelectedTools] = useState<Tool[]>([]);
 
   // Overall form state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -248,12 +248,11 @@ function AgentPageContent() {
                 />
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <FunctionSquare className="h-5 w-5 text-yellow-500" />
-                  Tools
+                  <Settings2 className="h-5 w-5 text-yellow-500" />
+                  Tools & Agents
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -266,7 +265,6 @@ function AgentPageContent() {
                 />
               </CardContent>
             </Card>
-
             <div className="flex justify-end">
               <Button className="bg-violet-500 hover:bg-violet-600" onClick={handleSaveAgent} disabled={isSubmitting || isLoading}>
                 {isSubmitting ? (

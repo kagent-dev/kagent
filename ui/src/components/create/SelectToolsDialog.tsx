@@ -2,14 +2,14 @@ import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Search, Filter, ChevronDown, ChevronRight, AlertCircle, PlusCircle, XCircle } from "lucide-react";
+import { Search, Filter, ChevronDown, ChevronRight, AlertCircle, PlusCircle, XCircle, FunctionSquare, LucideIcon } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Component, ToolConfig } from "@/types/datamodel";
+import { Component, ToolConfig, AgentResponse, Tool } from "@/types/datamodel";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider } from "@/lib/toolUtils";
-
+import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider, isAgentTool, isMcpTool, isMcpProvider, componentToAgentTool } from "@/lib/toolUtils";
+import KagentLogo from "../kagent-logo";
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 10;
 
@@ -17,13 +17,77 @@ interface SelectToolsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   availableTools: Component<ToolConfig>[];
-  selectedTools: Component<ToolConfig>[];
-  onToolsSelected: (tools: Component<ToolConfig>[]) => void;
+  selectedTools: Tool[];
+  onToolsSelected: (tools: Tool[]) => void;
+  availableAgents: AgentResponse[];
+  loadingAgents: boolean;
 }
 
-export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected }) => {
+// Helper function to get display info for a tool or agent
+const getItemDisplayInfo = (item: Component<ToolConfig> | AgentResponse | Tool): {
+  displayName: string;
+  description?: string;
+  identifier: string;
+  providerText?: string;
+  Icon: React.ElementType | LucideIcon;
+  iconColor: string;
+  isAgent: boolean;
+} => {
+  let displayName: string;
+  let description: string | undefined;
+  let identifier: string;
+  let providerText: string | undefined;
+  let Icon: React.ElementType | LucideIcon = FunctionSquare;
+  let iconColor = "text-yellow-500";
+  let isAgent = false;
+
+  if (!item || typeof item !== 'object') {
+    // Handle null/undefined/non-object case
+    displayName = "Unknown Item";
+    identifier = `unknown-${Math.random().toString(36).substring(7)}`;
+    return { displayName, description, identifier, providerText, Icon, iconColor, isAgent };
+  }
+
+  // Handle AgentResponse specifically (as it's not a Tool or Component)
+  if ('agent' in item && item.agent && typeof item.agent === 'object' && 'metadata' in item.agent && item.agent.metadata) {
+      const agentResp = item as AgentResponse;
+      displayName = agentResp.agent.metadata.name;
+      description = agentResp.agent.spec.description;
+      // Use the same identifier format as AgentTool for consistency
+      identifier = `agent-${displayName}`;
+      providerText = "Agent";
+      Icon = KagentLogo;
+      iconColor = "text-green-500";
+      isAgent = true;
+  }
+  // Handle Tool and Component<ToolConfig> types using toolUtils
+  else {
+      // Cast to the union type that toolUtils functions expect
+      const toolOrComponent = item as Tool | Component<ToolConfig>;
+
+      displayName = getToolDisplayName(toolOrComponent);
+      description = getToolDescription(toolOrComponent);
+      identifier = getToolIdentifier(toolOrComponent);
+      providerText = getToolProvider(toolOrComponent);
+
+      if (isAgentTool(toolOrComponent)) {
+          Icon = KagentLogo;
+          isAgent = true; 
+      } else if (isMcpTool(toolOrComponent) || ('provider' in toolOrComponent && isMcpProvider(toolOrComponent.provider))) {
+          // Check for MCP Tool or MCP Component
+          iconColor = "text-blue-400";
+          isAgent = false;
+      } else {
+          isAgent = false;
+      }
+  }
+
+  return { displayName, description, identifier, providerText, Icon, iconColor, isAgent };
+};
+
+export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, availableAgents, loadingAgents }) => {
   const [searchTerm, setSearchTerm] = useState("");
-  const [localSelectedComponents, setLocalSelectedComponents] = useState<Component<ToolConfig>[]>([]);
+  const [localSelectedComponents, setLocalSelectedComponents] = useState<Tool[]>([]);
   const [categories, setCategories] = useState<Set<string>>(new Set());
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
@@ -43,33 +107,49 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         categoryCollapseState[category] = true;
       });
 
+      if (availableAgents.length > 0) {
+        uniqueCategories.add("Agents");
+        categoryCollapseState["Agents"] = true;
+      }
+
       setCategories(uniqueCategories);
       setSelectedCategories(new Set());
       setExpandedCategories(categoryCollapseState);
       setShowFilters(false);
     }
-  }, [open, selectedTools, availableTools]);
+  }, [open, selectedTools, availableTools, availableAgents]);
 
   // Filter tools based on search and category selections
-  const filteredAvailableTools = useMemo(() => {
+  const filteredAvailableItems = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
-    return availableTools.filter((tool) => {
+    const tools = availableTools.filter((tool) => {
       const toolName = getToolDisplayName(tool).toLowerCase();
       const toolDescription = getToolDescription(tool)?.toLowerCase() ?? "";
-      const toolProvider = getToolProvider(tool)?.trim();
+      const toolProvider = getToolProvider(tool)?.trim() || "";
 
-      const matchesSearch = toolName.includes(searchLower) || toolDescription.includes(searchLower) || (toolProvider && toolProvider.toLowerCase().includes(searchLower));
+      const matchesSearch = toolName.includes(searchLower) || toolDescription.includes(searchLower) || toolProvider.toLowerCase().includes(searchLower);
 
       const toolCategory = getToolCategory(tool);
       const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
       return matchesSearch && matchesCategory;
     });
-  }, [availableTools, searchTerm, selectedCategories]);
 
-  // Group available tools by category
-  const groupedAvailableTools = useMemo(() => {
-    const groups: { [key: string]: Component<ToolConfig>[] } = {};
-    const sortedTools = [...filteredAvailableTools].sort((a, b) => {
+    // Filter agents if "Agents" category is selected or no category is selected
+    const agentCategorySelected = selectedCategories.size === 0 || selectedCategories.has("Agents");
+    const agents = agentCategorySelected ? availableAgents.filter(agentResp => {
+        const agentName = agentResp.agent.metadata.name.toLowerCase();
+        const agentDesc = agentResp.agent.spec.description.toLowerCase();
+        return agentName.includes(searchLower) || agentDesc.includes(searchLower);
+      })
+    : [];
+
+    return { tools, agents };
+  }, [availableTools, availableAgents, searchTerm, selectedCategories]);
+
+  // Group available tools and agents by category
+  const groupedAvailableItems = useMemo(() => {
+    const groups: { [key: string]: (Component<ToolConfig> | AgentResponse)[] } = {};
+    const sortedTools = [...filteredAvailableItems.tools].sort((a, b) => {
       return getToolDisplayName(a).localeCompare(getToolDisplayName(b));
     });
     sortedTools.forEach((tool) => {
@@ -79,25 +159,52 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       }
       groups[category].push(tool);
     });
+
+    // Add agents to the "Agents" category
+    if (filteredAvailableItems.agents.length > 0) {
+      groups["Agents"] = filteredAvailableItems.agents.sort((a, b) => 
+        a.agent.metadata.name.localeCompare(b.agent.metadata.name)
+      );
+    }
+    
     // Sort categories alphabetically
     return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
            .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
-  }, [filteredAvailableTools]);
+           
+  }, [filteredAvailableItems]);
 
   const selectedCount = localSelectedComponents.length;
   const isLimitReached = selectedCount >= MAX_TOOLS_LIMIT;
 
-  const isToolSelected = (tool: Component<ToolConfig>) => localSelectedComponents.some((t) => getToolIdentifier(t) === getToolIdentifier(tool));
+  const isItemSelected = (item: Component<ToolConfig> | AgentResponse): boolean => {
+    const { identifier } = getItemDisplayInfo(item);
+    return localSelectedComponents.some((t) => getToolIdentifier(t) === identifier);
+  };
 
-  // Handlers
-  const handleAddTool = (tool: Component<ToolConfig>) => {
-    if (!isLimitReached && !isToolSelected(tool)) {
-      setLocalSelectedComponents((prev) => [...prev, tool]);
+  const handleAddItem = (item: Component<ToolConfig> | AgentResponse) => {
+    const isSelected = isItemSelected(item);
+    if (!isLimitReached && !isSelected) {
+      let toolToAdd: Tool;
+      // Check if the item is an AgentResponse (distinguished by having agent.metadata)
+      if ('agent' in item && item.agent && typeof item.agent === 'object' && 'metadata' in item.agent) {
+        const agentResp = item as AgentResponse;
+        toolToAdd = {
+          type: "Agent",
+          agent: {
+            name: agentResp.agent.metadata.name,
+            description: agentResp.agent.spec.description
+          }
+        };
+      } else {
+        const component = item as Component<ToolConfig>;
+        toolToAdd = componentToAgentTool(component);
+      }
+      setLocalSelectedComponents((prev) => [...prev, toolToAdd]);
     }
   };
 
-  const handleRemoveTool = (tool: Component<ToolConfig>) => {
-    setLocalSelectedComponents((prev) => prev.filter((t) => getToolIdentifier(t) !== getToolIdentifier(tool)));
+  const handleRemoveToolById = (toolIdentifier: string) => {
+    setLocalSelectedComponents((prev) => prev.filter((t) => getToolIdentifier(t) !== toolIdentifier));
   };
 
   const handleSave = () => {
@@ -135,8 +242,8 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   // Helper to highlight search term
   const highlightMatch = (text: string, highlight: string) => {
-    if (!highlight) return text;
-    const parts = text.split(new RegExp(`(${highlight})`, 'gi'));
+    if (!highlight || !text) return text;
+    const parts = text.split(new RegExp(`(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
     return parts.map((part, i) =>
       part.toLowerCase() === highlight.toLowerCase() ? <mark key={i} className="bg-yellow-200 px-0 py-0 rounded">{part}</mark> : part
     );
@@ -146,9 +253,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     <Dialog open={open} onOpenChange={handleCancel}>
       <DialogContent className="max-w-6xl max-h-[90vh] h-[85vh] flex flex-col p-0">
         <DialogHeader className="p-6 pb-4 border-b">
-          <DialogTitle className="text-xl">Select Tools</DialogTitle>
+          <DialogTitle className="text-xl">Select Tools and Agents</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            The tools are grouped by category. You can select a tool by clicking on it. To add your own tools, you can use the <Link href="/tools" className="text-violet-600 hover:text-violet-700">Tools</Link> page.
+            You can use tools and agents to create your agent. The tools are grouped by category. You can select a tool by clicking on it. To add your own tools, you can use the <Link href="/tools" className="text-violet-600 hover:text-violet-700">Tools</Link> page.
           </DialogDescription>
         </DialogHeader>
 
@@ -180,10 +287,15 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
             {/* Available Tools List */}
             <ScrollArea className="flex-1 -mr-4 pr-4">
-              {Object.keys(groupedAvailableTools).length > 0 ? (
+              {loadingAgents && (
+                <div className="flex items-center justify-center h-full">
+                  <p>Loading Agents...</p>
+                </div>
+              )}
+              {!loadingAgents && Object.keys(groupedAvailableItems).length > 0 ? (
                 <div className="space-y-3">
-                  {Object.entries(groupedAvailableTools).map(([category, tools]) => {
-                    const toolsSelectedInCategory = tools.filter(isToolSelected).length;
+                  {Object.entries(groupedAvailableItems).map(([category, items]) => {
+                    const itemsSelectedInCategory = items.filter(isItemSelected).length;
                     return (
                       <div key={category} className="border rounded-lg overflow-hidden bg-card">
                         <div
@@ -193,30 +305,32 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                           <div className="flex items-center gap-2">
                             {expandedCategories[category] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                             <h3 className="font-semibold capitalize text-sm">{highlightMatch(category, searchTerm)}</h3>
-                            <Badge variant="secondary" className="font-mono text-xs">{tools.length}</Badge>
+                            <Badge variant="secondary" className="font-mono text-xs">{items.length}</Badge>
                           </div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            {toolsSelectedInCategory > 0 && (
-                               <Badge variant="outline">{toolsSelectedInCategory} selected</Badge>
+                            {itemsSelectedInCategory > 0 && (
+                               <Badge variant="outline">{itemsSelectedInCategory} selected</Badge>
                             )}
                           </div>
                         </div>
 
                         {expandedCategories[category] && (
                           <div className="divide-y border-t">
-                            {tools.map((tool) => {
-                              const isSelected = isToolSelected(tool);
+                            {items.map((item) => {
+                              const { displayName, description, identifier, providerText } = getItemDisplayInfo(item);
+                              const isSelected = isItemSelected(item);
                               const isDisabled = !isSelected && isLimitReached;
+
                               return (
                                 <div
-                                  key={getToolIdentifier(tool)}
+                                  key={identifier}
                                   className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-muted/50'}`}
-                                  onClick={() => !isDisabled && handleAddTool(tool)}
+                                  onClick={() => !isDisabled && handleAddItem(item)}
                                 >
                                   <div className="flex-1 overflow-hidden pr-2">
-                                    <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(getToolDisplayName(tool), searchTerm)}</p>
-                                    {getToolDescription(tool) && <p className="text-xs text-muted-foreground">{highlightMatch(getToolDescription(tool) || "", searchTerm)}</p>}
-                                    <p className="text-xs text-muted-foreground/80 font-mono mt-1">{highlightMatch(getToolProvider(tool), searchTerm)}</p>
+                                    <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(displayName, searchTerm)}</p>
+                                    {description && <p className="text-xs text-muted-foreground">{highlightMatch(description, searchTerm)}</p>}
+                                    {providerText && <p className="text-xs text-muted-foreground/80 font-mono mt-1">{highlightMatch(providerText, searchTerm)}</p>}
                                   </div>
                                   {!isSelected && !isDisabled && (
                                      <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 text-green-600 hover:text-green-700" >
@@ -224,7 +338,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                      </Button>
                                    )}
                                   {isSelected && (
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={(e) => {e.stopPropagation(); handleRemoveTool(tool);}}>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={(e) => {e.stopPropagation(); handleRemoveToolById(identifier);}}>
                                        <XCircle className="h-4 w-4"/>
                                      </Button>
                                   )}
@@ -249,8 +363,8 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
           {/* Right Panel: Selected Tools */}
           <div className="w-1/2 flex flex-col p-4 space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-base">Selected Tools ({selectedCount}/{MAX_TOOLS_LIMIT})</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Selected ({selectedCount}/{MAX_TOOLS_LIMIT})</h3>
               <Button variant="ghost" size="sm" onClick={clearAllSelectedTools} disabled={selectedCount === 0}>
                 Clear All
               </Button>
@@ -268,24 +382,42 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
             <ScrollArea className="flex-1 -mr-4 pr-4">
               {localSelectedComponents.length > 0 ? (
                 <div className="space-y-2">
-                  {localSelectedComponents.map((tool) => (
-                     <div key={getToolIdentifier(tool)} className="flex items-center justify-between p-3 border rounded-md bg-card group min-w-0">
-                       <div className="flex-1 overflow-hidden pr-2">
-                          <p className="font-medium text-sm truncate overflow-hidden">{getToolDisplayName(tool)}</p>
-                          {getToolDescription(tool) && <p className="text-xs text-muted-foreground">{getToolDescription(tool)}</p>}
-                          <p className="text-xs text-muted-foreground/80 font-mono mt-1">{getToolProvider(tool)}</p>
-                       </div>
-                       <Button variant="ghost" size="icon" className="flex-shrink-0 h-7 w-7 text-destructive hover:text-destructive/80 opacity-50 group-hover:opacity-100" onClick={() => handleRemoveTool(tool)}>
-                         <XCircle className="h-4 w-4"/>
-                       </Button>
-                     </div>
-                  ))}
+                  {localSelectedComponents.map((tool) => {
+                    const { displayName, description, identifier, Icon, iconColor, isAgent } = getItemDisplayInfo(tool);
+
+                    return (
+                      <div key={identifier} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {isAgent ? (
+                            <KagentLogo className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
+                          ) : (
+                            <Icon className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
+                          )}
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{displayName}</p>
+                            {description && <p className="text-xs text-muted-foreground">{description}</p>}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 ml-2 flex-shrink-0"
+                          onClick={() => {
+                            handleRemoveToolById(identifier);
+                          }}
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                 <div className="flex flex-col items-center justify-center h-full text-center p-4 text-muted-foreground">
-                   <p className="text-sm">No tools selected yet.</p>
-                   <p className="text-xs mt-1">Click on a tool from the left panel to add it.</p>
-                 </div>
+                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+                  <PlusCircle className="h-10 w-10 mb-3 opacity-50" />
+                  <p className="font-medium">No tools selected</p>
+                  <p className="text-sm">Select tools or agents from the left panel.</p>
+                </div>
               )}
             </ScrollArea>
           </div>
