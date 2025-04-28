@@ -1,10 +1,10 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Model } from "@/lib/types";
+import type { ModelConfig } from "@/lib/types";
 
 interface ModelSelectionSectionProps {
-  allModels: Model[];
-  selectedModel: Partial<Model> | null;
-  setSelectedModel: (model: Partial<Model>) => void;
+  allModels: ModelConfig[];
+  selectedModel: Partial<ModelConfig> | null;
+  setSelectedModel: (model: Partial<ModelConfig>) => void;
   error?: string;
   isSubmitting: boolean;
   onBlur?: () => void;

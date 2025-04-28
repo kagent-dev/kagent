@@ -7,12 +7,12 @@ import {
   getToolProvider, 
   isSameTool 
 } from '../toolUtils';
-import { AgentTool, Component, MCPToolConfig, ToolConfig } from "@/types/datamodel";
+import { Tool, Component, MCPToolConfig, ToolConfig } from "@/types/datamodel";
 
 describe('Tool Utility Functions', () => {
   describe('isMcpTool', () => {
     it('should identify valid MCP tools', () => {
-      const validMcpTool: AgentTool = {
+      const validMcpTool: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server",
@@ -36,7 +36,7 @@ describe('Tool Utility Functions', () => {
 
   describe('isInlineTool', () => {
     it('should identify valid inline tools', () => {
-      const validInlineTool: AgentTool = {
+      const validInlineTool: Tool = {
         type: "Inline",
         inline: {
           provider: "test-provider",
@@ -90,7 +90,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle MCP server tools', () => {
-      const mcpTool: AgentTool = {
+      const mcpTool: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server",
@@ -101,7 +101,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle inline tools', () => {
-      const inlineTool: AgentTool = {
+      const inlineTool: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider.ToolName",
@@ -113,7 +113,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should fall back to provider name for inline tools without label', () => {
-      const inlineTool: AgentTool = {
+      const inlineTool: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider.ToolName",
@@ -178,7 +178,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle inline tools', () => {
-      const inlineTool: AgentTool = {
+      const inlineTool: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider",
@@ -190,7 +190,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle MCP server tools', () => {
-      const mcpTool: AgentTool = {
+      const mcpTool: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server",
@@ -255,7 +255,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle MCP server tools', () => {
-      const mcpTool: AgentTool = {
+      const mcpTool: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server",
@@ -266,7 +266,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle inline tools', () => {
-      const inlineTool: AgentTool = {
+      const inlineTool: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider",
@@ -301,7 +301,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle MCP server tools', () => {
-      const mcpTool: AgentTool = {
+      const mcpTool: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server",
@@ -312,7 +312,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle inline tools', () => {
-      const inlineTool: AgentTool = {
+      const inlineTool: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider",
@@ -332,19 +332,19 @@ describe('Tool Utility Functions', () => {
   describe('isSameTool', () => {
     it('should return false for undefined tools', () => {
       expect(isSameTool(undefined, undefined)).toBe(false);
-      expect(isSameTool(undefined, {} as AgentTool)).toBe(false);
-      expect(isSameTool({} as AgentTool, undefined)).toBe(false);
+      expect(isSameTool(undefined, {} as Tool)).toBe(false);
+      expect(isSameTool({} as Tool, undefined)).toBe(false);
     });
 
     it('should identify same MCP tools', () => {
-      const tool1: AgentTool = {
+      const tool1: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server",
           toolNames: ["tool1", "tool2"]
         }
       };
-      const tool2: AgentTool = {
+      const tool2: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server",
@@ -355,7 +355,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should identify same inline tools', () => {
-      const tool1: AgentTool = {
+      const tool1: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider",
@@ -363,7 +363,7 @@ describe('Tool Utility Functions', () => {
           description: "Inline Description"
         }
       };
-      const tool2: AgentTool = {
+      const tool2: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider",
@@ -375,14 +375,14 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should identify different tools', () => {
-      const mcpTool: AgentTool = {
+      const mcpTool: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server",
           toolNames: ["tool1", "tool2"]
         }
       };
-      const inlineTool: AgentTool = {
+      const inlineTool: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider",
@@ -394,14 +394,14 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should identify different MCP tools', () => {
-      const tool1: AgentTool = {
+      const tool1: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server-1",
           toolNames: ["tool1", "tool2"]
         }
       };
-      const tool2: AgentTool = {
+      const tool2: Tool = {
         type: "McpServer",
         mcpServer: {
           toolServer: "test-server-2",
@@ -412,7 +412,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should identify different inline tools', () => {
-      const tool1: AgentTool = {
+      const tool1: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider1",
@@ -420,7 +420,7 @@ describe('Tool Utility Functions', () => {
           description: "Inline Description"
         }
       };
-      const tool2: AgentTool = {
+      const tool2: Tool = {
         type: "Inline",
         inline: {
           provider: "test.provider2",
