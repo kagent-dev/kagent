@@ -33,6 +33,7 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/internal/utils/syncutils"
 
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver"
+	utils_internal "github.com/kagent-dev/kagent/go/controller/internal/utils"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -57,7 +58,7 @@ import (
 var (
 	scheme       = runtime.NewScheme()
 	setupLog     = ctrl.Log.WithName("setup")
-	podNamespace = os.Getenv("POD_NAMESPACE")
+	podNamespace = utils_internal.GetResourceNamespace()
 )
 
 func init() {
@@ -67,10 +68,6 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
-
-	if podNamespace == "" {
-		podNamespace = "kagent"
-	}
 }
 
 // nolint:gocyclo
