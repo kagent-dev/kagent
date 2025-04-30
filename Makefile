@@ -142,7 +142,7 @@ helm-install-provider-openai: helm-version check-openai-key
 		--set modelconfig.default.openai.apiKey=$(OPENAI_API_KEY) \
 		--set modelconfig.default.provider=OpenAI
 
-.PHONY: helm-install-ollama
+.PHONY: helm-install-provider-ollama
 helm-install-provider-ollama: helm-version
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
