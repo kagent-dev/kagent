@@ -21,8 +21,11 @@ DOCKER_BUILDER ?= docker
 DOCKER_BUILD_ARGS ?=
 KIND_CLUSTER_NAME ?= kagent
 
+#take from go/go.mod
+AWK ?= $(shell command -v gawk || command -v awk)
+GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
+
 #tools versions
-GO_VERSION ?= 1.24.2
 TOOLS_UV_VERSION ?= 0.6.5
 TOOLS_ISTIO_VERSION ?= 1.25.2
 TOOLS_ARGO_CD_VERSION ?= 2.8.2
@@ -35,6 +38,12 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
 
 HELM_ACTION=upgrade --install
+
+print-tools-versions:
+	@echo "Tools Go     : $(GO_VERSION)"
+	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
+	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
+	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
 # Check if OPENAI_API_KEY is set
 check-openai-key:
