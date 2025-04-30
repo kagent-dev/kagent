@@ -39,6 +39,9 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
 
 HELM_ACTION=upgrade --install
 
+# Helm chart variables
+DEFAULT_MODEL_PROVIDER ?= openai
+
 print-tools-versions:
 	@echo "Tools Go     : $(GO_VERSION)"
 	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
@@ -122,7 +125,7 @@ helm-version:
 	helm package helm/kagent
 
 .PHONY: helm-install-provider-openai
-helm-install-provider-openai: helm-version check-openai-key
+helm-install-provider: helm-version check-openai-key
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
@@ -139,37 +142,17 @@ helm-install-provider-openai: helm-version check-openai-key
 		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
 		--set app.image.tag=$(APP_IMAGE_TAG) \
-		--set modelconfig.default.openai.apiKey=$(OPENAI_API_KEY) \
-		--set modelconfig.default.provider=OpenAI
-
-.PHONY: helm-install-provider-ollama
-helm-install-provider-ollama: helm-version
-	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
-		--namespace kagent \
-		--create-namespace \
-		--history-max 2    \
-		--wait
-	helm $(HELM_ACTION) kagent helm/kagent \
-		--namespace kagent \
-		--create-namespace \
-		--history-max 2    \
-		--wait \
-		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set app.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
-		--set ui.image.tag=$(UI_IMAGE_TAG) \
-		--set app.image.tag=$(APP_IMAGE_TAG) \
-		--set modelconfig.default.provider=Ollama
+		--set modelconfig.openai.apiKey=$(OPENAI_API_KEY) \
+		--set provider=$(DEFAULT_MODEL_PROVIDER)
 
 .PHONY: helm-install
 helm-install: kind-load-docker-images
-helm-install: helm-install-provider-openai
+helm-install: helm-install-provider
 
 .PHONY: helm-test-install
-helm-test-install: HELM_ACTION+="--dry-run"
-helm-test-install: helm-install-provider-openai
-helm-test-install: helm-install-provider-ollama
+helm-test-dry-run: HELM_ACTION+="--dry-run"
+helm-test-dry-run: helm-install-provider
+
 # Test install with dry-run
 # Example: `make helm-test-install | tee helm-test-install.log`
 

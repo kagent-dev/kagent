@@ -48,8 +48,8 @@ spec:
           image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ coalesce .Values.global.tag .Values.app.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
           env:
-            {{- if eq .Values.modelconfig.default.provider "OpenAI" }}
-            {{ with .Values.modelconfig.default.openai }}
+            {{- if hasKey .Values.modelconfig  "openai" }}
+            {{ with .Values.modelconfig.openai }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:

@@ -1,19 +1,26 @@
+{{- $dot := . }}
+{{- range $key, $model := .Values.modelconfig }}
+---
 apiVersion: kagent.dev/v1alpha1
 kind: ModelConfig
 metadata:
+  {{- if eq $dot.Values.provider $key }}
   name: default-model-config
-  labels:
-    {{- include "kagent.labels" . | nindent 4 }}
-spec:
-  provider: {{ .Values.modelconfig.default.provider | quote }}
-{{- if eq .Values.modelconfig.default.provider "OpenAI" }}
-  {{ with .Values.modelconfig.default.openai }}
-  model: {{ .model | quote }}
-  apiKeySecretRef: {{ .secretName }}
-  apiKeySecretKey: {{ .secretKey }}
+  {{- else }}
+  name: {{$key}}-model-config
   {{- end }}
-{{- else  }}
-  model: {{ .Values.modelconfig.default.ollama.model | quote }}
-  ollama:
-    {{ toYaml .Values.modelconfig.default.ollama | nindent 4 }}
-{{ end -}}
+  labels:
+    {{- include "kagent.labels" $dot | nindent 4 }}
+spec:
+  {{- with $model }}
+  {{- $modelconfig := omit . "provider" "model" "secretKey" "secretName" }}
+  provider: {{ .provider | quote }}
+  model: {{ .model | quote }}
+  {{- if eq .provider "OpenAI"}}
+  secretKey: {{.secretKey}}
+  secretName: {{.secretName}}
+  {{- end }}
+  {{$key }}:
+  {{- toYaml $modelconfig | nindent 4 }}
+  {{- end}}
+{{- end }}
