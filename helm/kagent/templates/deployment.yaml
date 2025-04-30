@@ -35,7 +35,7 @@ spec:
             {{- toYaml .Values.controller.resources | nindent 12 }}
           env:
             - name: KAGENT_DEFAULT_PROVIDER
-              value: {{ .Values.provider | quote }}
+              value: {{ .Values.providers.default | quote }}
             - name: KAGENT_NAMESPACE
               valueFrom:
                 fieldRef:
