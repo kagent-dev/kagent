@@ -26,6 +26,8 @@ func installChart(ctx context.Context, chartName string, namespace string, versi
 		namespace,
 		"--create-namespace",
 		"--wait",
+		"--history-max",
+		"2",
 	}
 
 	// Add set values if any

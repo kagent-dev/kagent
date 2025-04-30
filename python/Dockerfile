@@ -1,6 +1,9 @@
-FROM ghcr.io/astral-sh/uv:0.6.5-debian-slim AS builder 
+ARG TOOLS_UV_VERSION=latest
+FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS builder
 
 ARG TARGETARCH
+ARG TOOLS_ISTIO_VERSION
+ARG TOOLS_ARGO_CD_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -17,14 +20,13 @@ RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/s
     && mv kubectl /usr/local/bin/
 
 # Install kubectl argo plugin
-RUN curl -LO https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-linux-amd64 \
-    && chmod +x ./kubectl-argo-rollouts-linux-amd64 \
-    && mv ./kubectl-argo-rollouts-linux-amd64 /usr/local/bin/kubectl-argo-rollouts
+RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/$TOOLS_ARGO_CD_VERSION/download/kubectl-argo-rollouts-linux-$TARGETARCH \
+    && chmod +x /usr/local/bin/kubectl-argo-rollouts
 
 # Install Istio
-RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.25.0 TARGET_ARCH=$TARGETARCH sh - \
-    && mv istio-1.25.0/bin/istioctl /usr/local/bin/istioctl \
-    && rm -rf istio-1.25.0
+RUN curl -L https://istio.io/downloadIstio | TOOLS_ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=$TARGETARCH sh - \
+    && mv istio-$TOOLS_ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl \
+    && rm -rf istio-$TOOLS_ISTIO_VERSION
 
 # Install Helm
 RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
@@ -32,7 +34,7 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && ./get_helm.sh \
     && rm get_helm.sh
 
-FROM ghcr.io/astral-sh/uv:0.6.5-debian-slim AS final
+FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS final
 
 ARG TARGETARCH
 

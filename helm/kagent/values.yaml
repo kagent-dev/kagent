@@ -4,11 +4,17 @@ replicaCount: 1
 global:
   tag: ""
 
-openai:
-  enabled: true
-  secretName: "kagent-openai"
-  apiKey: ""
-  secretKey: "OPENAI_API_KEY"
+modelconfig:
+  default:
+    provider: OpenAI # Ollama
+    ollama:
+      model: "llama3.2" #qwen3:4b llama3.2llama3.2
+      host: host.docker.internal:11434
+    openai:
+      model: "gpt-4o"
+      secretName: "kagent-openai"
+      secretKey: "OPENAI_API_KEY"
+      apiKey: ""
 
 controller:
   image:

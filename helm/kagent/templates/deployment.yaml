@@ -45,11 +45,15 @@ spec:
           image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ coalesce .Values.global.tag .Values.app.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
           env:
+            {{- if eq .Values.modelconfig.default.provider "OpenAI" }}
+            {{ with .Values.modelconfig.default.openai }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.openai.secretName }}
-                  key: {{ .Values.openai.secretKey }}
+                  name: {{ .secretName }}
+                  key: {{ .secretKey }}
+            {{- end }}
+            {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
