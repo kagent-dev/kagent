@@ -40,7 +40,7 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
 HELM_ACTION=upgrade --install
 
 # Helm chart variables
-DEFAULT_MODEL_PROVIDER ?= openai
+KAGENT_DEFAULT_MODEL_PROVIDER ?= openai
 
 print-tools-versions:
 	@echo "Tools Go     : $(GO_VERSION)"
@@ -144,7 +144,7 @@ helm-install-provider: helm-version check-openai-key
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
 		--set app.image.tag=$(APP_IMAGE_TAG) \
 		--set modelconfig.openai.apiKey=$(OPENAI_API_KEY) \
-		--set provider=$(DEFAULT_MODEL_PROVIDER)
+		--set provider=$(KAGENT_DEFAULT_MODEL_PROVIDER)
 
 .PHONY: helm-install
 helm-install: kind-load-docker-images
@@ -153,7 +153,6 @@ helm-install: helm-install-provider
 .PHONY: helm-test-install
 helm-test-dry-run: HELM_ACTION+="--dry-run"
 helm-test-dry-run: helm-install-provider
-
 # Test install with dry-run
 # Example: `make helm-test-install | tee helm-test-install.log`
 
