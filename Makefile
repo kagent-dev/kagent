@@ -11,6 +11,11 @@ APP_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+# Retagged image variables for kind loading; the Helm chart uses these
+RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
+RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
+RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
+RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 DOCKER_BUILDER ?= docker
 DOCKER_BUILD_ARGS ?=
 KIND_CLUSTER_NAME ?= kagent
@@ -73,10 +78,16 @@ release-app: DOCKER_BUILDER = docker buildx
 release-app: build-app
 
 .PHONY: kind-load-docker-images
-kind-load-docker-images: build
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(CONTROLLER_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(UI_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(APP_IMG)
+kind-load-docker-images: retag-docker-images
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
+
+.PHONY: retag-docker-images
+retag-docker-images: build
+	docker tag $(CONTROLLER_IMG) $(RETAGGED_CONTROLLER_IMG)
+	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
+	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
 
 .PHONY: helm-version
 helm-version:
@@ -95,6 +106,9 @@ helm-install: helm-version check-openai-key kind-load-docker-images
 		--namespace kagent \
 		--create-namespace \
 		--wait \
+		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set app.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
 		--set app.image.tag=$(APP_IMAGE_TAG) \

@@ -59,25 +59,83 @@ func NewAutogenReconciler(
 
 func (a *autogenReconciler) ReconcileAutogenAgent(ctx context.Context, req ctrl.Request) error {
 	// reconcile the agent team itself
+
+	// TODO(sbx0r): missing finalizer logic
+
 	agent := &v1alpha1.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
-		return fmt.Errorf("failed to get agent %s: %v", req.Name, err)
-	}
-	if err := a.reconcileAgents(ctx, agent); err != nil {
-		return fmt.Errorf("failed to reconcile agent %s: %v", req.Name, err)
+		if errors.IsNotFound(err) {
+			return a.handleAgentDeletion(req)
+		}
+
+		return fmt.Errorf("failed to get agent %s/%s: %w", req.Namespace, req.Name, err)
 	}
 
-	// find and reconcile all teams which use this agent
+	return a.handleExistingAgent(ctx, agent, req)
+}
+
+func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
+	// TODO(sbx0r): handle deletion of agents with multiple teams assignment
+
+	// agents, err := a.findTeamsUsingAgent(ctx, req)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to find teams for agent %s/%s: %v", req.Namespace, req.Name, err)
+	// }
+	// if len(agents) > 1 {
+	// 	reconcileLog.Info("agent with multiple dependencies was deleted",
+	// 	"namespace", req.Namespace,
+	// 	"name", req.Name,
+	// 	"agents", agents)
+	// }
+
+	// TODO(sbx0r): temporary mock on GlobalUserID.
+	//              This block will be removed after resolving previous TODO
+	team, err := a.autogenClient.GetTeam(req.Name, GlobalUserID)
+	if err != nil {
+		return fmt.Errorf("failed to get agent on agent deletion %s/%s: %w",
+			req.Namespace, req.Name, err)
+	}
+
+	if team != nil {
+		if err = a.autogenClient.DeleteTeam(team.Id, team.UserID); err != nil {
+			return fmt.Errorf("failed to delete agent %s/%s: %w",
+				req.Namespace, req.Name, err)
+		}
+	}
+
+	reconcileLog.Info("Agent was deleted", "namespace", req.Namespace, "name", req.Name)
+	return nil
+}
+
+func (a *autogenReconciler) handleExistingAgent(ctx context.Context, agent *v1alpha1.Agent, req ctrl.Request) error {
+	isNewAgent := agent.Status.ObservedGeneration == 0
+	isUpdatedAgent := agent.Generation > agent.Status.ObservedGeneration
+
+	if isNewAgent {
+		reconcileLog.Info("New agent was created",
+			"namespace", req.Namespace,
+			"name", req.Name,
+			"generation", agent.Generation)
+	} else if isUpdatedAgent {
+		reconcileLog.Info("Agent was updated",
+			"namespace", req.Namespace,
+			"name", req.Name,
+			"oldGeneration", agent.Status.ObservedGeneration,
+			"newGeneration", agent.Generation)
+	}
+
+	if err := a.reconcileAgents(ctx, agent); err != nil {
+		return fmt.Errorf("failed to reconcile agent %s/%s: %w",
+			req.Namespace, req.Name, err)
+	}
+
 	teams, err := a.findTeamsUsingAgent(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to find teams for agent %s: %v", req.Name, err)
+		return fmt.Errorf("failed to find teams for agent %s/%s: %w",
+			req.Namespace, req.Name, err)
 	}
 
-	return a.reconcileAgentStatus(
-		ctx,
-		agent,
-		a.reconcileTeams(ctx, teams...),
-	)
+	return a.reconcileAgentStatus(ctx, agent, a.reconcileTeams(ctx, teams...))
 }
 
 func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha1.Agent, err error) error {

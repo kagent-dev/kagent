@@ -34,7 +34,7 @@ spec:
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
           env:
-            - name: POD_NAMESPACE
+            - name: KAGENT_NAMESPACE
               valueFrom:
                 fieldRef:
                   apiVersion: v1
