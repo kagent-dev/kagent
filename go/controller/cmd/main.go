@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -41,6 +42,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
@@ -56,9 +58,9 @@ import (
 )
 
 var (
-	scheme       = runtime.NewScheme()
-	setupLog     = ctrl.Log.WithName("setup")
-	podNamespace = utils_internal.GetResourceNamespace()
+	scheme          = runtime.NewScheme()
+	setupLog        = ctrl.Log.WithName("setup")
+	kagentNamespace = utils_internal.GetResourceNamespace()
 )
 
 func init() {
@@ -107,7 +109,7 @@ func main() {
 	flag.StringVar(&autogenStudioWsURL, "autogen-ws-url", "ws://127.0.0.1:8081/api/ws", "The base url of the Autogen Studio websocket server.")
 
 	flag.StringVar(&defaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
-	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", podNamespace, "The namespace of the default model config.")
+	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
 	flag.StringVar(&httpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
 
 	opts := zap.Options{
@@ -231,6 +233,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	allowedNamespacesDirty, err := getAllowedNamespacesFromEnv()
+	if err != nil {
+		setupLog.Error(err, "to initialize namespace filter")
+		os.Exit(1)
+	}
+	allowedNamespaces := filterValidNamespaces(strings.Split(allowedNamespacesDirty, ","))
+	namespaceFilter := controller.NewNamespaceFilterPredicate(allowedNamespaces)
+	setupLog.Info("Allowed namespaces", "namespaces", allowedNamespaces)
+
 	// TODO(ilackarms): aliases for builtin autogen tools
 	builtinTools := syncutils.NewAtomicMap[string, string]()
 	builtinTools.Set("k8s-get-pod", "k8s.get_pod")
@@ -264,7 +275,7 @@ func main() {
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: autogenReconciler,
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(mgr, namespaceFilter); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AutogenTeam")
 		os.Exit(1)
 	}
@@ -272,7 +283,7 @@ func main() {
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: autogenReconciler,
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(mgr, namespaceFilter); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AutogenAgent")
 		os.Exit(1)
 	}
@@ -280,7 +291,7 @@ func main() {
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: autogenReconciler,
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(mgr, namespaceFilter); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AutogenModelConfig")
 		os.Exit(1)
 	}
@@ -288,7 +299,7 @@ func main() {
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: autogenReconciler,
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(mgr, namespaceFilter); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AutogenSecret")
 		os.Exit(1)
 	}
@@ -296,7 +307,7 @@ func main() {
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		Reconciler: autogenReconciler,
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(mgr, namespaceFilter); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ToolServer")
 		os.Exit(1)
 	}
@@ -380,4 +391,40 @@ func waitForReady(f func() error, timeout, interval time.Duration) error {
 
 		time.Sleep(interval)
 	}
+}
+
+// filterValidNamespaces filters out empty or invalid namespace names
+// and logs warnings for invalid names.
+func filterValidNamespaces(namespaces []string) []string {
+	var validNamespaces []string
+
+	for _, ns := range namespaces {
+		if ns == "" {
+			continue
+		}
+
+		// Use Kubernetes validator to verify namespace name
+		if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
+			setupLog.Info(fmt.Sprintf("Ignoring invalid namespace name: %s, errors: %s",
+				ns, strings.Join(errs, ", ")))
+		} else {
+			validNamespaces = append(validNamespaces, ns)
+		}
+	}
+
+	return validNamespaces
+}
+
+// getAllowedNamespacesFromEnv retrieves the ALLOWED_NAMESPACES environment variable.
+// Note: Despite its singular name, the variable can contain a single namespace
+// or a comma-separated list of namespaces.
+// Returns an empty string if running with cluster scope.
+// Returns an error if the environment variable is not set.
+func getAllowedNamespacesFromEnv() (string, error) {
+	var allowedNamespacesEnvVar = "ALLOWED_NAMESPACES"
+	ns, found := os.LookupEnv(allowedNamespacesEnvVar)
+	if !found {
+		return "", fmt.Errorf("%s must be set", allowedNamespacesEnvVar)
+	}
+	return ns, nil
 }
