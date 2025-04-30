@@ -17,8 +17,8 @@ spec:
   provider: {{ .provider | quote }}
   model: {{ .model | quote }}
   {{- if eq .provider "OpenAI"}}
-  secretKey: {{.secretKey}}
-  secretName: {{.secretName}}
+  apiKeySecretKey: {{.secretKey}}
+  apiKeySecretRef: {{.secretName}}
   {{- end }}
   {{$key }}:
   {{- toYaml $modelconfig | nindent 4 }}
