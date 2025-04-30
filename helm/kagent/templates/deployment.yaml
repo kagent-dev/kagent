@@ -39,6 +39,9 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
+          {{- with .Values.controller.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         - name: app
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -62,6 +65,13 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          {{- with .Values.app.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.ports.app.targetPort }}
@@ -82,6 +92,9 @@ spec:
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
               value: "http://{{ include "kagent.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/api"
+          {{- with .Values.ui.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.ports.ui.targetPort }}
