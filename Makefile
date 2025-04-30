@@ -67,6 +67,7 @@ build: build-controller build-ui build-app
 
 .PHONY: build-cli
 build-cli:
+	make -C go clean
 	make -C go build
 
 .PHONY: push

@@ -13,13 +13,19 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
+const (
+	ProviderTypeOpenai     = "openai"
+	DefaultModelProvider   = ProviderTypeOpenai
+	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
+)
+
 // installChart installs or upgrades a Helm chart with the given parameters
-func installChart(ctx context.Context, chartName string, namespace string, version string, setValues []string, s *spinner.Spinner) (string, error) {
+func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, s *spinner.Spinner) (string, error) {
 	args := []string{
 		"upgrade",
 		"--install",
 		chartName,
-		"oci://ghcr.io/kagent-dev/kagent/helm/" + chartName,
+		registry + chartName,
 		"--version",
 		version,
 		"--namespace",
@@ -50,18 +56,39 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		return
 	}
 
-	if os.Getenv("OPENAI_API_KEY") == "" {
+	// get default model provider from environment variable or use "openai" if not set
+	modelProvider := os.Getenv("KAGENT_DEFAULT_MODEL_PROVIDER")
+	if modelProvider == "" {
+		modelProvider = DefaultModelProvider
+	}
+
+	//if model provider is openai, check if the api key is set
+	openaiApiKey := os.Getenv("OPENAI_API_KEY")
+	if modelProvider == ProviderTypeOpenai && openaiApiKey == "" {
 		c.Println("OPENAI_API_KEY is not set")
 		c.Println("Please set the OPENAI_API_KEY environment variable")
 		return
 	}
 
+	//allow user to set the helm registry
+	helmRegistry := os.Getenv("KAGENT_HELM_REPO")
+	if helmRegistry == "" {
+		helmRegistry = DefaultHelmOciRegistry
+	}
+
+	//allow user to set the helm version
+	helmVersion := os.Getenv("KAGENT_HELM_VERSION")
+	if helmVersion == "" {
+		helmVersion = Version
+	}
+
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
 	// First install kagent-crds
-	s.Suffix = " Installing kagent-crds"
+	s.Suffix = " Installing kagent-crds from " + helmRegistry
+	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, Version, nil, s); err != nil {
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, s); err != nil {
 		// Check for various CRD existence scenarios, this is to be compatible with
 		// original kagent installation that had CRDs installed together with the kagent chart
 		if strings.Contains(output, "exists and cannot be imported into the current release") {
@@ -71,15 +98,21 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 			c.Println("ensure they're fully managed on next install.")
 			s.Start()
 		} else {
-			c.Println("Error installing kagent-crds:", output)
+			c.Println("\nError installing kagent-crds:", output)
 			return
 		}
 	}
 
-	// Then install kagent
-	s.Suffix = " Installing kagent"
-	if output, err := installChart(ctx, "kagent", cfg.Namespace, Version, []string{"openai.apiKey=" + os.Getenv("OPENAI_API_KEY")}, s); err != nil {
-		c.Println("Error installing kagent:", output)
+	// Update status
+	s.Suffix = " Installing kagent from " + helmRegistry
+
+	// Build Helm values
+	values := []string{
+		fmt.Sprintf("provider=%s", modelProvider),
+		fmt.Sprintf("modelconfig.openai.apiKey=%s", openaiApiKey),
+	}
+	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, s); err != nil {
+		c.Println("\nError installing kagent:", output)
 		return
 	}
 
@@ -103,7 +136,6 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		return
 	}
 
-	s.Stop()
 	c.Println("kagent installed successfully")
 }
 
