@@ -57,3 +57,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "kagent.defaultModelConfigName" -}}
 {{ include "kagent.defaultProviderName" . }}-model-config
 {{- end }}
+{{/*
+Allowed namespaces - transforms list of allowed namespaces into comma-separated string
+Includes current release namespace and removes duplicates
+*/}}
+{{- define "kagent.allowedNamespaces" -}}
+{{- $nsSet := dict }}
+{{- /* Add current namespace */ -}}
+{{- $_ := set $nsSet .Release.Namespace "" }}
+{{- /* Add user-defined namespaces */ -}}
+{{- range .Values.controller.allowedNamespaces | default list }}
+{{- $_ := set $nsSet . "" }}
+{{- end }}
+{{- join "," (keys $nsSet) }}
+{{- end -}}
