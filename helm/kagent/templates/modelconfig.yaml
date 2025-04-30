@@ -1,19 +1,20 @@
 {{- $dot := . }}
-{{- range $key, $model := .Values.modelconfig }}
+{{- $providers := omit $dot.Values.providers "default" }}
+{{- range $key, $model := $providers }}
 ---
 apiVersion: kagent.dev/v1alpha1
 kind: ModelConfig
 metadata:
-  {{- if eq $dot.Values.provider $key }}
+  {{- if eq $dot.Values.providers.default $key }}
   name: default-model-config
   {{- else }}
-  name: {{$key}}-model-config
+  name: {{$key | lower}}-model-config
   {{- end }}
   labels:
     {{- include "kagent.labels" $dot | nindent 4 }}
 spec:
   {{- with $model }}
-  {{- $modelconfig := omit . "provider" "model" "secretKey" "secretName" }}
+  {{- $modelconfig := omit . "provider" "model" "secretKey" "secretName" "apiKey" }}
   provider: {{ .provider | quote }}
   model: {{ .model | quote }}
   {{- if eq .provider "OpenAI"}}

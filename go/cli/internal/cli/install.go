@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	ProviderTypeOpenai     = "openai"
+	ProviderTypeOpenai     = "openAI"
 	DefaultModelProvider   = ProviderTypeOpenai
 	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
 )
@@ -109,7 +109,7 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 	// Build Helm values
 	values := []string{
 		fmt.Sprintf("provider=%s", modelProvider),
-		fmt.Sprintf("modelconfig.openai.apiKey=%s", openaiApiKey),
+		fmt.Sprintf("providers.openAI.apiKey=%s", openaiApiKey),
 	}
 	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, s); err != nil {
 		c.Println("\nError installing kagent:", output)

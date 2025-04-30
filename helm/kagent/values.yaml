@@ -4,19 +4,26 @@ replicaCount: 1
 global:
   tag: ""
 
-provider: openai
-modelconfig:
-  openai:
-    provider: OpenAI # Ollama
+providers:
+  default: openAI
+  openAI:
+    provider: OpenAI
     secretName: "kagent-openai"
     secretKey: "OPENAI_API_KEY"
     model: "gpt-4o"
     apiKey: ""
   ollama:
     provider: Ollama
-    model: "llama3.2" #qwen3:4b llama3.2llama3.2
+    model: "llama3.2"
     host: host.docker.internal:11434
-  antropic:
+  azureOpenAI:
+    provider: AzureOpenAI
+    azureAdToken: ""
+    azureDeployment: ""
+    azureEndpoint: ""
+    apiVersion: "2023-05-15"
+    model: "gpt-4o"
+  anthropic:
     provider: Anthropic
     model: "claude-3.7"
 

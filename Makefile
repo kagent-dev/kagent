@@ -40,7 +40,7 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
 HELM_ACTION=upgrade --install
 
 # Helm chart variables
-KAGENT_DEFAULT_MODEL_PROVIDER ?= openai
+KAGENT_DEFAULT_MODEL_PROVIDER ?= openAI
 
 print-tools-versions:
 	@echo "Tools Go     : $(GO_VERSION)"
@@ -143,8 +143,8 @@ helm-install-provider: helm-version check-openai-key
 		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
 		--set app.image.tag=$(APP_IMAGE_TAG) \
-		--set modelconfig.openai.apiKey=$(OPENAI_API_KEY) \
-		--set provider=$(KAGENT_DEFAULT_MODEL_PROVIDER)
+		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
+		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER)
 
 .PHONY: helm-install
 helm-install: kind-load-docker-images
