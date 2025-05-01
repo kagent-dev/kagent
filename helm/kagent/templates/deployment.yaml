@@ -45,6 +45,14 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
+            {{- if .Values.controller.allowedNamespaces }}
+            - name: ALLOWED_NAMESPACES
+              value: {{ include "kagent.allowedNamespaces" . }}
+            {{- end }}
+            {{- if .Values.controller.watchNamespaces }}
+            - name: WATCH_NAMESPACES
+              value: {{ include "kagent.watchNamespaces" . }}
+            {{- end }}
           {{- with .Values.controller.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
