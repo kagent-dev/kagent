@@ -4,29 +4,24 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: agents.kagent.dev
+  name: memories.kagent.dev
 spec:
   group: kagent.dev
   names:
-    kind: Agent
-    listKind: AgentList
-    plural: agents
-    singular: agent
+    kind: Memory
+    listKind: MemoryList
+    plural: memories
+    singular: memory
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: Whether or not the agent has been accepted by the system.
-      jsonPath: .status.conditions[0].status
-      name: Accepted
-      type: string
-    - description: The ModelConfig resource referenced by this agent.
-      jsonPath: .spec.modelConfig
-      name: ModelConfig
+    - jsonPath: .spec.provider
+      name: Provider
       type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Agent is the Schema for the agents API.
+        description: Memory is the Schema for the memories API.
         properties:
           apiVersion:
             description: |-
@@ -46,90 +41,54 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentSpec defines the desired state of Agent.
+            description: MemorySpec defines the desired state of Memory.
             properties:
-              description:
+              apiKeySecretKey:
+                description: The key in the secret that contains the API key
                 type: string
-              memory:
-                items:
-                  type: string
-                type: array
-              modelConfig:
+              apiKeySecretRef:
+                description: |-
+                  The reference to the secret that contains the API key. Can either be a reference to the name of a secret in the same namespace as the referencing Memory,
+                  or a reference to the name of a secret in a different namespace in the form <namespace>/<name>
                 type: string
-              systemMessage:
-                minLength: 1
-                type: string
-              tools:
-                items:
-                  properties:
-                    agent:
-                      properties:
-                        ref:
-                          description: |-
-                            Reference to the Agent resource to use as a tool.
-                            Can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
-                          minLength: 1
-                          type: string
-                      type: object
-                    builtin:
-                      properties:
-                        config:
-                          description: 'note: this implementation is due to the kubebuilder
-                            limitation https://github.com/kubernetes-sigs/controller-tools/issues/636'
-                          x-kubernetes-preserve-unknown-fields: true
-                        name:
-                          description: the name of the builtin tool
-                          type: string
-                      type: object
-                    mcpServer:
-                      properties:
-                        toolNames:
-                          description: |-
-                            The names of the tools to be provided by the ToolServer
-                            For a list of all the tools provided by the server,
-                            the client can query the status of the ToolServer object after it has been created
-                          items:
-                            type: string
-                          type: array
-                        toolServer:
-                          description: the name of the ToolServer that provides the
-                            tool. can either be a reference to the name of a ToolServer
-                            in the same namespace as the referencing Agent, or a reference
-                            to the name of an ToolServer in a different namespace
-                            in the form <namespace>/<name>
-                          type: string
-                      type: object
-                    type:
-                      allOf:
-                      - enum:
-                        - Builtin
-                        - McpServer
-                        - Agent
-                      - enum:
-                        - Builtin
-                        - McpServer
-                        - Agent
-                      description: ToolProviderType represents the tool provider type
+              pinecone:
+                description: The configuration for the Pinecone memory provider
+                properties:
+                  indexHost:
+                    description: The index host to connect to
+                    type: string
+                  namespace:
+                    description: The namespace to use for the Pinecone index. If not
+                      provided, the default namespace will be used.
+                    type: string
+                  recordFields:
+                    description: The fields to retrieve from the Pinecone index. If
+                      not provided, all fields will be retrieved.
+                    items:
                       type: string
-                  type: object
-                  x-kubernetes-validations:
-                  - message: type.builtin must be nil if the type is not Builtin
-                    rule: '!(has(self.builtin) && self.type != ''Builtin'')'
-                  - message: type.builtin must be specified for Builtin filter.type
-                    rule: '!(!has(self.builtin) && self.type == ''Builtin'')'
-                  - message: type.mcpServer must be nil if the type is not McpServer
-                    rule: '!(has(self.mcpServer) && self.type != ''McpServer'')'
-                  - message: type.mcpServer must be specified for McpServer filter.type
-                    rule: '!(!has(self.mcpServer) && self.type == ''McpServer'')'
-                  - message: type.agent must be nil if the type is not Agent
-                    rule: '!(has(self.agent) && self.type != ''Agent'')'
-                  - message: type.agent must be specified for Agent filter.type
-                    rule: '!(!has(self.agent) && self.type == ''Agent'')'
-                maxItems: 20
-                type: array
+                    type: array
+                  scoreThreshold:
+                    description: The score threshold of results to include in the
+                      context. Results with a score below this threshold will be ignored.
+                    type: string
+                  topK:
+                    description: The number of results to return from the Pinecone
+                      index
+                    type: integer
+                required:
+                - indexHost
+                type: object
+              provider:
+                default: Pinecone
+                description: The provider of the memory
+                enum:
+                - Pinecone
+                type: string
+            required:
+            - provider
             type: object
           status:
-            description: AgentStatus defines the observed state of Agent.
+            description: MemoryStatus defines the observed state of Memory.
             properties:
               conditions:
                 items:
@@ -190,6 +149,9 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+            required:
+            - conditions
+            - observedGeneration
             type: object
         type: object
     served: true

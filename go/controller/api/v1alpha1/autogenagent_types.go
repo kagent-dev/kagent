@@ -35,6 +35,8 @@ type AgentSpec struct {
 	ModelConfig string `json:"modelConfig,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
+	// +optional
+	Memory []string `json:"memory,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type

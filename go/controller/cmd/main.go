@@ -300,8 +300,15 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ToolServer")
 		os.Exit(1)
 	}
+	if err = (&controller.AutogenMemoryReconciler{
+		Client:     kubeClient,
+		Scheme:     mgr.GetScheme(),
+		Reconciler: autogenReconciler,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Memory")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
-
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")
 		if err := mgr.Add(metricsCertWatcher); err != nil {
