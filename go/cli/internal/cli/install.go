@@ -13,12 +13,6 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
-const (
-	ProviderTypeOpenai     = "openAI"
-	DefaultModelProvider   = ProviderTypeOpenai
-	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
-)
-
 // installChart installs or upgrades a Helm chart with the given parameters
 func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, s *spinner.Spinner) (string, error) {
 	args := []string{
@@ -34,6 +28,8 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 		"--wait",
 		"--history-max",
 		"2",
+		"--timeout",
+		"5m",
 	}
 
 	// Add set values if any
@@ -56,31 +52,28 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		return
 	}
 
-	// get default model provider from environment variable or use "openai" if not set
-	modelProvider := os.Getenv("KAGENT_DEFAULT_MODEL_PROVIDER")
-	if modelProvider == "" {
-		modelProvider = DefaultModelProvider
-	}
+	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
+	modelProvider := GetModelProvider()
 
 	//if model provider is openai, check if the api key is set
-	openaiApiKey := os.Getenv("OPENAI_API_KEY")
-	if modelProvider == ProviderTypeOpenai && openaiApiKey == "" {
-		c.Println("OPENAI_API_KEY is not set")
-		c.Println("Please set the OPENAI_API_KEY environment variable")
+	apiKeyName := GetProviderAPIKey(modelProvider)
+	apiKeyValue := os.Getenv(apiKeyName)
+
+	if apiKeyName != "" && apiKeyValue == "" {
+		c.Printf("%s is not set", apiKeyName)
+		c.Printf("Please set the %s environment variable", apiKeyName)
 		return
 	}
 
-	//allow user to set the helm registry
-	helmRegistry := os.Getenv("KAGENT_HELM_REPO")
-	if helmRegistry == "" {
-		helmRegistry = DefaultHelmOciRegistry
+	// Build Helm values
+	values := []string{
+		fmt.Sprintf("providers.default=%s", modelProvider),
+		fmt.Sprintf("providers.%s.apiKey=%s", modelProvider, apiKeyValue),
 	}
 
-	//allow user to set the helm version
-	helmVersion := os.Getenv("KAGENT_HELM_VERSION")
-	if helmVersion == "" {
-		helmVersion = Version
-	}
+	//allow user to set the helm registry and version
+	helmRegistry := GetEnvVarWithDefault(KAGENT_HELM_REPO, DefaultHelmOciRegistry)
+	helmVersion := GetEnvVarWithDefault(KAGENT_HELM_VERSION, Version)
 
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -104,13 +97,7 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 	}
 
 	// Update status
-	s.Suffix = " Installing kagent from " + helmRegistry
-
-	// Build Helm values
-	values := []string{
-		fmt.Sprintf("provider=%s", modelProvider),
-		fmt.Sprintf("providers.openAI.apiKey=%s", openaiApiKey),
-	}
+	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s", modelProvider, helmRegistry, helmVersion)
 	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, s); err != nil {
 		c.Println("\nError installing kagent:", output)
 		return
@@ -136,7 +123,7 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		return
 	}
 
-	c.Println("kagent installed successfully")
+	c.Println("\nkagent installed successfully")
 }
 
 // deleteCRDs manually deletes Kubernetes CRDs for kagent

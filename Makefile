@@ -136,7 +136,9 @@ helm-install-provider: helm-version check-openai-key
 		--namespace kagent \
 		--create-namespace \
 		--history-max 2    \
+		--timeout 5m       \
 		--wait \
+		--set controller.loglevel=debug \
 		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set app.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
@@ -144,6 +146,8 @@ helm-install-provider: helm-version check-openai-key
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
 		--set app.image.tag=$(APP_IMAGE_TAG) \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
+		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
+		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER)
 
 .PHONY: helm-install

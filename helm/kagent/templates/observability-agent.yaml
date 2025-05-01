@@ -75,7 +75,7 @@ spec:
     - ALWAYS format your response as Markdown
     - Your response will include a summary of actions you took and an explanation of the result
     - If you created any artifacts such as files or resources, you will include those in your response as well
-  modelConfig: {{ .Values.contrib.agents.observability.modelConfigRef }}
+  modelConfig: {{ .Values.contrib.agents.observability.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
     - type: Builtin
       builtin:

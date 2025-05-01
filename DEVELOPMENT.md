@@ -47,10 +47,12 @@ npm run dev
 make create-kind-cluster
 ```
 
-2. Set your OPENAI_API_KEY:
+2. Set your providers API_KEY:
 
 ```shell
 export OPENAI_API_KEY=your-openai-api-key
+#or
+export ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
 3. Build images, load them into kind cluster and deploy everything using Helm:

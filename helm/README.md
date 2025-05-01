@@ -4,15 +4,20 @@ These Helm charts install kagent-crds,kagent, it is required that the Kagent CRD
 
 ## Installation
 
+### Using Helm
+
 ```bash
 # First, install the required CRDs
 helm install kagent-crds ./helm/kagent-crds/  --namespace kagent
 
-# Then install Kagent with openAI provider enabled
+# Then install Kagent with default openAI provider enabled
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.openAI.apiKey=abcde
 
 # if you prefer local ollama provider 
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=ollama
+
+# Then install Kagent with openAI provider enabled
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic --set providers.anthropic.apiKey=abcde
 ```
 
 ### Using Make
@@ -26,6 +31,33 @@ make KAGENT_DEFAULT_MODEL_PROVIDER=openAI helm-install
 
 # install charts with ollama provider
 make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install
+
+# install charts with anthropic provider
+make KAGENT_DEFAULT_MODEL_PROVIDER=anthropic helm-install
+```
+
+### Using kagent cli
+
+```bash
+#build kagent cli
+make build-cli
+
+## make sure have env variable with your API_KEY
+export OPENAI_API_KEY=abcde
+export ANTHROPIC_API_KEY=abcde
+export AZURE_API_KEY=abcde
+
+#default provider is openAI but you can select from the list 
+export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
+export KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI
+export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
+export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+
+# use local helm chart
+export KAGENT_HELM_REPO=./helm/
+
+#run kagent
+./go/bin/kagent-local
 ```
 
 ## Upgrading
