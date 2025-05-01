@@ -68,7 +68,7 @@ build: build-controller build-ui build-app
 .PHONY: build-cli
 build-cli:
 	make -C go clean
-	make -C go build
+	make -C go bin/kagent-local
 
 .PHONY: push
 push: push-controller push-ui push-app
@@ -138,7 +138,6 @@ helm-install-provider: helm-version check-openai-key
 		--history-max 2    \
 		--timeout 5m       \
 		--wait \
-		--set controller.loglevel=debug \
 		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set app.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
@@ -148,7 +147,8 @@ helm-install-provider: helm-version check-openai-key
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
-		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER)
+		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		$(HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
 helm-install: kind-load-docker-images
