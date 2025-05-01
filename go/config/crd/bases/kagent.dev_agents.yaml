@@ -50,6 +50,10 @@ spec:
             properties:
               description:
                 type: string
+              memory:
+                items:
+                  type: string
+                type: array
               modelConfig:
                 type: string
               systemMessage:
