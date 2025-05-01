@@ -59,14 +59,29 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{/*
 Allowed namespaces - transforms list of allowed namespaces into comma-separated string
-Includes current release namespace and removes duplicates
+Includes release namespace and removes duplicates
 */}}
 {{- define "kagent.allowedNamespaces" -}}
 {{- $nsSet := dict }}
-{{- /* Add current namespace */ -}}
+{{- /* Add release namespace */ -}}
 {{- $_ := set $nsSet .Release.Namespace "" }}
 {{- /* Add user-defined namespaces */ -}}
 {{- range .Values.controller.allowedNamespaces | default list }}
+{{- $_ := set $nsSet . "" }}
+{{- end }}
+{{- join "," (keys $nsSet) }}
+{{- end -}}
+
+{{/*
+Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string
+Includes release namespace and removes duplicates
+*/}}
+{{- define "kagent.watchNamespaces" -}}
+{{- $nsSet := dict }}
+{{- /* Add release namespace */ -}}
+{{- $_ := set $nsSet .Release.Namespace "" }}
+{{- /* Add user-defined namespaces */ -}}
+{{- range .Values.controller.watchNamespaces | default list }}
 {{- $_ := set $nsSet . "" }}
 {{- end }}
 {{- join "," (keys $nsSet) }}

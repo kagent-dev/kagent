@@ -41,10 +41,18 @@ controller:
   # -- Namespaces the controller is allowed to watch.
   # The chart's installation namespace is always included automatically.
   # Specify additional namespaces that should be watched by the controller.
-  # @default -- [] (only watches the release namespace)
-  allowedNamespaces: []
-  #  - additional-ns-1
-  #  - additional-ns-2
+  # @default -- [] (watches all namespaces)
+  allowedNamespaces:
+  #  - allowed-ns-1
+  #  - allowed-ns-2
+
+  # -- Namespaces the controller should watch.
+  # If empty, the controller will watch all namespaces (subject to RBAC permissions).
+  # @default -- [] (watches all namespaces)
+  watchNamespaces: []
+  #  - watch-ns-1
+  #  - watch-ns-2
+
   image:
     registry: cr.kagent.dev
     repository: kagent-dev/kagent/controller
