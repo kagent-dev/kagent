@@ -98,7 +98,6 @@ func TestConfigureNamespaceWatching(t *testing.T) {
 
 			assert.Equal(t, tt.expectWatched, watched)
 
-			// Verify Options were set correctly
 			if tt.expectOptions {
 				assert.NotNil(t, opts.Cache.DefaultNamespaces)
 				for _, ns := range tt.expectWatched {
@@ -106,7 +105,6 @@ func TestConfigureNamespaceWatching(t *testing.T) {
 					assert.True(t, exists, "Expected namespace %s to be in DefaultNamespaces", ns)
 				}
 			} else {
-				// Should be empty map or nil if watching all namespaces
 				if opts.Cache.DefaultNamespaces != nil {
 					assert.Empty(t, opts.Cache.DefaultNamespaces)
 				}
@@ -128,7 +126,7 @@ func TestConfigureNamespaceFiltering(t *testing.T) {
 				AllowedNamespaces: "",
 			},
 			expectAllowed:      nil,
-			expectPredicateNil: false, // Predicate still returned, but allows all
+			expectPredicateNil: false,
 		},
 		{
 			name: "valid namespaces should be allowed",
@@ -161,8 +159,6 @@ func TestConfigureNamespaceFiltering(t *testing.T) {
 			pred, allowed := ConfigureNamespaceFiltering(tt.nsConfig)
 
 			assert.Equal(t, tt.expectAllowed, allowed)
-
-			// Predicate should always be returned
 			assert.NotNil(t, pred, "Predicate should never be nil")
 		})
 	}
@@ -210,16 +206,13 @@ func TestControllerConfigFromEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clear environment before each test
 			os.Unsetenv("WATCH_NAMESPACES")
 			os.Unsetenv("ALLOWED_NAMESPACES")
 
-			// Set environment variables for this test
 			for k, v := range tt.envVars {
 				os.Setenv(k, v)
 			}
 
-			// Parse config from environment
 			config := ControllerConfig{}
 			err := env.Parse(&config)
 
