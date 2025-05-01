@@ -25,7 +25,7 @@ providers:
     apiKey: ""
   azureOpenAI:
     provider: AzureOpenAI
-    model: "gpt-4o"
+    model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-azure-openai
     apiKeySecretKey: AZUREOPENAI_API_KEY
     apiVersion: "2023-05-15"
