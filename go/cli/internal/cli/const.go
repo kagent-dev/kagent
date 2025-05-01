@@ -1,17 +1,14 @@
 package cli
 
-import "os"
-
-type ProviderType string
+import (
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"os"
+	"strings"
+)
 
 const (
-	ProviderTypeOpenai      ProviderType = "openAI"
-	ProviderTypeOllama      ProviderType = "ollama"
-	ProviderTypeAnthropic   ProviderType = "anthropic"
-	ProviderTypeAzureOpenAI ProviderType = "azureOpenAI"
-
 	// Version is the current version of the kagent CLI
-	DefaultModelProvider   = ProviderTypeOpenai
+	DefaultModelProvider   = v1alpha1.OpenAI
 	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
 
 	//Provider specific env variables
@@ -26,34 +23,43 @@ const (
 )
 
 // GetModelProvider returns the model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable
-func GetModelProvider() ProviderType {
+func GetModelProvider() v1alpha1.ModelProvider {
 	modelProvider := os.Getenv(KAGENT_DEFAULT_MODEL_PROVIDER)
 	if modelProvider == "" {
+
 		return DefaultModelProvider
 	}
-
 	switch modelProvider {
-	case string(ProviderTypeOpenai):
-		return ProviderTypeOpenai
-	case string(ProviderTypeOllama):
-		return ProviderTypeOllama
-	case string(ProviderTypeAnthropic):
-		return ProviderTypeAnthropic
-	case string(ProviderTypeAzureOpenAI):
-		return ProviderTypeAzureOpenAI
+	case string(v1alpha1.OpenAI):
+		return v1alpha1.OpenAI
+	case string(v1alpha1.Ollama):
+		return v1alpha1.Ollama
+	case string(v1alpha1.Anthropic):
+		return v1alpha1.Anthropic
+	case string(v1alpha1.AzureOpenAI):
+		return v1alpha1.AzureOpenAI
 	default:
-		return DefaultModelProvider
+		return v1alpha1.OpenAI
 	}
 }
 
+// GetModelProviderHelmValuesKey returns the helm values key for the model provider with lowercased name
+func GetModelProviderHelmValuesKey(provider v1alpha1.ModelProvider) string {
+	helmKey := string(provider)
+	if len(helmKey) > 0 {
+		helmKey = strings.ToLower(string(provider[0])) + helmKey[1:]
+	}
+	return helmKey
+}
+
 // GetProviderAPIKey returns API_KEY env var name from provider type
-func GetProviderAPIKey(provider ProviderType) string {
+func GetProviderAPIKey(provider v1alpha1.ModelProvider) string {
 	switch provider {
-	case ProviderTypeOpenai:
+	case v1alpha1.OpenAI:
 		return OPENAI_API_KEY
-	case ProviderTypeAnthropic:
+	case v1alpha1.Anthropic:
 		return ANTHROPIC_API_KEY
-	case ProviderTypeAzureOpenAI:
+	case v1alpha1.AzureOpenAI:
 		return AZUREOPENAI_API_KEY
 	default:
 		return ""

@@ -47,6 +47,7 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 bin/kagent-local:
+	CGO_ENABLED=0 go test ./cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/kagent-local ./cli/cmd/kagent
 
 bin/kagent-linux-amd64:

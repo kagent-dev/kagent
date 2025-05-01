@@ -169,3 +169,8 @@ helm-uninstall:
 helm-publish: helm-version
 	helm push kagent-crds-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
 	helm push kagent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
+
+.PHONY: kagent-cli
+kagent-cli-install: build-cli helm-version kind-load-docker-images
+kagent-cli-install:
+	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local

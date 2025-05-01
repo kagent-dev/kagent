@@ -66,9 +66,10 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 	}
 
 	// Build Helm values
+	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
 	values := []string{
-		fmt.Sprintf("providers.default=%s", modelProvider),
-		fmt.Sprintf("providers.%s.apiKey=%s", modelProvider, apiKeyValue),
+		fmt.Sprintf("providers.default=%s", helmProviderKey),
+		fmt.Sprintf("providers.%s.apiKey=%s", helmProviderKey, apiKeyValue),
 	}
 
 	//allow user to set the helm registry and version

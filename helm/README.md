@@ -45,9 +45,6 @@ make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install
 ### Using kagent cli
 
 ```bash
-#build kagent cli
-make build-cli
-
 ## make sure have env variable with your API_KEY
 export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
@@ -62,8 +59,12 @@ export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
 # use local helm chart
 export KAGENT_HELM_REPO=./helm/
 
-#run kagent
-./go/bin/kagent-local
+#build and run kagent cli
+make kagent-cli
+
+#or use it directly
+KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
+
 ```
 
 ## Upgrading

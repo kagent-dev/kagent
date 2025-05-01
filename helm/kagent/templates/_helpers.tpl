@@ -50,7 +50,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*Default provider name*/}}
 {{- define "kagent.defaultProviderName" -}}
-{{ .Values.providers.default | default "openai" | lower}}
+{{ .Values.providers.default | default "openAI" | lower}}
 {{- end }}
 
 {{/*Default model name*/}}
