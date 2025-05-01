@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/caarlos0/env/v11"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -45,6 +46,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -63,6 +65,12 @@ var (
 	kagentNamespace = utils_internal.GetResourceNamespace()
 )
 
+type ControllerConfig struct {
+	// Namespace configuration
+	AllowedNamespaces string `env:"ALLOWED_NAMESPACES" envDefault:""`
+	WatchNamespaces   string `env:"WATCH_NAMESPACES" envDefault:""`
+}
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
@@ -74,6 +82,12 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	config := ControllerConfig{}
+
+	if err := env.Parse(&config); err != nil {
+		setupLog.Error(err, "Failed to parse environment variables")
+	}
+
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -209,7 +223,7 @@ func main() {
 		})
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	managerOptions := ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
@@ -227,20 +241,17 @@ func main() {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
-	})
+	}
+
+	watchedNamespaces := ConfigureNamespaceWatching(&managerOptions, config)
+	namespaceFilter, allowedNamespaces := ConfigureNamespaceFiltering(config)
+	CheckNamespaceFilterConsistency(watchedNamespaces, allowedNamespaces)
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-
-	allowedNamespacesDirty, err := getAllowedNamespacesFromEnv()
-	if err != nil {
-		setupLog.Error(err, "to initialize namespace filter")
-		os.Exit(1)
-	}
-	allowedNamespaces := filterValidNamespaces(strings.Split(allowedNamespacesDirty, ","))
-	namespaceFilter := controller.NewNamespaceFilterPredicate(allowedNamespaces)
-	setupLog.Info("Allowed namespaces", "namespaces", allowedNamespaces)
 
 	// TODO(ilackarms): aliases for builtin autogen tools
 	builtinTools := syncutils.NewAtomicMap[string, string]()
@@ -393,20 +404,70 @@ func waitForReady(f func() error, timeout, interval time.Duration) error {
 	}
 }
 
-// filterValidNamespaces filters out empty or invalid namespace names
-// and logs warnings for invalid names.
+// ConfigureNamespaceWatching sets up the controller manager to watch specific namespaces
+// based on the provided configuration. It returns the list of namespaces being watched,
+// or nil if watching all namespaces.
+func ConfigureNamespaceWatching(managerOptions *ctrl.Options, config ControllerConfig) []string {
+	if config.WatchNamespaces == "" {
+		setupLog.Info("Watching all namespaces (no namespace filtering at cache level)")
+		return nil
+	}
+
+	watchNamespacesList := filterValidNamespaces(strings.Split(config.WatchNamespaces, ","))
+	if len(watchNamespacesList) == 0 {
+		setupLog.Info("Watching all namespaces (no valid namespaces specified)")
+		return nil
+	}
+
+	setupLog.Info("Watching specific namespaces at cache level", "namespaces", watchNamespacesList)
+
+	namespacesMap := make(map[string]cache.Config)
+	for _, ns := range watchNamespacesList {
+		namespacesMap[ns] = cache.Config{}
+	}
+
+	managerOptions.Cache = cache.Options{
+		DefaultNamespaces: namespacesMap,
+	}
+
+	return watchNamespacesList
+}
+
+// ConfigureNamespaceFiltering creates a predicate for filtering events by namespace
+// based on the configuration. It returns the predicate and the list of allowed namespaces,
+// or nil for the allowed namespaces if all namespaces are allowed.
+func ConfigureNamespaceFiltering(config ControllerConfig) (controller.NamespaceFilterPredicate, []string) {
+	if config.AllowedNamespaces == "" {
+		setupLog.Info("Processing events from all namespaces (no namespace filtering at predicate level)")
+		return controller.NewNamespaceFilterPredicate(nil), nil
+	}
+
+	allowedNamespacesList := filterValidNamespaces(strings.Split(config.AllowedNamespaces, ","))
+	if len(allowedNamespacesList) == 0 {
+		setupLog.Info("Processing events from all namespaces (no valid namespaces specified)")
+		return controller.NewNamespaceFilterPredicate(nil), nil
+	}
+
+	setupLog.Info("Events will be filtered at predicate level", "allowed_namespaces", allowedNamespacesList)
+	return controller.NewNamespaceFilterPredicate(allowedNamespacesList), allowedNamespacesList
+}
+
+// filterValidNamespaces removes invalid namespace names from the provided list.
+// A valid namespace must be a valid DNS-1123 label.
 func filterValidNamespaces(namespaces []string) []string {
 	var validNamespaces []string
 
 	for _, ns := range namespaces {
+		ns = strings.TrimSpace(ns)
 		if ns == "" {
 			continue
 		}
 
-		// Use Kubernetes validator to verify namespace name
+		// Apply Kubernetes namespace name validation rules (DNS-1123 format)
 		if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
-			setupLog.Info(fmt.Sprintf("Ignoring invalid namespace name: %s, errors: %s",
-				ns, strings.Join(errs, ", ")))
+			setupLog.Info("Ignoring invalid namespace name",
+				"namespace", ns,
+				"validation_errors", strings.Join(errs, ", "))
 		} else {
 			validNamespaces = append(validNamespaces, ns)
 		}
@@ -415,16 +476,42 @@ func filterValidNamespaces(namespaces []string) []string {
 	return validNamespaces
 }
 
-// getAllowedNamespacesFromEnv retrieves the ALLOWED_NAMESPACES environment variable.
-// Note: Despite its singular name, the variable can contain a single namespace
-// or a comma-separated list of namespaces.
-// Returns an empty string if running with cluster scope.
-// Returns an error if the environment variable is not set.
-func getAllowedNamespacesFromEnv() (string, error) {
-	var allowedNamespacesEnvVar = "ALLOWED_NAMESPACES"
-	ns, found := os.LookupEnv(allowedNamespacesEnvVar)
-	if !found {
-		return "", fmt.Errorf("%s must be set", allowedNamespacesEnvVar)
+// CheckNamespaceFilterConsistency verifies that all namespaces specified in
+// allowedNamespaces are also being watched in watchedNamespaces. Returns true if
+// the configuration is consistent, false otherwise. This function is designed to
+// detect potential configuration issues that could lead to missing events.
+func CheckNamespaceFilterConsistency(watchedNamespaces, allowedNamespaces []string) bool {
+	// If there's no filtering at predicate level, no consistency check needed
+	if len(allowedNamespaces) == 0 {
+		return true // No inconsistency
 	}
-	return ns, nil
+
+	// If watching all namespaces, no problem
+	if len(watchedNamespaces) == 0 {
+		return true // No inconsistency
+	}
+
+	// Check if all allowed namespaces are being watched
+	watchMap := make(map[string]struct{})
+	for _, ns := range watchedNamespaces {
+		watchMap[ns] = struct{}{}
+	}
+
+	var unwatchedAllowed []string
+	for _, ns := range allowedNamespaces {
+		if _, exists := watchMap[ns]; !exists {
+			unwatchedAllowed = append(unwatchedAllowed, ns)
+		}
+	}
+
+	consistency := len(unwatchedAllowed) == 0
+
+	if !consistency {
+		setupLog.Info("WARNING: Some namespaces in ALLOWED_NAMESPACES are not being watched "+
+			"because they are not included in WATCH_NAMESPACES. The controller will never "+
+			"receive events for these namespaces.",
+			"unwatched_but_allowed", unwatchedAllowed)
+	}
+
+	return consistency
 }
