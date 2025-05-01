@@ -10,30 +10,30 @@ These Helm charts install kagent-crds,kagent, it is required that the Kagent CRD
 # First, install the required CRDs
 helm install kagent-crds ./helm/kagent-crds/  --namespace kagent
 
-# Then install Kagent with default openAI provider enabled
+# Then install Kagent with --set providers.default=openAI provider (enabled by default)
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.openAI.apiKey=abcde
 
-# if you prefer local ollama provider 
+# Or with optional providers if you prefer local ollama provider or anthropic
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=ollama
-
-# Then install Kagent with openAI provider enabled
-helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic --set providers.anthropic.apiKey=abcde
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic
 ```
 
 ### Using Make
 
 ```bash
 # export your openAI key
-export OPENAI_API_KEY=abcde
+export OPENAI_API_KEY=your-openai-api-key
+export ANTHROPIC_API_KEY=your-anthropic-api-key
+export AZURE_API_KEY=your-azure-api-key
 
 # install the kagent charts with openAI provider 
 make KAGENT_DEFAULT_MODEL_PROVIDER=openAI helm-install
 
-# install charts with ollama provider
-make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install
-
 # install charts with anthropic provider
 make KAGENT_DEFAULT_MODEL_PROVIDER=anthropic helm-install
+
+# install charts with ollama provider
+make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install
 ```
 
 ### Using kagent cli
@@ -43,9 +43,9 @@ make KAGENT_DEFAULT_MODEL_PROVIDER=anthropic helm-install
 make build-cli
 
 ## make sure have env variable with your API_KEY
-export OPENAI_API_KEY=abcde
-export ANTHROPIC_API_KEY=abcde
-export AZURE_API_KEY=abcde
+export OPENAI_API_KEY=your-openai-api-key
+export ANTHROPIC_API_KEY=your-anthropic-api-key
+export AZURE_API_KEY=your-azure-api-key
 
 #default provider is openAI but you can select from the list 
 export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
