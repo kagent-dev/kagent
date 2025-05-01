@@ -9,15 +9,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "autogen-core>=0.4.3",
-  "autogen-ext[anthropic,azure,mcp,ollama,openai]>=0.4.3",
-  "autogen-agentchat>=0.4.3",
-  #"autogenstudio>=0.4.3",
+  "autogen-core>=0.4.9.2,<0.6",
+  "autogen-agentchat>=0.4.9.2,<0.6",
+  "autogen-ext[gemini,bedrock,magentic-one,anthropic,azure,mcp,ollama,openai]>=0.4.3",
   "openai>=1.72.0",
   "tiktoken==0.8.0",
   "python-dotenv>=1.0.1",
   "pyyaml>=6.0.2",
-  "mcp>=1.2.0",
+  "mcp>=1.6.0",
   "sqlite-vec>=0.1.0",
   "typer>=0.15.2",
   "numpy>=2.2.3",
@@ -26,8 +25,22 @@ dependencies = [
   "opentelemetry-exporter-otlp-proto-grpc>=1.30.0",
   "opentelemetry-instrumentation-openai>= 0.38.0",
   "opentelemetry-instrumentation-httpx >= 0.51.0",
-  "anthropic>=0.49.0",
   "pinecone>=6.0.2",
+  "pydantic",
+  "pydantic-settings",
+  "fastapi[standard]",
+  "typer",
+  "aiofiles",
+  "python-dotenv",
+  "websockets",
+  "sqlmodel",
+  "psycopg",
+  "alembic",
+  "loguru",
+  "pyyaml",
+  "html2text",
+  "anthropic",
+  "ollama>=0.4.7",
 ]
 
 [project.optional-dependencies]
