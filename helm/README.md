@@ -16,7 +16,9 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.openAI.api
 
 # Or with optional providers if you prefer local ollama provider or anthropic
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=ollama
-helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic --set providers.anthropic.apiKey=your-anthropic-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
 ```
 
 ### Using Make
@@ -25,13 +27,16 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=an
 # export your openAI key
 export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
-export AZURE_API_KEY=your-azure-api-key
+export AZUREOPENAI_API_KEY=your-azure-api-key
 
 # install the kagent charts with openAI provider 
 make KAGENT_DEFAULT_MODEL_PROVIDER=openAI helm-install
 
 # install charts with anthropic provider
 make KAGENT_DEFAULT_MODEL_PROVIDER=anthropic helm-install
+
+# install charts with anthropic provider
+make KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI helm-install
 
 # install charts with ollama provider
 make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install

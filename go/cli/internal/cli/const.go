@@ -15,9 +15,9 @@ const (
 	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
 
 	//Provider specific env variables
-	OPENAI_API_KEY    = "OPENAI_API_KEY"
-	ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
-	AZURE_API_KEY     = "AZURE_API_KEY"
+	OPENAI_API_KEY      = "OPENAI_API_KEY"
+	ANTHROPIC_API_KEY   = "ANTHROPIC_API_KEY"
+	AZUREOPENAI_API_KEY = "AZUREOPENAI_API_KEY"
 
 	// kagent env variables
 	KAGENT_DEFAULT_MODEL_PROVIDER = "KAGENT_DEFAULT_MODEL_PROVIDER"
@@ -54,7 +54,7 @@ func GetProviderAPIKey(provider ProviderType) string {
 	case ProviderTypeAnthropic:
 		return ANTHROPIC_API_KEY
 	case ProviderTypeAzureOpenAI:
-		return AZURE_API_KEY
+		return AZUREOPENAI_API_KEY
 	default:
 		return ""
 	}
