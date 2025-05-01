@@ -30,13 +30,13 @@ func GetModelProvider() v1alpha1.ModelProvider {
 		return DefaultModelProvider
 	}
 	switch modelProvider {
-	case string(v1alpha1.OpenAI):
+	case GetModelProviderHelmValuesKey(v1alpha1.OpenAI):
 		return v1alpha1.OpenAI
-	case string(v1alpha1.Ollama):
+	case GetModelProviderHelmValuesKey(v1alpha1.Ollama):
 		return v1alpha1.Ollama
-	case string(v1alpha1.Anthropic):
+	case GetModelProviderHelmValuesKey(v1alpha1.Anthropic):
 		return v1alpha1.Anthropic
-	case string(v1alpha1.AzureOpenAI):
+	case GetModelProviderHelmValuesKey(v1alpha1.AzureOpenAI):
 		return v1alpha1.AzureOpenAI
 	default:
 		return v1alpha1.OpenAI
