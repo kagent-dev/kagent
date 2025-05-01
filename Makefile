@@ -26,7 +26,7 @@ AWK ?= $(shell command -v gawk || command -v awk)
 GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.6.5
+TOOLS_UV_VERSION ?= 0.7.2
 TOOLS_ISTIO_VERSION ?= 1.25.2
 TOOLS_ARGO_CD_VERSION ?= 2.8.2
 
