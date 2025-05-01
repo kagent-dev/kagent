@@ -1,12 +1,18 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -98,4 +104,57 @@ func DecodeJSONBody(r *http.Request, target interface{}) error {
 
 	log.V(2).Info("Successfully decoded JSON request body")
 	return nil
+}
+
+// flattenStructToMap uses reflection to add fields of a struct to a map,
+// using json tags as keys.
+func FlattenStructToMap(data interface{}, targetMap map[string]interface{}) {
+	val := reflect.ValueOf(data)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	// Ensure it's a struct
+	if val.Kind() != reflect.Struct {
+		return // Or handle error appropriately
+	}
+
+	typ := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		fieldValue := val.Field(i)
+
+		// Get JSON tag
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" || jsonTag == "-" {
+			// Skip fields without json tags or explicitly ignored
+			continue
+		}
+
+		// Handle tag options like ",omitempty"
+		tagParts := strings.Split(jsonTag, ",")
+		key := tagParts[0]
+
+		// Add to map
+		if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
+			targetMap[key] = nil
+		} else {
+			targetMap[key] = fieldValue.Interface()
+		}
+	}
+}
+
+func CreateSecret(kubeClient client.Client, name string, namespace string, data map[string]string) (*corev1.Secret, error) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		StringData: data,
+	}
+
+	if err := kubeClient.Create(context.Background(), secret); err != nil {
+		return nil, err
+	}
+	return secret, nil
 }
