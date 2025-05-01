@@ -65,8 +65,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN --mount=type=cache,target=/root/.cache/uv uv python install 3.12
 
 # Create groups and users
-RUN \
-    && groupadd -g 1002 pythongroup \
+RUN groupadd -g 1002 pythongroup \
     && useradd  -u 1002 -g pythongroup -s /bin/bash -m python \
     && mkdir -p /app/python /root/.cache/uv \
     && chown -R python:pythongroup /app/python
