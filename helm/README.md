@@ -60,7 +60,7 @@ export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
 export KAGENT_HELM_REPO=./helm/
 
 #build and run kagent cli
-make kagent-cli
+make kagent-cli-install
 
 #or use it directly
 KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
