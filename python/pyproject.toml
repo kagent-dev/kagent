@@ -71,7 +71,7 @@ select = ["E", "F", "W", "B", "Q", "I", "ASYNC", "T20"]
 ignore = ["F401", "E501"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kagent", "src/autogen-studio"]
+packages = ["src/kagent", "src/autogenstudio"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
