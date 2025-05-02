@@ -12,6 +12,7 @@ rules:
   - modelconfigs
   - teams
   - toolservers
+  - memories
   verbs:
   - get
   - list
@@ -23,6 +24,7 @@ rules:
   - modelconfigs/status
   - teams/status
   - toolservers/status
+  - memories/status
   verbs:
   - get
   - patch
@@ -91,6 +93,7 @@ rules:
   - modelconfigs
   - teams
   - toolservers
+  - memories
   verbs:
   - create
   - update

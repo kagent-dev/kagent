@@ -578,6 +578,17 @@ func (a *apiTranslator) translateAssistantAgent(
 		cfg.ModelClientStream = false
 	}
 
+	if agent.Spec.Memory != nil {
+		for _, memoryName := range agent.Spec.Memory {
+			autogenMemory, err := a.translateMemory(ctx, memoryName, agent.Namespace)
+			if err != nil {
+				return nil, err
+			}
+
+			cfg.Memory = append(cfg.Memory, autogenMemory)
+		}
+	}
+
 	return &api.Component{
 		Provider:      "autogen_agentchat.agents.AssistantAgent",
 		ComponentType: "agent",
@@ -585,6 +596,43 @@ func (a *apiTranslator) translateAssistantAgent(
 		Description:   agent.Spec.Description,
 		Config:        api.MustToConfig(cfg),
 	}, nil
+}
+
+func (a *apiTranslator) translateMemory(ctx context.Context, memoryName string, memoryNamespace string) (*api.Component, error) {
+	memoryObj := &v1alpha1.Memory{}
+	err := fetchObjKube(ctx, a.kube, memoryObj, memoryName, memoryNamespace)
+	if err != nil {
+		return nil, err
+	}
+
+	switch memoryObj.Spec.Provider {
+	case v1alpha1.Pinecone:
+		apiKey, err := a.getMemoryApiKey(ctx, memoryObj)
+		if err != nil {
+			return nil, err
+		}
+
+		threshold, err := strconv.ParseFloat(memoryObj.Spec.Pinecone.ScoreThreshold, 32)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse score threshold: %v", err)
+		}
+
+		return &api.Component{
+			Provider:      "kagent.memory.PineconeMemory",
+			ComponentType: "memory",
+			Version:       1,
+			Config: api.MustToConfig(&api.PineconeMemoryConfig{
+				APIKey:         string(apiKey),
+				IndexHost:      memoryObj.Spec.Pinecone.IndexHost,
+				TopK:           memoryObj.Spec.Pinecone.TopK,
+				Namespace:      memoryObj.Spec.Pinecone.Namespace,
+				RecordFields:   memoryObj.Spec.Pinecone.RecordFields,
+				ScoreThreshold: threshold,
+			}),
+		}, nil
+	}
+
+	return nil, fmt.Errorf("unsupported memory provider: %s", memoryObj.Spec.Provider)
 }
 
 func translateBuiltinTool(
@@ -1014,6 +1062,31 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 	default:
 		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
 	}
+}
+
+func (a *apiTranslator) getMemoryApiKey(ctx context.Context, memory *v1alpha1.Memory) ([]byte, error) {
+	memoryApiKeySecret := &v1.Secret{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		memoryApiKeySecret,
+		memory.Spec.APIKeySecretRef,
+		memory.Namespace,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if memoryApiKeySecret.Data == nil {
+		return nil, fmt.Errorf("memory api key secret data not found")
+	}
+
+	memoryApiKey, ok := memoryApiKeySecret.Data[memory.Spec.APIKeySecretKey]
+	if !ok {
+		return nil, fmt.Errorf("memory api key not found")
+	}
+
+	return memoryApiKey, nil
 }
 
 func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v1alpha1.ModelConfig) ([]byte, error) {
