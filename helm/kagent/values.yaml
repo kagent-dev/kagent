@@ -16,7 +16,8 @@ providers:
   ollama:
     provider: Ollama
     model: "llama3.2"
-    host: host.docker.internal:11434
+    config:
+      host: host.docker.internal:11434
   anthropic:
     provider: Anthropic
     model:  "claude-3-sonnet-20240229"
@@ -28,11 +29,12 @@ providers:
     model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-azure-openai
     apiKeySecretKey: AZUREOPENAI_API_KEY
-    apiVersion: "2023-05-15"
-    azureAdToken: ""
-    azureDeployment: ""
-    azureEndpoint: ""
     apiKey: ""
+    config:
+      apiVersion: "2023-05-15"
+      azureAdToken: ""
+      azureDeployment: ""
+      azureEndpoint: ""
 
 controller:
   loglevel: "info"
@@ -112,19 +114,14 @@ contrib:
   agents:
     k8s:
       enabled: true
-      #modelConfigRef: default-model-config
     istio:
       enabled: true
-      #modelConfigRef: default-model-config
     helm:
       enabled: true
-      #modelConfigRef: default-model-config
     promql:
       enabled: true
-      #modelConfigRef: default-model-config
     observability:
       enabled: true
-      #modelConfigRef: default-model-config
       prometheus:
         url: ""
         username: ""
@@ -136,7 +133,6 @@ contrib:
         apiKey: ""
     argoRolloutsConversion:
       enabled: true
-      #modelConfigRef: default-model-config
 
 otel:
   tracing:

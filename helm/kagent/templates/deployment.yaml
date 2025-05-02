@@ -54,16 +54,13 @@ spec:
           image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ coalesce .Values.global.tag .Values.app.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
           env:
-            {{- $providers := omit .Values.providers "default" }}
-            {{- range $key, $model := $providers }}
-            {{/*range over providers if apiKeySecretRef found mount secret */}}
-            {{- if $model.apiKeySecretRef }}
+            {{- $model := index .Values.providers .Values.providers.default  }}
+            {{- if and (ne $model.apiKeySecretRef "") $model.enabled }}
             - name: {{ $model.apiKeySecretKey }}
               valueFrom:
                 secretKeyRef:
                   name: {{ $model.apiKeySecretRef }}
                   key: {{ $model.apiKeySecretKey }}
-            {{- end }}
             {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
