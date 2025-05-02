@@ -146,7 +146,7 @@ export default function MemoriesPage() {
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              memory configuration named "<span className="font-semibold">{memoryNameToDelete}</span>".
+              memory configuration named &quot;<span className="font-semibold">{memoryNameToDelete}</span>&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
