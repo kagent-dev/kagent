@@ -188,7 +188,6 @@ kagent-engine = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]
-#autogenstudio = { git = "https://github.com/microsoft/autogen.git", subdirectory = "python/packages/autogen-studio", rev = "6fc4f532128971c03ff5355adf8ca5c73c38fd38" }
 autogen-agentchat = { git = "https://github.com/microsoft/autogen.git", subdirectory = "python/packages/autogen-agentchat", rev = "6fc4f532128971c03ff5355adf8ca5c73c38fd38" }
 autogen-ext = { git = "https://github.com/microsoft/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "6fc4f532128971c03ff5355adf8ca5c73c38fd38" }
 autogen-core = { git = "https://github.com/microsoft/autogen.git", subdirectory = "python/packages/autogen-core", rev = "6fc4f532128971c03ff5355adf8ca5c73c38fd38" }
@@ -213,7 +212,7 @@ select = ["E", "F", "W", "B", "Q", "I", "ASYNC", "T20"]
 ignore = ["F401", "E501"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kagent", "src/autogenstudio", "src/tool_servers"]
+packages = ["src/kagent", "src/autogenstudio"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

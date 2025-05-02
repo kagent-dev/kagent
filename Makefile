@@ -67,7 +67,9 @@ delete-kind-cluster:
 	kind delete cluster --name $(KIND_CLUSTER_NAME)
 
 prune-kind-cluster:
-	docker exec -t $(KIND_CLUSTER_NAME)-control-plane bash -c "crictl rmi --prune"
+	echo "Pruning kind cluster images..."
+	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images | \
+	tee | awk '/kagent/ {print $3}' | xargs -r docker exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi
 
 .PHONY: build
 build: build-controller build-ui build-app
