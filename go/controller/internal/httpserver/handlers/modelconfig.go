@@ -38,44 +38,6 @@ func NewModelConfigHandler(base *Base) *ModelConfigHandler {
 	return &ModelConfigHandler{Base: base}
 }
 
-// flattenStructToMap uses reflection to add fields of a struct to a map,
-// using json tags as keys.
-func flattenStructToMap(data interface{}, targetMap map[string]interface{}) {
-	val := reflect.ValueOf(data)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-
-	// Ensure it's a struct
-	if val.Kind() != reflect.Struct {
-		return // Or handle error appropriately
-	}
-
-	typ := val.Type()
-	for i := 0; i < val.NumField(); i++ {
-		field := typ.Field(i)
-		fieldValue := val.Field(i)
-
-		// Get JSON tag
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "" || jsonTag == "-" {
-			// Skip fields without json tags or explicitly ignored
-			continue
-		}
-
-		// Handle tag options like ",omitempty"
-		tagParts := strings.Split(jsonTag, ",")
-		key := tagParts[0]
-
-		// Add to map
-		if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
-			targetMap[key] = nil
-		} else {
-			targetMap[key] = fieldValue.Interface()
-		}
-	}
-}
-
 // HandleListModelConfigs handles GET /api/modelconfigs requests
 func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "list")
@@ -92,16 +54,16 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		modelParams := make(map[string]interface{})
 
 		if config.Spec.OpenAI != nil {
-			flattenStructToMap(config.Spec.OpenAI, modelParams)
+			FlattenStructToMap(config.Spec.OpenAI, modelParams)
 		}
 		if config.Spec.Anthropic != nil {
-			flattenStructToMap(config.Spec.Anthropic, modelParams)
+			FlattenStructToMap(config.Spec.Anthropic, modelParams)
 		}
 		if config.Spec.AzureOpenAI != nil {
-			flattenStructToMap(config.Spec.AzureOpenAI, modelParams)
+			FlattenStructToMap(config.Spec.AzureOpenAI, modelParams)
 		}
 		if config.Spec.Ollama != nil {
-			flattenStructToMap(config.Spec.Ollama, modelParams)
+			FlattenStructToMap(config.Spec.Ollama, modelParams)
 		}
 
 		responseItem := ModelConfigResponse{
@@ -150,16 +112,16 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	log.V(1).Info("Constructing response object")
 	modelParams := make(map[string]interface{})
 	if modelConfig.Spec.OpenAI != nil {
-		flattenStructToMap(modelConfig.Spec.OpenAI, modelParams)
+		FlattenStructToMap(modelConfig.Spec.OpenAI, modelParams)
 	}
 	if modelConfig.Spec.Anthropic != nil {
-		flattenStructToMap(modelConfig.Spec.Anthropic, modelParams)
+		FlattenStructToMap(modelConfig.Spec.Anthropic, modelParams)
 	}
 	if modelConfig.Spec.AzureOpenAI != nil {
-		flattenStructToMap(modelConfig.Spec.AzureOpenAI, modelParams)
+		FlattenStructToMap(modelConfig.Spec.AzureOpenAI, modelParams)
 	}
 	if modelConfig.Spec.Ollama != nil {
-		flattenStructToMap(modelConfig.Spec.Ollama, modelParams)
+		FlattenStructToMap(modelConfig.Spec.Ollama, modelParams)
 	}
 
 	responseItem := ModelConfigResponse{
@@ -191,21 +153,6 @@ func getStructJSONKeys(structType reflect.Type) []string {
 		}
 	}
 	return keys
-}
-
-// Helper function to get JSON keys specifically marked as required
-func getRequiredKeys(providerType v1alpha1.ModelProvider) []string {
-	switch providerType {
-	case v1alpha1.AzureOpenAI:
-		// Based on the +required comments in the AzureOpenAIConfig struct definition
-		return []string{"azureEndpoint", "apiVersion"}
-	case v1alpha1.OpenAI, v1alpha1.Anthropic, v1alpha1.Ollama:
-		// These providers currently have no fields marked as strictly required in the API definition
-		return []string{}
-	default:
-		// Unknown provider, return empty
-		return []string{}
-	}
 }
 
 type CreateModelConfigRequest struct {
@@ -268,17 +215,8 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		secretName := req.Name
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
 		log.V(1).Info("Creating API key secret", "secretName", secretName, "secretKey", secretKey)
-		secret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: common.GetResourceNamespace(),
-			},
-			StringData: map[string]string{
-				secretKey: apiKey,
-			},
-		}
-
-		if err := h.KubeClient.Create(r.Context(), secret); err != nil {
+		secret, err = CreateSecret(h.KubeClient, secretName, common.GetResourceNamespace(), map[string]string{secretKey: apiKey})
+		if err != nil {
 			log.Error(err, "Failed to create API key secret")
 			w.RespondWithError(errors.NewInternalServerError("Failed to create API key secret", err))
 			return
@@ -521,13 +459,13 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	log.Info("Successfully updated model config", "name", configName)
 	updatedParams := make(map[string]interface{})
 	if modelConfig.Spec.OpenAI != nil {
-		flattenStructToMap(modelConfig.Spec.OpenAI, updatedParams)
+		FlattenStructToMap(modelConfig.Spec.OpenAI, updatedParams)
 	} else if modelConfig.Spec.Anthropic != nil {
-		flattenStructToMap(modelConfig.Spec.Anthropic, updatedParams)
+		FlattenStructToMap(modelConfig.Spec.Anthropic, updatedParams)
 	} else if modelConfig.Spec.AzureOpenAI != nil {
-		flattenStructToMap(modelConfig.Spec.AzureOpenAI, updatedParams)
+		FlattenStructToMap(modelConfig.Spec.AzureOpenAI, updatedParams)
 	} else if modelConfig.Spec.Ollama != nil {
-		flattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
+		FlattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
 	}
 
 	responseItem := ModelConfigResponse{

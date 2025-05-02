@@ -16,7 +16,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getModels, ProviderModelsResponse } from '@/app/actions/models';
-import { getSupportedProviders } from '@/app/actions/providers';
+import { getSupportedModelProviders } from '@/app/actions/providers';
 import { cn, isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { createModelConfig } from '@/app/actions/modelConfigs';
 import { ModelProviderCombobox } from '@/components/ModelProviderCombobox';
@@ -104,7 +104,7 @@ export function ModelConfigStep({
             setProvidersLoading(true);
             setProvidersError(null);
             try {
-                const result = await getSupportedProviders();
+                const result = await getSupportedModelProviders();
                 if (result.success && result.data) {
                     setSupportedProviders(result.data);
                 } else {

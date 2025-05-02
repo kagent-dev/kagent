@@ -106,6 +106,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
       modelConfig: agentFormData.model.name || "",
+      memory: agentFormData.memory,
       tools: agentFormData.tools.map((tool) => {
         // Convert to the proper Tool structure based on the tool type
         if (isBuiltinTool(tool) && tool.builtin) {
