@@ -1,7 +1,7 @@
 from typing import Union
 
 from autogen_core import Component, ComponentModel
-from autogen_ext.tool_servers import ToolServer
+from tool_servers import ToolServer
 
 
 class ToolServerManager:
