@@ -388,6 +388,7 @@ export interface AgentResourceSpec {
   tools: Tool[];
   // Name of the model config resource
   modelConfig: string;
+  memory?: string[];
 }
 export interface Agent {
   metadata: ResourceMetadata;

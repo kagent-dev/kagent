@@ -111,3 +111,28 @@ export interface UpdateModelConfigPayload {
     azureOpenAI?: AzureOpenAIConfigPayload;
     ollama?: OllamaConfigPayload;
 }
+
+export interface MemoryResponse {
+  name: string;
+  namespace: string;
+  providerName: string;
+  apiKeySecretRef: string;
+  apiKeySecretKey: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  memoryParams?: Record<string, any>;
+}
+
+export interface PineconeConfigPayload {
+    indexHost: string;
+    topK?: number;
+    namespace?: string;
+    recordFields?: string[];
+    scoreThreshold?: string;
+}
+
+export interface CreateMemoryRequest {
+  name: string;
+  provider: Pick<Provider, "type">;
+  apiKey: string;
+  pinecone?: PineconeConfigPayload;
+}

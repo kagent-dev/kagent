@@ -194,6 +194,22 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
               <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
               {selectedTeam && renderAgentTools(selectedTeam.agent.spec.tools)}
             </SidebarGroup>
+            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+              <SidebarGroupLabel>Memory</SidebarGroupLabel>
+              <SidebarMenu>
+                {selectedTeam?.agent.spec.memory && selectedTeam.agent.spec.memory.length > 0 ? (
+                  selectedTeam.agent.spec.memory.map((memoryName) => (
+                    <SidebarMenuItem key={memoryName}>
+                      <SidebarMenuButton className="justify-start" disabled>
+                        <span className="truncate max-w-[200px]">{memoryName}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))
+                ) : (
+                  <div className="text-sm italic px-2 text-muted-foreground">No memory configured</div>
+                )}
+              </SidebarMenu>
+            </SidebarGroup>
           </ScrollArea>
         </SidebarContent>
       </Sidebar>
