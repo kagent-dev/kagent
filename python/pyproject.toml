@@ -194,6 +194,7 @@ autogen-ext = { git = "https://github.com/microsoft/autogen.git", subdirectory =
 autogen-core = { git = "https://github.com/microsoft/autogen.git", subdirectory = "python/packages/autogen-core", rev = "6fc4f532128971c03ff5355adf8ca5c73c38fd38" }
 kagent = { workspace = true }
 autogenstudio = { workspace = true }
+tool_servers = { workspace = true }
 
 [tool.ruff]
 line-length = 120
@@ -212,7 +213,7 @@ select = ["E", "F", "W", "B", "Q", "I", "ASYNC", "T20"]
 ignore = ["F401", "E501"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kagent", "src/autogenstudio"]
+packages = ["src/kagent", "src/autogenstudio", "src/tool_servers"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
