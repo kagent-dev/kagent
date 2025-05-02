@@ -29,7 +29,7 @@ export default function ChatMessage({ message, run }: ChatMessageProps) {
 
   // Filter out system messages
   // TODO: Decide whether we want to filter out som agent
-  if (source === "system" || source === "user_proxy" || source.endsWith("society_of_mind_agent")) {
+  if (source === "system" || source === "user_proxy" || (typeof source === "string" && source.endsWith("society_of_mind_agent"))) {
     return null;
   }
 
