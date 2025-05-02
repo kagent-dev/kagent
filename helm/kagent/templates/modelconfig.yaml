@@ -1,16 +1,14 @@
 {{- $dot := . }}
-{{- $providers := omit $dot.Values.providers "default" }}
-{{- range $key, $model := $providers }}
+{{- $model := index $dot.Values.providers $dot.Values.providers.default  }}
 ---
 apiVersion: kagent.dev/v1alpha1
 kind: ModelConfig
 metadata:
-  name: {{$key | lower}}-model-config
+  name: {{ $dot.Values.providers.default | lower }}-model-config
   labels:
     {{- include "kagent.labels" $dot | nindent 4 }}
 spec:
   {{- with $model }}
-  {{- $modelconfig := omit . "provider" "model" "apiKey" "apiKeySecretRef" "apiKeySecretKey"}}
   provider: {{ .provider | quote }}
   model: {{ .model | quote }}
   {{- if $model.apiKeySecretRef }}
@@ -19,7 +17,6 @@ spec:
   {{- if $model.apiKeySecretKey }}
   apiKeySecretKey: {{.apiKeySecretKey}}
   {{- end }}
-  {{$key }}:
-  {{- toYaml $modelconfig | nindent 4 }}
+  {{ $dot.Values.providers.default }}:
+  {{- toYaml $model.config | nindent 4 }}
   {{- end}}
-{{- end }}
