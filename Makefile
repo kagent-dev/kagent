@@ -129,7 +129,7 @@ helm-version:
 	helm package helm/kagent-crds
 	helm package helm/kagent
 
-.PHONY: helm-install-provider-openai
+.PHONY: helm-install-provider
 helm-install-provider: helm-version check-openai-key
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
@@ -159,8 +159,8 @@ helm-install: kind-load-docker-images
 helm-install: helm-install-provider
 
 .PHONY: helm-test-install
-helm-test-dry-run: HELM_ACTION+="--dry-run"
-helm-test-dry-run: helm-install-provider
+helm-test-install: HELM_ACTION+="--dry-run"
+helm-test-install: helm-install-provider
 # Test install with dry-run
 # Example: `make helm-test-install | tee helm-test-install.log`
 

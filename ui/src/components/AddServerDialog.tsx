@@ -272,6 +272,12 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
       setError("URL is required");
       return;
     }
+
+    // Validate URL has a protocol
+    if (activeTab === "url" && !url.trim().match(/^[a-z]+:\/\//i)) {
+      setError("Please enter a valid URL with protocol (e.g., http:// or https://)");
+      return;
+    }
     
     // Get the final server name
     const finalServerName = serverName.trim();
