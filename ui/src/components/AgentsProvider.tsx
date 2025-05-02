@@ -15,6 +15,7 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
+  memory?: string;
 }
 
 export interface AgentFormData {
@@ -23,6 +24,7 @@ export interface AgentFormData {
   systemPrompt: string;
   model: Partial<ModelConfig>;
   tools: Tool[];
+  memory?: string[];
 }
 
 interface AgentsContextType {

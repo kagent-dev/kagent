@@ -26,6 +26,7 @@ const (
 	APIPathAgents      = "/api/agents"
 	APIPathProviders   = "/api/providers"
 	APIPathModels      = "/api/models"
+	APIPathMemories    = "/api/memories"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -147,10 +148,17 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{agentId}/start", adaptHandler(s.handlers.Invoke.HandleStartAgent)).Methods(http.MethodPost)
 
 	// Providers
-	s.router.HandleFunc(APIPathProviders, adaptHandler(s.handlers.Provider.HandleListSupportedProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathProviders+"/models", adaptHandler(s.handlers.Provider.HandleListSupportedModelProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathProviders+"/memories", adaptHandler(s.handlers.Provider.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
 
 	// Models
 	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)
+
+	// Memories
+	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleListMemories)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleCreateMemory)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
 
 	// Use middleware for common functionality
 	s.router.Use(contentTypeMiddleware)

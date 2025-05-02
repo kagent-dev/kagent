@@ -8,12 +8,12 @@ import { fetchApi } from "./utils";
  * Gets the list of supported providers
  * @returns A promise with the list of supported providers
  */
-export async function getSupportedProviders(): Promise<BaseResponse<Provider[]>> {
+export async function getSupportedModelProviders(): Promise<BaseResponse<Provider[]>> {
     try {
-      const response = await fetchApi<Provider[]>("/providers");
+      const response = await fetchApi<Provider[]>("/providers/models");
   
       if (!response) {
-        throw new Error("Failed to get supported providers");
+        throw new Error("Failed to get supported model providers");
       }
   
       return {
@@ -22,5 +22,26 @@ export async function getSupportedProviders(): Promise<BaseResponse<Provider[]>>
       };
     } catch (error) {
       return createErrorResponse<Provider[]>(error, "Error getting supported providers");
+    }
+  }
+
+  /**
+   * Gets the list of supported memory providers
+   * @returns A promise with the list of supported memory providers
+   */
+export async function getSupportedMemoryProviders(): Promise<BaseResponse<Provider[]>> {
+    try {
+      const response = await fetchApi<Provider[]>("/providers/memories");
+  
+      if (!response) {
+        throw new Error("Failed to get supported memory providers");
+      }
+  
+      return {
+        success: true,
+        data: response,
+      };
+    } catch (error) {
+      return createErrorResponse<Provider[]>(error, "Error getting supported memory providers");
     }
   }
