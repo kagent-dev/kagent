@@ -10,7 +10,7 @@ metadata:
     {{- include "kagent.labels" $dot | nindent 4 }}
 spec:
   {{- with $model }}
-  {{- $modelconfig := omit . "provider" "model" "apiKey" "apiKeySecretRef" "apiKeySecretkey"}}
+  {{- $modelconfig := omit . "provider" "model" "apiKey" "apiKeySecretRef" "apiKeySecretKey"}}
   provider: {{ .provider | quote }}
   model: {{ .model | quote }}
   {{- if $model.apiKeySecretRef }}
