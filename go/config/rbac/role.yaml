@@ -34,6 +34,7 @@ rules:
   - kagent.dev
   resources:
   - agents
+  - memories
   - modelconfigs
   - teams
   verbs:
@@ -48,6 +49,7 @@ rules:
   - kagent.dev
   resources:
   - agents/finalizers
+  - memories/finalizers
   - modelconfigs/finalizers
   - teams/finalizers
   verbs:
@@ -56,6 +58,7 @@ rules:
   - kagent.dev
   resources:
   - agents/status
+  - memories/status
   - modelconfigs/status
   - teams/status
   verbs:

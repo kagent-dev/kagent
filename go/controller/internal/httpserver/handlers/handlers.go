@@ -19,6 +19,7 @@ type Handlers struct {
 	Tools       *ToolsHandler
 	ToolServers *ToolServersHandler
 	Invoke      *InvokeHandler
+	Memory      *MemoryHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -47,5 +48,6 @@ func NewHandlers(kubeClient client.Client, autogenClient *autogen_client.Client,
 		Tools:       NewToolsHandler(base),
 		ToolServers: NewToolServersHandler(base),
 		Invoke:      NewInvokeHandler(base),
+		Memory:      NewMemoryHandler(base),
 	}
 }

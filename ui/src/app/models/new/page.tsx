@@ -17,7 +17,7 @@ import {
 } from "@/lib/types";
 import { toast } from "sonner";
 import { isResourceNameValid } from "@/lib/utils";
-import { getSupportedProviders } from "@/app/actions/providers";
+import { getSupportedModelProviders } from "@/app/actions/providers";
 import { getModels, ProviderModelsResponse } from "@/app/actions/models";
 import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
@@ -130,7 +130,7 @@ function ModelPageContent() {
       setIsLoading(true);
       try {
         const [providersResponse, modelsResponse] = await Promise.all([
-          getSupportedProviders(),
+          getSupportedModelProviders(),
           getModels()
         ]);
 
