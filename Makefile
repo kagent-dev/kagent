@@ -62,6 +62,13 @@ check-openai-key:
 create-kind-cluster:
 	kind create cluster --name $(KIND_CLUSTER_NAME)
 
+.PHONY: delete-kind-cluster
+delete-kind-cluster:
+	kind delete cluster --name $(KIND_CLUSTER_NAME)
+
+prune-kind-cluster:
+	docker exec -t $(KIND_CLUSTER_NAME)-control-plane bash -c "crictl rmi --prune"
+
 .PHONY: build
 build: build-controller build-ui build-app
 
@@ -107,7 +114,7 @@ release-app: DOCKER_BUILDER = docker buildx
 release-app: build-app
 
 .PHONY: kind-load-docker-images
-kind-load-docker-images: retag-docker-images
+kind-load-docker-images: retag-docker-images prune-kind-cluster
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
