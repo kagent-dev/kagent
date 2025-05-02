@@ -155,21 +155,6 @@ func getStructJSONKeys(structType reflect.Type) []string {
 	return keys
 }
 
-// Helper function to get JSON keys specifically marked as required
-func getRequiredKeys(providerType v1alpha1.ModelProvider) []string {
-	switch providerType {
-	case v1alpha1.AzureOpenAI:
-		// Based on the +required comments in the AzureOpenAIConfig struct definition
-		return []string{"azureEndpoint", "apiVersion"}
-	case v1alpha1.OpenAI, v1alpha1.Anthropic, v1alpha1.Ollama:
-		// These providers currently have no fields marked as strictly required in the API definition
-		return []string{}
-	default:
-		// Unknown provider, return empty
-		return []string{}
-	}
-}
-
 type CreateModelConfigRequest struct {
 	Name            string                      `json:"name"`
 	Provider        Provider                    `json:"provider"`

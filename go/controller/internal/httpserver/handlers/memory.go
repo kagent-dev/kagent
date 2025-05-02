@@ -107,8 +107,12 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		APIKeySecretKey: fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type)),
 	}
 
+	if providerTypeEnum == v1alpha1.Pinecone {
+		memorySpec.Pinecone = req.PineconeParams
+	}
+
 	apiKey := req.APIKey
-	_, err = CreateSecret(h.KubeClient, memorySpec.APIKeySecretKey, common.GetResourceNamespace(), map[string]string{memorySpec.APIKeySecretKey: apiKey})
+	_, err = CreateSecret(h.KubeClient, memorySpec.APIKeySecretRef, common.GetResourceNamespace(), map[string]string{memorySpec.APIKeySecretKey: apiKey})
 	if err != nil {
 		log.Error(err, "Failed to create memory API key secret")
 		w.RespondWithError(errors.NewInternalServerError("Failed to create memory API key secret", err))
