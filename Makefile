@@ -74,6 +74,10 @@ build: build-controller build-ui build-app
 
 .PHONY: build-cli
 build-cli:
+	make -C go build
+
+.PHONY: build-cli-local
+build-cli-local:
 	make -C go clean
 	make -C go bin/kagent-local
 
@@ -178,6 +182,6 @@ helm-publish: helm-version
 	helm push kagent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
 
 .PHONY: kagent-cli-install
-kagent-cli-install: build-cli helm-version kind-load-docker-images
+kagent-cli-install: build-cli-local helm-version kind-load-docker-images
 kagent-cli-install:
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
