@@ -10,7 +10,7 @@ router = APIRouter()
 
 
 @router.get("/")
-async def get_settings(user_id: str, db=Depends(get_db)) -> Dict:
+async def get_settings(user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     try:
         response = db.get(Settings, filters={"user_id": user_id})
         if not response.status or not response.data:
@@ -26,7 +26,7 @@ async def get_settings(user_id: str, db=Depends(get_db)) -> Dict:
 
 
 @router.put("/")
-async def update_settings(settings: Settings, db=Depends(get_db)) -> Dict:
+async def update_settings(settings: Settings, db=Depends(get_db)) -> Dict:# noqa: B008
     response = db.upsert(settings)
     if not response.status:
         raise HTTPException(status_code=400, detail=response.message)

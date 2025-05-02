@@ -10,13 +10,13 @@ router = APIRouter()
 
 
 @router.get("/")
-async def list_servers(user_id: str, db=Depends(get_db)) -> Dict:
+async def list_servers(user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     response = db.get(ToolServer, filters={"user_id": user_id})
     return {"status": True, "data": response.data}
 
 
 @router.get("/{server_id}")
-async def get_server(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def get_server(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     response = db.get(ToolServer, filters={"id": server_id, "user_id": user_id})
     if not response.status or not response.data:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -24,7 +24,7 @@ async def get_server(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:
 
 
 @router.post("/")
-async def create_server(server: ToolServer, db=Depends(get_db)) -> Dict:
+async def create_server(server: ToolServer, db=Depends(get_db)) -> Dict:# noqa: B008
     response = db.upsert(server)
     if not response.status:
         raise HTTPException(status_code=400, detail=response.message)
@@ -32,7 +32,7 @@ async def create_server(server: ToolServer, db=Depends(get_db)) -> Dict:
 
 
 @router.put("/{server_id}")
-async def update_server(server_id: int, server: ToolServer, user_id: str, db=Depends(get_db)) -> Dict:
+async def update_server(server_id: int, server: ToolServer, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     # Ensure the server exists and belongs to the user
     check_response = db.get(ToolServer, filters={"id": server_id, "user_id": user_id})
     if not check_response.status or not check_response.data:
@@ -49,7 +49,7 @@ async def update_server(server_id: int, server: ToolServer, user_id: str, db=Dep
 
 
 @router.delete("/{server_id}")
-async def delete_server(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def delete_server(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     # Get all tools associated with this server
     tools_response = db.get(Tool, filters={"server_id": server_id, "user_id": user_id})
 
@@ -64,7 +64,7 @@ async def delete_server(server_id: int, user_id: str, db=Depends(get_db)) -> Dic
 
 
 @router.get("/{server_id}/tools")
-async def get_server_tools(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def get_server_tools(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     # First check if server exists
     server_response = db.get(ToolServer, filters={"id": server_id, "user_id": user_id})
     if not server_response.status or not server_response.data:
@@ -75,7 +75,7 @@ async def get_server_tools(server_id: int, user_id: str, db=Depends(get_db)) -> 
 
 
 @router.post("/{server_id}/refresh")
-async def refresh_server_tools(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def refresh_server_tools(server_id: int, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     """Refresh tools for an existing server"""
 
     server_response = db.get(ToolServer, filters={"id": server_id, "user_id": user_id})

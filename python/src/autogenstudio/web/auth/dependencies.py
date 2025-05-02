@@ -36,7 +36,7 @@ def get_current_user(request: Request) -> User:
     return User(id="anonymous", name="Anonymous User")
 
 
-def require_authenticated(user: User = Depends(get_current_user)) -> User:
+def require_authenticated(user: User = Depends(get_current_user)) -> User: # noqa: B008
     """Require that the user is authenticated (not anonymous)."""
     if user.id == "anonymous":
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -53,7 +53,7 @@ def require_roles(required_roles: List[str]):
             return {"message": "Welcome, admin!"}
     """
 
-    def _require_roles(user: User = Depends(require_authenticated)) -> User:
+    def _require_roles(user: User = Depends(require_authenticated)) -> User: # noqa: B008
         """Require that the user has at least one of the specified roles."""
         user_roles = set(user.roles or [])
         if not any(role in user_roles for role in required_roles):
@@ -63,6 +63,6 @@ def require_roles(required_roles: List[str]):
     return _require_roles
 
 
-def require_admin(user: User = Depends(require_roles(["admin"]))) -> User:
+def require_admin(user: User = Depends(require_roles(["admin"]))) -> User:# noqa: B008
     """Convenience dependency to require admin role."""
     return user

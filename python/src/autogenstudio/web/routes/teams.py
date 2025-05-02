@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.get("/")
-async def list_teams(user_id: str, db=Depends(get_db)) -> Dict:
+async def list_teams(user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     """List all teams for a user"""
     response = db.get(Team, filters={"user_id": user_id})
 
@@ -26,7 +26,7 @@ async def list_teams(user_id: str, db=Depends(get_db)) -> Dict:
 
 
 @router.get("/{team_id}")
-async def get_team(team_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def get_team(team_id: int, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     """Get a specific team"""
     response = db.get(Team, filters={"id": team_id, "user_id": user_id})
     if not response.status or not response.data:
@@ -35,7 +35,7 @@ async def get_team(team_id: int, user_id: str, db=Depends(get_db)) -> Dict:
 
 
 @router.post("/")
-async def create_team(team: Team, db=Depends(get_db)) -> Dict:
+async def create_team(team: Team, db=Depends(get_db)) -> Dict:# noqa: B008
     """Create a new team"""
     response = db.upsert(team)
     if not response.status:
@@ -44,7 +44,7 @@ async def create_team(team: Team, db=Depends(get_db)) -> Dict:
 
 
 @router.delete("/{team_id}")
-async def delete_team(team_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def delete_team(team_id: int, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     """Delete a team"""
     db.delete(filters={"id": team_id, "user_id": user_id}, model_class=Team)
     return {"status": True, "message": "Team deleted successfully"}

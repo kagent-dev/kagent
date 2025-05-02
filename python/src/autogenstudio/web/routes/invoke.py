@@ -1,13 +1,14 @@
 import os
-
-from fastapi import APIRouter
-from autogen_core import ComponentModel
-from autogenstudio.teammanager import TeamManager
-from autogenstudio.datamodel import Response, TeamResult
-from autogen_agentchat.base import TaskResult
 from typing import Union
-from pydantic import BaseModel
+
+from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import BaseTextChatMessage
+from autogen_core import ComponentModel
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+from autogenstudio.datamodel import Response, TeamResult
+from autogenstudio.teammanager import TeamManager
 
 router = APIRouter()
 team_manager = TeamManager()

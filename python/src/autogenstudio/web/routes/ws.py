@@ -16,14 +16,13 @@ from ..managers.connection import WebSocketManager
 
 router = APIRouter()
 
-
 @router.websocket("/runs/{run_id}")
 async def run_websocket(
     websocket: WebSocket,
     run_id: int,
-    ws_manager: WebSocketManager = Depends(get_websocket_manager),
-    db=Depends(get_db),
-    auth_manager=Depends(get_ws_auth_manager),
+    ws_manager: WebSocketManager = Depends(get_websocket_manager), # noqa: B008
+    db=Depends(get_db),# noqa: B008
+    auth_manager=Depends(get_ws_auth_manager),# noqa: B008
 ):
     """WebSocket endpoint for run communication"""
 

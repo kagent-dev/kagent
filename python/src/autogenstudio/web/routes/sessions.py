@@ -12,14 +12,14 @@ router = APIRouter()
 
 
 @router.get("/")
-async def list_sessions(user_id: str, db=Depends(get_db)) -> Dict:
+async def list_sessions(user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     """List all sessions for a user"""
     response = db.get(Session, filters={"user_id": user_id})
     return {"status": True, "data": response.data}
 
 
 @router.get("/{session_id}")
-async def get_session(session_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def get_session(session_id: int, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     """Get a specific session"""
     response = db.get(Session, filters={"id": session_id, "user_id": user_id})
     if not response.status or not response.data:
@@ -28,7 +28,7 @@ async def get_session(session_id: int, user_id: str, db=Depends(get_db)) -> Dict
 
 
 @router.post("/")
-async def create_session(session: Session, db=Depends(get_db)) -> Response:
+async def create_session(session: Session, db=Depends(get_db)) -> Response:# noqa: B008
     """Create a new session"""
     try:
         response = db.upsert(session)
@@ -41,7 +41,7 @@ async def create_session(session: Session, db=Depends(get_db)) -> Response:
 
 
 @router.put("/{session_id}")
-async def update_session(session_id: int, user_id: str, session: Session, db=Depends(get_db)) -> Dict:
+async def update_session(session_id: int, user_id: str, session: Session, db=Depends(get_db)) -> Dict:# noqa: B008
     """Update an existing session"""
     # First verify the session belongs to user
     existing = db.get(Session, filters={"id": session_id, "user_id": user_id})
@@ -57,14 +57,14 @@ async def update_session(session_id: int, user_id: str, session: Session, db=Dep
 
 
 @router.delete("/{session_id}")
-async def delete_session(session_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def delete_session(session_id: int, user_id: str, db=Depends(get_db)) -> Dict:# noqa: B008
     """Delete a session"""
     db.delete(filters={"id": session_id, "user_id": user_id}, model_class=Session)
     return {"status": True, "message": "Session deleted successfully"}
 
 
 @router.get("/{session_id}/runs")
-async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -> Dict:  # noqa: B008
     """Get complete session history organized by runs"""
 
     try:

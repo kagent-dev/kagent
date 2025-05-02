@@ -11,7 +11,7 @@ router = APIRouter()
 
 @router.put("/{gallery_id}")
 async def update_gallery_entry(
-    gallery_id: int, gallery_data: Gallery, user_id: str, db: DatabaseManager = Depends(get_db)
+    gallery_id: int, gallery_data: Gallery, user_id: str, db: DatabaseManager = Depends(get_db)# noqa: B008
 ) -> Response:
     # Check ownership first
     result = db.get(Gallery, filters={"id": gallery_id})
@@ -28,7 +28,7 @@ async def update_gallery_entry(
 
 
 @router.post("/")
-async def create_gallery_entry(gallery_data: Gallery, db: DatabaseManager = Depends(get_db)) -> Response:
+async def create_gallery_entry(gallery_data: Gallery, db: DatabaseManager = Depends(get_db)) -> Response:# noqa: B008
     response = db.upsert(gallery_data)
     if not response.status:
         raise HTTPException(status_code=400, detail=response.message)
@@ -36,7 +36,7 @@ async def create_gallery_entry(gallery_data: Gallery, db: DatabaseManager = Depe
 
 
 @router.get("/")
-async def list_gallery_entries(user_id: str, db: DatabaseManager = Depends(get_db)) -> Response:
+async def list_gallery_entries(user_id: str, db: DatabaseManager = Depends(get_db)) -> Response:# noqa: B008
     try:
         result = db.get(Gallery, filters={"user_id": user_id})
         if not result.data or len(result.data) == 0:
@@ -51,7 +51,7 @@ async def list_gallery_entries(user_id: str, db: DatabaseManager = Depends(get_d
 
 
 @router.get("/{gallery_id}")
-async def get_gallery_entry(gallery_id: int, user_id: str, db: DatabaseManager = Depends(get_db)) -> Response:
+async def get_gallery_entry(gallery_id: int, user_id: str, db: DatabaseManager = Depends(get_db)) -> Response:# noqa: B008
     result = db.get(Gallery, filters={"id": gallery_id, "user_id": user_id})
     if not result.status or not result.data:
         raise HTTPException(status_code=404, detail="Gallery entry not found")
@@ -60,7 +60,7 @@ async def get_gallery_entry(gallery_id: int, user_id: str, db: DatabaseManager =
 
 
 @router.delete("/{gallery_id}")
-async def delete_gallery_entry(gallery_id: int, user_id: str, db: DatabaseManager = Depends(get_db)) -> Response:
+async def delete_gallery_entry(gallery_id: int, user_id: str, db: DatabaseManager = Depends(get_db)) -> Response:# noqa: B008
     # Check ownership first
     result = db.get(Gallery, filters={"id": gallery_id, "user_id": user_id})
 
