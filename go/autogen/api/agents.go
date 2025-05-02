@@ -18,6 +18,7 @@ type AssistantAgentConfig struct {
 	ModelClientStream     bool         `json:"model_client_stream"`
 	ToolCallSummaryFormat string       `json:"tool_call_summary_format,omitempty"`
 	Handoffs              []Handoff    `json:"handoffs,omitempty"`
+	Memory                []*Component `json:"memory,omitempty"`
 }
 
 func (c *AssistantAgentConfig) ToConfig() (map[string]interface{}, error) {

@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"time"
 
 	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
 
@@ -30,31 +29,26 @@ import (
 	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
-// ToolServerReconciler reconciles a ToolServer object
-type ToolServerReconciler struct {
+// AutogenMemoryReconciler reconciles a AutogenMemory object
+type AutogenMemoryReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	Reconciler autogen.AutogenReconciler
 }
 
-// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kagent.dev,resources=memories,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kagent.dev,resources=memories/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kagent.dev,resources=memories/finalizers,verbs=update
 
-func (r *ToolServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *AutogenMemoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-
-	return ctrl.Result{
-		// loop forever because we need to refresh tools server status
-		Requeue:      true,
-		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileAutogenToolServer(ctx, req)
+	return ctrl.Result{}, r.Reconciler.ReconcileAutogenMemory(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ToolServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AutogenMemoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&agentv1alpha1.ToolServer{}).
-		Named("toolserver").
+		For(&agentv1alpha1.Memory{}).
+		Named("memory").
 		Complete(r)
 }
