@@ -1,3 +1,4 @@
+ARG TOOLS_UV_VERSION=latest
 FROM --platform=$BUILDPLATFORM node:18-bullseye AS ui-builder
 
 WORKDIR /app/ui
@@ -11,7 +12,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM ghcr.io/astral-sh/uv:0.6.5-debian-slim AS final
+FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS final
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \

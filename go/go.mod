@@ -1,6 +1,6 @@
 module github.com/kagent-dev/kagent/go
 
-go 1.24.1
+go 1.24.2
 
 require (
 	github.com/abiosoft/ishell/v2 v2.0.2

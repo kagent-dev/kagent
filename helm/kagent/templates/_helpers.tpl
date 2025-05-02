@@ -47,3 +47,13 @@ Selector labels
 app.kubernetes.io/name: {{ include "kagent.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*Default provider name*/}}
+{{- define "kagent.defaultProviderName" -}}
+{{ .Values.providers.default | default "openAI" | lower}}
+{{- end }}
+
+{{/*Default model name*/}}
+{{- define "kagent.defaultModelConfigName" -}}
+{{ include "kagent.defaultProviderName" . }}-model-config
+{{- end }}

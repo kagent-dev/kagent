@@ -4,13 +4,38 @@ replicaCount: 1
 global:
   tag: ""
 
-openai:
-  enabled: true
-  secretName: "kagent-openai"
-  apiKey: ""
-  secretKey: "OPENAI_API_KEY"
+# https://kagent.dev/docs/getting-started/configuring-providers
+providers:
+  default: openAI
+  openAI:
+    provider: OpenAI
+    model: "gpt-4.1-mini"
+    apiKeySecretRef: kagent-openai
+    apiKeySecretKey: OPENAI_API_KEY
+    apiKey: ""
+  ollama:
+    provider: Ollama
+    model: "llama3.2"
+    host: host.docker.internal:11434
+  anthropic:
+    provider: Anthropic
+    model:  "claude-3-sonnet-20240229"
+    apiKeySecretRef: kagent-anthropic
+    apiKeySecretKey: ANTHROPIC_API_KEY
+    apiKey: ""
+  azureOpenAI:
+    provider: AzureOpenAI
+    model: "gpt-4.1-mini"
+    apiKeySecretRef: kagent-azure-openai
+    apiKeySecretKey: AZUREOPENAI_API_KEY
+    apiVersion: "2023-05-15"
+    azureAdToken: ""
+    azureDeployment: ""
+    azureEndpoint: ""
+    apiKey: ""
 
 controller:
+  loglevel: "info"
   image:
     registry: cr.kagent.dev
     repository: kagent-dev/kagent/controller
@@ -87,17 +112,19 @@ contrib:
   agents:
     k8s:
       enabled: true
-      modelConfigRef: default-model-config
+      #modelConfigRef: default-model-config
     istio:
       enabled: true
-      modelConfigRef: default-model-config
+      #modelConfigRef: default-model-config
     helm:
       enabled: true
-      modelConfigRef: default-model-config
+      #modelConfigRef: default-model-config
     promql:
       enabled: true
-      modelConfigRef: default-model-config
+      #modelConfigRef: default-model-config
     observability:
+      enabled: true
+      #modelConfigRef: default-model-config
       prometheus:
         url: ""
         username: ""
@@ -107,11 +134,9 @@ contrib:
         username: ""
         password: ""
         apiKey: ""
-      enabled: true
-      modelConfigRef: default-model-config
     argoRolloutsConversion:
       enabled: true
-      modelConfigRef: default-model-config
+      #modelConfigRef: default-model-config
 
 otel:
   tracing:

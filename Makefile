@@ -11,6 +11,7 @@ APP_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+
 # Retagged image variables for kind loading; the Helm chart uses these
 RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
 RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
@@ -19,6 +20,33 @@ RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):
 DOCKER_BUILDER ?= docker
 DOCKER_BUILD_ARGS ?=
 KIND_CLUSTER_NAME ?= kagent
+
+#take from go/go.mod
+AWK ?= $(shell command -v gawk || command -v awk)
+GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
+
+#tools versions
+TOOLS_UV_VERSION ?= 0.6.5
+TOOLS_ISTIO_VERSION ?= 1.25.2
+TOOLS_ARGO_CD_VERSION ?= 2.8.2
+
+# Additional build args
+GO_IMAGE_BUILD_ARGS = --build-arg GO_VERSION=$(GO_VERSION)
+UI_IMAGE_BUILD_ARGS = --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
+
+HELM_ACTION=upgrade --install
+
+# Helm chart variables
+KAGENT_DEFAULT_MODEL_PROVIDER ?= openAI
+
+print-tools-versions:
+	@echo "Tools Go     : $(GO_VERSION)"
+	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
+	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
+	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
 # Check if OPENAI_API_KEY is set
 check-openai-key:
@@ -41,6 +69,11 @@ build: build-controller build-ui build-app
 build-cli:
 	make -C go build
 
+.PHONY: build-cli-local
+build-cli-local:
+	make -C go clean
+	make -C go bin/kagent-local
+
 .PHONY: push
 push: push-controller push-ui push-app
 
@@ -51,7 +84,7 @@ controller-manifests:
 
 .PHONY: build-controller
 build-controller: controller-manifests
-	$(DOCKER_BUILDER) build  $(DOCKER_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(GO_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: release-controller
 release-controller: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
@@ -61,7 +94,7 @@ release-controller: build-controller
 .PHONY: build-ui
 build-ui:
 	# Build the combined UI and backend image
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS)  -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(UI_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 
 .PHONY: release-ui
 release-ui: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
@@ -70,7 +103,7 @@ release-ui: build-ui
 
 .PHONY: build-app
 build-app:
-	$(DOCKER_BUILDER)  build $(DOCKER_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
 
 .PHONY: release-app
 release-app: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
@@ -96,15 +129,18 @@ helm-version:
 	helm package helm/kagent-crds
 	helm package helm/kagent
 
-.PHONY: helm-install
-helm-install: helm-version check-openai-key kind-load-docker-images
-	helm upgrade --install kagent-crds helm/kagent-crds \
+.PHONY: helm-install-provider-openai
+helm-install-provider: helm-version check-openai-key
+	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
+		--history-max 2    \
 		--wait
-	helm upgrade --install kagent helm/kagent \
+	helm $(HELM_ACTION) kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
+		--history-max 2    \
+		--timeout 5m       \
 		--wait \
 		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
@@ -112,7 +148,21 @@ helm-install: helm-version check-openai-key kind-load-docker-images
 		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
 		--set app.image.tag=$(APP_IMAGE_TAG) \
-		--set openai.apiKey=$(OPENAI_API_KEY)
+		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
+		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
+		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
+		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		$(HELM_EXTRA_ARGS)
+
+.PHONY: helm-install
+helm-install: kind-load-docker-images
+helm-install: helm-install-provider
+
+.PHONY: helm-test-install
+helm-test-dry-run: HELM_ACTION+="--dry-run"
+helm-test-dry-run: helm-install-provider
+# Test install with dry-run
+# Example: `make helm-test-install | tee helm-test-install.log`
 
 .PHONY: helm-uninstall
 helm-uninstall:
@@ -123,3 +173,8 @@ helm-uninstall:
 helm-publish: helm-version
 	helm push kagent-crds-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
 	helm push kagent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
+
+.PHONY: kagent-cli-install
+kagent-cli-install: build-cli-local helm-version kind-load-docker-images
+kagent-cli-install:
+	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local

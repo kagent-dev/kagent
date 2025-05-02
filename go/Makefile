@@ -46,6 +46,9 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
 ##@ Build
+bin/kagent-local:
+	CGO_ENABLED=0 go test ./cli/...
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/kagent-local ./cli/cmd/kagent
 
 bin/kagent-linux-amd64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-amd64 ./cli/cmd/kagent
@@ -76,6 +79,10 @@ bin/kagent-windows-amd64.exe:
 
 bin/kagent-windows-amd64.exe.sha256: bin/kagent-windows-amd64.exe
 	sha256sum bin/kagent-windows-amd64.exe > bin/kagent-windows-amd64.exe.sha256
+
+.PHONY: clean
+clean:
+	rm -f bin/*
 
 .PHONY: build
 build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-darwin-amd64.sha256 bin/kagent-darwin-arm64.sha256 bin/kagent-windows-amd64.exe.sha256

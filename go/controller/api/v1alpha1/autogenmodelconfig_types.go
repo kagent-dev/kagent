@@ -159,7 +159,7 @@ type ModelConfigSpec struct {
 	// +kubebuilder:default=OpenAI
 	Provider ModelProvider `json:"provider"`
 
-	// The reference to the secret that contains the API key. Can either be a reference to the name of a secrert in the same namespace as the referencing ModelConfig, or a reference to the name of a Secret in a different namespace in the form <namespace>/<name>
+	// The reference to the secret that contains the API key. Can either be a reference to the name of a secret in the same namespace as the referencing ModelConfig, or a reference to the name of a Secret in a different namespace in the form <namespace>/<name>
 	// +optional
 	APIKeySecretRef string `json:"apiKeySecretRef"`
 

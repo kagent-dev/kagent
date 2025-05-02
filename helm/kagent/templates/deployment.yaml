@@ -27,6 +27,12 @@ spec:
       serviceAccountName: {{ include "kagent.fullname" . }}
       containers:
         - name: controller
+          args:
+          {{/* #we need to pass the default model config name to the app otherwise helm upgrade will not allow provider type change due to validations */}}
+            - -default-model-config-name
+            - {{ include "kagent.defaultModelConfigName" . | quote }}
+            - -zap-log-level
+            - {{ .Values.controller.loglevel }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.global.tag .Values.controller.image.tag .Chart.Version }}"
@@ -48,11 +54,17 @@ spec:
           image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ coalesce .Values.global.tag .Values.app.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
           env:
-            - name: OPENAI_API_KEY
+            {{- $providers := omit .Values.providers "default" }}
+            {{- range $key, $model := $providers }}
+            {{/*range over providers if apiKeySecretRef found mount secret */}}
+            {{- if $model.apiKeySecretRef }}
+            - name: {{ $model.apiKeySecretKey }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.openai.secretName }}
-                  key: {{ .Values.openai.secretKey }}
+                  name: {{ $model.apiKeySecretRef }}
+                  key: {{ $model.apiKeySecretKey }}
+            {{- end }}
+            {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
@@ -78,8 +90,8 @@ spec:
             httpGet:
               path: /api/version
               port: {{ .Values.service.ports.app.targetPort }}
-            initialDelaySeconds: 3
-            periodSeconds: 3
+            initialDelaySeconds: 15
+            periodSeconds: 15
         - name: ui
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

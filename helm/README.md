@@ -4,12 +4,67 @@ These Helm charts install kagent-crds,kagent, it is required that the Kagent CRD
 
 ## Installation
 
+### Using Helm
+
 ```bash
 # First, install the required CRDs
 helm install kagent-crds ./helm/kagent-crds/  --namespace kagent
 
-# Then install Kagent
-helm install kagent ./helm/kagent/ --namespace kagent --set openai.apiKey=abcde
+# Then install Kagent with default provider 
+# --set providers.default=openAI enabled by default, but you need to provide your openAI apikey
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.openAI.apiKey=your-openai-api-key
+
+# Or with optional providers if you prefer local ollama provider or anthropic
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=ollama
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
+```
+
+### Using Make
+
+```bash
+# export your openAI key
+export OPENAI_API_KEY=your-openai-api-key
+export ANTHROPIC_API_KEY=your-anthropic-api-key
+export AZUREOPENAI_API_KEY=your-azure-api-key
+
+# install the kagent charts with openAI provider 
+make KAGENT_DEFAULT_MODEL_PROVIDER=openAI helm-install
+
+# install charts with anthropic provider
+make KAGENT_DEFAULT_MODEL_PROVIDER=anthropic helm-install
+
+# install charts with anthropic provider
+make KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI helm-install
+
+# install charts with ollama provider
+make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install
+```
+
+### Using kagent cli
+
+```bash
+## make sure have env variable with your API_KEY
+export OPENAI_API_KEY=your-openai-api-key
+export ANTHROPIC_API_KEY=your-anthropic-api-key
+export AZURE_API_KEY=your-azure-api-key
+
+#default provider is openAI but you can select from the list 
+export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
+export KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI
+export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
+export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+
+# use local helm chart
+export KAGENT_HELM_REPO=./helm/
+
+#build and run kagent cli
+make kagent-cli-install
+
+#or use it directly
+KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
+
 ```
 
 ## Upgrading

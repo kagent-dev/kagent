@@ -1,13 +1,25 @@
-{{ if .Values.openai.enabled }}
+{{- $dot := . }}
+{{- $providers := omit $dot.Values.providers "default" }}
+{{- range $key, $model := $providers }}
+---
 apiVersion: kagent.dev/v1alpha1
 kind: ModelConfig
 metadata:
-  name: default-model-config
+  name: {{$key | lower}}-model-config
   labels:
-    {{- include "kagent.labels" . | nindent 4 }}
+    {{- include "kagent.labels" $dot | nindent 4 }}
 spec:
-  apiKeySecretRef: {{ .Values.openai.secretName }}
-  apiKeySecretKey: {{ .Values.openai.secretKey }}
-  model: gpt-4o
-  provider: OpenAI
-{{ end }}
+  {{- with $model }}
+  {{- $modelconfig := omit . "provider" "model" "apiKey" "apiKeySecretRef" "apiKeySecretKey"}}
+  provider: {{ .provider | quote }}
+  model: {{ .model | quote }}
+  {{- if $model.apiKeySecretRef }}
+  apiKeySecretRef: {{.apiKeySecretRef}}
+  {{- end }}
+  {{- if $model.apiKeySecretKey }}
+  apiKeySecretKey: {{.apiKeySecretKey}}
+  {{- end }}
+  {{$key }}:
+  {{- toYaml $modelconfig | nindent 4 }}
+  {{- end}}
+{{- end }}
