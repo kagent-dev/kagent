@@ -60,6 +60,7 @@ RUN mkdir -p /etc/apt/keyrings \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
+    UV_LINK_MODE=copy  \
     PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/sbin:/bin:/root/.cargo/bin"
 
 RUN uv python install 3.12
