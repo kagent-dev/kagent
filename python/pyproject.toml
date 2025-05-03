@@ -62,8 +62,6 @@ autogen-agentchat = { git = "https://github.com/microsoft/autogen.git", subdirec
 autogen-ext = { git = "https://github.com/microsoft/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "6fc4f532128971c03ff5355adf8ca5c73c38fd38" }
 autogen-core = { git = "https://github.com/microsoft/autogen.git", subdirectory = "python/packages/autogen-core", rev = "6fc4f532128971c03ff5355adf8ca5c73c38fd38" }
 kagent = { workspace = true }
-autogenstudio = { workspace = true }
-tool_servers = { workspace = true }
 
 [tool.ruff]
 line-length = 120
