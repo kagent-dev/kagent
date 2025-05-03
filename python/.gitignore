@@ -171,3 +171,5 @@ cython_debug/
 .pypirc
 
 .DS_Store
+/tmp/
+/patches/

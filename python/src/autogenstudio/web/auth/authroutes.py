@@ -30,7 +30,7 @@ def get_current_user(request: Request) -> User:
 
 
 @router.get("/login-url")
-async def get_login_url(auth_manager: AuthManager = Depends(get_auth_manager)): # noqa: B008
+async def get_login_url(auth_manager: AuthManager = Depends(get_auth_manager)):
     """Get the URL for the frontend to redirect to for login."""
     try:
         login_url = await auth_manager.provider.get_login_url()
@@ -46,7 +46,7 @@ async def oauth_callback(
     code: Optional[str] = None,
     state: Optional[str] = None,
     error: Optional[str] = None,
-    auth_manager: AuthManager = Depends(get_auth_manager), # noqa: B008
+    auth_manager: AuthManager = Depends(get_auth_manager),
 ):
     """
     OAuth callback handler - used by OAuth providers to redirect after auth. This endpoint renders an HTML page that communicates with the parent window
@@ -143,7 +143,7 @@ async def oauth_callback(
 
 
 @router.post("/callback-handler")
-async def handle_callback(request: Request, auth_manager: AuthManager = Depends(get_auth_manager)): # noqa: B008
+async def handle_callback(request: Request, auth_manager: AuthManager = Depends(get_auth_manager)):
     """
     Handle authentication code/token from frontend.This endpoint is used when the frontend handles the OAuth flow and
     needs to exchange the code for a token.
@@ -177,7 +177,7 @@ async def handle_callback(request: Request, auth_manager: AuthManager = Depends(
 
 
 @router.get("/me")
-async def get_user_info(current_user: User = Depends(get_current_user)):# noqa: B008
+async def get_user_info(current_user: User = Depends(get_current_user)):
     """Get information about the currently authenticated user."""
     return {
         "id": current_user.id,
@@ -189,6 +189,6 @@ async def get_user_info(current_user: User = Depends(get_current_user)):# noqa: 
 
 
 @router.get("/type")
-async def get_auth_type(auth_manager: AuthManager = Depends(get_auth_manager)): # noqa: B008
+async def get_auth_type(auth_manager: AuthManager = Depends(get_auth_manager)):
     """Get the configured authentication type."""
     return {"type": auth_manager.config.type, "exclude_paths": auth_manager.config.exclude_paths}

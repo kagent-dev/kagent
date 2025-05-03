@@ -18,7 +18,7 @@ class CreateRunRequest(BaseModel):
 @router.post("/")
 async def create_run(
     request: CreateRunRequest,
-    db=Depends(get_db),# noqa: B008
+    db=Depends(get_db),
 ) -> Dict:
     """Create a new run with initial state"""
     session_response = db.get(
@@ -48,7 +48,7 @@ async def create_run(
 
 
 @router.get("/{run_id}")
-async def get_run(run_id: int, db=Depends(get_db)) -> Dict:# noqa: B008
+async def get_run(run_id: int, db=Depends(get_db)) -> Dict:
     """Get run details including task and result"""
     run = db.get(Run, filters={"id": run_id}, return_json=False)
     if not run.status or not run.data:
@@ -58,7 +58,7 @@ async def get_run(run_id: int, db=Depends(get_db)) -> Dict:# noqa: B008
 
 
 @router.get("/{run_id}/messages")
-async def get_run_messages(run_id: int, db=Depends(get_db)) -> Dict:# noqa: B008
+async def get_run_messages(run_id: int, db=Depends(get_db)) -> Dict:
     """Get all messages for a run"""
     messages = db.get(Message, filters={"run_id": run_id}, order="created_at asc", return_json=False)
 
