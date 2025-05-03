@@ -83,8 +83,11 @@ verify_kubectl_plugin_install = FunctionTool(
 
 def _promote_rollout(
     rollout_name: Annotated[str, "The name of the rollout to promote"],
-    ns: Annotated[Optional[str], "The namespace of the rollout. Defaults to the default namespace."],
-    full: Annotated[Optional[bool], "Perform a full promotion, skipping analysis, pauses, and steps. Default is False"],
+    ns: Annotated[Optional[str], "The namespace of the rollout. Defaults to the default namespace."] = None,
+    full: Annotated[
+        Optional[bool],
+        "Perform a full promotion, skipping analysis, pauses, and steps. Default is False",
+    ] = False,
 ) -> str:
     """
     Promote an Argo Rollout with various options for customization.
@@ -112,7 +115,7 @@ promote_rollout = FunctionTool(
 
 def _pause_rollout(
     rollout_name: Annotated[str, "The name of the rollout to pause"],
-    ns: Annotated[Optional[str], "The namespace of the rollout. Default is None"],
+    ns: Annotated[Optional[str], "The namespace of the rollout. Default is None"] = None,
 ) -> str:
     """
     Pause a rollout in Argo Rollouts, with various configurable options for Kubernetes context, authentication, etc.
@@ -139,7 +142,7 @@ pause_rollout = FunctionTool(
 def _set_rollout_image(
     rollout_name: Annotated[str, "The name of the rollout to update"],
     container_image: Annotated[str, "Container name and image in the format 'container=image'"],
-    ns: Annotated[Optional[str], "The namespace for the resource. Default is None"],
+    ns: Annotated[Optional[str], "The namespace for the resource. Default is None"] = None,
 ) -> str:
     """
     Set the image for a container in an Argo Rollouts deployment.
