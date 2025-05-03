@@ -76,14 +76,14 @@ COPY pyproject.toml .
 COPY .python-version .
 COPY uv.lock .
 COPY README.md .
-RUN uv cache dir && uv venv .venv && uv pip install hatchling
-RUN uv sync --frozen
+RUN --mount=type=cache,target=/root/.cache/uv uv cache dir && uv venv .venv && uv pip install hatchling
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
 COPY src src
 RUN chown -R python:pythongroup /app/python
 
 # Generate tools and agents
 RUN mkdir -p /root/.autogenstudio/configs
-RUN uv run tool_gen -o /root/.autogenstudio/configs
+RUN --mount=type=cache,target=/root/.cache/uv uv run tool_gen -o /root/.autogenstudio/configs
 
 # Ensure correct permissions
 RUN chown -R python:pythongroup /app/python && \
