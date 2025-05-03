@@ -68,9 +68,12 @@ delete-kind-cluster:
 
 .PHONY: prune-kind-cluster
 prune-kind-cluster:
-	echo "Pruning old docker images from kind except $(VERSION)  ..."
-	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images | grep kagent \
-	tee | awk '{print $3}' | grep -v $(VERSION) | xargs -r docker exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi
+	echo "Images in kind cluster $(KIND_CLUSTER_NAME) ..."
+	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images | grep kagent
+	echo "Pruning dangling docker images from kind  ..."
+	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images --filter dangling=true --no-trunc --quiet
+	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images --filter dangling=true --no-trunc --quiet | \
+	awk '{print $3}' | xargs -r docker exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi
 
 .PHONY: build
 build: build-controller build-ui build-app

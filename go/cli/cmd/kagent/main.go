@@ -70,6 +70,10 @@ func main() {
 	// create new shell.
 	// by default, new shell includes 'exit', 'help' and 'clear' commands.
 	shell := ishell.New()
+	shell.SetHistoryPath(".kagent_history")
+	shell.ClearScreen()
+	shell.Println("Welcome to kagent CLI. Type 'help' to see available commands.")
+
 	config.SetCfg(shell, cfg)
 	config.SetClient(shell, client)
 
