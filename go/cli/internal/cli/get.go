@@ -135,6 +135,7 @@ func GetToolCmd(c *ishell.Context) {
 			return
 		}
 	}
+	// TODO: implement get tool by resource name
 }
 
 func printTools(tools []*autogen_client.Tool) error {
@@ -142,7 +143,7 @@ func printTools(tools []*autogen_client.Tool) error {
 	rows := make([][]string, len(tools))
 	for i, tool := range tools {
 		rows[i] = []string{
-			strconv.Itoa(i),
+			strconv.Itoa(i + 1),
 			strconv.Itoa(tool.Id),
 			tool.Component.Provider,
 			tool.Component.Label,
@@ -156,7 +157,6 @@ func printRuns(runs []*autogen_client.Run) error {
 	headers := []string{"#", "ID", "CONTENT", "MESSAGES", "STATUS", "CREATED"}
 	rows := make([][]string, len(runs))
 	for i, run := range runs {
-
 		contentStr := "[N/A]" // Default content if type assertion fails or content is nil
 		if run.Task.Content != nil {
 			if content, ok := run.Task.Content.(string); ok {
@@ -171,8 +171,8 @@ func printRuns(runs []*autogen_client.Run) error {
 		}
 
 		rows[i] = []string{
-			strconv.Itoa(i),
-			run.ID,
+			strconv.Itoa(i + 1),
+			strconv.Itoa(run.ID),
 			contentStr,
 			strconv.Itoa(len(run.Messages)),
 			run.Status,
@@ -189,7 +189,7 @@ func printTeams(teams []*autogen_client.Team) error {
 	rows := make([][]string, len(teams))
 	for i, team := range teams {
 		rows[i] = []string{
-			strconv.Itoa(i),
+			strconv.Itoa(i + 1),
 			team.Component.Label,
 			strconv.Itoa(team.Id),
 			team.CreatedAt,
@@ -204,7 +204,7 @@ func printSessions(sessions []*autogen_client.Session) error {
 	rows := make([][]string, len(sessions))
 	for i, session := range sessions {
 		rows[i] = []string{
-			strconv.Itoa(i),
+			strconv.Itoa(i + 1),
 			strconv.Itoa(session.ID),
 			session.Name,
 			strconv.Itoa(session.TeamID),

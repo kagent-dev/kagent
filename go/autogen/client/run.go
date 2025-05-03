@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 )
@@ -12,9 +13,15 @@ func (c *Client) CreateRun(req *CreateRunRequest) (*CreateRunResult, error) {
 	return &run, err
 }
 
-func (c *Client) GetRun(runID string) (*Run, error) {
+func (c *Client) GetRun(runIDStr string) (*Run, error) {
+	// Convert to integer runID
+	runID, err := strconv.Atoi(runIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid run ID: %s, must be a number: %w", runIDStr, err)
+	}
+
 	var run Run
-	err := c.doRequest("GET", fmt.Sprintf("/runs/%s", runID), nil, &run)
+	err = c.doRequest("GET", fmt.Sprintf("/runs/%d", runID), nil, &run)
 	return &run, err
 }
 

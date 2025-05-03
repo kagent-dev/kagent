@@ -33,10 +33,11 @@ func generateRandomString(prefix string, length int) (string, error) {
 }
 
 func ChatCmd(c *ishell.Context) {
-
 	verbose := false
+	var sessionName string
 	flagSet := pflag.NewFlagSet(c.RawArgs[0], pflag.ContinueOnError)
 	flagSet.BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	flagSet.StringVarP(&sessionName, "session", "s", "", "Session name to use")
 	if err := flagSet.Parse(c.Args); err != nil {
 		c.Printf("Failed to parse flags: %v\n", err)
 		return
@@ -49,9 +50,29 @@ func ChatCmd(c *ishell.Context) {
 	if len(flagSet.Args()) > 0 {
 		teamName := flagSet.Args()[0]
 		var err error
-		team, err = client.GetTeam(cfg.UserID, teamName)
+		team, err = client.GetTeam(teamName, cfg.UserID)
 		if err != nil {
 			c.Println(err)
+			return
+		}
+		if team == nil {
+			c.Printf("Error: Could not find team '%s'\n", teamName)
+			teams, listErr := client.ListTeams(cfg.UserID)
+			if listErr != nil {
+				c.Printf("Failed to list teams: %v\n", listErr)
+				return
+			}
+
+			if len(teams) == 0 {
+				c.Println("No teams found, please create one via the web UI or CRD before chatting.")
+				return
+			}
+
+			c.Println("Available teams:")
+			if err := printTeams(teams); err != nil {
+				c.Printf("Failed to print teams: %v\n", err)
+				return
+			}
 			return
 		}
 	} else {
@@ -95,7 +116,12 @@ func ChatCmd(c *ishell.Context) {
 
 	// Add the new session option to the beginning of the list
 	existingSessionNames = append([]string{sessionCreateNew}, existingSessionNames...)
-	selectedSessionIdx := c.MultiChoice(existingSessionNames, "Select a session:")
+	var selectedSessionIdx int
+	if sessionName != "" {
+		selectedSessionIdx = slices.Index(existingSessionNames, sessionName)
+	} else {
+		selectedSessionIdx = c.MultiChoice(existingSessionNames, "Select a session:")
+	}
 
 	var session *autogen_client.Session
 	if selectedSessionIdx == 0 {

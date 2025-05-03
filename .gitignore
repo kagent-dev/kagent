@@ -26,6 +26,9 @@ test_results
 # Go workspace file
 go.work
 
+# Go CLI binary
+go/cli/bin/*
+
 ### Python template
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -102,6 +105,9 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+
+# Package lock
+package-lock.json
 
 # Jupyter Notebook
 .ipynb_checkpoints
