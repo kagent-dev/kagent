@@ -34,7 +34,8 @@ dependencies = [
   "fastapi",
   "playwright",
   "html2text",
-  "bs4"
+  "bs4",
+  "websocket-client"
 ]
 
 [project.optional-dependencies]
