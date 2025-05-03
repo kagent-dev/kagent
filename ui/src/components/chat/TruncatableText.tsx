@@ -1,17 +1,11 @@
-import React, { memo, useState, useCallback } from "react";
+import React, { memo } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronUp, ChevronDown, Maximize2 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ScrollArea } from "@radix-ui/react-scroll-area";
 import CodeBlock from "./CodeBlock";
 
 interface TruncatableTextProps {
   content: string;
   isJson?: boolean;
   className?: string;
-  jsonThreshold?: number;
-  textThreshold?: number;
-  showFullscreen?: boolean;
   isStreaming?: boolean;
 }
 
@@ -28,28 +22,16 @@ const components = {
   },
 };
 
-export const TruncatableText = memo(({ content, isJson = false, className = "", jsonThreshold = 1000, textThreshold = 1500, showFullscreen = true, isStreaming = false }: TruncatableTextProps) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const threshold = isJson ? jsonThreshold : textThreshold;
-
-  // Only enable truncation for non-streaming, completed messages
-  const shouldTruncate = !isStreaming && content.length > threshold;
-
-  const toggleExpand = useCallback(() => {
-    setIsExpanded(!isExpanded);
-  }, [isExpanded]);
-
-  const displayContent = shouldTruncate && !isExpanded ? content.slice(0, threshold) + "..." : content;
-
+export const TruncatableText = memo(({ content, isJson = false, className = "", isStreaming = false }: TruncatableTextProps) => {
   const renderContent = () => {
     if (isJson) {
-      return <pre className="whitespace-pre-wrap">{displayContent.trim()}</pre>;
+      return <pre className="whitespace-pre-wrap">{content.trim()}</pre>;
     }
 
     return (
       <div className="relative">
         <ReactMarkdown className={`prose-md prose max-w-none dark:prose-invert dark:text-primary-foreground ${isStreaming ? "streaming-content" : ""}`} components={components}>
-          {displayContent.trim()}
+          {content.trim()}
         </ReactMarkdown>
 
         {isStreaming && (
@@ -66,41 +48,12 @@ export const TruncatableText = memo(({ content, isJson = false, className = "", 
       <div
         className={`
           overflow-auto scroll w-full
-          ${shouldTruncate && !isExpanded ? "max-h-[300px]" : "max-h-[10000px]"}
           ${className}
           ${isStreaming ? "streaming" : ""}
         `}
       >
         {renderContent()}
       </div>
-
-      {shouldTruncate && !isStreaming && (
-        <div className="mt-2 flex items-center justify-end gap-2">
-          <button type="button" onClick={toggleExpand} className="inline-flex items-center justify-center p-2 rounded z-10" aria-label={isExpanded ? "Show less" : "Show more"}>
-            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-          </button>
-
-          {showFullscreen && (
-            <Dialog>
-              <DialogTrigger asChild>
-                <button type="button" className="inline-flex items-center justify-center p-2 rounded z-10" aria-label="Toggle fullscreen">
-                  <Maximize2 size={18} />
-                </button>
-              </DialogTrigger>
-              <DialogContent className="max-w-3xl max-h-[80vh]">
-                <DialogHeader>
-                  <DialogTitle className="text-lg font-semibold">Details</DialogTitle>
-                </DialogHeader>
-                <ScrollArea className="mt-4 w-full max-h-[60vh] overflow-y-auto">
-                  <div className="px-6 pb-6">
-                    <ReactMarkdown className="prose-md prose max-w-none">{content}</ReactMarkdown>
-                  </div>
-                </ScrollArea>
-              </DialogContent>
-            </Dialog>
-          )}
-        </div>
-      )}
     </div>
   );
 });

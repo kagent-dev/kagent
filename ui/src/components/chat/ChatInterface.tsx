@@ -41,7 +41,13 @@ export default function ChatInterface({ selectedAgentId, selectedRun }: ChatInte
 
   useEffect(() => {
     if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      const viewport = containerRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+      if (viewport) {
+        // Use setTimeout to defer the scroll until after the next render cycle/paint
+        setTimeout(() => {
+          viewport.scrollTop = viewport.scrollHeight;
+        }, 0);
+      }
     }
   }, [messages, currentStreamingContent]);
 

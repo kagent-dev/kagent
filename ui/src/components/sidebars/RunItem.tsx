@@ -55,9 +55,8 @@ const RunItem = ({ sessionId, run, agentId, onDelete }: RunItemProps) => {
       <SidebarMenu>
         <SidebarMenuItem key={sessionId}>
           <SidebarMenuButton asChild>
-            <Link href={`/agents/${agentId}/chat/${sessionId}`} className="flex items-center justify-between w-full gap-2">
-              <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm">{getTaskTitle(run.task)}</span>
-              <Badge variant="outline" className="whitespace-nowrap">{run.status}</Badge>
+            <Link href={`/agents/${agentId}/chat/${sessionId}`}>
+              <span className="text-ellipsis truncate max-w-[100px] text-sm" title={getTaskTitle(run.task)}>{getTaskTitle(run.task)}</span>
             </Link>
           </SidebarMenuButton>
           <DropdownMenu>
