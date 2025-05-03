@@ -62,7 +62,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/sbin:/bin:/root/.cargo/bin"
 
-RUN --mount=type=cache,target=/root/.cache/uv uv python install 3.12
+RUN uv python install 3.12
 
 # Create groups and users
 RUN groupadd -g 1002 pythongroup \
@@ -76,14 +76,14 @@ COPY pyproject.toml .
 COPY .python-version .
 COPY uv.lock .
 COPY README.md .
-RUN --mount=type=cache,target=/root/.cache/uv uv cache dir && uv venv .venv && uv pip install hatchling
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
+RUN uv cache dir && uv venv .venv && uv pip install hatchling
+RUN uv sync --frozen
 COPY src src
 RUN chown -R python:pythongroup /app/python
 
 # Generate tools and agents
 RUN mkdir -p /root/.autogenstudio/configs
-RUN --mount=type=cache,target=/root/.cache/uv uv run tool_gen -o /root/.autogenstudio/configs
+RUN uv run tool_gen -o /root/.autogenstudio/configs
 
 # Ensure correct permissions
 RUN chown -R python:pythongroup /app/python && \
