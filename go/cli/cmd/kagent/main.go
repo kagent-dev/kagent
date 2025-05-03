@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 
 	"github.com/abiosoft/ishell/v2"
@@ -41,13 +42,11 @@ func main() {
 	}
 
 	client := autogen_client.New(cfg.APIURL, cfg.WSURL)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
 	if err != nil {
 		// Error connecting to server, port-forward the server
 		go func() {
-
 			if err := cmd.Start(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
 				os.Exit(1)
@@ -67,16 +66,29 @@ func main() {
 		}
 	}()
 
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting home directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	configDir := path.Join(homeDir, ".config", "kagent")
+	historyPath := path.Join(configDir, ".kagent_history")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open %s: %v\n", configDir, err)
+	}
+
 	// create new shell.
 	// by default, new shell includes 'exit', 'help' and 'clear' commands.
 	shell := ishell.New()
-	shell.SetHistoryPath(".kagent_history")
-	shell.ClearScreen()
-	shell.Println("Welcome to kagent CLI. Type 'help' to see available commands.")
+	shell.SetHistoryPath(historyPath)
+	if err := shell.ClearScreen(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error clearing screen: %v\n", err)
+	}
+	shell.Println("Welcome to kagent CLI. Type 'help' to see available commands.", strings.Repeat(" ", 10))
 
 	config.SetCfg(shell, cfg)
 	config.SetClient(shell, client)
-
 	shell.SetPrompt(config.BoldBlue("kagent >> "))
 
 	runCmd := &ishell.Cmd{
