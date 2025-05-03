@@ -13,7 +13,7 @@ def _check_service_connectivity(
     service_name: Annotated[
         Optional[str],
         "Fully qualified service name with port number (e.g. my-service.my-namespace.svc.cluster.local:80)",
-    ],
+    ] = None,
 ) -> str:
     pod_name = f"curlpod-{random.randint(0, 1000)}"
     _run_kubectl_command(f"run {pod_name} --image=curlimages/curl --restart=Never --command -- sleep 3600")
@@ -27,7 +27,7 @@ def _patch_resource(
     resource_type: Annotated[str, "The type of resource to patch (deployment, configmap, pod, service, ...)"],
     resource_name: Annotated[str, "The name of the resource to patch"],
     patch: Annotated[str, "The patch to apply to the resource"],
-    ns: Annotated[Optional[str], "The namespace of the resource to patch"],
+    ns: Annotated[Optional[str], "The namespace of the resource to patch"] = None,
 ):
     cmd_parts = ["patch", resource_type, resource_name]
     if ns:
@@ -41,7 +41,7 @@ def _scale(
     resource_type: Annotated[str, "The type of resource to scale (deployment, statefulset, ...)"],
     name: Annotated[str, "The name of the resource to scale"],
     replicas: Annotated[int, "The number of replicas to scale to"],
-    ns: Annotated[Optional[str], "The namespace of the resource to scale"],
+    ns: Annotated[Optional[str], "The namespace of the resource to scale"] = None,
 ) -> str:
     return _run_kubectl_command(f"scale {resource_type}/{name} --replicas={replicas} {f'-n {ns} ' if ns else ''}")
 
@@ -52,7 +52,7 @@ def _remove_annotation(
     ],
     name: Annotated[str, "The name of the resource to remove the annotation from"],
     annotation_key: Annotated[str, "The key of the annotation to remove"],
-    ns: Annotated[Optional[str], "The namespace of the resource to remove the annotation from"],
+    ns: Annotated[Optional[str], "The namespace of the resource to remove the annotation from"] = None,
 ) -> str:
     return _run_kubectl_command(f"annotate {resource_type} {name} {f'-n {ns} ' if ns else ''} {annotation_key}-")
 
@@ -61,7 +61,7 @@ def _annotate_resource(
     resource_type: Annotated[str, "The type of resource to annotate (deployment, service, pod, node, ...)"],
     name: Annotated[str, "The name of the resource to annotate"],
     annotations: Annotated[dict[str, str], "The annotations to apply to the resource"],
-    ns: Annotated[Optional[str], "The namespace of the resource to annotate"],
+    ns: Annotated[Optional[str], "The namespace of the resource to annotate"] = None,
 ) -> str:
     annotation_string = " ".join([f"{key}={value}" for key, value in annotations.items()])
     return _run_kubectl_command(f"annotate {resource_type} {name} {f'-n {ns} ' if ns else ''} {annotation_string}")
@@ -73,7 +73,7 @@ def _remove_label(
     ],
     name: Annotated[str, "The name of the resource to remove the label from"],
     label_key: Annotated[str, "The key of the label to remove"],
-    ns: Annotated[Optional[str], "The namespace of the resource to remove the label from"],
+    ns: Annotated[Optional[str], "The namespace of the resource to remove the label from"] = None,
 ) -> str:
     return _run_kubectl_command(f"label {resource_type} {name} {f'-n {ns} ' if ns else ''} {label_key}-")
 
@@ -82,7 +82,7 @@ def _label_resource(
     resource_type: Annotated[str, "The type of resource to label (deployment, service, pod, node, ...)"],
     name: Annotated[str, "The name of the resource to label"],
     labels: Annotated[dict[str, str], "The labels to apply to the resource"],
-    ns: Annotated[Optional[str], "The namespace of the resource to label"],
+    ns: Annotated[Optional[str], "The namespace of the resource to label"] = None,
 ) -> str:
     label_string = " ".join([f"{key}={value}" for key, value in labels.items()])
     return _run_kubectl_command(f"label {resource_type} {name} {f'-n {ns} ' if ns else ''} {label_string}")
@@ -90,7 +90,7 @@ def _label_resource(
 
 def _create_resource(
     resource_yaml: Annotated[str, "The YAML definition of the resource to create. Must be a local file"],
-    namespace: Annotated[Optional[str], "The namespace of the resource to create"],
+    namespace: Annotated[Optional[str], "The namespace of the resource to create"] = None,
 ) -> str:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=True) as tmp_file:
         tmp_file.write(resource_yaml)
@@ -100,7 +100,7 @@ def _create_resource(
 
 def _create_resource_from_url(
     resource_yaml_url: Annotated[str, "The url of the yaml definition of the resource to create."],
-    namespace: Annotated[Optional[str], "The namespace of the resource to create"],
+    namespace: Annotated[Optional[str], "The namespace of the resource to create"] = None,
 ) -> str:
     return _run_kubectl_command(f"create -f {resource_yaml_url} {f'-n {namespace}' if namespace else ''}")
 
@@ -115,7 +115,7 @@ def _rollout(
     ],
     resource_type: Annotated[str, "The type of resource to rollout (deployment, daemonset, ...)"],
     name: Annotated[str, "The name of the resource to rollout"],
-    ns: Annotated[Optional[str], "The namespace of the resource to rollout"],
+    ns: Annotated[Optional[str], "The namespace of the resource to rollout"] = None,
 ) -> str:
     return _run_kubectl_command(f"rollout {action} {resource_type}/{name} {f'-n {ns} ' if ns else ''}")
 
@@ -131,7 +131,7 @@ def _get_cluster_configuration() -> str:
 def _describe_resource(
     resource_type: Annotated[str, "The type of resource to describe (deployment, service, pod, node, ...)"],
     name: Annotated[str, "The name of the resource to describe"],
-    ns: Annotated[Optional[str], "The namespace of the resource to describe"],
+    ns: Annotated[Optional[str], "The namespace of the resource to describe"] = None,
 ) -> str:
     return _run_kubectl_command(f"describe {resource_type} {name} {f'-n {ns}' if ns else ''}")
 
@@ -151,8 +151,8 @@ def _get_resource_yaml(
     name: Annotated[
         Optional[str],
         "The name of the resource to get the YAML definition for. If not provided, all resources of the given type will be returned.",
-    ],
-    ns: Annotated[Optional[str], "The namespace of the resource to get the definition for"],
+    ] = None,
+    ns: Annotated[Optional[str], "The namespace of the resource to get the definition for"] = None,
 ) -> str:
     return _run_kubectl_command(f"get {resource_type} {name if name else ''} {f'-n {ns} ' if ns else ''} -o yaml")
 
@@ -166,20 +166,20 @@ def _execute_command(
 
 
 def _get_resources(
-    name: Annotated[
-        Optional[str],
-        "The name of the resource to get information about. If not provided, all resources of the given type will be returned.",
-    ],
     resource_type: Annotated[
         str,
         "The type of resource to get information about (deployment, service, pod, node, ...). 'all' is NOT an option, you must specify a resource type.",
     ],
-    all_namespaces: Annotated[Optional[bool], "Whether to get resources from all namespaces"],
+    name: Annotated[
+        Optional[str],
+        "The name of the resource to get information about. If not provided, all resources of the given type will be returned.",
+    ] = None,
+    all_namespaces: Annotated[Optional[bool], "Whether to get resources from all namespaces"] = None,
     ns: Annotated[
         Optional[str],
         "The namespace of the resource to get information about, if unset will default to the current namespace",
-    ],
-    output: Annotated[Optional[str], "The output format of the resource information"],
+    ] = None,
+    output: Annotated[Optional[str], "The output format of the resource information"] = None,
 ) -> str:
     if name and all_namespaces:
         # only use the name if provided, and ignore all_namespaces
