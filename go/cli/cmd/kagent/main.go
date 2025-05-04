@@ -138,7 +138,7 @@ Examples:
 
 If no resource name is provided, then a list of available resources will be returned.
 Examples:
-  get session [session_name]
+  get session [session_id]
   get session
   `,
 		Func: func(c *ishell.Context) {
@@ -158,7 +158,7 @@ Examples:
 
 If no resource name is provided, then a list of available resources will be returned.
 Examples:
-  get run [run_name]
+  get run [run_id]
   get run
   `,
 		Func: func(c *ishell.Context) {

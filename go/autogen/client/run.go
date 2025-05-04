@@ -12,9 +12,10 @@ func (c *Client) CreateRun(req *CreateRunRequest) (*CreateRunResult, error) {
 	return &run, err
 }
 
-func (c *Client) GetRun(runID string) (*Run, error) {
+func (c *Client) GetRun(runID int) (*Run, error) {
+
 	var run Run
-	err := c.doRequest("GET", fmt.Sprintf("/runs/%s", runID), nil, &run)
+	err := c.doRequest("GET", fmt.Sprintf("/runs/%d", runID), nil, &run)
 	return &run, err
 }
 
