@@ -4,7 +4,7 @@ DOCKER_REPO ?= kagent-dev/kagent
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
-VERSION ?= $(shell git describe --tags --always --dirty)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | grep -i ^v.\*-dirty || echo "v0.0.0-local")
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
@@ -53,8 +53,10 @@ KAGENT_DEFAULT_MODEL_PROVIDER ?= openAI
 
 # Print tools versions
 print-tools-versions:
-	@echo "Tools Go     : $(GO_VERSION)"
+	@echo "VERSION      : $(VERSION)"
+	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
 	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
+	@echo "Tools K9S    : $(TOOLS_K9S_VERSION)"
 	@echo "Tools Kind   : $(TOOLS_KIND_VERSION)"
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"

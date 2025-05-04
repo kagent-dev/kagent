@@ -53,7 +53,7 @@ RUN --mount=type=cache,target=/cache,rw \
 FROM --platform=$BUILDPLATFORM node-python-golang AS tools-node-python-golang
 
 # Install kubectl
-RUN curl -LO "https://dl.k8s.io/release/${TOOLS_KUBECTL_VERSION}/bin/$BUILDPLATFORM/kubectl" \
+RUN curl -LO "https://dl.k8s.io/release/v${TOOLS_KUBECTL_VERSION}/bin/$ARCH/kubectl" \
     && chmod +x kubectl \
     && mv kubectl /usr/local/bin/
 
