@@ -86,6 +86,8 @@ RUN curl -LO https://github.com/derailed/k9s/releases/download/v${TOOLS_K9S_VERS
 
 RUN sh -c "$(wget https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh -O -)" \
     sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --yes \
-    && mkdir -p /root/.config
+    && mkdir -p /root/.config \
+    && git config --global core.excludesfile /root/.gitignore_global \
+    && echo "**/.idea/" > /root/.gitignore_global
 
 ENTRYPOINT ["zsh"]
