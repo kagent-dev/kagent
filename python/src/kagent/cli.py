@@ -287,7 +287,6 @@ def serve(
     import logging
     import os
 
-    from autogenstudio.cli import ui
     from opentelemetry import trace
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -295,6 +294,8 @@ def serve(
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    from autogenstudio.cli import ui
 
     logging.basicConfig(level=logging.INFO)
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"

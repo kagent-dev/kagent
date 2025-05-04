@@ -7,7 +7,7 @@ from ..common import run_command
 
 
 async def _ztunnel_config(
-    ns: Annotated[Optional[str], "The namespace of the pod to get proxy configuration for"],
+    ns: Annotated[Optional[str], "The namespace of the pod to get proxy configuration for"] = None,
     config_type: Annotated[
         Optional[str],
         "The type of configuration to get, the allowed values are: all, bootstrap, cluster, ecds, listener, log, route, secret",
@@ -24,7 +24,7 @@ async def _waypoint_status(
 
 
 async def _list_waypoints(
-    ns: Annotated[Optional[str], "Namespace to list waypoints for"],
+    ns: Annotated[Optional[str], "Namespace to list waypoints for"] = None,
     all_namespaces: Annotated[Optional[bool], "List waypoints for all namespaces"] = False,
 ) -> str:
     return _run_istioctl_command(f"waypoint list {f'-n {ns} ' if ns else ''} {'-A' if all_namespaces else ''}")
@@ -68,8 +68,8 @@ async def _analyze_cluster_configuration() -> str:
 
 
 async def _proxy_status(
-    pod_name: Annotated[Optional[str], "The name of the pod to get Envoy proxy status for"],
-    ns: Annotated[Optional[str], "The namespace of the pod to get Envoy proxy status for"],
+    pod_name: Annotated[Optional[str], "The name of the pod to get Envoy proxy status for"] = None,
+    ns: Annotated[Optional[str], "The namespace of the pod to get Envoy proxy status for"] = None,
 ) -> str:
     return _run_istioctl_command(f"proxy-status {'-n ' + ns if ns else ''} {pod_name if pod_name else ''}")
 
@@ -84,7 +84,7 @@ async def _install_istio(
 
 async def _proxy_config(
     pod_name: Annotated[str, "The name of the pod to get proxy configuration for"],
-    ns: Annotated[Optional[str], "The namespace of the pod to get proxy configuration for"],
+    ns: Annotated[Optional[str], "The namespace of the pod to get proxy configuration for"] = None,
     config_type: Annotated[
         Optional[str],
         "The type of configuration to get, the allowed values are: all, bootstrap, cluster, ecds, listener, log, route, secret",

@@ -26,7 +26,7 @@ AWK ?= $(shell command -v gawk || command -v awk)
 GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.6.5
+TOOLS_UV_VERSION ?= 0.7.2
 TOOLS_ISTIO_VERSION ?= 1.25.2
 TOOLS_ARGO_CD_VERSION ?= 2.8.2
 
@@ -61,6 +61,17 @@ check-openai-key:
 .PHONY: create-kind-cluster
 create-kind-cluster:
 	kind create cluster --name $(KIND_CLUSTER_NAME)
+
+.PHONY: delete-kind-cluster
+delete-kind-cluster:
+	kind delete cluster --name $(KIND_CLUSTER_NAME)
+
+.PHONY: prune-kind-cluster
+prune-kind-cluster:
+	echo "Pruning dangling docker images from kind  ..."
+	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images --filter dangling=true --no-trunc --quiet || :
+	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images --filter dangling=true --no-trunc --quiet | \
+	awk '{print $3}' | xargs -r docker exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
 
 .PHONY: build
 build: build-controller build-ui build-app
@@ -111,7 +122,7 @@ release-app: DOCKER_BUILDER = docker buildx
 release-app: build-app
 
 .PHONY: kind-load-docker-images
-kind-load-docker-images: retag-docker-images
+kind-load-docker-images: retag-docker-images prune-kind-cluster
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
