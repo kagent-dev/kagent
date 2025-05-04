@@ -49,9 +49,12 @@ HELM_ACTION=upgrade --install
 # Helm chart variables
 KAGENT_DEFAULT_MODEL_PROVIDER ?= openAI
 
+# Print tools versions
 print-tools-versions:
 	@echo "Tools Go     : $(GO_VERSION)"
 	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
+	@echo "Tools Kind   : $(TOOLS_KIND_VERSION)"
+	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
@@ -113,7 +116,7 @@ release-controller: build-controller
 .PHONY: build-ui
 build-ui:
 	# Build the combined UI and backend image
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(UI_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 
 .PHONY: release-ui
 release-ui: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
