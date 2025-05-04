@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update         \
     && update-ca-certificates \
     && curl -fsSL https://get.docker.com -o get-docker.sh  \
-    && sh get-docker.sh  \
+    && sh get-docker.sh       \
     && apt-get clean          \
     && rm -rf /var/log/*log   \
     && rm -rf /var/lib/apt/lists/*
