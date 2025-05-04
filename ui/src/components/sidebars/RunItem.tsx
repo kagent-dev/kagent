@@ -1,4 +1,4 @@
-import { AgentMessageConfig, Run, Message } from "@/types/datamodel";
+import { AgentMessageConfig, Run } from "@/types/datamodel";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -15,7 +15,6 @@ import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } fr
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
 import { messageUtils } from "@/lib/utils";
 
 interface RunItemProps {
