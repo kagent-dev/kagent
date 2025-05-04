@@ -26,7 +26,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // AutogenModelConfigReconciler reconciles a Secret object which contains a model config
@@ -46,10 +45,9 @@ func (r *AutogenSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *AutogenSecretReconciler) SetupWithManager(mgr ctrl.Manager, filters ...predicate.Predicate) error {
+func (r *AutogenSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Secret{}).
 		Named("autogenapikeysecret").
-		WithEventFilter(predicate.And(filters...)).
 		Complete(r)
 }

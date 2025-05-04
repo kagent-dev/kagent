@@ -38,17 +38,10 @@ providers:
 
 controller:
   loglevel: "info"
-  # -- Namespaces the controller is allowed to watch.
-  # The chart's installation namespace is always included automatically.
-  # Specify additional namespaces that should be watched by the controller.
-  # @default -- [] (watches all namespaces)
-  allowedNamespaces:
-  #  - allowed-ns-1
-  #  - allowed-ns-2
 
   # -- Namespaces the controller should watch.
-  # If empty, the controller will watch all namespaces (subject to RBAC permissions).
-  # @default -- [] (watches all namespaces)
+  # If empty, the controller will watch ONLY release namespace.
+  # @default -- [] (watches release namespace)
   watchNamespaces: []
   #  - watch-ns-1
   #  - watch-ns-2
@@ -113,12 +106,10 @@ fullnameOverride: ""
 
 podAnnotations: {}
 
-podSecurityContext:
-  {}
+podSecurityContext: {}
   # fsGroup: 2000
 
-securityContext:
-  {}
+securityContext: {}
   # capabilities:
   #   drop:
   #   - ALL

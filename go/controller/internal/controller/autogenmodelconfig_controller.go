@@ -25,7 +25,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
@@ -47,10 +46,9 @@ func (r *AutogenModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.R
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *AutogenModelConfigReconciler) SetupWithManager(mgr ctrl.Manager, filters ...predicate.Predicate) error {
+func (r *AutogenModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&agentv1alpha1.ModelConfig{}).
 		Named("autogenmodelconfig").
-		WithEventFilter(predicate.And(filters...)).
 		Complete(r)
 }

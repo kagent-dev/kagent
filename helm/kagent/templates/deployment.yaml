@@ -33,6 +33,8 @@ spec:
             - {{ include "kagent.defaultModelConfigName" . | quote }}
             - -zap-log-level
             - {{ .Values.controller.loglevel }}
+            - -watch-namespaces
+            - {{ include "kagent.watchNamespaces" . }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.global.tag .Values.controller.image.tag .Chart.Version }}"
@@ -45,14 +47,6 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
-            {{- if .Values.controller.allowedNamespaces }}
-            - name: ALLOWED_NAMESPACES
-              value: {{ include "kagent.allowedNamespaces" . }}
-            {{- end }}
-            {{- if .Values.controller.watchNamespaces }}
-            - name: WATCH_NAMESPACES
-              value: {{ include "kagent.watchNamespaces" . }}
-            {{- end }}
           {{- with .Values.controller.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
