@@ -55,27 +55,10 @@ func ChatCmd(c *ishell.Context) {
 			c.Println(err)
 			return
 		}
-		if team == nil {
-			c.Printf("Error: Could not find team '%s'\n", teamName)
-			teams, listErr := client.ListTeams(cfg.UserID)
-			if listErr != nil {
-				c.Printf("Failed to list teams: %v\n", listErr)
-				return
-			}
-
-			if len(teams) == 0 {
-				c.Println("No teams found, please create one via the web UI or CRD before chatting.")
-				return
-			}
-
-			c.Println("Available teams:")
-			if err := printTeams(teams); err != nil {
-				c.Printf("Failed to print teams: %v\n", err)
-				return
-			}
-			return
-		}
-	} else {
+	}
+	// If team is not found or not passed as an argument, prompt the user to select from available teams
+	if team == nil {
+		c.Printf("Please select from available teams.\n")
 		// Get the teams based on the input + userID
 		teams, err := client.ListTeams(cfg.UserID)
 		if err != nil {
