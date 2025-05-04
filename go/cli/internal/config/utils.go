@@ -2,11 +2,12 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path"
+
 	"github.com/abiosoft/ishell/v2"
 	"github.com/fatih/color"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
-	"os"
-	"path"
 )
 
 const (
@@ -49,6 +50,10 @@ func BoldRed(s string) string {
 func GetConfigDir(homeDir string) (string, error) {
 	if homeDir == "" {
 		return "", fmt.Errorf("homeDir cannot be empty")
+	}
+
+	if _, err := os.Stat(homeDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("homeDir should be a valid directory")
 	}
 
 	configDir := path.Join(homeDir, ".config", "kagent")

@@ -18,9 +18,9 @@ func TestGetConfigDirSubsequentRun(t *testing.T) {
 }
 
 func TestHandlesErrorWhenCreatingConfigDir(t *testing.T) {
-	homeDir := "/invalid/path"
-	//capture os.Stderr
-	result, err := GetConfigDir(homeDir)
+	homeDir := t.TempDir()
+	nonExistentDir := path.Join(homeDir, "/invalid/path")
+	result, err := GetConfigDir(nonExistentDir)
 	if err == nil {
 		t.Fatalf("Expected error, but got nil")
 	}

@@ -7,6 +7,7 @@ FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-s
 FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm AS node-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    gettext-base              \
     wget                      \
     git                       \
     zsh                       \
