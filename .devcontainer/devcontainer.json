@@ -5,24 +5,30 @@
     "args": {
       "TOOLS_GO_VERSION": "1.24.2",
       "TOOLS_UV_VERSION": "0.7.2",
-      "TOOLS_NODE_VERSION": "18",
+      "TOOLS_NODE_VERSION": "20",
       "TOOLS_ISTIO_VERSION": "1.25.2",
-      "TOOLS_KUBECTL_VERSION": "1.33.4",
+      "TOOLS_KUBECTL_VERSION": "1.33.4"
     }
   },
   "customizations": {
     "vscode": {
       "extensions": [
         "golang.go",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "dbaeumer.vscode-eslint",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.makefile-tools",
         "ms-vscode.vscode-go",
         "ms-python.python",
         "ms-python.vscode-pylance",
         "ms-toolsai.jupyter",
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
         "ms-vscode.vscode-typescript-next"
       ]
     }
   },
-  "remoteUser": "root"
+  "remoteUser": "root",
+
+  //enable docker
+  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"]
 }

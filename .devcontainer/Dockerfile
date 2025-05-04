@@ -2,12 +2,15 @@ ARG TARGETARCH
 ARG TOOLS_NODE_VERSION=latest
 ARG TOOLS_UV_VERSION=latest
 
-#STAGE 1 - base node and python image
+#STAGE 1 - base image
 FROM --platform=linux/${TARGETARCH} ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS tools-uv
 FROM --platform=linux/${TARGETARCH} node:${TOOLS_NODE_VERSION}-bookworm AS node-base
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget                      \
     git                       \
+    zsh                       \
+    jq                        \
     build-essential           \
     curl                      \
     ca-certificates           \
@@ -19,6 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev                \
     && apt-get update         \
     && update-ca-certificates \
+    && curl -fsSL https://get.docker.com -o get-docker.sh  \
+    && sh get-docker.sh  \
+    && apt-get clean          \
+    && rm -rf /var/log/*log   \
     && rm -rf /var/lib/apt/lists/*
 
 ### STAGE 2 add golang
@@ -62,4 +69,8 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && ./get_helm.sh \
     && rm get_helm.sh
 
-ENTRYPOINT ["node"]
+RUN sh -c "$(wget https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh -O -)" \
+    sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --yes \
+    && mkdir -p /root/.config
+
+ENTRYPOINT ["zsh"]
