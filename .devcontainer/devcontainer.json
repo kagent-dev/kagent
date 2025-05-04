@@ -4,8 +4,9 @@
     "dockerfile": "Dockerfile",
     "args": {
       "TOOLS_GO_VERSION": "1.24.2",
-      "TOOLS_UV_VERSION": "0.7.2",
       "TOOLS_NODE_VERSION": "20",
+      "TOOLS_UV_VERSION": "0.7.2",
+      "TOOLS_KIND_VERSION": "0.27.0",
       "TOOLS_ISTIO_VERSION": "1.25.2",
       "TOOLS_KUBECTL_VERSION": "1.33.4"
     }
@@ -30,5 +31,8 @@
   "remoteUser": "root",
 
   //enable docker
-  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"]
+  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"]
+
+  // Uncomment the next line to run commands after the container is created.
+  "postCreateCommand": "",
 }

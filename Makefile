@@ -27,6 +27,7 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
+TOOLS_KIND_VERSION ?= 0.27.0
 TOOLS_NODE_VERSION ?= 20.18
 TOOLS_ISTIO_VERSION ?= 1.25.2
 TOOLS_ARGO_CD_VERSION ?= 2.8.2
@@ -37,6 +38,7 @@ GO_IMAGE_BUILD_ARGS = --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 
 TOOLS_IMAGE_BUILD_ARGS = $(GO_IMAGE_BUILD_ARGS)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KIND_VERSION=$(TOOLS_KIND_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ARGO_CD_VERSION=$(TOOLS_ARGO_CD_VERSION)
@@ -95,6 +97,7 @@ push: push-controller push-ui push-app
 
 .PHONY: controller-manifests
 controller-manifests:
+	make -C go clean
 	make -C go manifests
 	cp go/config/crd/bases/* helm/kagent-crds/templates/
 

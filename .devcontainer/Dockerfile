@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ### STAGE 2 add golang
 FROM --platform=linux/${TARGETARCH} node-base AS node-python-golang
 ARG TOOLS_GO_VERSION
+ARG TOOLS_KIND_VERSION
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
 ARG TARGETARCH
@@ -62,6 +63,11 @@ RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/
 RUN curl -L https://istio.io/downloadIstio | TOOLS_ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=${TARGETARCH} sh - \
     && mv istio-$TOOLS_ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl \
     && rm -rf istio-$TOOLS_ISTIO_VERSION
+
+# Install kind
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${TARGETARCH} \
+    && chmod +x ./kind \
+    && mv ./kind /usr/local/bin/
 
 #Install Helm
 RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
