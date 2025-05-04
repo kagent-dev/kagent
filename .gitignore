@@ -192,4 +192,3 @@ go/bin/
 
 ## Helm
 *.tgz
-/.kagent_history

@@ -46,16 +46,24 @@ func BoldRed(s string) string {
 	return color.New(color.FgRed, color.Bold).SprintFunc()(s)
 }
 
-func GetConfigDir(homeDir string) string {
+func GetConfigDir(homeDir string) (string, error) {
+	if homeDir == "" {
+		return "", fmt.Errorf("homeDir cannot be empty")
+	}
+
 	configDir := path.Join(homeDir, ".config", "kagent")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create config %s: %v\n", configDir, err)
+		return "", fmt.Errorf("error creating config directory: %w", err)
 	}
-	return configDir
+	return configDir, nil
 }
 
 func SetHistoryPath(homeDir string, shell *ishell.Shell) {
-	configDir := GetConfigDir(homeDir)
+	configDir, err := GetConfigDir(homeDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting config directory: %v\n", err)
+		return
+	}
 	historyPath := path.Join(configDir, ".kagent_history")
 	shell.SetHistoryPath(historyPath)
 }
