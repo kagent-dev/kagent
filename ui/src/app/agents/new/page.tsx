@@ -30,15 +30,15 @@ interface ValidationErrors {
   memory?: string;
 }
 
-// Inner component that uses useSearchParams, wrapped in Suspense
-function AgentPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { models, tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
+interface AgentPageContentProps {
+  isEditMode: boolean;
+  agentId: string | null;
+}
 
-  // Determine if in edit mode
-  const isEditMode = searchParams.get("edit") === "true";
-  const agentId = searchParams.get("id");
+// Inner component that uses useSearchParams, wrapped in Suspense
+function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
+  const router = useRouter();
+  const { models, tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
 
   // Basic form state
   const [name, setName] = useState("");
@@ -335,9 +335,17 @@ function AgentPageContent() {
 
 // Main component that wraps the content in a Suspense boundary
 export default function AgentPage() {
+  // Determine if in edit mode
+  const searchParams = useSearchParams();
+  const isEditMode = searchParams.get("edit") === "true";
+  const agentId = searchParams.get("id");
+  
+  // Create a key based on the edit mode and agent ID
+  const formKey = isEditMode ? `edit-${agentId}` : 'create';
+  
   return (
     <Suspense fallback={<LoadingState />}>
-      <AgentPageContent />
+      <AgentPageContent key={formKey} isEditMode={isEditMode} agentId={agentId} />
     </Suspense>
   );
 }
