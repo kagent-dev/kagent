@@ -60,15 +60,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*
 Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string
-Includes release namespace and removes duplicates
+Removes duplicates
 */}}
 {{- define "kagent.watchNamespaces" -}}
 {{- $nsSet := dict }}
-{{- /* Add release namespace */ -}}
-{{- $_ := set $nsSet .Release.Namespace "" }}
-{{- /* Add user-defined namespaces */ -}}
 {{- range .Values.controller.watchNamespaces | default list }}
 {{- $_ := set $nsSet . "" }}
 {{- end }}
-{{- join "," (keys $nsSet) }}
+{{- keys $nsSet | join "," }}
 {{- end -}}
