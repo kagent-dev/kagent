@@ -42,7 +42,5 @@
   "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
 
   // Uncomment the next line to run commands after the container is created.
-  "postCreateCommand": "make create-kind-cluster build",
-
-  //https://containers.dev/implementors/json_reference/
+  "postCreateCommand": "make create-kind-cluster build"
 }
