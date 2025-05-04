@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ### STAGE 2 add golang
 FROM --platform=$BUILDPLATFORM node-base AS node-python-golang
 ARG TOOLS_GO_VERSION
+ARG TOOLS_K9S_VERSION
 ARG TOOLS_KIND_VERSION
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
@@ -59,7 +60,13 @@ RUN curl -LO "https://dl.k8s.io/release/${TOOLS_KUBECTL_VERSION}/bin/$BUILDPLATF
 RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/${TOOLS_ARGO_CD_VERSION}/download/kubectl-argo-rollouts-linux-${ARCH} \
     && chmod +x /usr/local/bin/kubectl-argo-rollouts
 
-# Install Istio
+#Install Helm
+RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+    && chmod 700 get_helm.sh \
+    && ./get_helm.sh \
+    && rm get_helm.sh
+
+# Install Istioctl
 RUN curl -L https://istio.io/downloadIstio | TOOLS_ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=${ARCH} sh - \
     && mv istio-$TOOLS_ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl \
     && rm -rf istio-$TOOLS_ISTIO_VERSION
@@ -69,11 +76,12 @@ RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${ARCH} \
     && chmod +x ./kind \
     && mv ./kind /usr/local/bin/
 
-#Install Helm
-RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
-    && chmod 700 get_helm.sh \
-    && ./get_helm.sh \
-    && rm get_helm.sh
+# Install k9s
+RUN curl -LO https://github.com/derailed/k9s/releases/download/v${TOOLS_K9S_VERSION}/k9s_Linux_${ARCH}.tar.gz \
+    && tar -xvf k9s_Linux_${ARCH}.tar.gz \
+    && mv k9s /usr/local/bin/ \
+    && chmod +x /usr/local/bin/k9s \
+    && rm -f k9s_Linux_${ARCH}.tar.gz
 
 RUN sh -c "$(wget https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh -O -)" \
     sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --yes \
