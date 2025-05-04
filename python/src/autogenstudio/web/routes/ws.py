@@ -16,6 +16,7 @@ from ..managers.connection import WebSocketManager
 
 router = APIRouter()
 
+
 @router.websocket("/runs/{run_id}")
 async def run_websocket(
     websocket: WebSocket,

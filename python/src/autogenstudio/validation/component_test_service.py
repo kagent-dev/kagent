@@ -152,7 +152,10 @@ class ComponentTestService:
 
     @classmethod
     async def test_component(
-        cls, component: ComponentModel, timeout: int = 60, model_client: Optional[ChatCompletionClient] = None # noqa: ASYNC109
+        cls,
+        component: ComponentModel,
+        timeout: int = 60,
+        model_client: Optional[ChatCompletionClient] = None,  # noqa: ASYNC109
     ) -> ComponentTestResult:
         """Test a component based on its type with appropriate test inputs"""
         try:

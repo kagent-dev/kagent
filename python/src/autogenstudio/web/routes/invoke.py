@@ -13,9 +13,11 @@ from autogenstudio.teammanager import TeamManager
 router = APIRouter()
 team_manager = TeamManager()
 
+
 class InvokeTaskRequest(BaseModel):
     task: str
     team_config: dict
+
 
 @router.post("/")
 async def invoke(request: InvokeTaskRequest):
@@ -28,6 +30,7 @@ async def invoke(request: InvokeTaskRequest):
         response.status = False
     return response
 
+
 def _format_team_result(team_result: TeamResult) -> dict:
     """
     Format the result from TeamResult to a dictionary.
@@ -39,17 +42,17 @@ def _format_team_result(team_result: TeamResult) -> dict:
     }
     return formatted_result
 
+
 def _format_task_result(task_result: TaskResult) -> dict:
     """
     Format the result from TeamResult to a dictionary.
     """
     formatted_result = {
-        "messages": [
-            _format_message(message) for message in task_result.messages
-        ],
+        "messages": [_format_message(message) for message in task_result.messages],
         "stop_reason": task_result.stop_reason,
     }
     return formatted_result
+
 
 def _format_message(message: BaseTextChatMessage) -> dict:
     """

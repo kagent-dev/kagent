@@ -45,9 +45,7 @@ async def bing_search(
     api_key = os.getenv("BING_SEARCH_KEY", "").strip()
 
     if not api_key:
-        raise ValueError(
-            "BING_SEARCH_KEY environment variable is not set. " "Please obtain an API key from Azure Portal."
-        )
+        raise ValueError("BING_SEARCH_KEY environment variable is not set. Please obtain an API key from Azure Portal.")
 
     # Validate safe_search parameter
     valid_safe_search = ["off", "moderate", "strict"]
@@ -193,7 +191,7 @@ async def bing_search(
         else:
             raise ValueError(f"Search request failed: {error_msg}") from e
     except json.JSONDecodeError:
-        raise ValueError("Failed to parse API response. " "Please verify your API credentials and try again.") from None
+        raise ValueError("Failed to parse API response. Please verify your API credentials and try again.") from None
     except Exception as e:
         raise ValueError(f"Unexpected error during search: {str(e)}") from e
 
