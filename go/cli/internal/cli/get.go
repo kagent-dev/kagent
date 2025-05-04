@@ -68,9 +68,16 @@ func GetRunCmd(c *ishell.Context) {
 			return
 		}
 	} else {
-		run, err := client.GetRun(resourceName)
+		// Convert run ID from string to integer
+		runID, err := strconv.Atoi(resourceName)
 		if err != nil {
-			c.Printf("Failed to get run %s: %v\n", resourceName, err)
+			c.Printf("Invalid run ID: %s, must be a number: %v\n", resourceName, err)
+			return
+		}
+
+		run, err := client.GetRun(runID)
+		if err != nil {
+			c.Printf("Failed to get run %d: %v\n", runID, err)
 			return
 		}
 		byt, _ := json.MarshalIndent(run, "", "  ")
