@@ -31,7 +31,7 @@
   "remoteUser": "root",
 
   //enable docker
-  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"]
+  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
 
   // Uncomment the next line to run commands after the container is created.
   "postCreateCommand": "",
