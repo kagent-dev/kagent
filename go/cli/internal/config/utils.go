@@ -1,9 +1,12 @@
 package config
 
 import (
+	"fmt"
 	"github.com/abiosoft/ishell/v2"
 	"github.com/fatih/color"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"os"
+	"path"
 )
 
 const (
@@ -41,4 +44,18 @@ func BoldYellow(s string) string {
 
 func BoldRed(s string) string {
 	return color.New(color.FgRed, color.Bold).SprintFunc()(s)
+}
+
+func GetConfigDir(homeDir string) string {
+	configDir := path.Join(homeDir, ".config", "kagent")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create config %s: %v\n", configDir, err)
+	}
+	return configDir
+}
+
+func SetHistoryPath(homeDir string, shell *ishell.Shell) {
+	configDir := GetConfigDir(homeDir)
+	historyPath := path.Join(configDir, ".kagent_history")
+	shell.SetHistoryPath(historyPath)
 }

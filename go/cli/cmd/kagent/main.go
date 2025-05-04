@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
 	"strings"
 
 	"github.com/abiosoft/ishell/v2"
@@ -72,16 +71,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	configDir := path.Join(homeDir, ".config", "kagent")
-	historyPath := path.Join(configDir, ".kagent_history")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open %s: %v\n", configDir, err)
-	}
-
 	// create new shell.
 	// by default, new shell includes 'exit', 'help' and 'clear' commands.
 	shell := ishell.New()
-	shell.SetHistoryPath(historyPath)
+	config.SetHistoryPath(homeDir, shell)
 	if err := shell.ClearScreen(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error clearing screen: %v\n", err)
 	}
