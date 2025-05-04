@@ -15,8 +15,9 @@
     "vscode": {
       "extensions": [
         "golang.go",
-        "GitHub.copilot",
-        "GitHub.copilot-chat",
+        "redhat.vscode-yaml",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-kubernetes-tools.kind-vscode",
         "dbaeumer.vscode-eslint",
         "ms-azuretools.vscode-docker",
         "ms-vscode.makefile-tools",
@@ -24,7 +25,13 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "ms-toolsai.jupyter",
-        "ms-vscode.vscode-typescript-next"
+        "ms-vscode.vscode-typescript-next",
+        "ms-vscode.makefile-tools",
+        "ms-remote.remote-containers",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "Catppuccin.catppuccin-vsc",
+        "Catppuccin.catppuccin-vsc-icons"
       ]
     }
   },
