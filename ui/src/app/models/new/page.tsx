@@ -114,6 +114,7 @@ function ModelPageContent() {
   const [providerModelsData, setProviderModelsData] = useState<ProviderModelsResponse | null>(null);
   const [selectedCombinedModel, setSelectedCombinedModel] = useState<string | undefined>(undefined);
   const [selectedModelSupportsFunctionCalling, setSelectedModelSupportsFunctionCalling] = useState<boolean | null>(null);
+  const [modelTag, setModelTag] = useState("latest");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -194,6 +195,19 @@ function ModelPageContent() {
           const requiredKeys = provider?.requiredParams || [];
           const fetchedParams = modelData.modelParams || {};
 
+          if (provider?.type === 'Ollama') {
+            if (fetchedParams.modelTag) {
+              setModelTag(fetchedParams.modelTag);
+            } else {
+              const modelNameParts = modelData.model.split(':');
+              if (modelNameParts.length > 1) {
+                setModelTag(modelNameParts[1]);
+              } else {
+                setModelTag('latest');
+              }
+            }
+          }
+
           const initialRequired: ModelParam[] = requiredKeys.map((key, index) => {
             const fetchedValue = fetchedParams[key];
             const displayValue = (fetchedValue === null || fetchedValue === undefined) ? "" : String(fetchedValue);
@@ -264,14 +278,18 @@ function ModelPageContent() {
       if (parts.length === 2) {
         const providerKey = parts[0];
         const modelName = parts[1];
-        const baseName = `${providerKey}-${modelName}`.toLowerCase();
+        let baseName = `${providerKey}-${modelName}`.toLowerCase();
+        const isOllama = selectedProvider?.type === "Ollama";
+        if (isOllama && modelTag && modelTag !== 'latest') {
+          baseName = `${baseName}-${modelTag.toLowerCase()}`;
+        }
         const validName = baseName.replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
         if (isResourceNameValid(validName)) {
           setName(validName);
         }
       }
     }
-  }, [selectedCombinedModel, isEditMode, isEditingName]);
+  }, [selectedCombinedModel, isEditMode, isEditingName, modelTag]);
 
   const validateForm = () => {
     const newErrors: ValidationErrors = { requiredParams: {} };
@@ -366,13 +384,27 @@ function ModelPageContent() {
     setIsSubmitting(true);
     setErrors({});
 
+    let finalModelName = name.trim();
+    let finalModelWithTag = modelName;
+    if (finalSelectedProvider.type === 'Ollama' && modelTag.trim() !== 'latest') {
+      if (!isEditingName && !isEditMode) {
+        const tagSuffix = `-${modelTag.trim()}`;
+        finalModelName = finalModelName + tagSuffix;
+
+        if (!isResourceNameValid(finalModelName)) {
+          finalModelName = finalModelName.replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        }
+      }
+      finalModelWithTag = `${modelName}:${modelTag.trim()}`
+    }
+
     const payload: CreateModelConfigPayload = {
-      name: name.trim(),
+      name: finalModelName,
       provider: {
         name: finalSelectedProvider.name,
         type: finalSelectedProvider.type,
       },
-      model: modelName,
+      model: finalModelWithTag,
       apiKey: apiKey.trim(),
     };
 
@@ -388,6 +420,9 @@ function ModelPageContent() {
         break;
       case 'AzureOpenAI':
         payload.azureOpenAI = providerParams as AzureOpenAIConfigPayload;
+        if (modelTag.trim()) {
+          providerParams.modelTag = modelTag.trim();
+        }
         break;
       case 'Ollama':
         payload.ollama = providerParams as OllamaConfigPayload;
@@ -478,6 +513,8 @@ function ModelPageContent() {
             selectedModelSupportsFunctionCalling={selectedModelSupportsFunctionCalling}
             loadingError={loadingError}
             isEditMode={isEditMode}
+            modelTag={modelTag}
+            onModelTagChange={setModelTag}
           />
 
           <AuthSection
@@ -535,4 +572,4 @@ export default function ModelPage() {
       <ModelPageContent />
     </React.Suspense>
   );
-} 
+}
