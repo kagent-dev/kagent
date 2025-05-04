@@ -1,10 +1,10 @@
-ARG TARGETARCH
-ARG TOOLS_NODE_VERSION=latest
 ARG TOOLS_UV_VERSION=latest
+ARG TOOLS_NODE_VERSION=latest
+ARG ARCH=${TARGETARCH:-amd64}
 
 #STAGE 1 - base image
-FROM --platform=linux/${TARGETARCH} ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS tools-uv
-FROM --platform=linux/${TARGETARCH} node:${TOOLS_NODE_VERSION}-bookworm AS node-base
+FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS tools-uv
+FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm AS node-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget                      \
@@ -29,12 +29,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ### STAGE 2 add golang
-FROM --platform=linux/${TARGETARCH} node-base AS node-python-golang
+FROM --platform=$BUILDPLATFORM node-base AS node-python-golang
 ARG TOOLS_GO_VERSION
 ARG TOOLS_KIND_VERSION
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
-ARG TARGETARCH
+ARG ARCH
 
 #ENVIRONMENT VARIABLES
 ENV DEBIAN_FRONTEND=noninteractive
@@ -44,28 +44,28 @@ ENV GOPROXY="http://proxy.golang.org"
 ENV PATH=$PATH:/usr/local/go/bin
 
 RUN --mount=type=cache,target=/cache,rw \
-    wget -q --show-progress -P /cache https://golang.org/dl/go${TOOLS_GO_VERSION}.linux-${TARGETARCH}.tar.gz && \
-    tar     -C /usr/local -xzf /cache/go${TOOLS_GO_VERSION}.linux-${TARGETARCH}.tar.gz
+    wget -q --show-progress -P /cache https://golang.org/dl/go${TOOLS_GO_VERSION}.linux-${ARCH}.tar.gz && \
+    tar     -C /usr/local -xzf /cache/go${TOOLS_GO_VERSION}.linux-${ARCH}.tar.gz
 
 ### STAGE 3 add tools
-FROM --platform=linux/${TARGETARCH} node-python-golang AS tools-node-python-golang
+FROM --platform=$BUILDPLATFORM node-python-golang AS tools-node-python-golang
 
 # Install kubectl
-RUN curl -LO "https://dl.k8s.io/release/${TOOLS_KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+RUN curl -LO "https://dl.k8s.io/release/${TOOLS_KUBECTL_VERSION}/bin/$BUILDPLATFORM/kubectl" \
     && chmod +x kubectl \
     && mv kubectl /usr/local/bin/
 
 # Install kubectl argo plugin
-RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/${TOOLS_ARGO_CD_VERSION}/download/kubectl-argo-rollouts-linux-${TARGETARCH} \
+RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/${TOOLS_ARGO_CD_VERSION}/download/kubectl-argo-rollouts-linux-${ARCH} \
     && chmod +x /usr/local/bin/kubectl-argo-rollouts
 
 # Install Istio
-RUN curl -L https://istio.io/downloadIstio | TOOLS_ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=${TARGETARCH} sh - \
+RUN curl -L https://istio.io/downloadIstio | TOOLS_ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=${ARCH} sh - \
     && mv istio-$TOOLS_ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl \
     && rm -rf istio-$TOOLS_ISTIO_VERSION
 
 # Install kind
-RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${TARGETARCH} \
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${ARCH} \
     && chmod +x ./kind \
     && mv ./kind /usr/local/bin/
 
