@@ -36,6 +36,7 @@ ARG TOOLS_K9S_VERSION
 ARG TOOLS_KIND_VERSION
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
+ARG TOOLS_KUBECTL_VERSION
 ARG ARCH
 
 #ENVIRONMENT VARIABLES
@@ -53,9 +54,10 @@ RUN --mount=type=cache,target=/cache,rw \
 FROM --platform=$BUILDPLATFORM node-python-golang AS tools-node-python-golang
 
 # Install kubectl
-RUN curl -LO "https://dl.k8s.io/release/v${TOOLS_KUBECTL_VERSION}/bin/$ARCH/kubectl" \
-    && chmod +x kubectl \
-    && mv kubectl /usr/local/bin/
+RUN curl -LO "https://dl.k8s.io/release/v${TOOLS_KUBECTL_VERSION}/bin/linux/$ARCH/kubectl" \
+    && mv kubectl /usr/local/bin/ \
+    && chmod +x /usr/local/bin/kubectl \
+    && kubectl version --client
 
 # Install kubectl argo plugin
 RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/${TOOLS_ARGO_CD_VERSION}/download/kubectl-argo-rollouts-linux-${ARCH} \
