@@ -1,0 +1,28 @@
+{
+  "name": "Go Development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TOOLS_GO_VERSION": "1.24.2",
+      "TOOLS_UV_VERSION": "0.7.2",
+      "TOOLS_NODE_VERSION": "18",
+      "TOOLS_ISTIO_VERSION": "1.25.2",
+      "TOOLS_KUBECTL_VERSION": "1.33.4",
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "ms-vscode.vscode-go",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-typescript-next"
+      ]
+    }
+  },
+  "remoteUser": "root"
+}

@@ -1,5 +1,6 @@
 ARG TOOLS_UV_VERSION=latest
-FROM --platform=$BUILDPLATFORM node:18-bullseye AS ui-builder
+ARG TOOLS_NODE_VERSION=20
+FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm AS ui-builder
 
 WORKDIR /app/ui
 

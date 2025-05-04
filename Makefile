@@ -23,19 +23,24 @@ KIND_CLUSTER_NAME ?= kagent
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
-GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
+TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
+TOOLS_NODE_VERSION ?= 20.18
 TOOLS_ISTIO_VERSION ?= 1.25.2
 TOOLS_ARGO_CD_VERSION ?= 2.8.2
+TOOLS_KUBECTL_VERSION ?= 1.32.2
 
-# Additional build args
-GO_IMAGE_BUILD_ARGS = --build-arg GO_VERSION=$(GO_VERSION)
-UI_IMAGE_BUILD_ARGS = --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
+# build args
+GO_IMAGE_BUILD_ARGS = --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
+
+TOOLS_IMAGE_BUILD_ARGS = $(GO_IMAGE_BUILD_ARGS)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ARGO_CD_VERSION=$(TOOLS_ARGO_CD_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KUBECTL_VERSION=$(TOOLS_KUBECTL_VERSION)
 
 HELM_ACTION=upgrade --install
 
@@ -189,3 +194,6 @@ helm-publish: helm-version
 kagent-cli-install: build-cli-local helm-version kind-load-docker-images
 kagent-cli-install:
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
+
+build-dev-container:
+	$(DOCKER_BUILDER) build -t kagent-devcontainer --load $(TOOLS_IMAGE_BUILD_ARGS) .devcontainer
