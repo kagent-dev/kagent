@@ -42,7 +42,14 @@ const useChatStore = create<ChatState>((set, get) => ({
       get().cleanup();
       const { team, session, run } = await startNewChat(agentId);
       // Add the new session to sessions list
-      set({
+      set((state) => ({
+        sessions: [
+          {
+            session,
+            runs: [run],
+          },
+          ...state.sessions,
+        ],
         team,
         session,
         run,
@@ -52,7 +59,7 @@ const useChatStore = create<ChatState>((set, get) => ({
         websocketManager: null,
         currentStreamingContent: "",
         currentStreamingMessage: null,
-      });
+      }));
     } catch (error) {
       set({
         error: `Failed to start chat: ${error}`,

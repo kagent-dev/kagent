@@ -15,7 +15,7 @@ import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } fr
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
+import { messageUtils } from "@/lib/utils";
 
 interface RunItemProps {
   sessionId: number;
@@ -37,27 +37,39 @@ function  isNestedMessageContent(content: unknown): content is AgentMessageConfi
   );
 }
 
-const getTaskTitle = (task: AgentMessageConfig): string => {
-  if (typeof task.content === "string") {
-    return task.content;
+const getRunTitle = (run: Run): string => {
+  if (run.task) {
+    const task = run.task;
+    if (typeof task.content === "string" && task.content.trim() !== "") {
+      return task.content;
+    }
+    if (isNestedMessageContent(task.content)) {
+      const nested = task.content as AgentMessageConfig[];
+      if (nested[0]?.content && typeof nested[0].content === "string" && nested[0].content.trim() !== "") {
+        return nested[0].content as string;
+      }
+    }
   }
-  if (isNestedMessageContent(task.content)) {
 
-    const nested = task.content as AgentMessageConfig[];
-    return nested[0].content as string;
+  if (run.messages && run.messages.length > 0) {
+    const firstUserMessage = run.messages.find(msg => messageUtils.isUserTextMessageContent(msg.config));
+    if (firstUserMessage && typeof firstUserMessage.config.content === "string") {
+        return firstUserMessage.config.content;
+    }
   }
+
   return "(new chat)";
 }
 
 const RunItem = ({ sessionId, run, agentId, onDelete }: RunItemProps) => {
+  const title = getRunTitle(run);
   return (
     <>
       <SidebarMenu>
         <SidebarMenuItem key={sessionId}>
           <SidebarMenuButton asChild>
-            <Link href={`/agents/${agentId}/chat/${sessionId}`} className="flex items-center justify-between w-full gap-2">
-              <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm">{getTaskTitle(run.task)}</span>
-              <Badge variant="outline" className="whitespace-nowrap">{run.status}</Badge>
+            <Link href={`/agents/${agentId}/chat/${sessionId}`}>
+              <span className="text-ellipsis truncate max-w-[100px] text-sm" title={title}>{title}</span>
             </Link>
           </SidebarMenuButton>
           <DropdownMenu>
