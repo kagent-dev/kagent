@@ -53,12 +53,6 @@ RUN --mount=type=cache,target=/cache,rw \
 ### STAGE 3 add tools
 FROM --platform=$BUILDPLATFORM node-python-golang AS tools-node-python-golang
 
-# Install kubectl
-RUN curl -LO "https://dl.k8s.io/release/v${TOOLS_KUBECTL_VERSION}/bin/linux/$ARCH/kubectl" \
-    && mv kubectl /usr/local/bin/ \
-    && chmod +x /usr/local/bin/kubectl \
-    && kubectl version --client
-
 # Install kubectl argo plugin
 RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/${TOOLS_ARGO_CD_VERSION}/download/kubectl-argo-rollouts-linux-${ARCH} \
     && chmod +x /usr/local/bin/kubectl-argo-rollouts
@@ -85,6 +79,10 @@ RUN curl -LO https://github.com/derailed/k9s/releases/download/v${TOOLS_K9S_VERS
     && mv k9s /usr/local/bin/ \
     && chmod +x /usr/local/bin/k9s \
     && rm -f k9s_Linux_${ARCH}.tar.gz
+
+# Install kubectl \
+RUN curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" \
+    && chmod +x /usr/local/bin/kubectl
 
 RUN sh -c "$(wget https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh -O -)" \
     sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --yes \
