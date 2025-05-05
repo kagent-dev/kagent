@@ -19,22 +19,21 @@
   <img src="img/hero.png" alt="Autogen Framework" width="500">
 </div>
 
+  <!--latest build-->
+  <a href="https://github.com/dimetron/kagent/actions/workflows/ci.yaml">
+    <img src="https://github.com/dimetron/kagent/actions/workflows/ci.yaml/badge.svg" alt="Build Status" height="25">
+  </a>
+
 ---
+
+## Get started
 
 <div align="center">
   <!--codespaces-->
   <a href='https://codespaces.new/dimetron/kagent'>
     <img src='https://github.com/codespaces/badge.svg' alt='Open in Github Codespaces' style='max-width: 100%;' height="26">
   </a>
-  <!--latest build-->
-  <a href="https://github.com/dimetron/kagent/actions/workflows/ci.yaml">
-    <img src="https://github.com/dimetron/kagent/actions/workflows/ci.yaml/badge.svg" alt="Build Status" height="25">
-  </a>
-  <!--latest release-->
-
 </div>
-
-## Get started
 
 - [Quick Start](https://kagent.dev/docs/getting-started/quickstart)
 - [Installation guide](https://kagent.dev/docs/introduction/installation)
