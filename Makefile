@@ -75,6 +75,8 @@ check-openai-key:
 .PHONY: create-kind-cluster
 create-kind-cluster:
 	kind create cluster --name $(KIND_CLUSTER_NAME)
+	kubectl create namespace kagent || true
+	kubectl config set-context --current --namespace kagent || true
 
 .PHONY: delete-kind-cluster
 delete-kind-cluster:
