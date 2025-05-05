@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -41,8 +42,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -56,9 +59,9 @@ import (
 )
 
 var (
-	scheme       = runtime.NewScheme()
-	setupLog     = ctrl.Log.WithName("setup")
-	podNamespace = utils_internal.GetResourceNamespace()
+	scheme          = runtime.NewScheme()
+	setupLog        = ctrl.Log.WithName("setup")
+	kagentNamespace = utils_internal.GetResourceNamespace()
 )
 
 func init() {
@@ -84,6 +87,7 @@ func main() {
 	var defaultModelConfig types.NamespacedName
 	var tlsOpts []func(*tls.Config)
 	var httpServerAddr string
+	var watchNamespaces string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -107,8 +111,10 @@ func main() {
 	flag.StringVar(&autogenStudioWsURL, "autogen-ws-url", "ws://127.0.0.1:8081/api/ws", "The base url of the Autogen Studio websocket server.")
 
 	flag.StringVar(&defaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
-	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", podNamespace, "The namespace of the default model config.")
+	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
 	flag.StringVar(&httpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
+
+	flag.StringVar(&watchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
 	opts := zap.Options{
 		Development: true,
@@ -214,6 +220,9 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
+		Cache: cache.Options{
+			DefaultNamespaces: ConfigureNamespaceWatching(watchNamespaces),
+		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -380,4 +389,46 @@ func waitForReady(f func() error, timeout, interval time.Duration) error {
 
 		time.Sleep(interval)
 	}
+}
+
+// ConfigureNamespaceWatching sets up the controller manager to watch specific namespaces
+// based on the provided configuration. It returns the list of namespaces being watched,
+// or nil if watching all namespaces.
+func ConfigureNamespaceWatching(watchNamespaces string) map[string]cache.Config {
+	watchNamespacesList := filterValidNamespaces(strings.Split(watchNamespaces, ","))
+	if len(watchNamespacesList) == 0 {
+		setupLog.Info("Watching all namespaces (no valid namespaces specified)")
+		return map[string]cache.Config{"": {}}
+
+	}
+	setupLog.Info("Watching specific namespaces at cache level", "namespaces", watchNamespacesList)
+
+	namespacesMap := make(map[string]cache.Config)
+	for _, ns := range watchNamespacesList {
+		namespacesMap[ns] = cache.Config{}
+	}
+
+	return namespacesMap
+}
+
+// filterValidNamespaces removes invalid namespace names from the provided list.
+// A valid namespace must be a valid DNS-1123 label.
+func filterValidNamespaces(namespaces []string) []string {
+	var validNamespaces []string
+
+	for _, ns := range namespaces {
+		if strings.TrimSpace(ns) == "" {
+			continue
+		}
+
+		if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
+			setupLog.Info("Ignoring invalid namespace name",
+				"namespace", ns,
+				"validation_errors", strings.Join(errs, ", "))
+		} else {
+			validNamespaces = append(validNamespaces, ns)
+		}
+	}
+
+	return validNamespaces
 }

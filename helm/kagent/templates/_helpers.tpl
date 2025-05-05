@@ -57,3 +57,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "kagent.defaultModelConfigName" -}}
 {{ include "kagent.defaultProviderName" . }}-model-config
 {{- end }}
+
+{{/*
+Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string
+Removes duplicates
+*/}}
+{{- define "kagent.watchNamespaces" -}}
+{{- $nsSet := dict }}
+{{- range .Values.controller.watchNamespaces | default list }}
+{{- $_ := set $nsSet . "" }}
+{{- end }}
+{{- keys $nsSet | join "," }}
+{{- end -}}
