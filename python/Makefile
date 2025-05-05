@@ -5,6 +5,7 @@ export GIT_LFS_SKIP_SMUDGE=1
 .PHONY: update
 update:
 	uv sync --all-extras --all-groups
+	uv lock
 
 .PHONY: format
 format:
