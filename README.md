@@ -8,6 +8,7 @@
      <a href="https://discord.gg/Fu3k65f2k3">
       <img src="https://img.shields.io/discord/1346225185166065826?style=flat&label=Join%20Discord&color=6D28D9" alt="Discord">
     </a>
+    <a href='https://codespaces.new/dimetron/kagent'><img src='https://github.com/codespaces/badge.svg' alt='Open in GitHub Codespaces' style='max-width: 100%;'></a>
   </div>
 </div>
 
