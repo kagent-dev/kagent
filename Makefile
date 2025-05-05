@@ -75,6 +75,10 @@ check-openai-key:
 .PHONY: create-kind-cluster
 create-kind-cluster:
 	kind create cluster --name $(KIND_CLUSTER_NAME)
+
+.PHONY: use-kind-cluster
+use-kind-cluster:
+	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > ~/.kube/config
 	kubectl create namespace kagent || true
 	kubectl config set-context --current --namespace kagent || true
 
