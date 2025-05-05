@@ -1,0 +1,55 @@
+{
+  "name": "kagent-dev-container",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TOOLS_GO_VERSION": "1.24.2",
+      "TOOLS_NODE_VERSION": "20",
+      "TOOLS_UV_VERSION": "0.7.2",
+      "TOOLS_K9S_VERSION": "0.50.4",
+      "TOOLS_KIND_VERSION": "0.27.0",
+      "TOOLS_ISTIO_VERSION": "1.25.2",
+      "TOOLS_KUBECTL_VERSION": "1.33.4"
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/mpriscella/features/kind:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "redhat.vscode-yaml",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-kubernetes-tools.kind-vscode",
+        "dbaeumer.vscode-eslint",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.makefile-tools",
+        "ms-vscode.vscode-go",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "ms-vscode.vscode-typescript-next",
+        "ms-vscode.makefile-tools",
+        "ms-remote.remote-containers",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "Catppuccin.catppuccin-vsc",
+        "Catppuccin.catppuccin-vsc-icons"
+      ]
+    }
+  },
+
+  //user settings
+  "remoteUser": "root",
+
+  //forward the following ports
+  "forwardPorts": [8082],
+
+  //enable docker
+  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
+
+  // Uncomment the next line to run commands after the container is created.
+  "postCreateCommand": "make print-tools-versions delete-kind-cluster create-kind-cluster"
+}

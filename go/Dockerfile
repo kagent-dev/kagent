@@ -1,6 +1,6 @@
 # Build the manager binary
-ARG GO_VERSION=latest
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS builder
+ARG TOOLS_GO_VERSION=latest
+FROM --platform=$BUILDPLATFORM golang:${TOOLS_GO_VERSION}-alpine AS builder
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM

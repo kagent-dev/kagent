@@ -1,10 +1,11 @@
 from typing import Self
 
 from autogen_core import Component
-from autogen_ext.tool_servers import ToolServer
 from autogen_ext.tools.mcp._config import StdioServerParams
 from autogen_ext.tools.mcp._factory import mcp_server_tools
 from loguru import logger
+
+from tool_servers import ToolServer
 
 
 class StdioMcpToolServerConfig(StdioServerParams):

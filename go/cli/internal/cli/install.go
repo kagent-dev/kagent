@@ -115,7 +115,7 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 	}
 
 	// Wait for port-forward to be ready
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Check if port-forward is running
 	if portForwardCmd.Process == nil {
@@ -123,7 +123,6 @@ func InstallCmd(ctx context.Context, c *ishell.Context) {
 		c.Println("Port-forward failed to start")
 		return
 	}
-
 	c.Println("\nkagent installed successfully")
 }
 

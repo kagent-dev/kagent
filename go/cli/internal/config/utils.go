@@ -1,6 +1,10 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"path"
+
 	"github.com/abiosoft/ishell/v2"
 	"github.com/fatih/color"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -41,4 +45,30 @@ func BoldYellow(s string) string {
 
 func BoldRed(s string) string {
 	return color.New(color.FgRed, color.Bold).SprintFunc()(s)
+}
+
+func GetConfigDir(homeDir string) (string, error) {
+	if homeDir == "" {
+		return "", fmt.Errorf("homeDir cannot be empty")
+	}
+
+	if _, err := os.Stat(homeDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("homeDir should be a valid directory")
+	}
+
+	configDir := path.Join(homeDir, ".config", "kagent")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("error creating config directory: %w", err)
+	}
+	return configDir, nil
+}
+
+func SetHistoryPath(homeDir string, shell *ishell.Shell) {
+	configDir, err := GetConfigDir(homeDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting config directory: %v\n", err)
+		return
+	}
+	historyPath := path.Join(configDir, ".kagent_history")
+	shell.SetHistoryPath(historyPath)
 }

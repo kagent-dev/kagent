@@ -6,9 +6,9 @@
   </picture>
   <div>
      <a href="https://discord.gg/Fu3k65f2k3">
-      <img src="https://img.shields.io/discord/1346225185166065826?style=flat&label=Join%20Discord&color=6D28D9" alt="Discord">
+      <img src="https://img.shields.io/discord/1346225185166065826?style=flat&label=Join%20Discord&color=6D28D9" alt="Discord" height="25">
     </a>
-  </div>
+  <div>
 </div>
 
 ---
@@ -19,12 +19,24 @@
   <img src="img/hero.png" alt="Autogen Framework" width="500">
 </div>
 
+  <!--latest build-->
+  <a href="https://github.com/kagent-dev/kagent/actions/workflows/ci.yaml">
+    <img src="https://github.com/kagent-dev/kagent/actions/workflows/ci.yaml/badge.svg" alt="Build Status" height="25">
+  </a>
+
+---
 
 ## Get started
 
+<div align="center">
+  <!--codespaces-->
+  <a href='https://codespaces.new/kagent-dev/kagent'>
+    <img src='https://github.com/codespaces/badge.svg' alt='Open in Github Codespaces' style='max-width: 100%;' height="26">
+  </a>
+</div>
+
 - [Quick Start](https://kagent.dev/docs/getting-started/quickstart)
 - [Installation guide](https://kagent.dev/docs/introduction/installation)
-
 
 ## Documentation
 

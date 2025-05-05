@@ -1,4 +1,4 @@
-VERSION ?= $(shell git describe --tags --always --dirty)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | grep -i ^v.\*-dirty || echo "v0.0.0-local")
 
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
@@ -46,6 +46,8 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
 ##@ Build
+
+.PHONY:bin/kagent-local
 bin/kagent-local:
 	CGO_ENABLED=0 go test ./cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/kagent-local ./cli/cmd/kagent
@@ -82,7 +84,7 @@ bin/kagent-windows-amd64.exe.sha256: bin/kagent-windows-amd64.exe
 
 .PHONY: clean
 clean:
-	rm -f bin/*
+	rm -f bin/* && mkdir -p bin
 
 .PHONY: build
 build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-darwin-amd64.sha256 bin/kagent-darwin-arm64.sha256 bin/kagent-windows-amd64.exe.sha256
