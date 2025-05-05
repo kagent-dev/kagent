@@ -16,13 +16,15 @@ import {
     OllamaConfigPayload
 } from "@/lib/types";
 import { toast } from "sonner";
-import { isResourceNameValid } from "@/lib/utils";
+import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { getSupportedModelProviders } from "@/app/actions/providers";
 import { getModels, ProviderModelsResponse } from "@/app/actions/models";
 import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
+
+const LATEST_TAG = "latest";
 
 interface ValidationErrors {
   name?: string;
@@ -114,7 +116,7 @@ function ModelPageContent() {
   const [providerModelsData, setProviderModelsData] = useState<ProviderModelsResponse | null>(null);
   const [selectedCombinedModel, setSelectedCombinedModel] = useState<string | undefined>(undefined);
   const [selectedModelSupportsFunctionCalling, setSelectedModelSupportsFunctionCalling] = useState<boolean | null>(null);
-  const [modelTag, setModelTag] = useState("latest");
+  const [modelTag, setModelTag] = useState(LATEST_TAG);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -280,7 +282,7 @@ function ModelPageContent() {
         const modelName = parts[1];
         let baseName = `${providerKey}-${modelName}`.toLowerCase();
         const isOllama = selectedProvider?.type === "Ollama";
-        if (isOllama && modelTag && modelTag !== 'latest') {
+        if (isOllama && modelTag && modelTag !== LATEST_TAG) {
           baseName = `${baseName}-${modelTag.toLowerCase()}`;
         }
         const validName = baseName.replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
@@ -386,15 +388,12 @@ function ModelPageContent() {
 
     let finalModelName = name.trim();
     let finalModelWithTag = modelName;
-    if (finalSelectedProvider.type === 'Ollama' && modelTag.trim() !== 'latest') {
+    if (finalSelectedProvider.type === 'Ollama' && modelTag.trim() !== LATEST_TAG) {
       if (!isEditingName && !isEditMode) {
-        const tagSuffix = `-${modelTag.trim()}`;
-        finalModelName = finalModelName + tagSuffix;
-
-        if (!isResourceNameValid(finalModelName)) {
-          finalModelName = finalModelName.replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-        }
+        const nameParts = [finalModelName, modelTag.trim()];
+        finalModelName = createRFC1123ValidName(nameParts);
       }
+
       finalModelWithTag = `${modelName}:${modelTag.trim()}`
     }
 
