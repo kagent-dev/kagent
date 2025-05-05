@@ -22,7 +22,7 @@ interface ChatInterfaceProps {
   selectedRun?: Run | null;
 }
 
-export default function ChatInterface({ selectedAgentId, selectedRun }: ChatInterfaceProps) {
+export default function ChatInterface({ selectedAgentId, selectedSession, selectedRun }: ChatInterfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
   const [tokenStats, setTokenStats] = useState<TokenStats>({
@@ -40,8 +40,21 @@ export default function ChatInterface({ selectedAgentId, selectedRun }: ChatInte
   }, [cleanup]);
 
   useEffect(() => {
+    if (!selectedSession && !selectedRun) {
+      if (useChatStore.getState().session || useChatStore.getState().run) {
+        cleanup();
+      }
+    }
+  }, [selectedSession, selectedRun, cleanup]);
+
+  useEffect(() => {
     if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      const viewport = containerRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+      if (viewport) {
+        setTimeout(() => {
+          viewport.scrollTop = viewport.scrollHeight;
+        }, 0);
+      }
     }
   }, [messages, currentStreamingContent]);
 

@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { AgentResponse, Tool, Component, ToolConfig, MCPToolConfig } from "@/types/datamodel";
-import { getTeam } from "@/app/actions/teams";
-import { getToolByProvider, getTools } from "@/app/actions/tools";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { AgentActions } from "./AgentActions";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -15,45 +13,31 @@ import { cn } from "@/lib/utils";
 
 interface AgentDetailsSidebarProps {
   selectedAgentId: number;
+  currentAgent: AgentResponse;
+  allTools: Component<ToolConfig>[];
 }
 
-export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProps) {
-  const [selectedTeam, setSelectedTeam] = useState<AgentResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }: AgentDetailsSidebarProps) {
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
 
+  const selectedTeam = currentAgent;
+
   useEffect(() => {
-    const fetchTeamAndToolDescriptions = async () => {
-      setLoading(true);
-      setError(null);
+    const processToolDescriptions = async () => {
       setToolDescriptions({});
 
+      if (!selectedTeam || !allTools) return;
+
       try {
-        const teamResponse = await getTeam(selectedAgentId);
-        if (!teamResponse.success || !teamResponse.data) {
-          setError(teamResponse.error || "Failed to fetch team data");
-          setLoading(false);
-          return;
-        }
-        const currentTeam = teamResponse.data;
-        setSelectedTeam(currentTeam);
-
-        const allToolsResponse = await getTools();
-        if (!allToolsResponse.success || !allToolsResponse.data) {
-          setError("Failed to get tool definitions");
-        }
-        const allToolDefinitions = allToolsResponse.data || [];
-
         const descriptions: Record<string, string> = {};
-        const toolsInSpec = currentTeam.agent.spec.tools;
+        const toolsInSpec = selectedTeam.agent.spec.tools;
+        const allToolDefinitions = allTools;
 
         if (toolsInSpec && Array.isArray(toolsInSpec)) {
-          for (const tool of toolsInSpec) {
+          await Promise.all(toolsInSpec.map(async (tool) => {
             const toolIdentifier = getToolIdentifier(tool);
             let description = "No description available";
-
             try {
               if (isAgentTool(tool)) {
                 description = tool.agent?.description || "Agent description not found";
@@ -63,44 +47,39 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
 
                 if (tool.type === "McpServer" && tool.mcpServer?.toolNames?.[0]) {
                   const toolName = tool.mcpServer.toolNames[0];
-                  foundToolDefinition = await getToolByProvider(allToolDefinitions, SSE_MCP_TOOL_PROVIDER_NAME, toolName);
-                  if (!foundToolDefinition) {
-                    foundToolDefinition = await getToolByProvider(allToolDefinitions, STDIO_MCP_TOOL_PROVIDER_NAME, toolName);
-                  }
+                  foundToolDefinition = allToolDefinitions.find(
+                    (def) => def.provider === SSE_MCP_TOOL_PROVIDER_NAME && (def.config as MCPToolConfig)?.tool?.name === toolName
+                  ) || allToolDefinitions.find(
+                    (def) => def.provider === STDIO_MCP_TOOL_PROVIDER_NAME && (def.config as MCPToolConfig)?.tool?.name === toolName
+                  ) || null;
                 } else if (tool.type === "Builtin") {
-                  foundToolDefinition = await getToolByProvider(allToolDefinitions, toolProvider);
+                  foundToolDefinition = allToolDefinitions.find(def => def.provider === toolProvider) || null;
                 }
 
-                if (foundToolDefinition?.description) {
-                  description = foundToolDefinition.description;
-                } else if (foundToolDefinition && isMcpProvider(foundToolDefinition.provider)) {
+                if (foundToolDefinition && isMcpProvider(foundToolDefinition.provider)) {
                   const nestedDescription = (foundToolDefinition.config as MCPToolConfig)?.tool?.description;
                   if (nestedDescription) {
                     description = nestedDescription;
                   }
+                } else if (foundToolDefinition?.description) {
+                  description = foundToolDefinition.description;
                 }
               }
             } catch (err) {
               console.error(`Failed to process description for tool ${toolIdentifier}:`, err);
               description = "Failed to load description";
             }
-
             descriptions[toolIdentifier] = description;
-          }
+          }));
         }
         setToolDescriptions(descriptions);
-
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred";
-        setError(errorMessage);
-        console.error("Failed fetching data:", err);
-      } finally {
-        setLoading(false);
+        console.error("Failed processing tool descriptions:", err);
       }
     };
 
-    fetchTeamAndToolDescriptions();
-  }, [selectedAgentId]);
+    processToolDescriptions();
+  }, [selectedTeam, allTools]);
 
   const toggleToolExpansion = (toolIdentifier: string) => {
     setExpandedTools(prev => ({
@@ -109,12 +88,8 @@ export function AgentDetailsSidebar({ selectedAgentId }: AgentDetailsSidebarProp
     }));
   };
 
-  if (loading) {
+  if (!selectedTeam) {
     return <LoadingState />;
-  }
-
-  if (error) {
-    return <div className="p-4 text-red-500">{error}</div>;
   }
 
   const renderAgentTools = (tools: Tool[] = []) => {

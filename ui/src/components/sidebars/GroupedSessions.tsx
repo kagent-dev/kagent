@@ -1,36 +1,18 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import SessionGroup from "./SessionGroup";
 import { SessionWithRuns } from "@/types/datamodel";
 import { isToday, isYesterday } from "date-fns";
 import { EmptyState } from "./EmptyState";
-import { getSessions, getSessionRuns, deleteSession } from "@/app/actions/sessions";
-import { LoadingState } from "../LoadingState";
+import { deleteSession } from "@/app/actions/sessions";
 
-export default function GroupedSessions({ agentId }: { agentId: number }) {
-  const [sessions, setSessions] = useState<SessionWithRuns[]>([]);
-  const [loading, setLoading] = useState(true);
+interface GroupedSessionsProps {
+  agentId: number;
+  sessionsWithRuns: SessionWithRuns[];
+}
 
-  useEffect(() => {
-    const fetchSessions = async () => {
-      setLoading(true);
-      const sessions = await getSessions();
-      if (!sessions.success || !sessions.data) {
-        throw new Error("Failed to get sessions");
-      }
-
-      const agentSessions = sessions.data.filter((session) => session.team_id == agentId);
-      const sessionsWithRuns = await Promise.all(
-        agentSessions.map(async (session) => {
-          const runs = await getSessionRuns(String(session.id));
-          return { session, runs: runs.data || [] };
-        })
-      );
-      setSessions(sessionsWithRuns);
-      setLoading(false);
-    };
-    fetchSessions();
-  }, [agentId]);
+export default function GroupedSessions({ agentId, sessionsWithRuns }: GroupedSessionsProps) {
+  const sessions = sessionsWithRuns;
 
   const groupedSessions = useMemo(() => {
     const groups: {
@@ -82,10 +64,6 @@ export default function GroupedSessions({ agentId }: { agentId: number }) {
       console.error("Error deleting session:", error);
     }
   };
-
-  if (loading) {
-    return <LoadingState />
-  }
 
   const hasNoSessions = !groupedSessions.today.length && !groupedSessions.yesterday.length && !groupedSessions.older.length;
 

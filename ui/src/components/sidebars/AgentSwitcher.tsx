@@ -5,62 +5,21 @@ import { ChevronsUpDown, Plus } from "lucide-react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
-import { useEffect, useState } from "react";
-import { getTeams } from "@/app/actions/teams";
 import { AgentResponse } from "@/types/datamodel";
 import KagentLogo from "../kagent-logo";
 import { useRouter } from "next/navigation";
-import { getChatData } from "@/app/actions/chat";
 
 interface AgentSwitcherProps {
-  agentId: number;
+  currentAgent: AgentResponse;
+  allAgents: AgentResponse[];
 }
 
-export function AgentSwitcher({ agentId }: AgentSwitcherProps) {
+export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
   const router = useRouter();
   const { isMobile } = useSidebar();
-  const [agentResponses, setAgentResponses] = useState<AgentResponse[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState<AgentResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchSessions = async () => {
-      try {
-        const data = await getChatData(agentId, null);
-        if (data.agent) {
-          setSelectedTeam(data.agent);
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
-        setError(errorMessage);
-        console.error("Failed to fetch chat data:", error);
-      }
-    };
-    fetchSessions();
-  }, [agentId]);
-
-  useEffect(() => {
-    const fetchTeams = async () => {
-      try {
-        const response = await getTeams();
-        if (response.success && response.data) {
-          setAgentResponses(response.data);
-        } else {
-          setError(response.error || "Failed to fetch teams");
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
-        setError(errorMessage);
-        console.error("Failed to fetch teams:", error);
-      }
-    };
-
-    fetchTeams();
-  }, []);
-
-  if (error) {
-    return <div className="p-4 text-red-500">{error}</div>;
-  }
+  const selectedTeam = currentAgent;
+  const agentResponses = allAgents;
 
   if (!selectedTeam) {
     return null;

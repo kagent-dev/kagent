@@ -96,7 +96,7 @@ type SessionRuns struct {
 }
 
 type Run struct {
-	ID           string        `json:"id"`
+	ID           int           `json:"id"`
 	SessionID    int           `json:"session_id"`
 	CreatedAt    string        `json:"created_at"`
 	Status       string        `json:"status"`
