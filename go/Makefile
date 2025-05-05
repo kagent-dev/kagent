@@ -84,7 +84,7 @@ bin/kagent-windows-amd64.exe.sha256: bin/kagent-windows-amd64.exe
 
 .PHONY: clean
 clean:
-	rm -f bin/*
+	rm -f bin/* && mkdir -p bin
 
 .PHONY: build
 build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-darwin-amd64.sha256 bin/kagent-darwin-arm64.sha256 bin/kagent-windows-amd64.exe.sha256

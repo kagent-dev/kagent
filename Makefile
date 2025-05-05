@@ -104,7 +104,6 @@ push: push-controller push-ui push-app
 
 .PHONY: controller-manifests
 controller-manifests:
-	make -C go clean
 	make -C go manifests
 	cp go/config/crd/bases/* helm/kagent-crds/templates/
 
