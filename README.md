@@ -20,8 +20,8 @@
 </div>
 
   <!--latest build-->
-  <a href="https://github.com/dimetron/kagent/actions/workflows/ci.yaml">
-    <img src="https://github.com/dimetron/kagent/actions/workflows/ci.yaml/badge.svg" alt="Build Status" height="25">
+  <a href="https://github.com/kagent-dev/kagent/actions/workflows/ci.yaml">
+    <img src="https://github.com/kagent-dev/kagent/actions/workflows/ci.yaml/badge.svg" alt="Build Status" height="25">
   </a>
 
 ---
@@ -30,14 +30,13 @@
 
 <div align="center">
   <!--codespaces-->
-  <a href='https://codespaces.new/dimetron/kagent'>
+  <a href='https://codespaces.new/kagent-dev/kagent'>
     <img src='https://github.com/codespaces/badge.svg' alt='Open in Github Codespaces' style='max-width: 100%;' height="26">
   </a>
 </div>
 
 - [Quick Start](https://kagent.dev/docs/getting-started/quickstart)
 - [Installation guide](https://kagent.dev/docs/introduction/installation)
-
 
 ## Documentation
 
