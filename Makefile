@@ -76,6 +76,12 @@ check-openai-key:
 create-kind-cluster:
 	kind create cluster --name $(KIND_CLUSTER_NAME)
 
+.PHONY: use-kind-cluster
+use-kind-cluster:
+	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > ~/.kube/config
+	kubectl create namespace kagent || true
+	kubectl config set-context --current --namespace kagent || true
+
 .PHONY: delete-kind-cluster
 delete-kind-cluster:
 	kind delete cluster --name $(KIND_CLUSTER_NAME)
@@ -204,5 +210,11 @@ kagent-cli-install: build-cli-local helm-version kind-load-docker-images
 kagent-cli-install:
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
 
+.PHONY: kagent-cli-port-forward
+kagent-cli-port-forward: use-kind-cluster
+	@echo "Port forwarding to KAgent CLI..."
+	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80
+
+.PHONY: build-dev-container
 build-dev-container:
 	$(DOCKER_BUILDER) build -t kagent-devcontainer --load $(TOOLS_IMAGE_BUILD_ARGS) .devcontainer

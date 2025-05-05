@@ -12,6 +12,10 @@
       "TOOLS_KUBECTL_VERSION": "1.33.4"
     }
   },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/mpriscella/features/kind:1": {}
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -36,7 +40,12 @@
       ]
     }
   },
+
+  //user settings
   "remoteUser": "root",
+
+  //forward the following ports
+  "forwardPorts": [8082],
 
   //enable docker
   "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
