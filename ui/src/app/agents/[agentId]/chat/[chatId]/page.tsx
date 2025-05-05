@@ -2,9 +2,6 @@
 import { use, useEffect, useState } from "react";
 import { LoadingState } from "@/components/LoadingState";
 import ChatInterface from "@/components/chat/ChatInterface";
-import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
-import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
-import { SidebarProvider } from "@/components/ui/sidebar";
 import useChatStore from "@/lib/useChatStore";
 
 export default function ChatPageView({ params }: { params: Promise<{ agentId: number; chatId: string }> }) {
@@ -14,6 +11,7 @@ export default function ChatPageView({ params }: { params: Promise<{ agentId: nu
 
   useEffect(() => {
     const loadData = async (chatId: string) => {
+      setLoading(true);
       try {
         await loadChat(chatId);
       } catch (e) {
@@ -25,6 +23,8 @@ export default function ChatPageView({ params }: { params: Promise<{ agentId: nu
 
     if (chatId) {
       loadData(chatId);
+    } else {
+      setLoading(false);
     }
   }, [chatId, loadChat]);
 
@@ -33,12 +33,8 @@ export default function ChatPageView({ params }: { params: Promise<{ agentId: nu
   }
 
   return (
-    <SidebarProvider>
-      <SessionsSidebar agentId={agentId} />
-      <main className="w-full max-w-6xl mx-auto">
-        <ChatInterface selectedAgentId={agentId} selectedRun={run} selectedSession={session} />;
-      </main>
-      <AgentDetailsSidebar selectedAgentId={agentId} />
-    </SidebarProvider>
+    <main className="w-full max-w-6xl mx-auto px-4">
+      <ChatInterface selectedAgentId={agentId} selectedRun={run} selectedSession={session} />
+    </main>
   );
 }
