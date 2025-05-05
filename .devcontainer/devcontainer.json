@@ -40,7 +40,12 @@
       ]
     }
   },
+
+  //user settings
   "remoteUser": "root",
+
+  //forward the following ports
+  "forwardPorts": [8082],
 
   //enable docker
   "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],

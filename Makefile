@@ -210,5 +210,11 @@ kagent-cli-install: build-cli-local helm-version kind-load-docker-images
 kagent-cli-install:
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
 
+.PHONY: kagent-cli-port-forward
+kagent-cli-port-forward: use-kind-cluster
+	@echo "Port forwarding to KAgent CLI..."
+	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80
+
+.PHONY: build-dev-container
 build-dev-container:
 	$(DOCKER_BUILDER) build -t kagent-devcontainer --load $(TOOLS_IMAGE_BUILD_ARGS) .devcontainer
