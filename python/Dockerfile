@@ -60,14 +60,15 @@ RUN mkdir -p /etc/apt/keyrings \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
+    UV_LINK_MODE=copy  \
     PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/sbin:/bin:/root/.cargo/bin"
 
 RUN uv python install 3.12
 
 # Create groups and users
 RUN groupadd -g 1002 pythongroup \
-    && useradd -u 1002 -g pythongroup -s /bin/bash -m python \
-    && mkdir -p /app/python \
+    && useradd  -u 1002 -g pythongroup -s /bin/bash -m python \
+    && mkdir -p /app/python /root/.cache/uv \
     && chown -R python:pythongroup /app/python
 
 # Set up Python backend
@@ -76,14 +77,14 @@ COPY pyproject.toml .
 COPY .python-version .
 COPY uv.lock .
 COPY README.md .
-RUN uv venv .venv &&  uv pip install hatchling
-RUN uv sync --frozen
+RUN --mount=type=cache,target=/root/.cache/uv uv cache dir && uv venv .venv && uv pip install hatchling
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked
 COPY src src
 RUN chown -R python:pythongroup /app/python
 
 # Generate tools and agents
 RUN mkdir -p /root/.autogenstudio/configs
-RUN uv run tool_gen -o /root/.autogenstudio/configs
+RUN --mount=type=cache,target=/root/.cache/uv uv run tool_gen -o /root/.autogenstudio/configs
 
 # Ensure correct permissions
 RUN chown -R python:pythongroup /app/python && \
