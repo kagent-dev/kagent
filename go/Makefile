@@ -1,4 +1,4 @@
-VERSION ?= $(shell git describe --tags --always --dirty)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | grep -i ^v.\*-dirty || echo "v0.0.0-local")
 
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
