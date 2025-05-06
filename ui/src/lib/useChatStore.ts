@@ -88,6 +88,9 @@ const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
+    // Keep status as "thinking" for all non-completion messages
+    const isCompletionMessage = message.type === "completion";
+    
     // Keep status as "thinking" if we receive any tool-related messages
     const isToolMessage = 
       messageUtils.isTeamResult(messageConfig) ||
@@ -96,7 +99,7 @@ const useChatStore = create<ChatState>((set, get) => ({
       messageUtils.isMultiModalContent(messageConfig.content) ||
       messageUtils.isLlmCallEvent(messageConfig.content);
 
-    if (isToolMessage) {
+    if (isToolMessage || !isCompletionMessage) {
       const systemMessage = {
         config: messageConfig,
         session_id: session.id!,
@@ -110,7 +113,7 @@ const useChatStore = create<ChatState>((set, get) => ({
           ...run,
           messages: [...run.messages, systemMessage],
         },
-        // Keep status as "thinking" while tools are executing
+        // Keep status as "thinking" while processing any message
         status: "thinking",
       }));
       return;
