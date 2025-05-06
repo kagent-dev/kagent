@@ -31,30 +31,14 @@ jobs:
             --platform linux/amd64,linux/arm64
             --cache-from=type=gha
             --cache-to=type=gha,mode=max
-            --output type=docker,dest=${{ runner.temp }}/${{ matrix.image }}.tar
+            --output type=tar,dest=${{ runner.temp }}/${{ matrix.image }}.tar
         run: make build-${{ matrix.image }}
         working-directory: ./
-      - name: Check if image tar exists
-        id: image-check
-        run: |
-          if [ -f "${{ runner.temp }}/${{ matrix.image }}.tar" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Load image tar into Docker
-        if: steps.image-check.outputs.exists == 'true'
-        run: docker load -i "${{ runner.temp }}/${{ matrix.image }}.tar"
-      - name: Image vulnerability scanner
-        if: steps.image-check.outputs.exists == 'true'
-        uses: aquasecurity/trivy-action@master
+      - name: Run Trivy vulnerability scanner in tarball mode
+        uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: "${{ matrix.image }}:latest"
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+         input: /github/workspace/vuln-image.tar
+         severity: 'CRITICAL,HIGH'
     # - name: Upload artifact
     #   uses: actions/upload-artifact@v4
     #   with:
