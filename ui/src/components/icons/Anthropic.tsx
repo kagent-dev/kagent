@@ -5,4 +5,4 @@ export function Anthropic() {
         M24.3,39.3l8.8-22.8l8.8,22.8H24.3z">
         </path>
     </svg>
-} 
+}

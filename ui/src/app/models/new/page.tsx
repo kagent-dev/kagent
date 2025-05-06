@@ -115,8 +115,7 @@ function ModelPageContent() {
   const [providerModelsData, setProviderModelsData] = useState<ProviderModelsResponse | null>(null);
   const [selectedCombinedModel, setSelectedCombinedModel] = useState<string | undefined>(undefined);
   const [selectedModelSupportsFunctionCalling, setSelectedModelSupportsFunctionCalling] = useState<boolean | null>(null);
-  const [modelTag, setModelTag] = useState(OLLAMA_DEFAULT_TAG);
-
+  const [modelTag, setModelTag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -387,8 +386,11 @@ function ModelPageContent() {
     setErrors({});
 
     let finalModelName = modelName;
-    if (finalSelectedProvider.type === 'Ollama' && modelTag.trim() !== OLLAMA_DEFAULT_TAG) {
-      finalModelName = `${modelName}:${modelTag.trim()}`
+    if (finalSelectedProvider.type === 'Ollama') {
+      const tag = modelTag.trim();
+      if (tag && tag !== OLLAMA_DEFAULT_TAG) {
+        finalModelName = `${modelName}:${tag}`;
+      }
     }
 
     const payload: CreateModelConfigPayload = {

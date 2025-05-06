@@ -8,6 +8,7 @@ import { Provider } from "@/lib/types";
 import { ProviderModelsResponse } from '@/app/actions/models';
 import { ModelProviderCombobox } from "@/components/ModelProviderCombobox";
 import { PROVIDERS_INFO, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
+import { OLLAMA_DEFAULT_TAG } from '@/lib/constants';
 
 interface ValidationErrors {
   name?: string;
@@ -124,20 +125,20 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             <label htmlFor="modelTag" className="text-sm mb-2 block">Model Tag</label>
             {isEditMode ? (
               <div className="flex-1 py-2 px-3 border rounded-md bg-muted">
-                {modelTag || "latest"}
+                {modelTag}
               </div>
             ) : (
               <Input
                 id="modelTag"
                 value={modelTag}
                 onChange={(e) => onModelTagChange(e.target.value)}
-                placeholder="latest"
+                placeholder={OLLAMA_DEFAULT_TAG}
                 disabled={isSubmitting || isLoading}
               />
             )}
             {!isEditMode && (
               <p className="text-[0.8rem] text-muted-foreground mt-1">
-                Specify a version tag for your Ollama model. Defaults to "latest".
+                Specify a version tag for your Ollama model. Defaults to "{OLLAMA_DEFAULT_TAG}".
               </p>
             )}
           </div>
