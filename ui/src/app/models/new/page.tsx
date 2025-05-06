@@ -17,14 +17,13 @@ import {
 } from "@/lib/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
+import { OLLAMA_DEFAULT_TAG } from "@/lib/constants"
 import { getSupportedModelProviders } from "@/app/actions/providers";
 import { getModels, ProviderModelsResponse } from "@/app/actions/models";
 import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
-
-const LATEST_TAG = "latest";
 
 interface ValidationErrors {
   name?: string;
@@ -116,7 +115,7 @@ function ModelPageContent() {
   const [providerModelsData, setProviderModelsData] = useState<ProviderModelsResponse | null>(null);
   const [selectedCombinedModel, setSelectedCombinedModel] = useState<string | undefined>(undefined);
   const [selectedModelSupportsFunctionCalling, setSelectedModelSupportsFunctionCalling] = useState<boolean | null>(null);
-  const [modelTag, setModelTag] = useState(LATEST_TAG);
+  const [modelTag, setModelTag] = useState(OLLAMA_DEFAULT_TAG);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -187,29 +186,28 @@ function ModelPageContent() {
           const provider = providers.find(p => p.type === modelData.providerName);
           setSelectedProvider(provider || null);
 
-          const providerFormKey = provider ? getProviderFormKey(provider.type as BackendModelProviderType) : undefined;
-          if (providerFormKey && modelData.model) {
-            setSelectedCombinedModel(`${providerFormKey}::${modelData.model}`);
-          }
-
           setApiKey("");
 
-          const requiredKeys = provider?.requiredParams || [];
-          const fetchedParams = modelData.modelParams || {};
+          const providerFormKey = provider ? getProviderFormKey(provider.type as BackendModelProviderType) : undefined;
+          let modelName = modelData.model;
+          let extractedTag;
 
-          if (provider?.type === 'Ollama') {
-            if (fetchedParams.modelTag) {
-              setModelTag(fetchedParams.modelTag);
-            } else {
-              const modelNameParts = modelData.model.split(':');
-              if (modelNameParts.length > 1) {
-                setModelTag(modelNameParts[1]);
-              } else {
-                setModelTag('latest');
-              }
-            }
+          if (modelData.providerName === 'Ollama' && modelName.includes(':')) {
+            const [name, tag] = modelName.split(':');
+            modelName = name;
+            extractedTag = tag;
           }
 
+          if (providerFormKey && modelData.model) {
+            setSelectedCombinedModel(`${providerFormKey}::${modelName}`);
+          }
+
+          const fetchedParams = modelData.modelParams || {};
+          if (provider?.type === 'Ollama') {
+            setModelTag(fetchedParams.modelTag || extractedTag || 'latest');
+          }
+
+          const requiredKeys = provider?.requiredParams || [];
           const initialRequired: ModelParam[] = requiredKeys.map((key, index) => {
             const fetchedValue = fetchedParams[key];
             const displayValue = (fetchedValue === null || fetchedValue === undefined) ? "" : String(fetchedValue);
@@ -280,13 +278,15 @@ function ModelPageContent() {
       if (parts.length === 2) {
         const providerKey = parts[0];
         const modelName = parts[1];
-        let baseName = `${providerKey}-${modelName}`.toLowerCase();
+        const nameParts = [providerKey, modelName];
+
         const isOllama = selectedProvider?.type === "Ollama";
-        if (isOllama && modelTag && modelTag !== LATEST_TAG) {
-          baseName = `${baseName}-${modelTag.toLowerCase()}`;
+        if (isOllama && modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
+          nameParts.push(modelTag);
         }
-        const validName = baseName.replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-        if (isResourceNameValid(validName)) {
+
+        const validName = createRFC1123ValidName(nameParts);
+        if (validName && isResourceNameValid(validName)) {
           setName(validName);
         }
       }
@@ -386,19 +386,13 @@ function ModelPageContent() {
     setIsSubmitting(true);
     setErrors({});
 
-    let finalModelName = name.trim();
     let finalModelWithTag = modelName;
-    if (finalSelectedProvider.type === 'Ollama' && modelTag.trim() !== LATEST_TAG) {
-      if (!isEditingName && !isEditMode) {
-        const nameParts = [finalModelName, modelTag.trim()];
-        finalModelName = createRFC1123ValidName(nameParts);
-      }
-
+    if (finalSelectedProvider.type === 'Ollama' && modelTag.trim() !== OLLAMA_DEFAULT_TAG) {
       finalModelWithTag = `${modelName}:${modelTag.trim()}`
     }
 
     const payload: CreateModelConfigPayload = {
-      name: finalModelName,
+      name: name.trim(),
       provider: {
         name: finalSelectedProvider.name,
         type: finalSelectedProvider.type,
@@ -419,9 +413,6 @@ function ModelPageContent() {
         break;
       case 'AzureOpenAI':
         payload.azureOpenAI = providerParams as AzureOpenAIConfigPayload;
-        if (modelTag.trim()) {
-          providerParams.modelTag = modelTag.trim();
-        }
         break;
       case 'Ollama':
         payload.ollama = providerParams as OllamaConfigPayload;
