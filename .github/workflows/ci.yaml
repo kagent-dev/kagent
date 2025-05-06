@@ -36,7 +36,9 @@ jobs:
         working-directory: ./
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@master
-        if: matrix.image != 'cli'
+        if: ${{ matrix.image != 'cli' }}
+        env:
+          SKIP: ${{ matrix.image != 'cli' }}
         with:
           image-ref: '${{ runner.temp }}/${{ matrix.image }}.tar'
           format: 'table'
