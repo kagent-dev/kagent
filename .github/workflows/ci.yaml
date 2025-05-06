@@ -31,12 +31,15 @@ jobs:
           DOCKER_BUILDER: "docker buildx"
         run: make build-${{ matrix.image }}
         working-directory: ./
-      - name: Anchore Container Scan
-        uses: anchore/scan-action@v3.6.4
+      - name: Image vulnerability scanner
+        uses: aquasecurity/trivy-action@master
         with:
-          image: docker-archive:${{ runner.temp }}/${{ matrix.image }}.tar
-          fail-build: false # Optional: set to true to fail the build on vulnerabilities
-          severity-cutoff: high # Optional: set the severity cutoff
+          image-ref: '${{ runner.temp }}/${{ matrix.image }}.tar'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
     # - name: Upload artifact
     #   uses: actions/upload-artifact@v4
     #   with:
