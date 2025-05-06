@@ -42,11 +42,14 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Load image tar into Docker
+        if: steps.image-check.outputs.exists == 'true'
+        run: docker load -i "${{ runner.temp }}/${{ matrix.image }}.tar"
       - name: Image vulnerability scanner
         if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: '${{ runner.temp }}/${{ matrix.image }}.tar'
+          image-ref: "${{ matrix.image }}:latest"
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
