@@ -27,13 +27,18 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Run make build
         env:
-          DOCKER_BUILD_ARGS: "--platform linux/amd64,linux/arm64 --output type=tar,dest=${{ runner.temp }}/${{ matrix.image }}.tar"
           DOCKER_BUILDER: "docker buildx"
+          DOCKER_BUILD_ARGS: >-
+            --platform linux/amd64,linux/arm64
+            --cache-from=type=gha
+            --cache-to=type=gha,mode=max
+            --platform linux/amd64,linux/arm64 --output type=tar,dest=${{ runner.temp }}/${{ matrix.image }}.tar"
         run: make build-${{ matrix.image }}
         working-directory: ./
+        #scan the image for vulnerabilities if it is not the cli image
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@master
-        if: {{ matrix.image != 'cli' }}
+        if: ${{ matrix.image != 'cli' }}
         with:
           image-ref: '${{ runner.temp }}/${{ matrix.image }}.tar'
           format: 'table'
