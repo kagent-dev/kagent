@@ -31,6 +31,12 @@ jobs:
           DOCKER_BUILDER: "docker buildx"
         run: make build-${{ matrix.image }}
         working-directory: ./
+      - name: Anchore Container Scan
+        uses: anchore/scan-action@v3.6.4
+        with:
+          image: docker-archive:${{ runner.temp }}/${{ matrix.image }}.tar
+          fail-build: false # Optional: set to true to fail the build on vulnerabilities
+          severity-cutoff: high # Optional: set the severity cutoff
     # - name: Upload artifact
     #   uses: actions/upload-artifact@v4
     #   with:
