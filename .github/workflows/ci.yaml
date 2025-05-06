@@ -17,7 +17,6 @@ jobs:
           - app
           - cli
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,7 +37,7 @@ jobs:
         #scan the image for vulnerabilities if it is not the cli image
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@master
-        if: ${{ matrix.image != 'cli' }}
+        if: matrix.image != 'cli'
         with:
           image-ref: '${{ runner.temp }}/${{ matrix.image }}.tar'
           format: 'table'
