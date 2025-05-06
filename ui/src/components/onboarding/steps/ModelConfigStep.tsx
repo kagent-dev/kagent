@@ -144,11 +144,6 @@ export function ModelConfigStep({
     const currentModelName = formStep1Create.watch("modelName");
     const currentCombinedValue = currentProviderName && currentModelName ? `${currentProviderName}::${currentModelName}` : "";
 
-    const isNameManuallyEdited = () => {
-        const currentName = formStep1Create.getValues("configName");
-        return currentName && lastAutoGenName && currentName !== lastAutoGenName;
-    };
-
     const generateConfigName = (provider: string, model: string, tag?: string) => {
         if (!provider || !model) return "";
 
@@ -451,7 +446,6 @@ export function ModelConfigStep({
                                 </>
                             )}
 
-
                             {needsApiKey && (
                                 <FormField
                                     control={formStep1Create.control} name="apiKey"
@@ -470,6 +464,7 @@ export function ModelConfigStep({
                                     )}
                                 />
                             )}
+
                             {!needsApiKey && watchedProvider === 'ollama' && isValidProviderInfoKey('ollama') && (
                                 <p className="text-sm text-muted-foreground">{PROVIDERS_INFO['ollama']?.help}</p>
                             )}

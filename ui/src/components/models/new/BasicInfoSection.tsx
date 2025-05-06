@@ -138,7 +138,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             )}
             {!isEditMode && (
               <p className="text-[0.8rem] text-muted-foreground mt-1">
-                Specify a version tag for your Ollama model. Defaults to "{OLLAMA_DEFAULT_TAG}".
+                Specify a version tag for your Ollama model. Defaults to &quot;{OLLAMA_DEFAULT_TAG}&quot;.
               </p>
             )}
           </div>
