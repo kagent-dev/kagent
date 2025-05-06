@@ -34,7 +34,6 @@ jobs:
             --platform linux/amd64,linux/arm64 --output type=tar,dest=${{ runner.temp }}/${{ matrix.image }}.tar"
         run: make build-${{ matrix.image }}
         working-directory: ./
-        #scan the image for vulnerabilities if it is not the cli image
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@master
         if: matrix.image != 'cli'
