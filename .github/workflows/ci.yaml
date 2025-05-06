@@ -37,7 +37,7 @@ jobs:
       - name: Run Trivy vulnerability scanner in tarball mode
         uses: aquasecurity/trivy-action@0.30.0
         with:
-         input: /github/workspace/vuln-image.tar
+         input: ${{ runner.temp }}/${{ matrix.image }}.tar
          severity: 'CRITICAL,HIGH'
     # - name: Upload artifact
     #   uses: actions/upload-artifact@v4
