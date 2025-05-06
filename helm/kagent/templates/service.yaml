@@ -15,9 +15,9 @@ spec:
       targetPort: {{ .Values.service.ports.app.targetPort }}
       protocol: TCP
       name: app
-    - port: {{ .Values.service.ports.a2a.port }}
-      targetPort: {{ .Values.service.ports.a2a.targetPort }}
+    - port: {{ .Values.service.ports.controller.port }}
+      targetPort: {{ .Values.service.ports.controller.targetPort }}
       protocol: TCP
-      name: a2a
+      name: controller
   selector:
     {{- include "kagent.selectorLabels" . | nindent 4 }}
