@@ -1,0 +1,95 @@
+# Agent CRD
+
+The Agent CRD defines individual AI agents in KAgent. Each agent represents a single AI entity with its own configuration, capabilities, and behavior.
+
+## Schema
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: Agent
+metadata:
+  name: string
+  namespace: string
+spec:
+  description: string
+  model: string
+  systemPrompt: string
+  tools: []
+  memory: string
+  maxTokens: integer
+  temperature: number
+  stopSequences: []
+  metadata: object
+```
+
+## Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `metadata.name` | string | Yes | Name of the agent |
+| `metadata.namespace` | string | Yes | Kubernetes namespace |
+| `spec.description` | string | No | Description of the agent's purpose |
+| `spec.model` | string | Yes | Name of the LLM model to use |
+| `spec.systemPrompt` | string | Yes | System prompt that defines agent behavior |
+| `spec.tools` | array | No | List of tools the agent can use |
+| `spec.memory` | string | No | Reference to a Memory CRD |
+| `spec.maxTokens` | integer | No | Maximum tokens for model responses |
+| `spec.temperature` | number | No | Model temperature (0.0 to 1.0) |
+| `spec.stopSequences` | array | No | Sequences that stop model generation |
+| `spec.metadata` | object | No | Additional metadata for the agent |
+
+## Example
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: Agent
+metadata:
+  name: research-assistant
+  namespace: kagent
+spec:
+  description: "AI research assistant for technical documentation"
+  model: "gpt-4"
+  systemPrompt: |
+    You are a research assistant specialized in technical documentation.
+    Your task is to help users find and understand technical information.
+  tools:
+    - name: web-search
+    - name: code-search
+  memory: "research-memory"
+  maxTokens: 2000
+  temperature: 0.7
+  metadata:
+    category: "research"
+    version: "1.0.0"
+```
+
+## Usage
+
+1. Create a namespace for your agents:
+   ```bash
+   kubectl create namespace kagent
+   ```
+
+2. Apply the agent manifest:
+   ```bash
+   kubectl apply -f agent.yaml
+   ```
+
+3. Verify the agent:
+   ```bash
+   kubectl get agents -n kagent
+   ```
+
+## Best Practices
+
+1. Use descriptive names for your agents
+2. Keep system prompts focused and specific
+3. Configure appropriate memory settings
+4. Monitor token usage and costs
+5. Use namespaces to organize agents
+
+## Related Resources
+
+- [Team CRD](./team) - Group agents into teams
+- [Memory CRD](./memory) - Configure agent memory
+- [ModelConfig CRD](./model-config) - Define model configurations 

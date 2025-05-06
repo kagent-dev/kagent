@@ -1,0 +1,93 @@
+# Team CRD
+
+The Team CRD allows you to group multiple agents into a team for collaborative problem-solving. Teams can share resources, communicate, and work together on complex tasks.
+
+## Schema
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: Team
+metadata:
+  name: string
+  namespace: string
+spec:
+  description: string
+  agents: []
+  communication: object
+  termination: object
+  maxTurns: integer
+  metadata: object
+```
+
+## Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `metadata.name` | string | Yes | Name of the team |
+| `metadata.namespace` | string | Yes | Kubernetes namespace |
+| `spec.description` | string | No | Description of the team's purpose |
+| `spec.agents` | array | Yes | List of agent references |
+| `spec.communication` | object | No | Team communication settings |
+| `spec.termination` | object | No | Team termination conditions |
+| `spec.maxTurns` | integer | No | Maximum conversation turns |
+| `spec.metadata` | object | No | Additional metadata |
+
+## Example
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: Team
+metadata:
+  name: research-team
+  namespace: kagent
+spec:
+  description: "Team of agents for research and documentation"
+  agents:
+    - name: researcher
+      role: "primary researcher"
+    - name: writer
+      role: "documentation writer"
+    - name: reviewer
+      role: "content reviewer"
+  communication:
+    type: "round-robin"
+    maxConcurrent: 2
+  termination:
+    condition: "task-complete"
+    maxIterations: 10
+  maxTurns: 50
+  metadata:
+    project: "documentation"
+    version: "1.0.0"
+```
+
+## Usage
+
+1. Create a namespace for your team:
+   ```bash
+   kubectl create namespace kagent
+   ```
+
+2. Apply the team manifest:
+   ```bash
+   kubectl apply -f team.yaml
+   ```
+
+3. Verify the team:
+   ```bash
+   kubectl get teams -n kagent
+   ```
+
+## Best Practices
+
+1. Define clear roles for each agent
+2. Configure appropriate communication patterns
+3. Set reasonable termination conditions
+4. Monitor team performance
+5. Use namespaces to organize teams
+
+## Related Resources
+
+- [Agent CRD](./agent) - Define individual agents
+- [Memory CRD](./memory) - Configure team memory
+- [ModelConfig CRD](./model-config) - Define model configurations 

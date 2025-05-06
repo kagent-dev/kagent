@@ -1,0 +1,56 @@
+# Custom Resource Definitions (CRDs)
+
+KAgent uses several Custom Resource Definitions (CRDs) to manage its components in Kubernetes. These CRDs allow you to define and manage KAgent resources declaratively using Kubernetes manifests.
+
+## Available CRDs
+
+KAgent provides the following CRDs:
+
+- [Agent](./agent) - Defines individual AI agents
+- [Team](./team) - Groups multiple agents into a team
+- [Memory](./memory) - Configures agent memory and storage
+- [ModelConfig](./model-config) - Defines LLM model configurations
+- [ToolServer](./tool-server) - Manages tool server configurations
+
+## Installation
+
+The CRDs are automatically installed when you deploy KAgent using Helm:
+
+```bash
+helm install kagent kagent/kagent
+```
+
+Or you can install just the CRDs:
+
+```bash
+helm install kagent-crds kagent/kagent-crds
+```
+
+## Usage
+
+Each CRD has its own configuration options and use cases. Click on the links above to learn more about each CRD type and how to use them.
+
+## Best Practices
+
+1. Always specify a namespace for your CRDs
+2. Use meaningful names for your resources
+3. Follow the examples in each CRD's documentation
+4. Use version control for your CRD manifests
+5. Test your configurations in a non-production environment first
+
+## Troubleshooting
+
+If you encounter issues with CRDs:
+
+1. Check the CRD installation status:
+   ```bash
+   kubectl get crds | grep kagent.dev
+   ```
+
+2. Verify the CRD definitions:
+   ```bash
+   kubectl get crd <crd-name> -o yaml
+   ```
+
+3. Check for any validation errors in your manifests
+4. Ensure you have the correct permissions to create/update CRDs 

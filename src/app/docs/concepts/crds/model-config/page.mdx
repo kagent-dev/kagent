@@ -1,0 +1,101 @@
+# ModelConfig CRD
+
+The ModelConfig CRD defines configurations for language models used by agents. It allows you to specify model parameters, API settings, and other model-specific configurations.
+
+## Schema
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: ModelConfig
+metadata:
+  name: string
+  namespace: string
+spec:
+  provider: string
+  model: string
+  api: object
+  parameters: object
+  rateLimit: object
+  metadata: object
+```
+
+## Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `metadata.name` | string | Yes | Name of the model configuration |
+| `metadata.namespace` | string | Yes | Kubernetes namespace |
+| `spec.provider` | string | Yes | Model provider (e.g., "openai", "anthropic") |
+| `spec.model` | string | Yes | Model name/identifier |
+| `spec.api` | object | Yes | API configuration |
+| `spec.parameters` | object | No | Model parameters |
+| `spec.rateLimit` | object | No | Rate limiting settings |
+| `spec.metadata` | object | No | Additional metadata |
+
+## Example
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: ModelConfig
+metadata:
+  name: gpt4-config
+  namespace: kagent
+spec:
+  provider: "openai"
+  model: "gpt-4"
+  api:
+    baseURL: "https://api.openai.com/v1"
+    apiKey:
+      secretName: "openai-key"
+      secretKey: "api-key"
+  parameters:
+    temperature: 0.7
+    maxTokens: 2000
+    topP: 1.0
+    frequencyPenalty: 0.0
+    presencePenalty: 0.0
+  rateLimit:
+    requestsPerMinute: 60
+    tokensPerMinute: 40000
+  metadata:
+    version: "1.0.0"
+    description: "GPT-4 configuration for research tasks"
+```
+
+## Usage
+
+1. Create a namespace for your model configuration:
+   ```bash
+   kubectl create namespace kagent
+   ```
+
+2. Create a secret for your API key:
+   ```bash
+   kubectl create secret generic openai-key \
+     --from-literal=api-key=your-api-key \
+     -n kagent
+   ```
+
+3. Apply the model configuration:
+   ```bash
+   kubectl apply -f model-config.yaml
+   ```
+
+4. Verify the configuration:
+   ```bash
+   kubectl get modelconfigs -n kagent
+   ```
+
+## Best Practices
+
+1. Use secrets for API keys
+2. Configure appropriate rate limits
+3. Monitor model usage and costs
+4. Use namespaces to organize configurations
+5. Document model parameters
+
+## Related Resources
+
+- [Agent CRD](./agent) - Use model configurations
+- [Team CRD](./team) - Share model configurations
+- [Memory CRD](./memory) - Configure model memory 

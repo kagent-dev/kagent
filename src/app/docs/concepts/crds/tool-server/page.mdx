@@ -1,0 +1,110 @@
+# ToolServer CRD
+
+The ToolServer CRD defines configurations for tool servers that provide additional capabilities to agents. It allows you to configure and manage external tools and services that agents can use.
+
+## Schema
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: string
+  namespace: string
+spec:
+  type: string
+  endpoint: string
+  authentication: object
+  tools: []
+  rateLimit: object
+  metadata: object
+```
+
+## Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `metadata.name` | string | Yes | Name of the tool server |
+| `metadata.namespace` | string | Yes | Kubernetes namespace |
+| `spec.type` | string | Yes | Type of tool server |
+| `spec.endpoint` | string | Yes | Server endpoint URL |
+| `spec.authentication` | object | No | Authentication settings |
+| `spec.tools` | array | Yes | List of available tools |
+| `spec.rateLimit` | object | No | Rate limiting settings |
+| `spec.metadata` | object | No | Additional metadata |
+
+## Example
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: search-tools
+  namespace: kagent
+spec:
+  type: "http"
+  endpoint: "https://api.search-tools.com/v1"
+  authentication:
+    type: "apiKey"
+    secretName: "search-tools-key"
+    secretKey: "api-key"
+  tools:
+    - name: web-search
+      description: "Search the web for information"
+      parameters:
+        - name: query
+          type: string
+          required: true
+    - name: code-search
+      description: "Search code repositories"
+      parameters:
+        - name: query
+          type: string
+          required: true
+        - name: language
+          type: string
+          required: false
+  rateLimit:
+    requestsPerMinute: 100
+    concurrentRequests: 10
+  metadata:
+    version: "1.0.0"
+    description: "Search tools for research tasks"
+```
+
+## Usage
+
+1. Create a namespace for your tool server:
+   ```bash
+   kubectl create namespace kagent
+   ```
+
+2. Create a secret for authentication:
+   ```bash
+   kubectl create secret generic search-tools-key \
+     --from-literal=api-key=your-api-key \
+     -n kagent
+   ```
+
+3. Apply the tool server configuration:
+   ```bash
+   kubectl apply -f tool-server.yaml
+   ```
+
+4. Verify the configuration:
+   ```bash
+   kubectl get toolservers -n kagent
+   ```
+
+## Best Practices
+
+1. Use secrets for authentication
+2. Configure appropriate rate limits
+3. Document tool parameters
+4. Monitor tool usage
+5. Use namespaces to organize configurations
+
+## Related Resources
+
+- [Agent CRD](./agent) - Use tool servers
+- [Team CRD](./team) - Share tool servers
+- [ModelConfig CRD](./model-config) - Configure model tools 
