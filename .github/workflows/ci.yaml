@@ -34,11 +34,17 @@ jobs:
             --platform linux/amd64,linux/arm64 --output type=tar,dest=${{ runner.temp }}/${{ matrix.image }}.tar"
         run: make build-${{ matrix.image }}
         working-directory: ./
+      - name: Check if image tar exists
+        id: image-check
+        run: |
+          if [ -f "${{ runner.temp }}/${{ matrix.image }}.tar" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Image vulnerability scanner
+        if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@master
-        if: ${{ matrix.image != 'cli' }}
-        env:
-          SKIP: ${{ matrix.image != 'cli' }}
         with:
           image-ref: '${{ runner.temp }}/${{ matrix.image }}.tar'
           format: 'table'
