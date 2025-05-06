@@ -34,7 +34,16 @@ jobs:
             --output type=tar,dest=${{ runner.temp }}/${{ matrix.image }}.tar
         run: make build-${{ matrix.image }}
         working-directory: ./
-      - name: Run Trivy vulnerability scanner in tarball mode
+      - name: Check if image tar exists
+        id: image-check
+        run: |
+          if [ -f "${{ runner.temp }}/${{ matrix.image }}.tar" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Image vulnerability scanner
+        if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.30.0
         with:
          input: ${{ runner.temp }}/${{ matrix.image }}.tar
