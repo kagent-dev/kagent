@@ -17,7 +17,7 @@ RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
 RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-DOCKER_BUILDER ?= docker
+DOCKER_BUILDER ?= docker buildx
 DOCKER_BUILD_ARGS ?=
 KIND_CLUSTER_NAME ?= kagent
 
@@ -29,9 +29,9 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 TOOLS_UV_VERSION ?= 0.7.2
 TOOLS_K9S_VERSION ?= 0.50.4
 TOOLS_KIND_VERSION ?= 0.27.0
-TOOLS_NODE_VERSION ?= 20.18
+TOOLS_NODE_VERSION ?= 22.15
 TOOLS_ISTIO_VERSION ?= 1.25.2
-TOOLS_ARGO_CD_VERSION ?= 2.8.2
+TOOLS_ARGO_CD_VERSION ?= 3.0.0
 TOOLS_KUBECTL_VERSION ?= 1.33.4
 
 # build args
@@ -215,6 +215,8 @@ kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to KAgent CLI..."
 	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80
 
-.PHONY: build-dev-container
-build-dev-container:
-	$(DOCKER_BUILDER) build -t kagent-devcontainer --load $(TOOLS_IMAGE_BUILD_ARGS) .devcontainer
+.PHONY: open-dev-container
+open-dev-container:
+	@echo "Opening dev container..."
+	devcontainer build .
+	@devcontainer open .

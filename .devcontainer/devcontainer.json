@@ -3,8 +3,8 @@
   "build": {
     "dockerfile": "Dockerfile",
     "args": {
-      "TOOLS_GO_VERSION": "1.24.2",
-      "TOOLS_NODE_VERSION": "20",
+      "TOOLS_GO_VERSION": "1.24.3",
+      "TOOLS_NODE_VERSION": "22",
       "TOOLS_UV_VERSION": "0.7.2",
       "TOOLS_K9S_VERSION": "0.50.4",
       "TOOLS_KIND_VERSION": "0.27.0",
@@ -47,7 +47,7 @@
   //forward the following ports
   "forwardPorts": [8082],
 
-  //enable docker
+  //mount docker directly on the host
   "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
 
   // Uncomment the next line to run commands after the container is created.

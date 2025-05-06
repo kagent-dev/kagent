@@ -3,24 +3,39 @@ ARG TOOLS_NODE_VERSION=latest
 ARG ARCH=${TARGETARCH:-amd64}
 
 #STAGE 1 - base image
-FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS tools-uv
-FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm AS node-base
+FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS tools-uv
+FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm-slim AS node-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gettext-base              \
-    wget                      \
-    git                       \
-    zsh                       \
-    jq                        \
+    bsdmainutils              \
     build-essential           \
-    curl                      \
     ca-certificates           \
-    python3                   \
-    python3-pip               \
-    python3-venv              \
-    python3-dev               \
+    conntrack                 \
+    curl                      \
+    gettext-base              \
+    git                       \
+    gnupg                     \
+    gnupg2                    \
+    htop                      \
+    iperf3                    \
+    iproute2                  \
+    iptables                  \
+    iputils-ping              \
+    jq                        \
+    knot-dnsutils             \
     libffi-dev                \
     libssl-dev                \
+    lsof                      \
+    net-tools                 \
+    netcat-openbsd            \
+    python3                   \
+    python3-dev               \
+    python3-pip               \
+    python3-venv              \
+    sshuttle                  \
+    tcpdump                   \
+    wget                      \
+    zsh                       \
     && apt-get update         \
     && update-ca-certificates \
     && curl -fsSL https://get.docker.com -o get-docker.sh  \

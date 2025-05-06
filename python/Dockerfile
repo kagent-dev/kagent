@@ -1,5 +1,5 @@
 ARG TOOLS_UV_VERSION=latest
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS builder
+FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS builder
 
 ARG TARGETARCH
 ARG TOOLS_ISTIO_VERSION
@@ -34,7 +34,7 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && ./get_helm.sh \
     && rm get_helm.sh
 
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS final
+FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS final
 
 ARG TARGETARCH
 
