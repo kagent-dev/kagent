@@ -386,9 +386,9 @@ function ModelPageContent() {
     setIsSubmitting(true);
     setErrors({});
 
-    let finalModelWithTag = modelName;
+    let finalModelName = modelName;
     if (finalSelectedProvider.type === 'Ollama' && modelTag.trim() !== OLLAMA_DEFAULT_TAG) {
-      finalModelWithTag = `${modelName}:${modelTag.trim()}`
+      finalModelName = `${modelName}:${modelTag.trim()}`
     }
 
     const payload: CreateModelConfigPayload = {
@@ -397,7 +397,7 @@ function ModelPageContent() {
         name: finalSelectedProvider.name,
         type: finalSelectedProvider.type,
       },
-      model: finalModelWithTag,
+      model: finalModelName,
       apiKey: apiKey.trim(),
     };
 
