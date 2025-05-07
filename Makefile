@@ -105,6 +105,12 @@ build-cli-local:
 	make -C go clean
 	make -C go bin/kagent-local
 
+.PHONY: build-img-versions
+build-img-versions:
+	@echo controller=$(CONTROLLER_IMG)
+	@echo ui=$(UI_IMG)
+	@echo app=$(APP_IMG)
+
 .PHONY: push
 push: push-controller push-ui push-app
 

@@ -43,11 +43,15 @@ jobs:
           else
             echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: Load image versions
+        if: steps.image-check.outputs.exists == 'true'
+        id: image-versions
+        run: make build-img-versions
       - name: Image vulnerability scanner
         if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: kagent-${{ matrix.image }}:${{ env.VERSION }}
+          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ env.VERSION }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
     # - name: Upload artifact
