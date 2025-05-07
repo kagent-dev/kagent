@@ -99,6 +99,9 @@ service:
     app:
       port: 8081
       targetPort: 8081
+    controller:
+      port: 8083
+      targetPort: 8083
 
 imagePullSecrets: []
 nameOverride: ""

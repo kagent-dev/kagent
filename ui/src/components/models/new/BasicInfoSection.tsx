@@ -8,6 +8,7 @@ import { Provider } from "@/lib/types";
 import { ProviderModelsResponse } from '@/app/actions/models';
 import { ModelProviderCombobox } from "@/components/ModelProviderCombobox";
 import { PROVIDERS_INFO, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
+import { OLLAMA_DEFAULT_TAG } from '@/lib/constants';
 
 interface ValidationErrors {
   name?: string;
@@ -33,14 +34,18 @@ interface BasicInfoSectionProps {
   selectedModelSupportsFunctionCalling: boolean | null;
   loadingError: string | null;
   isEditMode: boolean;
+  modelTag: string;
+  onModelTagChange: (value: string) => void;
 }
 
 export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
   name, isEditingName, errors, isSubmitting, isLoading, onNameChange,
   onToggleEditName, providers, providerModelsData, selectedCombinedModel,
   onModelChange, selectedProvider, selectedModelSupportsFunctionCalling,
-  loadingError, isEditMode
+  loadingError, isEditMode, modelTag, onModelTagChange
 }) => {
+  const isOllamaSelected = selectedProvider?.type === "Ollama";
+
   return (
     <Card>
       <CardHeader>
@@ -114,7 +119,31 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             </p>
           )}
         </div>
+
+        {isOllamaSelected && (
+          <div>
+            <label htmlFor="modelTag" className="text-sm mb-2 block">Model Tag</label>
+            {isEditMode ? (
+              <div className="flex-1 py-2 px-3 border rounded-md bg-muted">
+                {modelTag}
+              </div>
+            ) : (
+              <Input
+                id="modelTag"
+                value={modelTag}
+                onChange={(e) => onModelTagChange(e.target.value)}
+                placeholder={OLLAMA_DEFAULT_TAG}
+                disabled={isSubmitting || isLoading}
+              />
+            )}
+            {!isEditMode && (
+              <p className="text-[0.8rem] text-muted-foreground mt-1">
+                Specify a version tag for your Ollama model. Defaults to &quot;{OLLAMA_DEFAULT_TAG}&quot;.
+              </p>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
-}; 
+};

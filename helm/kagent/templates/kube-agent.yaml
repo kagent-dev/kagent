@@ -178,4 +178,36 @@ spec:
         name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+  a2aConfig:
+    skills:
+      - id: cluster-diagnostics
+        name: Cluster Diagnostics
+        description: The ability to analyze and diagnose Kubernetes Cluster issues.
+        tags:
+          - cluster
+          - diagnostics
+        examples:
+          - "What is the status of my cluster?"
+          - "How can I troubleshoot a failing pod?"
+          - "What are the resource limits for my nodes?"
+      - id: resource-management
+        name: Resource Management
+        description: The ability to manage and optimize Kubernetes resources.
+        tags:
+          - resource
+          - management
+        examples:
+          - "Scale my deployment X to 3 replicas."
+          - "Optimize resource requests for my pods."
+          - "Reserve more CPU for my nodes."
+      - id: security-audit
+        name: Security Audit
+        description: The ability to audit and enhance Kubernetes security.
+        tags:
+          - security
+          - audit
+        examples:
+          - "Check for RBAC misconfigurations."
+          - "Audit my network policies."
+          - "Identify potential security vulnerabilities in my cluster."
 {{- end }}

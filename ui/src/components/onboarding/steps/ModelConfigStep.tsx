@@ -21,6 +21,7 @@ import { cn, isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { createModelConfig } from '@/app/actions/modelConfigs';
 import { ModelProviderCombobox } from '@/components/ModelProviderCombobox';
 import { PROVIDERS_INFO, isValidProviderInfoKey } from '@/lib/providers';
+import { OLLAMA_DEFAULT_TAG } from '@/lib/constants';
 
 const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
 const modelConfigSchema = z.object({
@@ -30,6 +31,7 @@ const modelConfigSchema = z.object({
     apiKey: z.string().optional(),
     azureEndpoint: z.string().optional(),
     azureApiVersion: z.string().optional(),
+    modelTag: z.string().optional(),
 }).refine(data => data.providerName === 'ollama' || (data.apiKey && data.apiKey.length > 0), {
     message: "API Key is required for this provider.",
     path: ["apiKey"],
@@ -69,6 +71,8 @@ export function ModelConfigStep({
     const [supportedProviders, setSupportedProviders] = useState<Provider[]>([]);
     const [providersLoading, setProvidersLoading] = useState<boolean>(true);
     const [providersError, setProvidersError] = useState<string | null>(null);
+    const [isOllama, setIsOllama] = useState(false);
+    const [lastAutoGenName, setLastAutoGenName] = useState<string>("");
 
     useEffect(() => {
         if (!loadingExistingModels && existingModels && existingModels.length > 0) {
@@ -125,7 +129,7 @@ export function ModelConfigStep({
         resolver: zodResolver(modelConfigSchema),
         defaultValues: {
             providerName: undefined, configName: "", modelName: "",
-            apiKey: "", azureEndpoint: "", azureApiVersion: "",
+            apiKey: "", azureEndpoint: "", azureApiVersion: "", modelTag: "",
         },
     });
     const formStep1Select = useForm<SelectModelFormData>({
@@ -139,6 +143,27 @@ export function ModelConfigStep({
     const currentProviderName = formStep1Create.watch("providerName");
     const currentModelName = formStep1Create.watch("modelName");
     const currentCombinedValue = currentProviderName && currentModelName ? `${currentProviderName}::${currentModelName}` : "";
+
+    const generateConfigName = (provider: string, model: string, tag?: string) => {
+        if (!provider || !model) return "";
+
+        const nameParts = [provider, model];
+        if (provider === 'ollama' && tag && tag !== OLLAMA_DEFAULT_TAG) {
+            nameParts.push(tag);
+        }
+
+        try {
+            const proposedName = createRFC1123ValidName(nameParts);
+            return proposedName && isResourceNameValid(proposedName) ? proposedName : "";
+        } catch (e) {
+            console.error("Error generating config name:", e);
+            return "";
+        }
+    };
+
+    useEffect(() => {
+        setIsOllama(watchedProvider === 'ollama');
+    }, [watchedProvider]);
 
     async function onSubmitStep1Create(values: ModelConfigFormData) {
         setIsLoading(true);
@@ -159,7 +184,13 @@ export function ModelConfigStep({
                 payload.azureOpenAI = { azureEndpoint: values.azureEndpoint || "", apiVersion: values.azureApiVersion || "" }; break;
             case 'openai': payload.openAI = {}; break;
             case 'anthropic': payload.anthropic = {}; break;
-            case 'ollama': payload.ollama = {}; break;
+            case 'ollama':
+                const modelTag = values.modelTag?.trim() || "";
+                if (modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
+                    payload.model = `${values.modelName}:${modelTag}`;
+                }
+                payload.ollama = {};
+            break;
         }
 
         try {
@@ -282,17 +313,15 @@ export function ModelConfigStep({
                                                     formStep1Create.setValue('azureEndpoint', '');
                                                     formStep1Create.setValue('azureApiVersion', '');
                                                 }
-                                                try {
-                                                    const proposedConfigName = createRFC1123ValidName([providerKey, modelName]);
-                                                    if (proposedConfigName && isResourceNameValid(proposedConfigName)) {
-                                                        const currentConfigName = formStep1Create.getValues("configName");
-                                                        const isLikelyDefault = currentConfigName && /^[a-z0-9-]+::[a-z0-9.-]+$/.test(currentConfigName.replace(/-config$/, ''));
+                                                const currentName = formStep1Create.getValues("configName");
+                                                const currentTag = formStep1Create.getValues("modelTag");
 
-                                                        if (!currentConfigName || isLikelyDefault) {
-                                                            formStep1Create.setValue('configName', proposedConfigName, { shouldValidate: true });
-                                                        }
-                                                    }
-                                                } catch (e) { console.error("Error auto-populating config name:", e); }
+                                                const newAutoName = generateConfigName(providerKey, modelName, currentTag);
+
+                                                if (newAutoName && (!currentName || currentName === lastAutoGenName)) {
+                                                    formStep1Create.setValue('configName', newAutoName, { shouldValidate: true });
+                                                    setLastAutoGenName(newAutoName);
+                                                }
                                             }}
                                             disabled={providersLoading || providerModelsLoading || isLoading}
                                             loading={providersLoading || providerModelsLoading}
@@ -313,12 +342,64 @@ export function ModelConfigStep({
                                     </FormItem>
                                 )}/>
 
+                            {/* Model Tag Field for Ollama */}
+                            {isOllama && (
+                                <FormField
+                                    control={formStep1Create.control}
+                                    name="modelTag"
+                                    render={({ field }) => (
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel>Model Tag</FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    placeholder={OLLAMA_DEFAULT_TAG}
+                                                    {...field}
+                                                    onChange={e => {
+                                                        field.onChange(e);
+
+                                                        if (watchedProvider === 'ollama') {
+                                                            const currentName = formStep1Create.getValues("configName");
+                                                            const newTag = e.target.value.trim();
+
+                                                            const newAutoName = generateConfigName(
+                                                                watchedProvider,
+                                                                currentModelName,
+                                                                newTag
+                                                            );
+
+                                                            if (newAutoName && (!currentName || currentName === lastAutoGenName)) {
+                                                                formStep1Create.setValue('configName', newAutoName, { shouldValidate: true });
+                                                                setLastAutoGenName(newAutoName);
+                                                            }
+                                                        }
+                                                    }}
+                                                />
+                                            </FormControl>
+                                            <FormDescription>
+                                                Specify a tag for the Ollama model (e.g., latest, 7b, 13b)
+                                            </FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            )}
+
                             <FormField
-                                control={formStep1Create.control} name="configName"
+                                control={formStep1Create.control}
+                                name="configName"
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Configuration Name</FormLabel>
-                                        <FormControl><Input placeholder="e.g., My OpenAI Setup" {...field} /></FormControl>
+                                        <FormControl>
+                                            <Input
+                                                placeholder="e.g., My OpenAI Setup"
+                                                {...field}
+                                                onChange={e => {
+                                                    field.onChange(e);
+                                                    if (e.target.value !== lastAutoGenName) {}
+                                                }}
+                                            />
+                                        </FormControl>
                                         <FormDescription>We picked a unique name, but feel free to change it!</FormDescription>
                                         <FormMessage />
                                     </FormItem>
@@ -365,7 +446,6 @@ export function ModelConfigStep({
                                 </>
                             )}
 
-
                             {needsApiKey && (
                                 <FormField
                                     control={formStep1Create.control} name="apiKey"
@@ -384,6 +464,7 @@ export function ModelConfigStep({
                                     )}
                                 />
                             )}
+
                             {!needsApiKey && watchedProvider === 'ollama' && isValidProviderInfoKey('ollama') && (
                                 <p className="text-sm text-muted-foreground">{PROVIDERS_INFO['ollama']?.help}</p>
                             )}
@@ -401,4 +482,4 @@ export function ModelConfigStep({
             </CardFooter>
         </>
     );
-} 
+}

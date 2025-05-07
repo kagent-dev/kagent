@@ -43,16 +43,13 @@ func main() {
 	client := autogen_client.New(cfg.APIURL, cfg.WSURL)
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
-	if err != nil {
-		// Error connecting to server, port-forward the server
-		go func() {
-			if err := cmd.Start(); err != nil {
-				fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-				os.Exit(1)
-			}
-		}()
-	}
-
+	// Error connecting to server, port-forward the server
+	go func() {
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+			os.Exit(1)
+		}
+	}()
 	// Ensure the context is cancelled when the shell is closed
 	defer func() {
 		cancel()
@@ -314,6 +311,8 @@ Example:
 			cli.DashboardCmd(ctx, c)
 		},
 	})
+
+	shell.AddCmd(cli.A2ACmd(ctx))
 
 	shell.Run()
 }

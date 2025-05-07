@@ -48,6 +48,57 @@ spec:
           spec:
             description: AgentSpec defines the desired state of Agent.
             properties:
+              a2aConfig:
+                description: |-
+                  A2AConfig instantiates an A2A server for this agent,
+                  served on the HTTP port of the kagent kubernetes
+                  controller (default 8083).
+                  The A2A server URL will be served at
+                  <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
+                  Read more about the A2A protocol here: https://github.com/google/A2A
+                properties:
+                  skills:
+                    items:
+                      description: AgentSkill describes a specific capability or function
+                        of the agent.
+                      properties:
+                        description:
+                          description: Description is an optional detailed description
+                            of the skill.
+                          type: string
+                        examples:
+                          description: Examples are optional usage examples.
+                          items:
+                            type: string
+                          type: array
+                        id:
+                          description: ID is the unique identifier for the skill.
+                          type: string
+                        inputModes:
+                          description: InputModes are the supported input data modes/types.
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          description: Name is the human-readable name of the skill.
+                          type: string
+                        outputModes:
+                          description: OutputModes are the supported output data modes/types.
+                          items:
+                            type: string
+                          type: array
+                        tags:
+                          description: Tags are optional tags for categorization.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - id
+                      - name
+                      type: object
+                    minItems: 1
+                    type: array
+                type: object
               description:
                 type: string
               memory:

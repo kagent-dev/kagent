@@ -16,13 +16,14 @@ import (
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
-	reconcileLog = ctrl.Log.WithName("reconcile")
+	reconcileLog = ctrl.Log.WithName("reconciler")
 )
 
 type AutogenReconciler interface {
@@ -35,7 +36,8 @@ type AutogenReconciler interface {
 }
 
 type autogenReconciler struct {
-	translator ApiTranslator
+	autogenTranslator ApiTranslator
+	a2aReconciler     a2a.A2AReconciler
 
 	kube          client.Client
 	autogenClient *autogen_client.Client
@@ -49,12 +51,14 @@ func NewAutogenReconciler(
 	kube client.Client,
 	autogenClient *autogen_client.Client,
 	defaultModelConfig types.NamespacedName,
+	a2aReconciler a2a.A2AReconciler,
 ) AutogenReconciler {
 	return &autogenReconciler{
-		translator:         translator,
+		autogenTranslator:  translator,
 		kube:               kube,
 		autogenClient:      autogenClient,
 		defaultModelConfig: defaultModelConfig,
+		a2aReconciler:      a2aReconciler,
 	}
 }
 
@@ -431,7 +435,7 @@ func (a *autogenReconciler) reconcileMemoryStatus(ctx context.Context, memory *v
 func (a *autogenReconciler) reconcileTeams(ctx context.Context, teams ...*v1alpha1.Team) error {
 	errs := map[types.NamespacedName]error{}
 	for _, team := range teams {
-		autogenTeam, err := a.translator.TranslateGroupChatForTeam(ctx, team)
+		autogenTeam, err := a.autogenTranslator.TranslateGroupChatForTeam(ctx, team)
 		if err != nil {
 			errs[types.NamespacedName{Name: team.Name, Namespace: team.Namespace}] = fmt.Errorf("failed to translate team %s: %v", team.Name, err)
 			continue
@@ -452,9 +456,13 @@ func (a *autogenReconciler) reconcileTeams(ctx context.Context, teams ...*v1alph
 func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1alpha1.Agent) error {
 	errs := map[types.NamespacedName]error{}
 	for _, agent := range agents {
-		autogenTeam, err := a.translator.TranslateGroupChatForAgent(ctx, agent)
+		autogenTeam, err := a.autogenTranslator.TranslateGroupChatForAgent(ctx, agent)
 		if err != nil {
 			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf("failed to translate agent %s: %v", agent.Name, err)
+			continue
+		}
+		if err := a.reconcileA2A(ctx, autogenTeam, agent); err != nil {
+			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf("failed to reconcile A2A for agent %s: %v", agent.Name, err)
 			continue
 		}
 		if err := a.upsertTeam(autogenTeam); err != nil {
@@ -471,7 +479,7 @@ func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1al
 }
 
 func (a *autogenReconciler) reconcileToolServer(ctx context.Context, server *v1alpha1.ToolServer) (int, error) {
-	toolServer, err := a.translator.TranslateToolServer(ctx, server)
+	toolServer, err := a.autogenTranslator.TranslateToolServer(ctx, server)
 	if err != nil {
 		return 0, fmt.Errorf("failed to translate tool server %s: %v", server.Name, err)
 	}
@@ -769,6 +777,14 @@ func (a *autogenReconciler) getDiscoveredMCPTools(serverID int) ([]*v1alpha1.MCP
 	}
 
 	return discoveredTools, nil
+}
+
+func (a *autogenReconciler) reconcileA2A(
+	ctx context.Context,
+	team *autogen_client.Team,
+	agent *v1alpha1.Agent,
+) error {
+	return a.a2aReconciler.ReconcileAutogenAgent(ctx, agent, team)
 }
 
 func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {

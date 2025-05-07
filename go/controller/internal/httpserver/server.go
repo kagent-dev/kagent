@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,6 +28,7 @@ const (
 	APIPathProviders   = "/api/providers"
 	APIPathModels      = "/api/models"
 	APIPathMemories    = "/api/memories"
+	APIPathA2A         = "/api/a2a"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -39,6 +41,7 @@ type ServerConfig struct {
 	BindAddr      string
 	AutogenClient *autogen_client.Client
 	KubeClient    client.Client
+	A2AHandler    a2a.A2AHandlerMux
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -159,6 +162,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleCreateMemory)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
+
+	// A2A
+	s.router.PathPrefix(APIPathA2A).Handler(s.config.A2AHandler)
 
 	// Use middleware for common functionality
 	s.router.Use(contentTypeMiddleware)

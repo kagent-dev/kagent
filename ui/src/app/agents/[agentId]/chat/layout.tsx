@@ -59,7 +59,8 @@ async function getData(agentId: number) {
 }
 
 export default async function ChatLayout({ children, params }: { children: React.ReactNode, params: { agentId: number } }) {
-  const { agentId } = params;
+  const resolvedParams = await params;
+  const { agentId } = resolvedParams;
   const { currentAgent, allAgents, sessionsWithRuns, allTools, error } = await getData(agentId);
 
   if (error || !currentAgent) {

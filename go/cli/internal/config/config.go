@@ -14,6 +14,7 @@ type Config struct {
 	WSURL     string `mapstructure:"ws_url"`
 	UserID    string `mapstructure:"user_id"`
 	Namespace string `mapstructure:"namespace"`
+	A2AURL    string `mapstructure:"a2a_url"`
 }
 
 func Init() error {
@@ -40,6 +41,7 @@ func Init() error {
 	viper.SetDefault("user_id", "admin@kagent.dev")
 	viper.SetDefault("output_format", "table")
 	viper.SetDefault("namespace", "kagent")
+	viper.SetDefault("a2a_url", "http://localhost:8083/api/a2a")
 
 	viper.MustBindEnv("USER_ID")
 

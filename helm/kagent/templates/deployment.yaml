@@ -50,6 +50,10 @@ spec:
           {{- with .Values.controller.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.ports.controller.targetPort }}
+              protocol: TCP
         - name: app
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
