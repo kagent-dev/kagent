@@ -48,7 +48,8 @@ jobs:
         id: image-versions
         run: make build-img-versions
       - name: Image vulnerability scanner
-        if: steps.image-check.outputs.exists == 'true'
+        #scan only after merge to main
+        if: github.event_name == 'pull_request' && steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.30.0
         with:
           image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ env.VERSION }}
