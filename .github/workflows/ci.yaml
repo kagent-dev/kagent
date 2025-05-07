@@ -35,6 +35,14 @@ jobs:
 
         run: make build-${{ matrix.image }}
         working-directory: ./
+      - name: Check if image tar exists
+        id: image-check
+        run: |
+          if [ "${{ matrix.image }}" == "cli" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Image vulnerability scanner
         if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.30.0
