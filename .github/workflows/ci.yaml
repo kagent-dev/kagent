@@ -28,7 +28,7 @@ jobs:
         env:
           DOCKER_BUILDER: "docker buildx"
           DOCKER_BUILD_ARGS: >-
-            --platform linux/amd64,linux/arm64
+            --platform linux/amd64
             --cache-from=type=gha
             --cache-to=type=gha,mode=max
             --output type=tar,dest=${{ runner.temp }}/${{ matrix.image }}.tar
