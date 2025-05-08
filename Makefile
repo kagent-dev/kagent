@@ -2,7 +2,7 @@
 DOCKER_REGISTRY ?= ghcr.io
 DOCKER_REGISTRY_GOOGLE ?= gcr.io
 DOCKER_REPO ?= kagent-dev/kagent
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' || echo "v0.0.0-local")
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-local")
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
