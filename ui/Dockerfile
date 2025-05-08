@@ -1,4 +1,5 @@
 ARG DOCKER_REGISTRY=ghcr.io
+ARG DOCKER_REGISTRY_GOOGLE=gcr.io
 ARG TOOLS_UV_VERSION=latest
 ARG PROXY
 ARG NOPROXY
@@ -39,7 +40,8 @@ RUN mkdir -p  $NVM_DIR \
     && mkdir -p $NVM_DIR/versions \
     && nvm install $TOOLS_NODE_VERSION \
     && nvm use $TOOLS_NODE_VERSION \
-    && which node && node --version
+    && which node && node --version \
+    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/node /usr/bin/node
 
 ### STAGE 2: build + tools
 FROM --platform=$BUILDPLATFORM base AS ui-builder

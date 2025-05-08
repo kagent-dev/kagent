@@ -4,7 +4,6 @@ ARG TOOLS_UV_VERSION=latest
 ARG PROXY
 ARG NOPROXY
 
-
 ### STAGE 1: base image
 FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
 ARG TOOLS_NODE_VERSION
