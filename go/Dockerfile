@@ -1,5 +1,8 @@
 ARG DOCKER_REGISTRY=ghcr.io
 ARG TOOLS_UV_VERSION=latest
+ARG PROXY
+ARG NOPROXY
+
 
 ### STAGE 1: base image
 FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
@@ -64,7 +67,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM --platform=$BUILDPLATFORM gcr.io/distroless/static:nonroot
+FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
