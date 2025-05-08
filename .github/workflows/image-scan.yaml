@@ -1,0 +1,62 @@
+name: CI Build
+
+on:
+  # Trigger once a week on the main branch
+  schedule:
+  - cron: '0 0 * * 0' # Every Monday at midnight UTC
+
+  # Trigger the workflow on push to the main branch
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    env:
+      VERSION: ${GITHUB_REF##*/} # Get the version from the branch name
+    strategy:
+      matrix:
+        image:
+          - controller
+          - ui
+          - app
+          - cli
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Run make build
+        env:
+          DOCKER_BUILDER: "docker buildx"
+          DOCKER_BUILD_ARGS: >-
+            --load
+            --cache-from=type=gha
+            --cache-to=type=gha,mode=max
+            --build-arg=VERSION=${{ env.VERSION }}
+
+        run: make build-${{ matrix.image }}
+        working-directory: ./
+      - name: Check if image tar exists
+        id: image-check
+        run: |
+          if [ "${{ matrix.image }}" == "cli" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Load image versions
+        if: steps.image-check.outputs.exists == 'true'
+        id: image-versions
+        run: make build-img-versions
+      - name: Image vulnerability scanner
+        #scan only after merge to main
+        if: github.event_name == 'pull_request' && steps.image-check.outputs.exists == 'true'
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ env.VERSION }}
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true

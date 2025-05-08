@@ -79,8 +79,8 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && rm get_helm.sh
 
 # Install Istioctl
-RUN curl -L https://istio.io/downloadIstio | TOOLS_ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=${ARCH} sh - \
-    && mv istio-$TOOLS_ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl \
+RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${TOOLS_ISTIO_VERSION} TARGET_ARCH=${ARCH} sh - \
+    && mv istio-${TOOLS_ISTIO_VERSION}/bin/istioctl /usr/local/bin/istioctl \
     && rm -rf istio-$TOOLS_ISTIO_VERSION
 
 # Install kind

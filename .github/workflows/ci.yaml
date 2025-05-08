@@ -35,26 +35,6 @@ jobs:
 
         run: make build-${{ matrix.image }}
         working-directory: ./
-      - name: Check if image tar exists
-        id: image-check
-        run: |
-          if [ "${{ matrix.image }}" == "cli" ]; then
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Load image versions
-        if: steps.image-check.outputs.exists == 'true'
-        id: image-versions
-        run: make build-img-versions
-      - name: Image vulnerability scanner
-        #scan only after merge to main
-        if: github.event_name == 'pull_request' && steps.image-check.outputs.exists == 'true'
-        uses: aquasecurity/trivy-action@0.30.0
-        with:
-          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ env.VERSION }}
-          severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
     # - name: Upload artifact
     #   uses: actions/upload-artifact@v4
     #   with:
