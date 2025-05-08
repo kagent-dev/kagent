@@ -167,6 +167,12 @@ type ModelConfigSpec struct {
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey"`
 
+	// ModelInfo contains information about the model.
+	// This field is required if the model is not one of the
+	// pre-defined autogen models. That list can be found here:
+	// +optional
+	ModelInfo *ModelInfo `json:"modelInfo,omitempty"`
+
 	// OpenAI-specific configuration
 	// +optional
 	OpenAI *OpenAIConfig `json:"openAI,omitempty"`
@@ -182,6 +188,24 @@ type ModelConfigSpec struct {
 	// Ollama-specific configuration
 	// +optional
 	Ollama *OllamaConfig `json:"ollama,omitempty"`
+}
+
+// Model Configurations
+// This had to be created because the autogen_api.ModelInfo JSON tags are not
+// compatible with the kubernetes api.
+type ModelInfo struct {
+	// +optional
+	Vision bool `json:"vision"`
+	// +optional
+	FunctionCalling bool `json:"functionCalling"`
+	// +optional
+	JSONOutput bool `json:"jsonOutput"`
+	// +optional
+	Family string `json:"family"`
+	// +optional
+	StructuredOutput bool `json:"structuredOutput"`
+	// +optional
+	MultipleSystemMessages bool `json:"multipleSystemMessages"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.
