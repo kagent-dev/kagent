@@ -1,10 +1,44 @@
 ARG TOOLS_UV_VERSION=latest
-ARG TOOLS_NODE_VERSION=latest
-ARG ARCH=${TARGETARCH:-amd64}
 
-#STAGE 1 - base image
-FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS tools-uv
-FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm-slim AS node-base
+### STAGE 1: base image
+FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+ARG TOOLS_NODE_VERSION
+
+RUN mkdir -p /etc/apt/keyrings \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    git                       \
+    ca-certificates           \
+    curl                      \
+    gnupg                     \
+    wget                      \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install python
+RUN uv python install 3.12
+
+# Install nvm
+ENV NVM_DIR=/usr/local/nvm
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PATH=$NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin:$PATH
+ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
+
+# Install nvm with node and npm
+RUN mkdir -p  $NVM_DIR \
+    && curl https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh  | bash \
+    && . $NVM_DIR/nvm.sh \
+    && mkdir -p $NVM_DIR/versions \
+    && nvm install $TOOLS_NODE_VERSION \
+    && nvm use $TOOLS_NODE_VERSION \
+    && which node && node --version
+
+### STAGE 2: build + tools
+FROM --platform=$BUILDPLATFORM base-os AS builder
+
+ARG TARGETARCH
+ARG TOOLS_ISTIO_VERSION
+ARG TOOLS_ARGO_CD_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bsdmainutils              \
@@ -36,16 +70,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tcpdump                   \
     wget                      \
     zsh                       \
-    && apt-get update         \
-    && update-ca-certificates \
     && curl -fsSL https://get.docker.com -o get-docker.sh  \
     && sh get-docker.sh       \
     && apt-get clean          \
     && rm -rf /var/log/*log   \
     && rm -rf /var/lib/apt/lists/*
 
-### STAGE 2 add golang
-FROM --platform=$BUILDPLATFORM node-base AS node-python-golang
+### STAGE 3 add golang
+FROM --platform=$BUILDPLATFORM builder AS node-python-golang
 ARG TOOLS_GO_VERSION
 ARG TOOLS_K9S_VERSION
 ARG TOOLS_KIND_VERSION

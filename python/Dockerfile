@@ -1,18 +1,46 @@
 ARG TOOLS_UV_VERSION=latest
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS builder
+
+### STAGE 1: base image
+FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+ARG TOOLS_NODE_VERSION
+
+RUN mkdir -p /etc/apt/keyrings \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    git                       \
+    ca-certificates           \
+    curl                      \
+    gnupg                     \
+    wget                      \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install python
+RUN uv python install 3.12
+
+# Install nvm
+ENV NVM_DIR=/usr/local/nvm
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PATH=$NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin:$PATH
+ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
+
+# Install nvm with node and npm
+RUN mkdir -p  $NVM_DIR \
+    && curl https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh  | bash \
+    && . $NVM_DIR/nvm.sh \
+    && mkdir -p $NVM_DIR/versions \
+    && nvm install $TOOLS_NODE_VERSION \
+    && nvm use $TOOLS_NODE_VERSION \
+    && which node && node --version
+
+### STAGE 2: build + tools
+FROM --platform=$BUILDPLATFORM base-os AS builder
+
+WORKDIR /app/
 
 ARG TARGETARCH
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    build-essential \
-    curl \
-    ca-certificates \
-    && apt-get update \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$TARGETARCH/kubectl" \
@@ -34,36 +62,20 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && ./get_helm.sh \
     && rm get_helm.sh
 
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS final
-
+### STAGE 3: final
+FROM --platform=$BUILDPLATFORM base-os AS final
+ARG TOOLS_NODE_VERSION
 ARG TARGETARCH
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    ca-certificates \
-    curl \
-    gnupg \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 COPY --from=builder /usr/local/bin/istioctl /usr/local/bin/istioctl
 COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
-
-RUN mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     UV_LINK_MODE=copy  \
     PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/sbin:/bin:/root/.cargo/bin"
-
-RUN uv python install 3.12
 
 # Create groups and users
 RUN groupadd -g 1002 pythongroup \

@@ -1,33 +1,58 @@
 ARG TOOLS_UV_VERSION=latest
-ARG TOOLS_NODE_VERSION=20
-FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm-slim AS ui-builder
+
+### STAGE 1: base image
+FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+ARG TOOLS_NODE_VERSION
+
+RUN mkdir -p /etc/apt/keyrings \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    git                       \
+    ca-certificates           \
+    curl                      \
+    gnupg                     \
+    wget                      \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install python
+RUN uv python install 3.12
+
+# Install nvm
+ENV NVM_DIR=/usr/local/nvm
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PATH=$NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin:$PATH
+ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
+
+# Install nvm with node and npm
+RUN mkdir -p  $NVM_DIR \
+    && curl https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh  | bash \
+    && . $NVM_DIR/nvm.sh \
+    && mkdir -p $NVM_DIR/versions \
+    && nvm install $TOOLS_NODE_VERSION \
+    && nvm use $TOOLS_NODE_VERSION \
+    && which node && node --version
+
+### STAGE 2: build + tools
+FROM --platform=$BUILDPLATFORM base-os AS ui-builder
 
 WORKDIR /app/ui
 
 COPY package*.json ./
 RUN mkdir -p /app/ui/public
-ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm ci
+RUN ls /usr/local/nvm/versions/node \
+    && npm ci
 
 COPY . .
 RUN npm run build
 
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS final
+### STAGE 3: final
+FROM base-os AS final
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    build-essential \
-    curl \
-    ca-certificates \
     nginx \
     supervisor \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
