@@ -49,14 +49,13 @@ WORKDIR /app/ui
 COPY package*.json ./
 RUN mkdir -p /app/ui/public
 
-RUN ls /usr/local/nvm/versions/node \
-    && npm ci
+RUN npm ci
 
 COPY . .
 RUN npm run build
 
 ### STAGE 3: final
-FROM base-os AS final
+FROM base AS final
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \

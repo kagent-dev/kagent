@@ -41,6 +41,12 @@ RUN mkdir -p  $NVM_DIR \
     && nvm use $TOOLS_NODE_VERSION \
     && which node && node --version
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    supervisor \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 ### STAGE 2: build + tools
 FROM --platform=$BUILDPLATFORM base AS builder
 
@@ -71,7 +77,7 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && rm get_helm.sh
 
 ### STAGE 3: final
-FROM --platform=$BUILDPLATFORM base-os AS final
+FROM --platform=$BUILDPLATFORM base AS final
 ARG TOOLS_NODE_VERSION
 ARG TARGETARCH
 
