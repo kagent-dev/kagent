@@ -13,7 +13,7 @@ on:
 jobs:
   build:
     env:
-      VERSION: ${{ github.ref_name }}
+      VERSION: ${{ github.ref_name }}-${{ github.sha }}
     strategy:
       matrix:
         image:
@@ -57,7 +57,7 @@ jobs:
         run: make build-img-versions
       - name: Image vulnerability scanner
         #scan only after merge to main
-        if: github.event_name == 'pull_request' && steps.image-check.outputs.exists == 'true'
+        if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.30.0
         with:
           image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ env.VERSION }}
