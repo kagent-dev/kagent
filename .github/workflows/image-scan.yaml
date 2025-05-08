@@ -1,4 +1,4 @@
-name: CI Build
+name: Scan images
 
 on:
   # Trigger once a week on the main branch
