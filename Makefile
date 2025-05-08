@@ -1,13 +1,16 @@
 # Image configuration
 DOCKER_REGISTRY ?= ghcr.io
 DOCKER_REPO ?= kagent-dev/kagent
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' || echo "v0.0.0-local")
+
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' || echo "v0.0.0-local")
+
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
+
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
@@ -35,9 +38,9 @@ TOOLS_ARGO_CD_VERSION ?= 3.0.0
 TOOLS_KUBECTL_VERSION ?= 1.33.4
 
 # build args
-GO_IMAGE_BUILD_ARGS = --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
-
-TOOLS_IMAGE_BUILD_ARGS = $(GO_IMAGE_BUILD_ARGS)
+TOOLS_IMAGE_BUILD_ARGS =  --build-arg PROXY=$(PROXY)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_K9S_VERSION=$(TOOLS_K9S_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KIND_VERSION=$(TOOLS_KIND_VERSION)
@@ -121,7 +124,7 @@ controller-manifests:
 
 .PHONY: build-controller
 build-controller: controller-manifests
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(GO_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: release-controller
 release-controller: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
