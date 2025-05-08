@@ -1,5 +1,6 @@
 # Image configuration
 DOCKER_REGISTRY ?= ghcr.io
+DOCKER_REGISTRY_GOOGLE ?= gcr.io
 DOCKER_REPO ?= kagent-dev/kagent
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' || echo "v0.0.0-local")
 
@@ -41,6 +42,7 @@ TOOLS_KUBECTL_VERSION ?= 1.33.4
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg PROXY=$(PROXY)
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg NOPROXY=$(NOPROXY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY_GOOGLE=$(DOCKER_REGISTRY_GOOGLE)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_K9S_VERSION=$(TOOLS_K9S_VERSION)

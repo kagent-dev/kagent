@@ -1,4 +1,5 @@
 ARG DOCKER_REGISTRY=ghcr.io
+ARG DOCKER_REGISTRY_GOOGLE=gcr.io
 ARG TOOLS_UV_VERSION=latest
 ARG PROXY
 ARG NOPROXY
@@ -67,7 +68,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY/distroless/static:nonroot
+FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY_GOOGLE/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
