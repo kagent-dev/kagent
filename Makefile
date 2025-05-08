@@ -142,7 +142,7 @@ release-app: DOCKER_BUILDER = docker buildx
 release-app: build-app
 
 .PHONY: kind-load-docker-images
-kind-load-docker-images: retag-docker-images prune-kind-cluster
+kind-load-docker-images: retag-docker-images
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
