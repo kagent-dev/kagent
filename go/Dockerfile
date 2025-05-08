@@ -20,10 +20,12 @@ RUN mkdir -p /etc/apt/keyrings \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
 FROM --platform=$BUILDPLATFORM base-os AS go-base
+ARG TOOLS_GO_VERSION
+ARG ARCH=${TARGETARCH:-amd64}
+ARG GOPROXY="http://proxy.golang.org"
 
 ENV GO111MODULE=on
 ENV GOTOOLCHAIN=local
-ENV GOPROXY="http://proxy.golang.org"
 ENV PATH=$PATH:/usr/local/go/bin
 
 RUN --mount=type=cache,target=/cache,rw \
