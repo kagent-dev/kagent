@@ -1,4 +1,4 @@
-{{- if .Values.contrib.agents.k8s.enabled }}
+{{- if .Values.contrib.agents.kgateway.enabled }}
 ---
 apiVersion: kagent.dev/v1alpha1
 kind: Agent
