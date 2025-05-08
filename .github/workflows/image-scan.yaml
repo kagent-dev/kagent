@@ -29,6 +29,9 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      - name: Print version
+        run: | 
+          echo "Version: ${{ env.VERSION }}"
       - name: Run make build
         env:
           DOCKER_BUILDER: "docker buildx"
