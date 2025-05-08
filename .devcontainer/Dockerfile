@@ -1,10 +1,12 @@
+#https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
 ARG DOCKER_REGISTRY=ghcr.io
+ARG DOCKER_REGISTRY_GOOGLE=gcr.io
 ARG TOOLS_UV_VERSION=latest
 ARG PROXY
 ARG NOPROXY
 
 ### STAGE 1: base image
-FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
 ARG TOOLS_NODE_VERSION
 
 #ENVIRONMENT VARIABLES
@@ -21,7 +23,7 @@ RUN mkdir -p /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
-FROM --platform=$BUILDPLATFORM base-os AS base
+FROM base-os AS base
 
 # Install python
 RUN uv python install 3.12
@@ -39,7 +41,8 @@ RUN mkdir -p  $NVM_DIR \
     && mkdir -p $NVM_DIR/versions \
     && nvm install $TOOLS_NODE_VERSION \
     && nvm use $TOOLS_NODE_VERSION \
-    && which node && node --version
+    && which node && node --version \
+    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/node /usr/bin/node
 
 ### STAGE 2: build + tools
 FROM --platform=$BUILDPLATFORM base-os AS builder
