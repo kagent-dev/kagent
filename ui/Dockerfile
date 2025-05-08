@@ -5,7 +5,7 @@ ARG PROXY
 ARG NOPROXY
 
 ### STAGE 1: base image
-FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
 ARG TOOLS_NODE_VERSION
 
 #ENVIRONMENT VARIABLES
@@ -22,7 +22,7 @@ RUN mkdir -p /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
-FROM --platform=$BUILDPLATFORM base-os AS base
+FROM base-os AS base
 
 # Install python
 RUN uv python install 3.12

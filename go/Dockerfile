@@ -1,3 +1,4 @@
+#https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
 ARG DOCKER_REGISTRY=ghcr.io
 ARG DOCKER_REGISTRY_GOOGLE=gcr.io
 ARG TOOLS_UV_VERSION=latest
@@ -5,7 +6,7 @@ ARG PROXY
 ARG NOPROXY
 
 ### STAGE 1: base image
-FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
 ARG TOOLS_NODE_VERSION
 
 #ENVIRONMENT VARIABLES
@@ -22,7 +23,7 @@ RUN mkdir -p /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
-FROM --platform=$BUILDPLATFORM base-os AS go-base
+FROM base-os AS go-base
 ARG TOOLS_GO_VERSION
 ARG ARCH=${TARGETARCH:-amd64}
 ARG GOPROXY="http://proxy.golang.org"
@@ -67,7 +68,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM --platform=$BUILDPLATFORM $DOCKER_REGISTRY_GOOGLE/distroless/static:nonroot
+FROM $DOCKER_REGISTRY_GOOGLE/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
