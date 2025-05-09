@@ -1,13 +1,17 @@
 # Image configuration
 DOCKER_REGISTRY ?= ghcr.io
+DOCKER_REGISTRY_GOOGLE ?= gcr.io
 DOCKER_REPO ?= kagent-dev/kagent
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-local")
+
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' || echo "v0.0.0-local")
+
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
+
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
@@ -21,6 +25,9 @@ DOCKER_BUILDER ?= docker
 DOCKER_BUILD_ARGS ?=
 KIND_CLUSTER_NAME ?= kagent
 
+PROXY ?= ""
+NOPROXY ?= ""
+
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
@@ -29,15 +36,17 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 TOOLS_UV_VERSION ?= 0.7.2
 TOOLS_K9S_VERSION ?= 0.50.4
 TOOLS_KIND_VERSION ?= 0.27.0
-TOOLS_NODE_VERSION ?= 20.18
-TOOLS_ISTIO_VERSION ?= 1.25.2
-TOOLS_ARGO_CD_VERSION ?= 2.8.2
+TOOLS_NODE_VERSION ?= 22.15.0
+TOOLS_ISTIO_VERSION ?= 1.26.0
+TOOLS_ARGO_CD_VERSION ?= 3.0.0
 TOOLS_KUBECTL_VERSION ?= 1.33.4
 
 # build args
-GO_IMAGE_BUILD_ARGS = --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
-
-TOOLS_IMAGE_BUILD_ARGS = $(GO_IMAGE_BUILD_ARGS)
+TOOLS_IMAGE_BUILD_ARGS =  --build-arg PROXY=$(PROXY)
+TOOLS_IMAGE_BUILD_ARGS =  --build-arg NOPROXY=$(NOPROXY)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY_GOOGLE=$(DOCKER_REGISTRY_GOOGLE)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_K9S_VERSION=$(TOOLS_K9S_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KIND_VERSION=$(TOOLS_KIND_VERSION)
@@ -105,6 +114,12 @@ build-cli-local:
 	make -C go clean
 	make -C go bin/kagent-local
 
+.PHONY: build-img-versions
+build-img-versions:
+	@echo controller=$(CONTROLLER_IMG)
+	@echo ui=$(UI_IMG)
+	@echo app=$(APP_IMG)
+
 .PHONY: push
 push: push-controller push-ui push-app
 
@@ -115,7 +130,7 @@ controller-manifests:
 
 .PHONY: build-controller
 build-controller: controller-manifests
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(GO_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: release-controller
 release-controller: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
@@ -215,6 +230,8 @@ kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to KAgent CLI..."
 	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80
 
-.PHONY: build-dev-container
-build-dev-container:
-	$(DOCKER_BUILDER) build -t kagent-devcontainer --load $(TOOLS_IMAGE_BUILD_ARGS) .devcontainer
+.PHONY: open-dev-container
+open-dev-container:
+	@echo "Opening dev container..."
+	devcontainer build .
+	@devcontainer open .

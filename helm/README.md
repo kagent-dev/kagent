@@ -54,14 +54,11 @@ export AZURE_API_KEY=your-azure-api-key
 export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
 export KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI
 export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
-export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
 
-# use local helm chart
+# use local helm chart to install kagent
+export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
 export KAGENT_HELM_REPO=./helm/
 make kagent-cli-install
-
-#or use it directly
-KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
 
 ```
 

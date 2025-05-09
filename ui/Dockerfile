@@ -1,33 +1,66 @@
+#https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
+ARG DOCKER_REGISTRY=ghcr.io
+ARG DOCKER_REGISTRY_GOOGLE=gcr.io
 ARG TOOLS_UV_VERSION=latest
-ARG TOOLS_NODE_VERSION=20
-FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm AS ui-builder
+
+### STAGE 1: base image
+FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+ARG TOOLS_NODE_VERSION
+
+#ENVIRONMENT VARIABLES
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN mkdir -p /etc/apt/keyrings \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    git                       \
+    ca-certificates           \
+    curl                      \
+    gnupg                     \
+    wget                      \
+    unzip                     \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+FROM base-os AS base
+
+# Install python
+ENV UV_CACHE_DIR=/app/python/.cache/uv
+RUN uv python install 3.12
+
+# Install nvm
+ENV BUN_INSTALL=/usr/local/bun
+ENV BUN_INSTALL_CACHE_DIR=/cache/bun
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PATH=$BUN_INSTALL/bin:$PATH
+ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
+
+# Install bun
+RUN curl -fsSL https://bun.sh/install | bash \
+    && ln -sf $BUN_INSTALL/bin/bun /usr/bin/bun \
+    && bun --version
+
+### STAGE 2: build + tools
+FROM --platform=$BUILDPLATFORM base AS ui-builder
 
 WORKDIR /app/ui
 
 COPY package*.json ./
 RUN mkdir -p /app/ui/public
-ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm ci
+RUN --mount=type=cache,target=/cache,rw \
+    bun install
 
 COPY . .
-RUN npm run build
+RUN --mount=type=cache,target=/cache,rw \
+    bun run build
 
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS final
+### STAGE 3: final
+FROM base AS final
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    build-essential \
-    curl \
-    ca-certificates \
     nginx \
     supervisor \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/bin/python
 

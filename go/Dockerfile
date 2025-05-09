@@ -1,6 +1,41 @@
-# Build the manager binary
-ARG TOOLS_GO_VERSION=latest
-FROM --platform=$BUILDPLATFORM golang:${TOOLS_GO_VERSION}-alpine AS builder
+#https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
+ARG DOCKER_REGISTRY=ghcr.io
+ARG DOCKER_REGISTRY_GOOGLE=gcr.io
+ARG TOOLS_UV_VERSION=latest
+
+### STAGE 1: base image
+FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+ARG TOOLS_NODE_VERSION
+
+#ENVIRONMENT VARIABLES
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN mkdir -p /etc/apt/keyrings \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    git                       \
+    ca-certificates           \
+    curl                      \
+    gnupg                     \
+    wget                      \
+    unzip                     \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+FROM base-os AS go-base
+ARG TOOLS_GO_VERSION
+ARG ARCH=${TARGETARCH:-amd64}
+ARG GOPROXY="http://proxy.golang.org"
+
+ENV GO111MODULE=on
+ENV GOTOOLCHAIN=local
+ENV PATH=$PATH:/usr/local/go/bin
+
+RUN --mount=type=cache,target=/cache,rw \
+    wget -q --show-progress -P /cache https://golang.org/dl/go${TOOLS_GO_VERSION}.linux-${ARCH}.tar.gz && \
+    tar     -C /usr/local -xzf /cache/go${TOOLS_GO_VERSION}.linux-${ARCH}.tar.gz
+
+FROM --platform=$BUILDPLATFORM go-base AS builder
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
@@ -32,7 +67,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM $DOCKER_REGISTRY_GOOGLE/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
