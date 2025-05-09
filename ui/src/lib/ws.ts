@@ -121,8 +121,10 @@ export function setupWebSocket(runId: string, handlers: WebSocketHandlers, initi
           handlers.onError("Connection lost. Attempting to reconnect...");
           handlers.onStatusChange("error");
           maybeReconnect();
+        } else {
+          // Only set status to ready if we're not in the middle of tool execution
+          handlers.onStatusChange("ready");
         }
-
         handlers.onClose();
       };
 
