@@ -25,6 +25,9 @@ DOCKER_BUILDER ?= docker
 DOCKER_BUILD_ARGS ?=
 KIND_CLUSTER_NAME ?= kagent
 
+PROXY ?= ""
+NOPROXY ?= ""
+
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
