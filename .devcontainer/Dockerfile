@@ -88,7 +88,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ### STAGE 3 add golang
-FROM --platform=$BUILDPLATFORM builder AS node-python-golang
+FROM builder AS node-python-golang
 ARG TOOLS_GO_VERSION
 ARG TOOLS_K9S_VERSION
 ARG TOOLS_KIND_VERSION
