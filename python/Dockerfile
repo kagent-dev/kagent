@@ -105,8 +105,12 @@ COPY .python-version .
 COPY uv.lock .
 COPY README.md .
 
-RUN --mount=type=cache,target=/app/python/.cache/uv uv cache dir && uv venv .venv && uv pip install hatchling
-RUN --mount=type=cache,target=/app/python/.cache/uv uv sync --frozen
+RUN --mount=type=cache,target=/app/python/.cache/uv \
+    && uv venv .venv                                \
+    && uv pip install .                             \
+    && uv pip install hatchling                     \
+    && uv sync --frozen
+
 COPY src src
 RUN chown -R python:pythongroup /app/python
 
