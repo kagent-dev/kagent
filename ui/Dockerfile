@@ -25,10 +25,12 @@ RUN mkdir -p /etc/apt/keyrings \
 FROM base-os AS base
 
 # Install python
+ENV UV_CACHE_DIR=/app/python/.cache/uv
 RUN uv python install 3.12
 
 # Install nvm
 ENV BUN_INSTALL=/usr/local/bun
+ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PATH=$BUN_INSTALL/bin:$PATH
 ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
@@ -46,10 +48,12 @@ WORKDIR /app/ui
 COPY package*.json ./
 RUN mkdir -p /app/ui/public
 
-RUN bun install
+RUN --mount=type=cache,target=/cache,rw \
+    bun install
 
 COPY . .
-RUN bun run build
+RUN --mount=type=cache,target=/cache,rw \
+    bun run build
 
 ### STAGE 3: final
 FROM base AS final

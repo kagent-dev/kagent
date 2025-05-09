@@ -25,10 +25,12 @@ RUN mkdir -p /etc/apt/keyrings \
 FROM base-os AS base
 
 # Install python
+ENV UV_CACHE_DIR=/app/python/.cache/uv
 RUN uv python install 3.12
 
 # Install bun
 ENV BUN_INSTALL=/usr/local/bun
+ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PATH=$BUN_INSTALL/bin:$PATH
 ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
@@ -92,8 +94,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Create groups and users
 RUN groupadd -g 1002 pythongroup \
-    && useradd  -u 1002 -g pythongroup -s /bin/bash -m python \
-    && mkdir -p /app/python /root/.cache/uv \
+    && useradd -u 1002 -g pythongroup -s /bin/bash -m python \
+    && mkdir  -p /app/python /app/python/.cache/uv \
     && chown -R python:pythongroup /app/python
 
 # Set up Python backend
@@ -103,14 +105,14 @@ COPY .python-version .
 COPY uv.lock .
 COPY README.md .
 
-RUN --mount=type=cache,target=/root/.cache/uv uv cache dir && uv venv .venv && uv pip install hatchling
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
+RUN --mount=type=cache,target=/app/python/.cache/uv uv cache dir && uv venv .venv && uv pip install hatchling
+RUN --mount=type=cache,target=/app/python/.cache/uv uv sync --frozen
 COPY src src
 RUN chown -R python:pythongroup /app/python
 
 # Generate tools and agents
 RUN mkdir -p /root/.autogenstudio/configs
-RUN --mount=type=cache,target=/root/.cache/uv uv run tool_gen -o /root/.autogenstudio/configs
+RUN --mount=type=cache,target=/app/python/.cache/uv uv run tool_gen -o /root/.autogenstudio/configs
 
 # Ensure correct permissions
 RUN chown -R python:pythongroup /app/python && \

@@ -25,10 +25,12 @@ RUN mkdir -p /etc/apt/keyrings \
 FROM base-os AS base
 
 # Install python
+ENV UV_CACHE_DIR=/app/python/.cache/uv
 RUN uv python install 3.12
 
 # Install bun
 ENV BUN_INSTALL=/usr/local/bun
+ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PATH=$BUN_INSTALL/bin:$PATH
 ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
