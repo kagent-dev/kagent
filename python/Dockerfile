@@ -24,7 +24,7 @@ RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/
     && chmod +x /usr/local/bin/kubectl-argo-rollouts
 
 # Install Istio
-RUN curl -L https://istio.io/downloadIstio | TOOLS_ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=$TARGETARCH sh - \
+RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=$TARGETARCH sh - \
     && mv istio-$TOOLS_ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl \
     && rm -rf istio-$TOOLS_ISTIO_VERSION
 

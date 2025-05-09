@@ -104,6 +104,25 @@ spec:
                 type: object
               model:
                 type: string
+              modelInfo:
+                description: |-
+                  ModelInfo contains information about the model.
+                  This field is required if the model is not one of the
+                  pre-defined autogen models. That list can be found here:
+                properties:
+                  family:
+                    type: string
+                  functionCalling:
+                    type: boolean
+                  jsonOutput:
+                    type: boolean
+                  multipleSystemMessages:
+                    type: boolean
+                  structuredOutput:
+                    type: boolean
+                  vision:
+                    type: boolean
+                type: object
               ollama:
                 description: Ollama-specific configuration
                 properties:
