@@ -20,6 +20,11 @@ const components = {
     // For inline code, just return the default
     return <code className={className}>{children}</code>;
   },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  a: (props: any) => {
+    const { children, className } = props;
+    return <a href={children} target="_blank" rel="noopener noreferrer" className={className}>{children}</a>;
+  },
 };
 
 export const TruncatableText = memo(({ content, isJson = false, className = "", isStreaming = false }: TruncatableTextProps) => {
