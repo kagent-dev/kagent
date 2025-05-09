@@ -2,8 +2,6 @@
 ARG DOCKER_REGISTRY=ghcr.io
 ARG DOCKER_REGISTRY_GOOGLE=gcr.io
 ARG TOOLS_UV_VERSION=latest
-ARG PROXY
-ARG NOPROXY
 
 ### STAGE 1: base image
 FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
@@ -19,6 +17,7 @@ RUN mkdir -p /etc/apt/keyrings \
     curl                      \
     gnupg                     \
     wget                      \
+    unzip                     \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/bin/python

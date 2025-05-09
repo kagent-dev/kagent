@@ -2,8 +2,6 @@
 ARG DOCKER_REGISTRY=ghcr.io
 ARG DOCKER_REGISTRY_GOOGLE=gcr.io
 ARG TOOLS_UV_VERSION=latest
-ARG PROXY
-ARG NOPROXY
 
 ### STAGE 1: base image
 FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
@@ -19,6 +17,7 @@ RUN mkdir -p /etc/apt/keyrings \
     curl                      \
     gnupg                     \
     wget                      \
+    unzip                     \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/bin/python
@@ -28,21 +27,16 @@ FROM base-os AS base
 # Install python
 RUN uv python install 3.12
 
-# Install nvm
-ENV NVM_DIR=/usr/local/nvm
+# Install bun
+ENV BUN_INSTALL=/usr/local/bun
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PATH=$NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin:$PATH
+ENV PATH=$BUN_INSTALL/bin:$PATH
 ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
 
-# Install nvm with node and npm
-RUN mkdir -p  $NVM_DIR \
-    && curl https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh  | bash \
-    && . $NVM_DIR/nvm.sh \
-    && mkdir -p $NVM_DIR/versions \
-    && nvm install $TOOLS_NODE_VERSION \
-    && nvm use $TOOLS_NODE_VERSION \
-    && which node && node --version \
-    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/node /usr/bin/node
+# Install bun
+RUN curl -fsSL https://bun.sh/install | bash \
+    && ln -sf $BUN_INSTALL/bin/bun /usr/bin/bun \
+    && bun --version
 
 ### STAGE 2: build + tools
 FROM --platform=$BUILDPLATFORM base-os AS builder
