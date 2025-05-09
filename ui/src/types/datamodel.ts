@@ -41,6 +41,17 @@ export interface BaseMessageConfig {
   metadata?: Record<string, string>;
 }
 
+export interface BaseAgentEvent extends BaseMessageConfig {}
+
+export interface MemoryQueryEventContent {
+  content: string;
+  mime_type: string;
+}
+export interface MemoryQueryEvent extends BaseAgentEvent {
+  content: MemoryQueryEventContent[];
+  type: "MemoryQueryEvent";
+}
+
 export interface TextMessageConfig extends BaseMessageConfig {
   content: string;
 }
@@ -66,7 +77,7 @@ export interface ToolCallResultMessageConfig extends BaseMessageConfig {
   content: FunctionExecutionResult[];
 }
 
-export type AgentMessageConfig = TextMessageConfig | MultiModalMessageConfig | StopMessageConfig | HandoffMessageConfig | ToolCallMessageConfig | ToolCallResultMessageConfig;
+export type AgentMessageConfig = TextMessageConfig | MultiModalMessageConfig | StopMessageConfig | HandoffMessageConfig | ToolCallMessageConfig | ToolCallResultMessageConfig | MemoryQueryEvent;
 
 // Tool Configs
 export interface FunctionToolConfig {
