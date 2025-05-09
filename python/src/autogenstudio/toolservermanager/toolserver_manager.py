@@ -2,7 +2,7 @@ from typing import Union
 
 from autogen_core import Component, ComponentModel
 
-from tool_servers import ToolServer
+from kagent.tool_servers import ToolServer
 
 
 class ToolServerManager:
@@ -11,7 +11,7 @@ class ToolServerManager:
     async def _create_tool_server(
         self,
         tool_server_config: Union[dict, ComponentModel],
-    ):
+    ) -> ToolServer:
         """Create a tool server from the given configuration."""
         if not tool_server_config:
             raise Exception("Tool server config is required")

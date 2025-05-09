@@ -5,7 +5,7 @@ from autogen_ext.tools.mcp._config import StdioServerParams
 from autogen_ext.tools.mcp._factory import mcp_server_tools
 from loguru import logger
 
-from tool_servers import ToolServer
+from ._tool_server import ToolServer
 
 
 class StdioMcpToolServerConfig(StdioServerParams):
