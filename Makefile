@@ -1,6 +1,5 @@
 # Image configuration
-DOCKER_REGISTRY ?= ghcr.io
-DOCKER_REGISTRY_GOOGLE ?= gcr.io
+DOCKER_REGISTRY ?= docker.io
 DOCKER_REPO ?= kagent-dev/kagent
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-local")
 

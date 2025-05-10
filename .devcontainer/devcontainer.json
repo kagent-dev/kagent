@@ -8,7 +8,7 @@
       "TOOLS_UV_VERSION": "0.7.2",
       "TOOLS_K9S_VERSION": "0.50.4",
       "TOOLS_KIND_VERSION": "0.27.0",
-      "TOOLS_ISTIO_VERSION": "1.25.2",
+      "TOOLS_ISTIO_VERSION": "1.26.0",
       "TOOLS_KUBECTL_VERSION": "1.33.4"
     }
   },

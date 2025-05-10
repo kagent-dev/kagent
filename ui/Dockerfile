@@ -1,79 +1,52 @@
-#https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
-ARG DOCKER_REGISTRY=ghcr.io
-ARG DOCKER_REGISTRY_GOOGLE=gcr.io
-ARG TOOLS_UV_VERSION=latest
-
 ### STAGE 1: base image
-FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
-ARG TOOLS_NODE_VERSION
+ARG DOCKER_REGISTRY=docker.io
+ARG TOOLS_PYTHON_VERSION=3.12
+FROM $DOCKER_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
-#ENVIRONMENT VARIABLES
-ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
-RUN mkdir -p /etc/apt/keyrings \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    git                       \
-    ca-certificates           \
-    curl                      \
-    gnupg                     \
-    wget                      \
-    unzip                     \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3 /usr/bin/python
+RUN apk update && apk add  \
+    curl openssl unzip bash git ca-certificates
 
-FROM base-os AS base
-
-# Install python
-ENV UV_CACHE_DIR=/app/python/.cache/uv
-RUN uv python install 3.12
-
-# Install nvm
-ENV BUN_INSTALL=/usr/local/bun
-ENV BUN_INSTALL_CACHE_DIR=/cache/bun
+### STAGE 2: python
+FROM base-os AS node-os
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV BUN_INSTALL_CACHE_DIR=/cache/bun
+ENV BUN_INSTALL=/usr/local/bin/bun
+ENV NVM_DIR=/usr/local/nvm
+ENV NODE_ENV=production
+ENV NODE_PATH=/opt/node_modules
 ENV PATH=$BUN_INSTALL/bin:$PATH
-ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
 
-# Install bun
+# Install Bun (uses official install script)
+# brew install oven-sh/bun/bun
 RUN curl -fsSL https://bun.sh/install | bash \
-    && ln -sf $BUN_INSTALL/bin/bun /usr/bin/bun \
     && bun --version
 
-### STAGE 2: build + tools
-FROM --platform=$BUILDPLATFORM base AS ui-builder
+### STAGE 2: build + ui
+FROM node-os AS ui-builder
 
 WORKDIR /app/ui
-
 COPY package*.json ./
-RUN mkdir -p /app/ui/public
-
-RUN --mount=type=cache,target=/cache,rw \
-    bun install
+RUN --mount=type=cache,target=/cache/bun,rw \
+    bun install -- production --prefer-offline
 
 COPY . .
-RUN --mount=type=cache,target=/cache,rw \
-    bun run build
+RUN --mount=type=cache,target=/cache/bun,rw \
+    bun run build                           \
+    && mkdir -p /app/ui/public
 
 ### STAGE 3: final
-FROM base AS final
+FROM node-os AS final
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    nginx \
-    supervisor \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3 /usr/bin/python
-
-# Create groups and users
-RUN groupadd -g 1001 nodejs \
-    && groupadd -g 1002 pythongroup \
-    && useradd -u 1001 -g nodejs -s /bin/bash -m nextjs \
-    && useradd -u 1002 -g pythongroup -s /bin/bash -m python \
-    && mkdir -p /app/python /app/ui /run/nginx \
-    && chown -R python:pythongroup /app/python \
+RUN apk update  \
+    && apk add nginx supervisor --no-cache              \
+    && mkdir -p /app/ui                                 \
+    && addgroup -g 1001 nodejs                          \
+    && adduser -u 1001 -G nodejs -s /bin/bash -D nextjs \
     && chown -R nextjs:nodejs /app/ui
 
-# Set up Next.js UI
 WORKDIR /app/ui
 
 COPY --from=ui-builder /app/ui/next.config.ts ./
@@ -95,5 +68,6 @@ EXPOSE 80
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
 LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
+LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

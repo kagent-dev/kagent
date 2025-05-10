@@ -25,20 +25,23 @@ RUN mkdir -p /etc/apt/keyrings \
 FROM base-os AS base
 
 # Install python
-ENV UV_CACHE_DIR=/app/python/.cache/uv
 RUN uv python install 3.12
 
-# Install bun
-ENV BUN_INSTALL=/usr/local/bun
-ENV BUN_INSTALL_CACHE_DIR=/cache/bun
+# Install nvm
+ENV NVM_DIR=/usr/local/nvm
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PATH=$BUN_INSTALL/bin:$PATH
+ENV PATH=$NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin:$PATH
 ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
 
-# Install bun
-RUN curl -fsSL https://bun.sh/install | bash \
-    && ln -sf $BUN_INSTALL/bin/bun /usr/bin/bun \
-    && bun --version
+# Install nvm with node and npm
+RUN mkdir -p  $NVM_DIR \
+    && curl https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh  | bash \
+    && . $NVM_DIR/nvm.sh \
+    && mkdir -p $NVM_DIR/versions \
+    && nvm install $TOOLS_NODE_VERSION \
+    && nvm use $TOOLS_NODE_VERSION \
+    && which node && node --version \
+    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/node /usr/bin/node
 
 ### STAGE 2: build + tools
 FROM --platform=$BUILDPLATFORM base-os AS builder
@@ -119,8 +122,8 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 
 # Install Istioctl
 RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${TOOLS_ISTIO_VERSION} TARGET_ARCH=${ARCH} sh - \
-    && mv istio-${TOOLS_ISTIO_VERSION}/bin/istioctl /usr/local/bin/istioctl \
-    && rm -rf istio-$TOOLS_ISTIO_VERSION
+    && mv istio-*/bin/istioctl /usr/local/bin/istioctl \
+    && rm -rf istio-*
 
 # Install kind
 RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${ARCH} \
