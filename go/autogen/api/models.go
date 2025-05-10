@@ -2,10 +2,12 @@ package api
 
 // Model Configurations
 type ModelInfo struct {
-	Vision          bool   `json:"vision"`
-	FunctionCalling bool   `json:"function_calling"`
-	JSONOutput      bool   `json:"json_output"`
-	Family          string `json:"family"`
+	Vision                 bool   `json:"vision"`
+	FunctionCalling        bool   `json:"function_calling"`
+	JSONOutput             bool   `json:"json_output"`
+	Family                 string `json:"family"`
+	StructuredOutput       bool   `json:"structured_output"`
+	MultipleSystemMessages bool   `json:"multiple_system_messages"`
 }
 
 type OpenAICreateArgumentsConfig struct {

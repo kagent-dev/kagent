@@ -914,8 +914,9 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 
 		config := &api.AnthropicClientConfiguration{
 			BaseAnthropicClientConfiguration: api.BaseAnthropicClientConfiguration{
-				APIKey: string(apiKey),
-				Model:  modelConfig.Spec.Model,
+				APIKey:    string(apiKey),
+				Model:     modelConfig.Spec.Model,
+				ModelInfo: translateModelInfo(modelConfig.Spec.ModelInfo),
 			},
 		}
 
@@ -965,8 +966,9 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 		}
 		config := &api.AzureOpenAIClientConfig{
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
-				Model:  modelConfig.Spec.Model,
-				APIKey: string(apiKey),
+				Model:     modelConfig.Spec.Model,
+				APIKey:    string(apiKey),
+				ModelInfo: translateModelInfo(modelConfig.Spec.ModelInfo),
 			},
 			Stream: true,
 		}
@@ -1015,8 +1017,9 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 		}
 		config := &api.OpenAIClientConfig{
 			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
-				Model:  modelConfig.Spec.Model,
-				APIKey: string(apiKey),
+				Model:     modelConfig.Spec.Model,
+				APIKey:    string(apiKey),
+				ModelInfo: translateModelInfo(modelConfig.Spec.ModelInfo),
 			},
 		}
 
@@ -1084,6 +1087,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 				Model: modelConfig.Spec.Model,
 				Host:  modelConfig.Spec.Ollama.Host,
 			},
+			ModelInfo:       translateModelInfo(modelConfig.Spec.ModelInfo),
 			FollowRedirects: true,
 		}
 
@@ -1104,6 +1108,21 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 
 	default:
 		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
+	}
+}
+
+func translateModelInfo(modelInfo *v1alpha1.ModelInfo) *api.ModelInfo {
+	if modelInfo == nil {
+		return nil
+	}
+
+	return &api.ModelInfo{
+		Vision:                 modelInfo.Vision,
+		FunctionCalling:        modelInfo.FunctionCalling,
+		JSONOutput:             modelInfo.JSONOutput,
+		Family:                 modelInfo.Family,
+		StructuredOutput:       modelInfo.StructuredOutput,
+		MultipleSystemMessages: modelInfo.MultipleSystemMessages,
 	}
 }
 
