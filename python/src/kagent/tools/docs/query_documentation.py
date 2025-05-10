@@ -25,6 +25,7 @@ PRODUCT_DB_MAP = {
     "prometheus": "prometheus.db",
     "gateway-api": "gateway-api.db",
     "gloo-gateway": "gloo-gateway.db",
+    "kgateway": "kgateway.db",
     "gloo-edge": "gloo-edge.db",
     "otel": "otel.db",
     "cilium": "cilium.db",

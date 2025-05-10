@@ -43,6 +43,9 @@ var (
 		"kagent.tools.prometheus.GeneratePromQLTool",
 		"kagent.tools.k8s.GenerateResourceTool",
 	}
+	toolsProvidersRequiringOpenaiApiKey = []string{
+		"kagent.tools.docs.QueryTool",
+	}
 )
 
 type ApiTranslator interface {
@@ -307,6 +310,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			participant, err := a.translateAssistantAgent(
 				ctx,
 				agent,
+				modelConfig,
 				modelClientWithStreaming,
 				modelClientWithoutStreaming,
 				modelContext,
@@ -468,6 +472,7 @@ func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
 func (a *apiTranslator) translateAssistantAgent(
 	ctx context.Context,
 	agent *v1alpha1.Agent,
+	modelConfig *v1alpha1.ModelConfig,
 	modelClientWithStreaming *api.Component,
 	modelClientWithoutStreaming *api.Component,
 	modelContext *api.Component,
@@ -479,8 +484,10 @@ func (a *apiTranslator) translateAssistantAgent(
 	for _, tool := range agent.Spec.Tools {
 		switch {
 		case tool.Builtin != nil:
-			autogenTool, err := translateBuiltinTool(
+			autogenTool, err := a.translateBuiltinTool(
+				ctx,
 				modelClientWithoutStreaming,
+				modelConfig,
 				tool.Builtin,
 			)
 			if err != nil {
@@ -635,8 +642,10 @@ func (a *apiTranslator) translateMemory(ctx context.Context, memoryName string, 
 	return nil, fmt.Errorf("unsupported memory provider: %s", memoryObj.Spec.Provider)
 }
 
-func translateBuiltinTool(
+func (a *apiTranslator) translateBuiltinTool(
+	ctx context.Context,
 	modelClient *api.Component,
+	modelConfig *v1alpha1.ModelConfig,
 	tool *v1alpha1.BuiltinTool,
 ) (*api.Component, error) {
 
@@ -648,6 +657,19 @@ func translateBuiltinTool(
 	if toolNeedsModelClient(tool.Name) {
 		if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
 			return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
+		}
+	}
+	if toolNeedsOpenaiApiKey(tool.Name) {
+		if modelConfig.Spec.Provider != v1alpha1.OpenAI {
+			return nil, fmt.Errorf("tool %s requires OpenAI API key, but model config is not OpenAI", tool.Name)
+		}
+		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get model config api key: %v", err)
+		}
+
+		if err := addOpenaiApiKeyToConfig(apiKey, &toolConfig); err != nil {
+			return nil, fmt.Errorf("failed to add openai api key to tool config: %v", err)
 		}
 	}
 
@@ -843,6 +865,15 @@ func toolNeedsModelClient(provider string) bool {
 	return false
 }
 
+func toolNeedsOpenaiApiKey(provider string) bool {
+	for _, p := range toolsProvidersRequiringOpenaiApiKey {
+		if p == provider {
+			return true
+		}
+	}
+	return false
+}
+
 func addModelClientToConfig(
 	modelClient *api.Component,
 	toolConfig *map[string]interface{},
@@ -857,6 +888,18 @@ func addModelClientToConfig(
 	}
 
 	(*toolConfig)["model_client"] = cfg
+	return nil
+}
+
+func addOpenaiApiKeyToConfig(
+	apiKey []byte,
+	toolConfig *map[string]interface{},
+) error {
+	if *toolConfig == nil {
+		*toolConfig = make(map[string]interface{})
+	}
+
+	(*toolConfig)["openai_api_key"] = string(apiKey)
 	return nil
 }
 

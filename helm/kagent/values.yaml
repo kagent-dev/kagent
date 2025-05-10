@@ -143,6 +143,8 @@ contrib:
         apiKey: ""
     argoRolloutsConversion:
       enabled: true
+    kgateway:
+      enabled: true
 
 otel:
   tracing:
