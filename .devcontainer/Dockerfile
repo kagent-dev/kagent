@@ -1,43 +1,99 @@
+#https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
+ARG DOCKER_REGISTRY=ghcr.io
 ARG TOOLS_UV_VERSION=latest
-ARG TOOLS_NODE_VERSION=latest
-ARG ARCH=${TARGETARCH:-amd64}
 
-#STAGE 1 - base image
-FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS tools-uv
-FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm AS node-base
+### STAGE 1: base image
+FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+ARG TOOLS_NODE_VERSION
+
+#ENVIRONMENT VARIABLES
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN mkdir -p /etc/apt/keyrings \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    git                       \
+    ca-certificates           \
+    curl                      \
+    gnupg                     \
+    wget                      \
+    unzip                     \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+FROM base-os AS base
+
+# Install python
+RUN uv python install 3.12
+
+# Install nvm
+ENV NVM_DIR=/usr/local/nvm
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PATH=$NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin:$PATH
+ENV NODE_PATH=$NVM_DIR/v$TOOLS_NODE_VERSION/lib/node_modules
+
+# Install nvm with node and npm
+RUN mkdir -p  $NVM_DIR \
+    && curl https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh  | bash \
+    && . $NVM_DIR/nvm.sh \
+    && mkdir -p $NVM_DIR/versions \
+    && nvm install $TOOLS_NODE_VERSION \
+    && nvm use $TOOLS_NODE_VERSION \
+    && which node && node --version \
+    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/node /usr/bin/node
+
+### STAGE 2: build + tools
+FROM --platform=$BUILDPLATFORM base-os AS builder
+
+ARG TARGETARCH
+ARG TOOLS_ISTIO_VERSION
+ARG TOOLS_ARGO_CD_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gettext-base              \
-    wget                      \
-    git                       \
-    zsh                       \
-    jq                        \
+    bsdmainutils              \
     build-essential           \
-    curl                      \
     ca-certificates           \
-    python3                   \
-    python3-pip               \
-    python3-venv              \
-    python3-dev               \
+    conntrack                 \
+    curl                      \
+    gettext-base              \
+    git                       \
+    gnupg                     \
+    gnupg2                    \
+    htop                      \
+    iperf3                    \
+    iproute2                  \
+    iptables                  \
+    iputils-ping              \
+    jq                        \
+    knot-dnsutils             \
     libffi-dev                \
     libssl-dev                \
-    && apt-get update         \
-    && update-ca-certificates \
+    lsof                      \
+    net-tools                 \
+    netcat-openbsd            \
+    python3                   \
+    python3-dev               \
+    python3-pip               \
+    python3-venv              \
+    sshuttle                  \
+    tcpdump                   \
+    wget                      \
+    zsh                       \
     && curl -fsSL https://get.docker.com -o get-docker.sh  \
     && sh get-docker.sh       \
     && apt-get clean          \
     && rm -rf /var/log/*log   \
     && rm -rf /var/lib/apt/lists/*
 
-### STAGE 2 add golang
-FROM --platform=$BUILDPLATFORM node-base AS node-python-golang
+### STAGE 3 add golang
+FROM builder AS node-python-golang
 ARG TOOLS_GO_VERSION
 ARG TOOLS_K9S_VERSION
 ARG TOOLS_KIND_VERSION
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
 ARG TOOLS_KUBECTL_VERSION
-ARG ARCH
+ARG ARCH=${TARGETARCH:-amd64}
 
 #ENVIRONMENT VARIABLES
 ENV DEBIAN_FRONTEND=noninteractive
@@ -64,9 +120,9 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && rm get_helm.sh
 
 # Install Istioctl
-RUN curl -L https://istio.io/downloadIstio | TOOLS_ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=${ARCH} sh - \
-    && mv istio-$TOOLS_ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl \
-    && rm -rf istio-$TOOLS_ISTIO_VERSION
+RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${TOOLS_ISTIO_VERSION} TARGET_ARCH=${ARCH} sh - \
+    && mv istio-*/bin/istioctl /usr/local/bin/istioctl \
+    && rm -rf istio-*
 
 # Install kind
 RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${ARCH} \
