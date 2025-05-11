@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isAgentTool, isBuiltinTool, isMcpTool, isSameTool, SSE_MCP_TOOL_PROVIDER_NAME, STDIO_MCP_TOOL_PROVIDER_NAME, isMcpProvider } from "@/lib/toolUtils";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isAgentTool, isBuiltinTool, isMcpTool, isSameTool, isMcpProvider } from "@/lib/toolUtils";
 import { Label } from "@/components/ui/label";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
