@@ -31,10 +31,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
       - name: Set version
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: echo "version=v0.0.0-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - name: Print version
         run: | 
-          echo "Version: ${{ steps.vars.outputs.sha_short }}"
+          echo "Version: ${{ steps.vars.outputs.version }}"
       - name: Run make build
         env:
           DOCKER_BUILDER: "docker buildx"
@@ -42,7 +42,7 @@ jobs:
             --load
             --cache-from=type=gha
             --cache-to=type=gha,mode=max
-            --build-arg=VERSION=v0.0.0-${{ steps.vars.outputs.sha_short }}
+            --build-arg=VERSION=${{ steps.vars.outputs.version }}
         run: make build-${{ matrix.image }}
         working-directory: ./
       - name: Check if image exists
@@ -61,6 +61,6 @@ jobs:
         if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:v0.0.0-${{ steps.vars.outputs.sha_short }}
+          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.version }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
