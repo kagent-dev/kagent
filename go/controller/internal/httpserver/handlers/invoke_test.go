@@ -28,7 +28,7 @@ func newMockErrorResponseWriter() *mockErrorResponseWriter {
 
 func (m *mockErrorResponseWriter) RespondWithError(err error) {
 	m.errorReceived = err
-	
+
 	if errWithStatus, ok := err.(interface{ StatusCode() int }); ok {
 		handlers.RespondWithError(m, errWithStatus.StatusCode(), err.Error())
 	} else {
@@ -65,7 +65,7 @@ func (m *mockAutogenClient) ListRuns(userID string) ([]*autogen_client.Run, erro
 	return nil, nil
 }
 
-func (m *mockAutogenClient) GetRun(runID string) (*autogen_client.Run, error) {
+func (m *mockAutogenClient) GetRun(runID int) (*autogen_client.Run, error) {
 	return nil, nil
 }
 
@@ -128,13 +128,13 @@ var _ = Describe("InvokeHandler", func() {
 
 	BeforeEach(func() {
 		mockClient = &mockAutogenClient{}
-		
+
 		base := &handlers.Base{}
-		
+
 		handler = handlers.NewInvokeHandler(base)
-		
+
 		handler.WithClient(mockClient)
-		
+
 		responseRecorder = newMockErrorResponseWriter()
 	})
 
@@ -310,7 +310,7 @@ var _ = Describe("InvokeHandler", func() {
 		It("should panic when no client is available", func() {
 			handlerWithoutClient := handlers.NewInvokeHandler(&handlers.Base{})
 			handlerWithoutClient.WithClient(nil)
-			
+
 			agentID := "1"
 			reqBody := handlers.InvokeRequest{
 				Message: "Test message",
@@ -330,4 +330,4 @@ var _ = Describe("InvokeHandler", func() {
 			router.ServeHTTP(responseRecorder, req)
 		})
 	})
-}) 
+})
