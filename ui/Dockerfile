@@ -1,7 +1,6 @@
 ### STAGE 1: base image
-ARG DOCKER_REGISTRY=docker.io
-ARG TOOLS_PYTHON_VERSION=3.12
-FROM $DOCKER_REGISTRY/chainguard/wolfi-base:latest AS base-os
+ARG IMAGE_FROM_REGISTRY=docker.io
+FROM $IMAGE_FROM_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8

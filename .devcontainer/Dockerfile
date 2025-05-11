@@ -1,6 +1,5 @@
 #https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
 ARG DOCKER_REGISTRY=ghcr.io
-ARG DOCKER_REGISTRY_GOOGLE=gcr.io
 ARG TOOLS_UV_VERSION=latest
 
 ### STAGE 1: base image

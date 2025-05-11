@@ -1,7 +1,6 @@
 ### STAGE 1: base image
-ARG DOCKER_REGISTRY=docker.io
-ARG TOOLS_PYTHON_VERSION=3.12
-FROM $DOCKER_REGISTRY/chainguard/wolfi-base:latest AS base-os
+ARG IMAGE_FROM_REGISTRY=docker.io
+FROM $IMAGE_FROM_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -20,6 +19,7 @@ FROM python-os AS python-builder
 ARG TARGETARCH
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
+
 RUN mkdir -p /app/downloads /usr/local/bin/
 WORKDIR /app/downloads
 
@@ -42,6 +42,8 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 
 ### STAGE 4: final
 FROM python-os AS final
+ARG TOOLS_PYTHON_VERSION=3.12
+
 COPY --from=python-builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 COPY --from=python-builder /usr/local/bin/istioctl /usr/local/bin/istioctl
 COPY --from=python-builder /usr/local/bin/helm /usr/local/bin/helm
@@ -59,9 +61,9 @@ RUN addgroup -g 1001 pythongroup && \
     chown -R python:pythongroup /app/python
 
 RUN --mount=type=cache,target=/app/python/.cache,rw  \
-    echo "Installing Python 3.12..."                 \
+    echo "Installing Python $TOOLS_PYTHON_VERSION..."                 \
     && uv venv .venv                                 \
-    && uv python install 3.12                        \
+    && uv python install $TOOLS_PYTHON_VERSION                        \
     && uv cache dir                                  \
     && uv version
 
