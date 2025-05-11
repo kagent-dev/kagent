@@ -27,6 +27,8 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
       - name: Set version
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
@@ -62,3 +64,9 @@ jobs:
           image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.sha_short }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
+      - name: Wait for image scan
+        if: steps.image-check.outputs.exists == 'true'
+        run: |
+          echo "Prevent cache from clearing"
+          echo "Waiting for image scan to complete..."
+          sleep 60
