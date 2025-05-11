@@ -12,8 +12,6 @@ on:
 
 jobs:
   build:
-    env:
-      VERSION: ${{ github.sha }}
     strategy:
       matrix:
         image:
@@ -29,9 +27,12 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      - name: Set version
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - name: Print version
         run: | 
-          echo "Version: ${{ env.VERSION }}"
+          echo "Version: ${{ steps.vars.outputs.sha_short }}"
       - name: Run make build
         env:
           DOCKER_BUILDER: "docker buildx"
@@ -39,11 +40,10 @@ jobs:
             --load
             --cache-from=type=gha
             --cache-to=type=gha,mode=max
-            --build-arg=VERSION=${{ env.VERSION }}
-
+            --build-arg=VERSION=${{ steps.vars.outputs.sha_short }}
         run: make build-${{ matrix.image }}
         working-directory: ./
-      - name: Check if image tar exists
+      - name: Check if image exists
         id: image-check
         run: |
           if [ "${{ matrix.image }}" == "cli" ]; then
@@ -56,10 +56,9 @@ jobs:
         id: image-versions
         run: make build-img-versions
       - name: Image vulnerability scanner
-        #scan only after merge to main
         if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ env.VERSION }}
+          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.sha_short }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
