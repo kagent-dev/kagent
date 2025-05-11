@@ -5,23 +5,27 @@ FROM $DOCKER_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-
-RUN apk update && apk add  \
-    curl openssl unzip bash git ca-certificates
+RUN apk update \
+    && apk add curl openssl unzip bash git ca-certificates nginx supervisor \
+    && update-ca-certificates \
+    && rm -rf /var/cache/apk/* \
+    && find /
 
 ### STAGE 2: python
 FROM base-os AS node-os
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUN_INSTALL_CACHE_DIR=/cache/bun
-ENV BUN_INSTALL=/usr/local/bin/bun
+ENV BUN_INSTALL=/usr/local/bun
 ENV NVM_DIR=/usr/local/nvm
 ENV NODE_ENV=production
-ENV NODE_PATH=/opt/node_modules
+ENV NODE_PATH=/cache/node_modules
 ENV PATH=$BUN_INSTALL/bin:$PATH
 
 # Install Bun (uses official install script)
 # brew install oven-sh/bun/bun
-RUN curl -fsSL https://bun.sh/install | bash \
+RUN --mount=type=cache,target=/cache/bun,rw \
+    mkdir -p $BUN_INSTALL  \
+    && curl -fsSL https://bun.sh/install | bash \
     && bun --version
 
 ### STAGE 2: build + ui
@@ -40,28 +44,25 @@ RUN --mount=type=cache,target=/cache/bun,rw \
 ### STAGE 3: final
 FROM node-os AS final
 
-RUN apk update  \
-    && apk add nginx supervisor --no-cache              \
-    && mkdir -p /app/ui                                 \
-    && addgroup -g 1001 nodejs                          \
-    && adduser -u 1001 -G nodejs -s /bin/bash -D nextjs \
-    && chown -R nextjs:nodejs /app/ui
+RUN mkdir -p /app/ui /run/nginx /var/lib/nginx/tmp/     \
+    && addgroup -g 1001    nginx                        \
+    && adduser  -u 1001 -G nginx -s /bin/bash -D nextjs \
+    && adduser  -u 1002 -G nginx -s /bin/bash -D nginx  \
+    && chown    -vR nextjs:nginx /app/ui
 
-WORKDIR /app/ui
-
-COPY --from=ui-builder /app/ui/next.config.ts ./
-COPY --from=ui-builder /app/ui/public ./public
-COPY --from=ui-builder /app/ui/package.json ./package.json
-COPY --from=ui-builder --chown=nextjs:nodejs /app/ui/.next/standalone ./
-COPY --from=ui-builder --chown=nextjs:nodejs /app/ui/.next/static ./.next/static
-
-# Set up Nginx and Supervisor
 WORKDIR /app
 COPY conf/nginx.conf /etc/nginx/nginx.conf
 COPY conf/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+WORKDIR /app/ui
+COPY --from=ui-builder /app/ui/next.config.ts ./
+COPY --from=ui-builder /app/ui/public ./public
+COPY --from=ui-builder /app/ui/package.json ./package.json
+COPY --from=ui-builder --chown=nextjs:nginx /app/ui/.next/standalone ./
+COPY --from=ui-builder --chown=nextjs:nginx /app/ui/.next/static ./.next/static
+
 # Ensure correct permissions
-RUN chown -R nextjs:nodejs /app/ui && \
+RUN chown -R nextjs:nginx /app/ui && \
     chmod -R 755 /app
 
 EXPOSE 80
