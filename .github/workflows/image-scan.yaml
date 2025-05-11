@@ -42,7 +42,7 @@ jobs:
             --load
             --cache-from=type=gha
             --cache-to=type=gha,mode=max
-            --build-arg=VERSION=${{ steps.vars.outputs.sha_short }}
+            --build-arg=VERSION=v0.0.0-${{ steps.vars.outputs.sha_short }}
         run: make build-${{ matrix.image }}
         working-directory: ./
       - name: Check if image exists
@@ -61,6 +61,6 @@ jobs:
         if: steps.image-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.sha_short }}
+          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:v0.0.0-${{ steps.vars.outputs.sha_short }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
