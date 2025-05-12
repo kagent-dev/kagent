@@ -1,5 +1,5 @@
 import { Run, Session } from "@/types/datamodel";
-import type { InitialMessage, TextMessageConfig, WebSocketMessage } from "@/types/datamodel";
+import type { InitialMessage, WebSocketMessage } from "@/types/datamodel";
 import { createSession } from "@/app/actions/sessions";
 import { createRun } from "@/app/actions/runs";
 import { getWsUrl } from "./utils";
@@ -94,7 +94,7 @@ export function setupWebSocket(runId: string, handlers: WebSocketHandlers, initi
               handlers.onStatusChange("ready");
               break;
             case "error":
-              handlers.onError((message.data as TextMessageConfig).content || "Unknown error occurred");
+              handlers.onError(message.error || "Unknown error occurred");
               handlers.onStatusChange("error");
               break;
             case "system":
