@@ -146,7 +146,13 @@ func NewAutogenApiTranslator(
 }
 
 func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v1alpha1.Agent) (*autogen_client.Team, error) {
-	return a.translateGroupChatForAgent(ctx, agent, defaultTeamOptions(), &tState{})
+	stream := true
+	if agent.Spec.Stream != nil {
+		stream = *agent.Spec.Stream
+	}
+	opts := defaultTeamOptions()
+	opts.stream = stream
+	return a.translateGroupChatForAgent(ctx, agent, opts, &tState{})
 }
 
 func (a *apiTranslator) TranslateGroupChatForTeam(
@@ -361,41 +367,6 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		BaseObject: autogen_client.BaseObject{
 			UserID: GlobalUserID, // always use global id
 		},
-	}, nil
-}
-
-// internally we convert all agents to a society-of-mind agent
-func (a *apiTranslator) translateTaskAgent(
-	ctx context.Context,
-	agent *v1alpha1.Agent,
-	modelContext *api.Component,
-	state *tState,
-) (*api.Component, error) {
-
-	name := agent.Name + "-society-of-mind-wrapper"
-	team, err := a.simpleRoundRobinTeam(ctx, agent, name)
-	if err != nil {
-		return nil, err
-	}
-
-	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{
-		stream: true,
-	}, state)
-	if err != nil {
-		return nil, err
-	}
-
-	return &api.Component{
-		Provider:      "kagent.agents.TaskAgent",
-		ComponentType: "agent",
-		Version:       1,
-		Label:         "society_of_mind_agent",
-		Description:   "An agent that runs a team of agents",
-		Config: api.MustToConfig(&api.TaskAgentConfig{
-			Team:         societyOfMindTeam.Component,
-			Name:         "society_of_mind_agent",
-			ModelContext: modelContext,
-		}),
 	}, nil
 }
 
@@ -873,7 +844,7 @@ func addOpenaiApiKeyToConfig(
 }
 
 // createModelClientForProvider creates a model client component based on the model provider
-func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelConfig *v1alpha1.ModelConfig, includeUsage bool) (*api.Component, error) {
+func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelConfig *v1alpha1.ModelConfig, stream bool) (*api.Component, error) {
 	switch modelConfig.Spec.Provider {
 	case v1alpha1.Anthropic:
 		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
@@ -939,10 +910,9 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 				APIKey:    string(apiKey),
 				ModelInfo: translateModelInfo(modelConfig.Spec.ModelInfo),
 			},
-			Stream: true,
 		}
 
-		if includeUsage {
+		if stream {
 			config.StreamOptions = &api.StreamOptions{
 				IncludeUsage: true,
 			}
@@ -992,7 +962,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			},
 		}
 
-		if includeUsage {
+		if stream {
 			config.StreamOptions = &api.StreamOptions{
 				IncludeUsage: true,
 			}

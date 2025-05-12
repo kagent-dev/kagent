@@ -63,7 +63,7 @@ func (m *ModelsUsage) String() string {
 	return fmt.Sprintf("Prompt Tokens: %d, Completion Tokens: %d", m.PromptTokens, m.CompletionTokens)
 }
 
-type TaskMessage map[string]interface{}
+type TaskMessageMap map[string]interface{}
 
 type RunMessage struct {
 	CreatedAt   *string                `json:"created_at,omitempty"`
@@ -114,8 +114,8 @@ type TeamResult struct {
 }
 
 type TaskResult struct {
-	Messages   []TaskMessage `json:"messages"`
-	StopReason string        `json:"stop_reason"`
+	Messages   []TaskMessageMap `json:"messages"`
+	StopReason string           `json:"stop_reason"`
 }
 
 // APIResponse is the common response wrapper for all API responses
