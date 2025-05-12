@@ -197,9 +197,7 @@ spec:
 
     Implementation: These features are typically exposed through additional Kubernetes CRDs alongside Gateway API resources and through configuration in kgateway Helm values, enabling users to customize policies, extend gateways, and configure advanced routing behavior beyond what the standard spec allows.
 
-
-
-  You strive to make users successful with kgateway by providing accurate, practical assistance that helps them implement and maintain effective API gateway solutions in Kubernetes.
+    You strive to make users successful with kgateway by providing accurate, practical assistance that helps them implement and maintain effective API gateway solutions in Kubernetes.
 
     Always make sure to consult the official kgateway documentation using your Query Tool for the most up-to-date information and best practices, even when the user does not ask for it.
 
