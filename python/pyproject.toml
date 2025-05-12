@@ -21,7 +21,7 @@ dependencies = [
   "python-dotenv>=1.1.0",
   "pyyaml>=6.0.2",
   "mcp>=1.2.0",
-  "sqlite-vec>=0.1.0",
+  "sqlite-vec>=0.1.7a2",
   "typer>=0.15.2",
   "numpy>=2.2.4",
   "opentelemetry-api>=1.32.0",
@@ -62,9 +62,9 @@ kagent-engine = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]
-autogen-agentchat = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-agentchat", rev = "3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
-autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
-autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
+autogen-agentchat = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-agentchat", rev = "e9a09f039d4c490cf52f11466b0636c089b9acf3" }
+autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "e9a09f039d4c490cf52f11466b0636c089b9acf3" }
+autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "e9a09f039d4c490cf52f11466b0636c089b9acf3" }
 kagent = { workspace = true }
 
 [tool.ruff]
