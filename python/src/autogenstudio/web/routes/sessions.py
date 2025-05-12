@@ -94,7 +94,7 @@ async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -
 
                     run_data.append(
                         {
-                            "id": str(run.id),
+                            "id": run.id,
                             "created_at": run.created_at,
                             "status": run.status,
                             "task": run.task,
@@ -107,7 +107,7 @@ async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -
                     # Include run with error state instead of failing entirely
                     run_data.append(
                         {
-                            "id": str(run.id),
+                            "id": run.id,
                             "created_at": run.created_at,
                             "status": "ERROR",
                             "task": run.task,

@@ -10,6 +10,7 @@ from autogen_agentchat.messages import (
     BaseChatMessage,
     ChatMessage,
     HandoffMessage,
+    MemoryQueryEvent,
     ModelClientStreamingChunkEvent,
     MultiModalMessage,
     StopMessage,
@@ -383,6 +384,7 @@ class WebSocketManager:
                     ToolCallExecutionEvent,
                     LLMCallEventMessage,
                     ModelClientStreamingChunkEvent,
+                    MemoryQueryEvent,
                 ),
             ):
                 return {"type": "message", "data": message.model_dump()}

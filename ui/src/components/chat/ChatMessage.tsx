@@ -3,6 +3,7 @@ import { Message, Run } from "@/types/datamodel";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import LLMCallModal from "@/components/chat/LLMCallModal";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
+import MemoryQueryDisplay from "./MemoryQueryDisplay";
 
 interface ChatMessageProps {
   message: Message;
@@ -31,6 +32,10 @@ export default function ChatMessage({ message, run }: ChatMessageProps) {
   // TODO: Decide whether we want to filter out som agent
   if (source === "system" || source === "user_proxy" || (typeof source === "string" && source.endsWith("society_of_mind_agent"))) {
     return null;
+  }
+
+  if (messageUtils.isMemoryQueryEvent(message.config)) {
+   return <MemoryQueryDisplay currentMessage={message} />
   }
 
   // Handle special message types
