@@ -7,7 +7,7 @@ import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel
 import { AgentActions } from "./AgentActions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
-import { getToolIdentifier, getToolProvider, getToolDisplayName, SSE_MCP_TOOL_PROVIDER_NAME, STDIO_MCP_TOOL_PROVIDER_NAME, isAgentTool, isMcpProvider } from "@/lib/toolUtils";
+import { getToolIdentifier, getToolProvider, getToolDisplayName, SSE_MCP_TOOL_PROVIDER_NAME, STDIO_MCP_TOOL_PROVIDER_NAME, isAgentTool } from "@/lib/toolUtils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,52 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
 
   const selectedTeam = currentAgent;
 
+  const RenderToolCollapsibleItem = ({
+    itemKey,
+    displayName,
+    providerTooltip,
+    description,
+    isExpanded,
+    onToggleExpansion,
+  }: {
+    itemKey: string;
+    displayName: string;
+    providerTooltip: string;
+    description: string;
+    isExpanded: boolean;
+    onToggleExpansion: () => void;
+  }) => {
+    return (
+      <Collapsible
+        key={itemKey}
+        open={isExpanded}
+        onOpenChange={onToggleExpansion}
+        className="group/collapsible"
+      >
+        <SidebarMenuItem>
+          <CollapsibleTrigger asChild>
+            <SidebarMenuButton tooltip={providerTooltip} className="w-full">
+              <div className="flex items-center justify-between w-full">
+                <span className="truncate max-w-[200px]">{displayName}</span>
+                <ChevronRight
+                  className={cn(
+                    "h-4 w-4 transition-transform duration-200",
+                    isExpanded && "rotate-90"
+                  )}
+                />
+              </div>
+            </SidebarMenuButton>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="px-2 py-1">
+            <div className="rounded-md bg-muted/50 p-2">
+              <p className="text-sm text-muted-foreground">{description}</p>
+            </div>
+          </CollapsibleContent>
+        </SidebarMenuItem>
+      </Collapsible>
+    );
+  };
+
   useEffect(() => {
     const processToolDescriptions = async () => {
       setToolDescriptions({});
@@ -36,40 +82,54 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
 
         if (toolsInSpec && Array.isArray(toolsInSpec)) {
           await Promise.all(toolsInSpec.map(async (tool) => {
-            const toolIdentifier = getToolIdentifier(tool);
-            let description = "No description available";
-            try {
-              if (isAgentTool(tool)) {
-                description = tool.agent?.description || "Agent description not found";
-              } else {
-                const toolProvider = getToolProvider(tool);
-                let foundToolDefinition: Component<ToolConfig> | null = null;
-
-                if (tool.type === "McpServer" && tool.mcpServer?.toolNames?.[0]) {
-                  const toolName = tool.mcpServer.toolNames[0];
-                  foundToolDefinition = allToolDefinitions.find(
-                    (def) => def.provider === SSE_MCP_TOOL_PROVIDER_NAME && (def.config as MCPToolConfig)?.tool?.name === toolName
-                  ) || allToolDefinitions.find(
-                    (def) => def.provider === STDIO_MCP_TOOL_PROVIDER_NAME && (def.config as MCPToolConfig)?.tool?.name === toolName
+            if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
+              const baseMcpIdentifier = getToolIdentifier(tool);
+              await Promise.all(tool.mcpServer.toolNames.map(async (mcpToolName) => {
+                const subToolIdentifier = `${baseMcpIdentifier}::${mcpToolName}`;
+                let description = "No description available";
+                try {
+                  const foundToolDefinition = allToolDefinitions.find(
+                    (def) => (
+                      (def.provider === SSE_MCP_TOOL_PROVIDER_NAME || def.provider === STDIO_MCP_TOOL_PROVIDER_NAME) &&
+                      (def.config as MCPToolConfig)?.tool?.name === mcpToolName
+                    )
                   ) || null;
-                } else if (tool.type === "Builtin") {
-                  foundToolDefinition = allToolDefinitions.find(def => def.provider === toolProvider) || null;
-                }
 
-                if (foundToolDefinition && isMcpProvider(foundToolDefinition.provider)) {
-                  const nestedDescription = (foundToolDefinition.config as MCPToolConfig)?.tool?.description;
-                  if (nestedDescription) {
-                    description = nestedDescription;
+                  if (foundToolDefinition) {
+                    const toolConfig = foundToolDefinition.config as MCPToolConfig;
+                    // isMcpProvider check is implicitly true due to the find condition
+                    description = toolConfig?.tool?.description || `Description for MCP tool \'${mcpToolName}\' is missing in definition`;
+                  } else {
+                    description = `Definition for MCP tool \'${mcpToolName}\' not available`;
                   }
-                } else if (foundToolDefinition?.description) {
-                  description = foundToolDefinition.description;
+                } catch (err) {
+                  console.error(`Failed to process description for MCP tool ${subToolIdentifier}:`, err);
+                  description = "Failed to load description for MCP tool";
                 }
+                descriptions[subToolIdentifier] = description;
+              }));
+            } else {
+              // Handle Agent tools or Builtin tools
+              const toolIdentifier = getToolIdentifier(tool);
+              let description = "No description available";
+              try {
+                if (isAgentTool(tool)) {
+                  description = tool.agent?.description || "Agent description not found";
+                } else {
+                  const toolProvider = getToolProvider(tool);
+                  const foundToolDefinition = allToolDefinitions.find(def => def.provider === toolProvider) || null;
+
+                  if (foundToolDefinition) {
+                      description = foundToolDefinition.description || "Description not found";
+                  }
+
+                }
+              } catch (err) {
+                console.error(`Failed to process description for tool ${toolIdentifier}:`, err);
+                description = "Failed to load description";
               }
-            } catch (err) {
-              console.error(`Failed to process description for tool ${toolIdentifier}:`, err);
-              description = "Failed to load description";
+              descriptions[toolIdentifier] = description;
             }
-            descriptions[toolIdentifier] = description;
           }));
         }
         setToolDescriptions(descriptions);
@@ -103,45 +163,53 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
 
     return (
       <SidebarMenu>
-        {tools.map((tool) => {
-          const toolIdentifier = getToolIdentifier(tool);
-          const provider = getToolProvider(tool) || "unknown";
-          const displayName = getToolDisplayName(tool);
-          const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
-          const isExpanded = expandedTools[toolIdentifier] || false;
+        {tools.flatMap((tool) => {
+          const baseToolIdentifier = getToolIdentifier(tool);
 
-          const providerParts = provider.split(".");
-          const providerName = providerParts[providerParts.length - 1];
+          if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
+            const mcpProvider = getToolProvider(tool) || "mcp_server";
+            const mcpProviderParts = mcpProvider.split(".");
+            const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
 
-          return (
-            <Collapsible
-              key={toolIdentifier}
-              open={isExpanded}
-              onOpenChange={() => toggleToolExpansion(toolIdentifier)}
-              className="group/collapsible"
-            >
-              <SidebarMenuItem>
-                <CollapsibleTrigger asChild>
-                  <SidebarMenuButton tooltip={providerName} className="w-full">
-                    <div className="flex items-center justify-between w-full">
-                      <span className="truncate max-w-[200px]">{displayName}</span>
-                      <ChevronRight className={cn(
-                        "h-4 w-4 transition-transform duration-200",
-                        isExpanded && "rotate-90"
-                      )} />
-                    </div>
-                  </SidebarMenuButton>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="px-2 py-1">
-                  <div className="rounded-md bg-muted/50 p-2">
-                    <p className="text-sm text-muted-foreground">
-                      {description}
-                    </p>
-                  </div>
-                </CollapsibleContent>
-              </SidebarMenuItem>
-            </Collapsible>
-          );
+            return tool.mcpServer.toolNames.map((mcpToolName) => {
+              const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
+              const description = toolDescriptions[subToolIdentifier] || "Description loading or unavailable";
+              const isExpanded = expandedTools[subToolIdentifier] || false;
+
+              return (
+                <RenderToolCollapsibleItem
+                  key={subToolIdentifier}
+                  itemKey={subToolIdentifier}
+                  displayName={mcpToolName}
+                  providerTooltip={mcpProviderNameTooltip}
+                  description={description}
+                  isExpanded={isExpanded}
+                  onToggleExpansion={() => toggleToolExpansion(subToolIdentifier)}
+                />
+              );
+            });
+          } else {
+            const toolIdentifier = baseToolIdentifier;
+            const provider = getToolProvider(tool) || "unknown";
+            const displayName = getToolDisplayName(tool);
+            const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
+            const isExpanded = expandedTools[toolIdentifier] || false;
+
+            const providerParts = provider.split(".");
+            const providerNameTooltip = providerParts[providerParts.length - 1];
+
+            return [(
+              <RenderToolCollapsibleItem
+                key={toolIdentifier}
+                itemKey={toolIdentifier}
+                displayName={displayName}
+                providerTooltip={providerNameTooltip}
+                description={description}
+                isExpanded={isExpanded}
+                onToggleExpansion={() => toggleToolExpansion(toolIdentifier)}
+              />
+            )];
+          }
         })}
       </SidebarMenu>
     );
