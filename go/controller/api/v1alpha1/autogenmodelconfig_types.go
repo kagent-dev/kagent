@@ -218,6 +218,7 @@ type ModelConfigStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider"
 // +kubebuilder:printcolumn:name="Model",type="string",JSONPath=".spec.model"
+// +kubebuilder:resource:shortName=mc
 
 // ModelConfig is the Schema for the modelconfigs API.
 type ModelConfig struct {
