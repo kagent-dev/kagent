@@ -2,7 +2,7 @@ import { LLMCall } from "@/components/chat/LLMCallModal";
 import { FunctionCall, FunctionExecutionResult, ImageContent, TeamResult } from "@/types/datamodel";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { TextMessageConfig } from "@/types/datamodel";
+import type { MemoryQueryEvent, TextMessageConfig } from "@/types/datamodel";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -163,6 +163,11 @@ export const messageUtils = {
   isFunctionExecutionResult(content: unknown): content is FunctionExecutionResult[] {
     if (!Array.isArray(content)) return false;
     return content.every((item) => typeof item === "object" && item !== null && "call_id" in item && "content" in item);
+  },
+
+  isMemoryQueryEvent(content: unknown): content is MemoryQueryEvent {
+    const isMemoryQueryEvent = typeof content === "object" && content !== null && "type" in content && content.type === "MemoryQueryEvent";
+    return isMemoryQueryEvent;
   },
 
   isTextMessageContent(content: unknown): content is TextMessageConfig {
