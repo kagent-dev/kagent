@@ -140,7 +140,7 @@ wheels = [
 [[package]]
 name = "autogen-agentchat"
 version = "0.5.5"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=ec221e39067a8baeb117e7bf5e3d04343d0cb7ad#ec221e39067a8baeb117e7bf5e3d04343d0cb7ad" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd#3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
 dependencies = [
     { name = "autogen-core" },
 ]
@@ -148,7 +148,7 @@ dependencies = [
 [[package]]
 name = "autogen-core"
 version = "0.5.5"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=ec221e39067a8baeb117e7bf5e3d04343d0cb7ad#ec221e39067a8baeb117e7bf5e3d04343d0cb7ad" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd#3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
 dependencies = [
     { name = "jsonref" },
     { name = "opentelemetry-api" },
@@ -161,7 +161,7 @@ dependencies = [
 [[package]]
 name = "autogen-ext"
 version = "0.5.5"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=ec221e39067a8baeb117e7bf5e3d04343d0cb7ad#ec221e39067a8baeb117e7bf5e3d04343d0cb7ad" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd#3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
 dependencies = [
     { name = "autogen-core" },
 ]
@@ -984,9 +984,9 @@ test = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.11.0" },
     { name = "anthropic", specifier = ">=0.49.0" },
-    { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=ec221e39067a8baeb117e7bf5e3d04343d0cb7ad" },
-    { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=ec221e39067a8baeb117e7bf5e3d04343d0cb7ad" },
-    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=ec221e39067a8baeb117e7bf5e3d04343d0cb7ad" },
+    { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" },
+    { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" },
+    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" },
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "fastapi", specifier = ">=0.103.1" },
     { name = "html2text", specifier = ">=2025.4.15" },
@@ -1011,7 +1011,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.11.5" },
     { name = "sqlalchemy", specifier = ">=2.0.40" },
-    { name = "sqlite-vec", specifier = ">=0.1.0" },
+    { name = "sqlite-vec", specifier = ">=0.1.7a2" },
     { name = "sqlmodel", specifier = ">=0.0.24" },
     { name = "tiktoken", specifier = "==0.8.0" },
     { name = "typer", specifier = ">=0.15.2" },
@@ -2341,14 +2341,14 @@ wheels = [
 
 [[package]]
 name = "sqlite-vec"
-version = "0.1.6"
+version = "0.1.7a2"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/ed/aabc328f29ee6814033d008ec43e44f2c595447d9cccd5f2aabe60df2933/sqlite_vec-0.1.6-py3-none-macosx_10_6_x86_64.whl", hash = "sha256:77491bcaa6d496f2acb5cc0d0ff0b8964434f141523c121e313f9a7d8088dee3", size = 164075, upload-time = "2024-11-20T16:40:29.847Z" },
-    { url = "https://files.pythonhosted.org/packages/a7/57/05604e509a129b22e303758bfa062c19afb020557d5e19b008c64016704e/sqlite_vec-0.1.6-py3-none-macosx_11_0_arm64.whl", hash = "sha256:fdca35f7ee3243668a055255d4dee4dea7eed5a06da8cad409f89facf4595361", size = 165242, upload-time = "2024-11-20T16:40:31.206Z" },
-    { url = "https://files.pythonhosted.org/packages/f2/48/dbb2cc4e5bad88c89c7bb296e2d0a8df58aab9edc75853728c361eefc24f/sqlite_vec-0.1.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7b0519d9cd96164cd2e08e8eed225197f9cd2f0be82cb04567692a0a4be02da3", size = 103704, upload-time = "2024-11-20T16:40:33.729Z" },
-    { url = "https://files.pythonhosted.org/packages/80/76/97f33b1a2446f6ae55e59b33869bed4eafaf59b7f4c662c8d9491b6a714a/sqlite_vec-0.1.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux1_x86_64.whl", hash = "sha256:823b0493add80d7fe82ab0fe25df7c0703f4752941aee1c7b2b02cec9656cb24", size = 151556, upload-time = "2024-11-20T16:40:35.387Z" },
-    { url = "https://files.pythonhosted.org/packages/6a/98/e8bc58b178266eae2fcf4c9c7a8303a8d41164d781b32d71097924a6bebe/sqlite_vec-0.1.6-py3-none-win_amd64.whl", hash = "sha256:c65bcfd90fa2f41f9000052bcb8bb75d38240b2dae49225389eca6c3136d3f0c", size = 281540, upload-time = "2024-11-20T16:40:37.296Z" },
+    { url = "https://files.pythonhosted.org/packages/07/3e/ec6ef1e18b4a9370740a2e5c33474468f1e75275a0bb7fec3fd6f9e95b34/sqlite_vec-0.1.7a2-py3-none-macosx_10_6_x86_64.whl", hash = "sha256:a08dd9396d494ac8970ba519a3931410f08c0c5eeadd0e1a2e02053789f6c877", size = 163783, upload-time = "2025-01-10T23:19:30.223Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/dd/e23fa64e1080720dc8972620fa410916b7054822d574c70211336bac1c09/sqlite_vec-0.1.7a2-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b98d7af645d28c0b5c844bf1d99fe2103fe1320fe2bbf36d0713f0b36764fdcb", size = 165270, upload-time = "2025-01-10T23:19:32.518Z" },
+    { url = "https://files.pythonhosted.org/packages/45/d2/2a04ea12023ba76bc7668ce984243a372cb26257c05b0df8284b93b8fa98/sqlite_vec-0.1.7a2-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0ff6088435f49cbb97422171bd17d7bcc9b67c5e6890ece680e53a679dd0ff7c", size = 151632, upload-time = "2025-01-10T23:19:33.58Z" },
+    { url = "https://files.pythonhosted.org/packages/30/80/1956290bf428da40d3ebbdb6673eebcfbb0d5085d7a70d9d9d9f6995a98c/sqlite_vec-0.1.7a2-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux1_x86_64.whl", hash = "sha256:0fb454ac72eda4f5fe0d49ded740bf90c397e8beced6099112d6937f98740202", size = 151584, upload-time = "2025-01-10T23:19:35.921Z" },
+    { url = "https://files.pythonhosted.org/packages/67/44/823066a928b65dff2d8d7c82c9929b96c0b3846c9f5f9667f1377c53690f/sqlite_vec-0.1.7a2-py3-none-win_amd64.whl", hash = "sha256:b6c3365e0fb62ee6eceaba269c57792a100c52ebd564866a64f15596e50c3f42", size = 282080, upload-time = "2025-01-10T23:19:37.018Z" },
 ]
 
 [[package]]
