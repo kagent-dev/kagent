@@ -1,7 +1,6 @@
 ### STAGE 1: base image
-ARG BASE_IMAGE_REGISTRY=docker.io
-ARG TOOLS_GO_VERSION=1.24.3
-FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/golang:${TOOLS_GO_VERSION}-alpine AS builder
+ARG BASE_IMAGE_REGISTRY=cgr.dev
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS base-os
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
@@ -31,7 +30,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
-COPY --from=builder /workspace/manager .
+COPY --from=base-os /workspace/manager .
 USER 65532:65532
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent

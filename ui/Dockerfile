@@ -1,5 +1,5 @@
 ### STAGE 1: base image
-ARG BASE_IMAGE_REGISTRY=docker.io
+ARG BASE_IMAGE_REGISTRY=cgr.dev
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8

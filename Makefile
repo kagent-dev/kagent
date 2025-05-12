@@ -1,6 +1,6 @@
 # Image configuration
 DOCKER_REGISTRY ?= ghcr.io
-BASE_IMAGE_REGISTRY ?= docker.io
+BASE_IMAGE_REGISTRY ?= cgr.dev
 DOCKER_REPO ?= kagent-dev/kagent
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
