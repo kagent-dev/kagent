@@ -157,9 +157,7 @@ func (a *apiTranslator) TranslateGroupChatForTeam(
 }
 
 type teamOptions struct {
-	userProxy         bool
-	wrapSocietyOfMind bool
-	stream            bool
+	stream bool
 }
 
 const MAX_DEPTH = 10
@@ -185,9 +183,7 @@ func (t *tState) isVisited(agentName string) bool {
 
 func defaultTeamOptions() *teamOptions {
 	return &teamOptions{
-		userProxy:         true,
-		wrapSocietyOfMind: true,
-		stream:            true,
+		stream: true,
 	}
 }
 
@@ -197,37 +193,12 @@ func (a *apiTranslator) translateGroupChatForAgent(
 	opts *teamOptions,
 	state *tState,
 ) (*autogen_client.Team, error) {
-	modelConfig := a.defaultModelConfig
-	// Use the provided model config if set, otherwise use the default one
-	if agent.Spec.ModelConfig != "" {
-		modelConfig = types.NamespacedName{
-			Name:      agent.Spec.ModelConfig,
-			Namespace: agent.Namespace,
-		}
-	}
-	if err := a.kube.Get(ctx, modelConfig, &v1alpha1.ModelConfig{}); err != nil {
+
+	simpleTeam, err := a.simpleRoundRobinTeam(ctx, agent, agent.Name)
+	if err != nil {
 		return nil, err
 	}
-
-	// generate an internal round robin "team" for the individual agent
-	team := &v1alpha1.Team{
-		ObjectMeta: agent.ObjectMeta,
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Team",
-			APIVersion: "kagent.dev/v1alpha1",
-		},
-		Spec: v1alpha1.TeamSpec{
-			Participants:         []string{agent.Name},
-			Description:          agent.Spec.Description,
-			ModelConfig:          modelConfig.Name,
-			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
-			TerminationCondition: v1alpha1.TerminationCondition{
-				StopMessageTermination: &v1alpha1.StopMessageTermination{},
-			},
-		},
-	}
-
-	return a.translateGroupChatForTeam(ctx, team, opts, state)
+	return a.translateGroupChatForTeam(ctx, simpleTeam, opts, state)
 }
 
 func (a *apiTranslator) translateGroupChatForTeam(
@@ -295,39 +266,21 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			return nil, err
 		}
 
-		if opts.wrapSocietyOfMind {
-			participant, err := a.translateTaskAgent(
-				ctx,
-				agent,
-				modelContext,
-				state,
-			)
-			if err != nil {
-				return nil, err
-			}
-			participants = append(participants, participant)
-		} else {
-			participant, err := a.translateAssistantAgent(
-				ctx,
-				agent,
-				modelConfig,
-				modelClientWithStreaming,
-				modelClientWithoutStreaming,
-				modelContext,
-				opts,
-				state,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			participants = append(participants, participant)
+		participant, err := a.translateAssistantAgent(
+			ctx,
+			agent,
+			modelConfig,
+			modelClientWithStreaming,
+			modelClientWithoutStreaming,
+			modelContext,
+			opts,
+			state,
+		)
+		if err != nil {
+			return nil, err
 		}
-	}
 
-	//  add user proxy agent to top level
-	if opts.userProxy {
-		participants = append(participants, userProxyAgent)
+		participants = append(participants, participant)
 	}
 
 	if swarmTeamConfig != nil {
@@ -420,7 +373,10 @@ func (a *apiTranslator) translateTaskAgent(
 ) (*api.Component, error) {
 
 	name := agent.Name + "-society-of-mind-wrapper"
-	team := simpleRoundRobinTeam(agent, name)
+	team, err := a.simpleRoundRobinTeam(ctx, agent, name)
+	if err != nil {
+		return nil, err
+	}
 
 	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{
 		stream: true,
@@ -443,7 +399,19 @@ func (a *apiTranslator) translateTaskAgent(
 	}, nil
 }
 
-func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
+func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha1.Agent, name string) (*v1alpha1.Team, error) {
+
+	modelConfig := a.defaultModelConfig
+	// Use the provided model config if set, otherwise use the default one
+	if agent.Spec.ModelConfig != "" {
+		modelConfig = types.NamespacedName{
+			Name:      agent.Spec.ModelConfig,
+			Namespace: agent.Namespace,
+		}
+	}
+	if err := a.kube.Get(ctx, modelConfig, &v1alpha1.ModelConfig{}); err != nil {
+		return nil, err
+	}
 	// generate an internal round robin "team" for the society of mind agent
 	meta := agent.ObjectMeta.DeepCopy()
 	// This is important so we don't output this message in the CLI/UI
@@ -466,7 +434,7 @@ func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
 			},
 		},
 	}
-	return team
+	return team, nil
 }
 
 func (a *apiTranslator) translateAssistantAgent(
@@ -535,10 +503,11 @@ func (a *apiTranslator) translateAssistantAgent(
 				return nil, err
 			}
 
-			team := simpleRoundRobinTeam(&toolAgent, toolAgent.Name)
-			autogenTool, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{
-				wrapSocietyOfMind: true,
-			}, state.with(agent))
+			team, err := a.simpleRoundRobinTeam(ctx, &toolAgent, toolAgent.Name)
+			if err != nil {
+				return nil, err
+			}
+			autogenTool, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{}, state.with(agent))
 			if err != nil {
 				return nil, err
 			}

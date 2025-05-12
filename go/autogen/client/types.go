@@ -63,12 +63,7 @@ func (m *ModelsUsage) String() string {
 	return fmt.Sprintf("Prompt Tokens: %d, Completion Tokens: %d", m.PromptTokens, m.CompletionTokens)
 }
 
-type TaskMessage struct {
-	Source      string       `json:"source"`
-	ModelsUsage *ModelsUsage `json:"models_usage"`
-	Content     string       `json:"content"`
-	Type        string       `json:"type"`
-}
+type TaskMessage map[string]interface{}
 
 type RunMessage struct {
 	CreatedAt   *string                `json:"created_at,omitempty"`
