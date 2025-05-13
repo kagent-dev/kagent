@@ -43,7 +43,14 @@ jobs:
             --cache-from=type=gha
             --cache-to=type=gha,mode=max
             --build-arg=VERSION=${{ steps.vars.outputs.version }}
-        run: make build-${{ matrix.image }}
+        run: |
+          # if workflow_dispatch is used, use the version input
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            export VERSION=${{ github.event.inputs.version }}
+          else
+            export VERSION=${{ steps.vars.outputs.version }}
+          fi
+          make build-${{ matrix.image }}
         working-directory: ./
       - name: Load image versions
         id: image-versions
