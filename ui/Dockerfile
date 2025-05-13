@@ -1,66 +1,73 @@
-ARG TOOLS_UV_VERSION=latest
-ARG TOOLS_NODE_VERSION=20
-FROM --platform=$BUILDPLATFORM node:${TOOLS_NODE_VERSION}-bookworm AS ui-builder
+### STAGE 1: base image
+ARG BASE_IMAGE_REGISTRY=cgr.dev
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+RUN apk update \
+    && apk add curl openssl unzip bash git ca-certificates nginx supervisor \
+    && update-ca-certificates \
+    && rm -rf /var/cache/apk/* \
+    && find /
+
+### STAGE 2: python
+FROM base-os AS node-os
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV BUN_INSTALL_CACHE_DIR=/cache/bun
+ENV BUN_INSTALL=/usr/local/bun
+ENV NVM_DIR=/usr/local/nvm
+ENV NODE_ENV=production
+ENV NODE_PATH=/cache/node_modules
+ENV PATH=$BUN_INSTALL/bin:$PATH
+
+# Install Bun (uses official install script)
+# brew install oven-sh/bun/bun
+RUN --mount=type=cache,target=/cache/bun,rw \
+    mkdir -p $BUN_INSTALL  \
+    && curl -fsSL https://bun.sh/install | bash \
+    && bun --version
+
+### STAGE 2: build + ui
+FROM node-os AS ui-builder
 
 WORKDIR /app/ui
-
 COPY package*.json ./
-RUN mkdir -p /app/ui/public
-ENV NEXT_TELEMETRY_DISABLED=1
-
-RUN npm ci
+RUN --mount=type=cache,target=/cache/bun,rw \
+    bun install -- production --prefer-offline
 
 COPY . .
-RUN npm run build
+RUN --mount=type=cache,target=/cache/bun,rw \
+    bun run build                           \
+    && mkdir -p /app/ui/public
 
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS final
+### STAGE 3: final
+FROM node-os AS final
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    build-essential \
-    curl \
-    ca-certificates \
-    nginx \
-    supervisor \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3 /usr/bin/python
+RUN mkdir -p /app/ui /run/nginx /var/lib/nginx/tmp/     \
+    && addgroup -g 1001    nginx                        \
+    && adduser  -u 1001 -G nginx -s /bin/bash -D nextjs \
+    && adduser  -u 1002 -G nginx -s /bin/bash -D nginx  \
+    && chown    -vR nextjs:nginx /app/ui
 
-# Create groups and users
-RUN groupadd -g 1001 nodejs \
-    && groupadd -g 1002 pythongroup \
-    && useradd -u 1001 -g nodejs -s /bin/bash -m nextjs \
-    && useradd -u 1002 -g pythongroup -s /bin/bash -m python \
-    && mkdir -p /app/python /app/ui /run/nginx \
-    && chown -R python:pythongroup /app/python \
-    && chown -R nextjs:nodejs /app/ui
-
-# Set up Next.js UI
-WORKDIR /app/ui
-
-COPY --from=ui-builder /app/ui/next.config.ts ./
-COPY --from=ui-builder /app/ui/public ./public
-COPY --from=ui-builder /app/ui/package.json ./package.json
-COPY --from=ui-builder --chown=nextjs:nodejs /app/ui/.next/standalone ./
-COPY --from=ui-builder --chown=nextjs:nodejs /app/ui/.next/static ./.next/static
-
-# Set up Nginx and Supervisor
 WORKDIR /app
 COPY conf/nginx.conf /etc/nginx/nginx.conf
 COPY conf/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+WORKDIR /app/ui
+COPY --from=ui-builder /app/ui/next.config.ts ./
+COPY --from=ui-builder /app/ui/public ./public
+COPY --from=ui-builder /app/ui/package.json ./package.json
+COPY --from=ui-builder --chown=nextjs:nginx /app/ui/.next/standalone ./
+COPY --from=ui-builder --chown=nextjs:nginx /app/ui/.next/static ./.next/static
+
 # Ensure correct permissions
-RUN chown -R nextjs:nodejs /app/ui && \
+RUN chown -R nextjs:nginx /app/ui && \
     chmod -R 755 /app
 
 EXPOSE 80
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
 LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
+LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
