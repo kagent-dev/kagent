@@ -185,9 +185,9 @@ helm-agents:
 
 .PHONY: helm-version
 helm-version: helm-agents
-	helm dependency update helm/kagent
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
+	helm dependency update helm/kagent
 	helm package helm/kagent-crds
 	helm package helm/kagent
 
@@ -217,7 +217,7 @@ helm-install-provider: helm-version check-openai-key
 		$(HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
-# helm-install: kind-load-docker-images
+helm-install: kind-load-docker-images
 helm-install: helm-install-provider
 
 .PHONY: helm-test-install
@@ -243,7 +243,7 @@ kagent-cli-install:
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
-	@echo "Port forwarding to KAgent CLI..."
+	@echo "Port forwarding to kagent CLI..."
 	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80
 
 .PHONY: open-dev-container

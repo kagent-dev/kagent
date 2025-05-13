@@ -120,32 +120,6 @@ securityContext: {}
   # runAsNonRoot: true
   # runAsUser: 1000
 
-contrib:
-  agents:
-    k8s:
-      enabled: true
-    istio:
-      enabled: true
-    helm:
-      enabled: true
-    promql:
-      enabled: true
-    observability:
-      enabled: true
-      prometheus:
-        url: ""
-        username: ""
-        password: ""
-      grafana:
-        url: ""
-        username: ""
-        password: ""
-        apiKey: ""
-    argoRolloutsConversion:
-      enabled: true
-    kgateway:
-      enabled: true
-
 otel:
   tracing:
     enabled: false
