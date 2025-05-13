@@ -125,12 +125,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ include "kagent.fullname" . }}
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ include "kagent.namespace" . }}
 ---
 apiVersion: kagent.dev/v1alpha1
 kind: Agent
 metadata:
   name: argo-rollouts-conversion-agent
+  namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
