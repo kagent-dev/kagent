@@ -11,6 +11,8 @@ spec:
     kind: ToolServer
     listKind: ToolServerList
     plural: toolservers
+    shortNames:
+    - ts
     singular: toolserver
   scope: Namespaced
   versions:

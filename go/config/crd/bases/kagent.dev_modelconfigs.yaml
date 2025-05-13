@@ -11,6 +11,8 @@ spec:
     kind: ModelConfig
     listKind: ModelConfigList
     plural: modelconfigs
+    shortNames:
+    - mc
     singular: modelconfig
   scope: Namespaced
   versions:

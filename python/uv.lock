@@ -140,7 +140,7 @@ wheels = [
 [[package]]
 name = "autogen-agentchat"
 version = "0.5.5"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd#3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=e9a09f039d4c490cf52f11466b0636c089b9acf3#e9a09f039d4c490cf52f11466b0636c089b9acf3" }
 dependencies = [
     { name = "autogen-core" },
 ]
@@ -148,7 +148,7 @@ dependencies = [
 [[package]]
 name = "autogen-core"
 version = "0.5.5"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd#3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=e9a09f039d4c490cf52f11466b0636c089b9acf3#e9a09f039d4c490cf52f11466b0636c089b9acf3" }
 dependencies = [
     { name = "jsonref" },
     { name = "opentelemetry-api" },
@@ -161,7 +161,7 @@ dependencies = [
 [[package]]
 name = "autogen-ext"
 version = "0.5.5"
-source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd#3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" }
+source = { git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=e9a09f039d4c490cf52f11466b0636c089b9acf3#e9a09f039d4c490cf52f11466b0636c089b9acf3" }
 dependencies = [
     { name = "autogen-core" },
 ]
@@ -984,9 +984,9 @@ test = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.11.0" },
     { name = "anthropic", specifier = ">=0.49.0" },
-    { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" },
-    { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" },
-    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=3d522329fceb3cd6ef6d3332a1bb8f3cb04debbd" },
+    { name = "autogen-agentchat", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=e9a09f039d4c490cf52f11466b0636c089b9acf3" },
+    { name = "autogen-core", git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-core&rev=e9a09f039d4c490cf52f11466b0636c089b9acf3" },
+    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], git = "https://github.com/kagent-dev/autogen.git?subdirectory=python%2Fpackages%2Fautogen-ext&rev=e9a09f039d4c490cf52f11466b0636c089b9acf3" },
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "fastapi", specifier = ">=0.103.1" },
     { name = "html2text", specifier = ">=2025.4.15" },

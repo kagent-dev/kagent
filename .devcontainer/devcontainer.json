@@ -3,12 +3,12 @@
   "build": {
     "dockerfile": "Dockerfile",
     "args": {
-      "TOOLS_GO_VERSION": "1.24.2",
-      "TOOLS_NODE_VERSION": "20",
+      "TOOLS_GO_VERSION": "1.24.3",
+      "TOOLS_NODE_VERSION": "22.15.0",
       "TOOLS_UV_VERSION": "0.7.2",
       "TOOLS_K9S_VERSION": "0.50.4",
       "TOOLS_KIND_VERSION": "0.27.0",
-      "TOOLS_ISTIO_VERSION": "1.25.2",
+      "TOOLS_ISTIO_VERSION": "1.26.0",
       "TOOLS_KUBECTL_VERSION": "1.33.4"
     }
   },
@@ -30,9 +30,11 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "ms-toolsai.jupyter",
-        "ms-vscode.vscode-typescript-next",
         "ms-vscode.makefile-tools",
         "ms-remote.remote-containers",
+        "ms-vscode.vscode-typescript-next",
+        "ms-azuretools.vscode-containers",
+        "ms-windows-ai-studio.windows-ai-studio",
         "GitHub.copilot",
         "GitHub.copilot-chat",
         "Catppuccin.catppuccin-vsc",
@@ -47,7 +49,7 @@
   //forward the following ports
   "forwardPorts": [8082],
 
-  //enable docker
+  //mount docker directly on the host
   "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
 
   // Uncomment the next line to run commands after the container is created.

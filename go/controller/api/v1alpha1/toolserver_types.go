@@ -81,6 +81,7 @@ type MCPToolServerParams struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=ts
 
 // ToolServer is the Schema for the toolservers API.
 type ToolServer struct {
