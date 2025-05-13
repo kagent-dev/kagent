@@ -148,7 +148,8 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Agents
 	s.router.HandleFunc(APIPathAgents+"/{agentId}/invoke", adaptHandler(s.handlers.Invoke.HandleInvokeAgent)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgents+"/{agentId}/start", adaptHandler(s.handlers.Invoke.HandleStartAgent)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgents+"/{agentId}/invoke/stream", adaptHandler(s.handlers.Invoke.HandleInvokeAgentStream)).Methods(http.MethodPost)
+	// s.router.HandleFunc(APIPathAgents+"/{agentId}/start", adaptHandler(s.handlers.Invoke.HandleStartAgent)).Methods(http.MethodPost)
 
 	// Providers
 	s.router.HandleFunc(APIPathProviders+"/models", adaptHandler(s.handlers.Provider.HandleListSupportedModelProviders)).Methods(http.MethodGet)

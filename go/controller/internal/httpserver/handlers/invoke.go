@@ -40,9 +40,8 @@ func (h *InvokeHandler) WithClient(client AutogenClient) *InvokeHandler {
 
 // InvokeRequest represents an agent invocation request.
 type InvokeRequest struct {
-	Message string                 `json:"message"`
-	Context map[string]interface{} `json:"context,omitempty"`
-	UserID  string                 `json:"user_id,omitempty"`
+	Message string `json:"message"`
+	UserID  string `json:"user_id,omitempty"`
 }
 
 // InvokeResponse contains data returned after an agent invocation.
@@ -79,33 +78,54 @@ func (h *InvokeHandler) HandleInvokeAgent(w ErrorResponseWriter, r *http.Request
 		return
 	}
 
-	// session, _, err := h.createSessionAndRun(w, agentID, userID, log)
-	// if err != nil {
-	// 	return
-	// }
-
 	log.Info("Synchronous request - waiting for response")
-	// response := InvokeResponse{
-	// 	SessionID:   fmt.Sprintf("%d", result.SessionID),
-	// 	Status:      "completed",
-	// 	Response:    result.Response,
-	// 	CompletedAt: time.Now().Format(time.RFC3339),
-	// }
 
 	log.Info("Successfully invoked agent")
 	RespondWithJSON(w, http.StatusOK, result)
 }
 
-// // HandleInvokeAgentStream processes asynchronous agent execution requests.
-// func (h *InvokeHandler) HandleInvokeAgentStream(w ErrorResponseWriter, r *http.Request) {
-// 	log := ctrllog.FromContext(r.Context()).WithName("invoke-handler").WithValues("operation", "invoke")
+// HandleInvokeAgentStream processes asynchronous agent execution requests.
+func (h *InvokeHandler) HandleInvokeAgentStream(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("invoke-handler").WithValues("operation", "invoke")
 
-// 	agentID, userID, err := h.extractAgentParams(w, r, log)
+	agentID, req, err := h.extractAgentParams(w, r, log)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to extract agent params", err))
+		return
+	}
+
+	team, err := h.AutogenClient.GetTeamByID(agentID, req.UserID)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to get team", err))
+		return
+	}
+
+	err = h.AutogenClient.InvokeTaskStream(&autogen_client.InvokeTaskRequest{
+		Task:       req.Message,
+		TeamConfig: team.Component,
+	}, w)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to invoke task", err))
+		return
+	}
+
+	log.Info("Asynchronous request - streaming response")
+
+	log.Info("Successfully invoked agent")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+}
+
+// HandleStartAgent processes asynchronous agent execution requests.
+// func (h *InvokeHandler) HandleStartAgent(w ErrorResponseWriter, r *http.Request) {
+// 	log := ctrllog.FromContext(r.Context()).WithName("invoke-handler").WithValues("operation", "start")
+
+// 	agentID, req, err := h.extractAgentParams(w, r, log)
 // 	if err != nil {
 // 		return
 // 	}
 
-// 	session, _, err := h.createSessionAndRun(w, agentID, userID, log)
+// 	session, _, err := h.createSessionAndRun(w, agentID, req.UserID, log)
 // 	if err != nil {
 // 		return
 // 	}
@@ -117,33 +137,9 @@ func (h *InvokeHandler) HandleInvokeAgent(w ErrorResponseWriter, r *http.Request
 // 		StatusURL: fmt.Sprintf("/api/sessions/%d", session.ID),
 // 	}
 
+// 	log.Info("Successfully started agent")
 // 	RespondWithJSON(w, http.StatusAccepted, response)
 // }
-
-// HandleStartAgent processes asynchronous agent execution requests.
-func (h *InvokeHandler) HandleStartAgent(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("invoke-handler").WithValues("operation", "start")
-
-	agentID, req, err := h.extractAgentParams(w, r, log)
-	if err != nil {
-		return
-	}
-
-	session, _, err := h.createSessionAndRun(w, agentID, req.UserID, log)
-	if err != nil {
-		return
-	}
-
-	log.Info("Asynchronous request - returning immediately")
-	response := InvokeResponse{
-		SessionID: fmt.Sprintf("%d", session.ID),
-		Status:    "processing",
-		StatusURL: fmt.Sprintf("/api/sessions/%d", session.ID),
-	}
-
-	log.Info("Successfully started agent")
-	RespondWithJSON(w, http.StatusAccepted, response)
-}
 
 // extractAgentParams parses and validates agent ID and user ID from the request.
 func (h *InvokeHandler) extractAgentParams(w ErrorResponseWriter, r *http.Request, log logr.Logger) (int, *InvokeRequest, error) {

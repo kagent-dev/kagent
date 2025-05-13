@@ -93,7 +93,7 @@ def _format_message(message: Any) -> dict:
         ):
             return message.model_dump()
 
-        return {"type": "unknown", "data": "received unknown message type"}
+        return {"type": "unknown", "data": f"received unknown message type {type(message)}"}
 
     except Exception as e:
         logger.error(f"Message formatting error: {e}")
@@ -102,10 +102,13 @@ def _format_message(message: Any) -> dict:
 
 @router.post("/stream")
 async def stream(request: InvokeTaskRequest):
+    logger.info(f"Invoking task with streaming: {request.task}")
+
     async def event_generator():
         try:
             async for event in team_manager.run_stream(task=request.task, team_config=request.team_config):
-                yield f"data: {json.dumps(_format_message(event))}\n\n"
+                logger.info(f"Event: {event}")
+                yield f"event: data_update\ndata: {json.dumps(_format_message(event))}\n\n"
         except Exception as e:
             logger.error(f"Error during SSE stream generation: {e}", exc_info=True)
             error_payload = {"type": "error", "data": {"message": str(e), "details": type(e).__name__}}
