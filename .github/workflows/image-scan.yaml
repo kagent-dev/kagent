@@ -1,0 +1,62 @@
+name: Scan images
+
+on:
+  # Trigger once a week on the main branch
+  schedule:
+  - cron: '0 0 * * 0' # Every Monday at midnight UTC
+
+  # Trigger the workflow on push to the main branch
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        image:
+          - controller
+          - ui
+          - app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+      - name: Set version
+        id: vars
+        run: echo "version=v0.0.0-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Print version
+        run: | 
+          echo "Version: ${{ steps.vars.outputs.version }}"
+      - name: Run make build
+        env:
+          DOCKER_BUILDER: "docker buildx"
+          DOCKER_BUILD_ARGS: >-
+            --load
+            --cache-from=type=gha
+            --cache-to=type=gha,mode=max
+            --build-arg=VERSION=${{ steps.vars.outputs.version }}
+        run: |
+          # if workflow_dispatch is used, use the version input
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            export VERSION=${{ github.event.inputs.version }}
+          else
+            export VERSION=${{ steps.vars.outputs.version }}
+          fi
+          make build-${{ matrix.image }}
+        working-directory: ./
+      - name: Load image versions
+        id: image-versions
+        run: make build-img-versions
+      - name: Image vulnerability scanner
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.version }}
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
