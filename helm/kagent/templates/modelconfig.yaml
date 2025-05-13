@@ -4,7 +4,7 @@
 apiVersion: kagent.dev/v1alpha1
 kind: ModelConfig
 metadata:
-  name: {{ $dot.Values.providers.default | lower }}-model-config
+  name: {{ include "kagent.defaultModelConfigName" $dot | quote }}
   labels:
     {{- include "kagent.labels" $dot | nindent 4 }}
 spec:

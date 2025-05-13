@@ -1,5 +1,3 @@
-{{- if .Values.contrib.agents.kgateway.enabled }}
----
 apiVersion: kagent.dev/v1alpha1
 kind: Agent
 metadata:
@@ -201,7 +199,7 @@ spec:
 
     Always make sure to consult the official kgateway documentation using your Query Tool for the most up-to-date information and best practices, even when the user does not ask for it.
 
-  modelConfig: {{ .Values.contrib.agents.k8s.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName"  .)) }}
+  modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
     - type: Builtin
       builtin:
@@ -253,4 +251,3 @@ spec:
     - type: Builtin
       builtin:
         name: kagent.tools.helm.RepoUpdate
-{{- end }}

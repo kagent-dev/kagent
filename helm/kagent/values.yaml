@@ -154,3 +154,33 @@ otel:
         endpoint: http://localhost:4317
         timeout: 10
         insecure: true
+
+k8s-agent:
+  enabled: true
+
+kgateway-agent:
+  enabled: true
+
+istio-agent:
+  enabled: true
+
+promql-agent:
+  enabled: true
+
+observability-agent:
+  enabled: true
+  prometheus:
+    url: ""
+    username: ""
+    password: ""
+  grafana:
+    url: ""
+    username: ""
+    password: ""
+    apiKey: ""
+
+argo-rollouts-agent:
+  enabled: true
+
+helm-agent:
+  enabled: true

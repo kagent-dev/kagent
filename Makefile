@@ -166,8 +166,26 @@ retag-docker-images: build
 	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
 	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
 
+.PHONY: helm-agents
+helm-agents:
+	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
+	helm package helm/agents/k8s
+	VERSION=$(VERSION) envsubst < helm/agents/kgateway/Chart-template.yaml > helm/agents/kgateway/Chart.yaml
+	helm package helm/agents/kgateway
+	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
+	helm package helm/agents/istio
+	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
+	helm package helm/agents/promql
+	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
+	helm package helm/agents/observability
+	VERSION=$(VERSION) envsubst < helm/agents/helm/Chart-template.yaml > helm/agents/helm/Chart.yaml
+	helm package helm/agents/helm
+	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
+	helm package helm/agents/argo-rollouts
+
 .PHONY: helm-version
-helm-version:
+helm-version: helm-agents
+	helm dependency update helm/kagent
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm package helm/kagent-crds
@@ -199,7 +217,7 @@ helm-install-provider: helm-version check-openai-key
 		$(HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
-helm-install: kind-load-docker-images
+# helm-install: kind-load-docker-images
 helm-install: helm-install-provider
 
 .PHONY: helm-test-install

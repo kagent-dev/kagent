@@ -55,7 +55,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*Default model name*/}}
 {{- define "kagent.defaultModelConfigName" -}}
-{{ include "kagent.defaultProviderName" . }}-model-config
+default-model-config
 {{- end }}
 
 {{/*

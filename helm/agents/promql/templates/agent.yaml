@@ -1,5 +1,3 @@
-{{- if .Values.contrib.agents.promql.enabled }}
----
 apiVersion: kagent.dev/v1alpha1
 kind: Agent
 metadata:
@@ -8,7 +6,7 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: GeneratePromQLTool generates PromQL queries from natural language descriptions.
-  modelConfig: {{ .Values.contrib.agents.promql.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName"  .)) }}
+  modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   systemMessage: |-
     # PromQL Query Generator
 
@@ -153,4 +151,3 @@ spec:
 
     Remember that PromQL is designed for time series data and operates on a pull-based model with periodic scraping. Account for these characteristics when designing queries.
     
-{{ end }}
