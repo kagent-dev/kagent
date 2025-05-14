@@ -124,3 +124,9 @@ async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -
     except Exception as e:
         logger.error(f"Unexpected error in list_messages: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error while fetching session data") from e
+
+
+@router.get("/{session_id}/invoke")
+async def invoke_run(session_id: int, run_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+    """Invoke a run"""
+    pass

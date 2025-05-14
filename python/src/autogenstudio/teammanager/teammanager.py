@@ -77,7 +77,6 @@ class TeamManager:
         self,
         team_config: Union[str, Path, dict, ComponentModel],
         input_func: Optional[Callable] = None,
-        env_vars: Optional[List[EnvironmentVariable]] = None,
     ) -> BaseGroupChat:
         """Create team instance from config"""
         if isinstance(team_config, (str, Path)):
@@ -86,12 +85,6 @@ class TeamManager:
             config = team_config
         else:
             config = team_config.model_dump()
-
-        # Load env vars into environment if provided
-        if env_vars:
-            logger.info("Loading environment variables")
-            for var in env_vars:
-                os.environ[var.name] = var.value
 
         self._team = BaseGroupChat.load_component(config)
 
@@ -107,7 +100,6 @@ class TeamManager:
         team_config: Union[str, Path, dict, ComponentModel],
         input_func: Optional[Callable] = None,
         cancellation_token: Optional[CancellationToken] = None,
-        env_vars: Optional[List[EnvironmentVariable]] = None,
     ) -> AsyncGenerator[Union[BaseAgentEvent | BaseChatMessage | LLMCallEvent, BaseChatMessage, TeamResult], None]:
         """Stream team execution results"""
         start_time = time.time()
@@ -120,7 +112,7 @@ class TeamManager:
         logger.handlers = [llm_event_logger]  # Replace all handlers
 
         try:
-            team = await self._create_team(team_config, input_func, env_vars)
+            team = await self._create_team(team_config, input_func)
 
             async for message in team.run_stream(task=task, cancellation_token=cancellation_token):
                 if cancellation_token and cancellation_token.is_cancelled():
@@ -152,14 +144,13 @@ class TeamManager:
         team_config: Union[str, Path, dict, ComponentModel],
         input_func: Optional[Callable] = None,
         cancellation_token: Optional[CancellationToken] = None,
-        env_vars: Optional[List[EnvironmentVariable]] = None,
     ) -> TeamResult:
         """Run team synchronously"""
         start_time = time.time()
         team = None
 
         try:
-            team = await self._create_team(team_config, input_func, env_vars)
+            team = await self._create_team(team_config, input_func)
             result = await team.run(task=task, cancellation_token=cancellation_token)
 
             return TeamResult(task_result=result, usage="", duration=time.time() - start_time)
