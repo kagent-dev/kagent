@@ -77,6 +77,7 @@ class TeamManager:
         self,
         team_config: Union[str, Path, dict, ComponentModel],
         input_func: Optional[Callable] = None,
+        state: Optional[dict] = None,
     ) -> BaseGroupChat:
         """Create team instance from config"""
         if isinstance(team_config, (str, Path)):
@@ -88,6 +89,9 @@ class TeamManager:
 
         self._team = BaseGroupChat.load_component(config)
 
+        if state:
+            await self._team.load_state(state)
+
         for agent in self._team._participants:
             if hasattr(agent, "input_func") and isinstance(agent, UserProxyAgent) and input_func:
                 agent.input_func = input_func
@@ -98,6 +102,7 @@ class TeamManager:
         self,
         task: str | BaseChatMessage | Sequence[BaseChatMessage] | None,
         team_config: Union[str, Path, dict, ComponentModel],
+        state: Optional[dict] = None,
         input_func: Optional[Callable] = None,
         cancellation_token: Optional[CancellationToken] = None,
     ) -> AsyncGenerator[Union[BaseAgentEvent | BaseChatMessage | LLMCallEvent, BaseChatMessage, TeamResult], None]:
@@ -112,7 +117,7 @@ class TeamManager:
         logger.handlers = [llm_event_logger]  # Replace all handlers
 
         try:
-            team = await self._create_team(team_config, input_func)
+            team = await self._create_team(team_config, input_func, state)
 
             async for message in team.run_stream(task=task, cancellation_token=cancellation_token):
                 if cancellation_token and cancellation_token.is_cancelled():
@@ -142,6 +147,7 @@ class TeamManager:
         self,
         task: str | BaseChatMessage | Sequence[BaseChatMessage] | None,
         team_config: Union[str, Path, dict, ComponentModel],
+        state: Optional[dict] = None,
         input_func: Optional[Callable] = None,
         cancellation_token: Optional[CancellationToken] = None,
     ) -> TeamResult:
@@ -150,7 +156,7 @@ class TeamManager:
         team = None
 
         try:
-            team = await self._create_team(team_config, input_func)
+            team = await self._create_team(team_config, input_func, state)
             result = await team.run(task=task, cancellation_token=cancellation_token)
 
             return TeamResult(task_result=result, usage="", duration=time.time() - start_time)

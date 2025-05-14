@@ -36,6 +36,7 @@ from ..datamodel import (
 )
 from ..teammanager import TeamManager
 from ..web.managers.run_context import RunContext
+from ..web.routes.invoke import format_message, format_team_result
 
 # from .run_context import RunContext
 
@@ -63,9 +64,40 @@ class SessionManager:
             duration=0,
         ).model_dump()
 
+    async def start(self, run_id: int, task: str | ChatMessage | Sequence[ChatMessage] | None) -> TeamResult:
+        """Start a run"""
+
+        with RunContext.populate_context(run_id=run_id):
+            team_manager = TeamManager()
+            # cancellation_token = CancellationToken()
+            # final_result = None
+
+            try:
+                # Update run with task and status
+                run = await self._get_run(run_id)
+                if run is None:
+                    raise ValueError(f"Run {run_id} not found")
+                session = await self._get_session(run.session_id)
+                if session is None:
+                    raise ValueError(f"Session {run.session_id} not found")
+                team = await self._get_team(session.team_id)
+                if team is None:
+                    raise ValueError(f"Team {session.team_id} not found")
+
+                await self._update_run(run_id, RunStatus.ACTIVE)
+                result = await team_manager.run(task, team.component, state=session.team_state)
+                if team_manager._team:
+                    state = await team_manager._team.save_state()
+                    await self._update_session_state(session.id, state)
+                await self._update_run(run_id, RunStatus.COMPLETE, team_result=result.model_dump())
+                return result
+            except Exception as e:
+                await self._update_run(run_id, RunStatus.ERROR, error=str(e))
+                raise e
+
     async def start_stream(
         self, run_id: int, task: str | ChatMessage | Sequence[ChatMessage] | None
-    ) -> AsyncGenerator[dict]:
+    ) -> AsyncGenerator[dict, None]:
         """Start streaming task execution with proper run management"""
 
         with RunContext.populate_context(run_id=run_id):
@@ -85,10 +117,13 @@ class SessionManager:
                 if team is None:
                     raise ValueError(f"Team {session.team_id} not found")
 
+                await self._update_run(run_id, RunStatus.ACTIVE)
+
                 async for message in team_manager.run_stream(
                     task=task,
                     team_config=team.component,
                     cancellation_token=cancellation_token,
+                    state=session.team_state,
                 ):
                     if isinstance(message, TeamResult):
                         formatted_message = format_team_result(message)
@@ -257,58 +292,3 @@ class SessionManager:
             run.status = status
             run.error_message = error
             self.db_manager.upsert(run)
-
-
-def format_team_result(team_result: TeamResult) -> dict:
-    """
-    Format the result from TeamResult to a dictionary.
-    """
-    formatted_result = {
-        "task_result": format_task_result(team_result.task_result),
-        "usage": team_result.usage,
-        "duration": team_result.duration,
-    }
-    return formatted_result
-
-
-def format_task_result(task_result: TaskResult) -> dict:
-    """
-    Format the result from TeamResult to a dictionary.
-    """
-    formatted_result = {
-        "messages": [format_message(message) for message in task_result.messages],
-        "stop_reason": task_result.stop_reason,
-    }
-    return formatted_result
-
-
-def format_message(message: Union[BaseChatMessage, BaseAgentEvent]) -> dict:
-    """Format message for sse transmission
-
-    Args:
-        message: Message to format
-
-    Returns:
-        Optional[dict]: Formatted message or None if formatting fails
-    """
-
-    try:
-        if isinstance(
-            message,
-            (
-                ModelClientStreamingChunkEvent,
-                TextMessage,
-                StopMessage,
-                HandoffMessage,
-                ToolCallRequestEvent,
-                ToolCallExecutionEvent,
-                LLMCallEventMessage,
-            ),
-        ):
-            return message.model_dump()
-
-        return {"type": "unknown", "data": f"received unknown message type {type(message)}"}
-
-    except Exception as e:
-        logger.error(f"Message formatting error: {e}")
-        return {"type": "error", "data": str(e)}

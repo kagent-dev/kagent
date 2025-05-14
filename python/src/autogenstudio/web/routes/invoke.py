@@ -1,12 +1,11 @@
 import json
 import logging
-from typing import Any
+from typing import Any, Union
 
 from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import (
     HandoffMessage,
     ModelClientStreamingChunkEvent,
-    MultiModalMessage,
     StopMessage,
     TextMessage,
     ToolCallExecutionEvent,
@@ -35,9 +34,7 @@ async def invoke(request: InvokeTaskRequest):
     response = Response(message="Task successfully completed", status=True, data=None)
     try:
         result_message = await team_manager.run(task=request.task, team_config=request.team_config)
-        formatted_result = _format_team_result(result_message)
-        logger.info(f"Result message: {result_message}")
-        logger.info(f"Result message: {formatted_result}")
+        formatted_result = format_team_result(result_message)
         response.data = formatted_result
     except Exception as e:
         response.message = str(e)
@@ -45,30 +42,30 @@ async def invoke(request: InvokeTaskRequest):
     return response
 
 
-def _format_team_result(team_result: TeamResult) -> dict:
+def format_team_result(team_result: TeamResult) -> dict:
     """
     Format the result from TeamResult to a dictionary.
     """
     formatted_result = {
-        "task_result": _format_task_result(team_result.task_result),
+        "task_result": format_task_result(team_result.task_result),
         "usage": team_result.usage,
         "duration": team_result.duration,
     }
     return formatted_result
 
 
-def _format_task_result(task_result: TaskResult) -> dict:
+def format_task_result(task_result: TaskResult) -> dict:
     """
     Format the result from TeamResult to a dictionary.
     """
     formatted_result = {
-        "messages": [_format_message(message) for message in task_result.messages],
+        "messages": [format_message(message) for message in task_result.messages],
         "stop_reason": task_result.stop_reason,
     }
     return formatted_result
 
 
-def _format_message(message: Any) -> dict:
+def format_message(message: Any) -> dict:
     """Format message for sse transmission
 
     Args:
@@ -93,6 +90,9 @@ def _format_message(message: Any) -> dict:
         ):
             return message.model_dump()
 
+        elif isinstance(message, TeamResult):
+            return format_team_result(message)
+
         return {"type": "unknown", "data": f"received unknown message type {type(message)}"}
 
     except Exception as e:
@@ -108,7 +108,7 @@ async def stream(request: InvokeTaskRequest):
         try:
             async for event in team_manager.run_stream(task=request.task, team_config=request.team_config):
                 logger.info(f"Event: {event}")
-                yield f"event: data_update\ndata: {json.dumps(_format_message(event))}\n\n"
+                yield f"event: data_update\ndata: {json.dumps(format_message(event))}\n\n"
         except Exception as e:
             logger.error(f"Error during SSE stream generation: {e}", exc_info=True)
             error_payload = {"type": "error", "data": {"message": str(e), "details": type(e).__name__}}

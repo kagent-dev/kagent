@@ -20,6 +20,14 @@ func (c *Client) GetSession(sessionID int, userID string) (*Session, error) {
 	return &session, err
 }
 
+func (c *Client) InvokeSession(sessionID int, userID string, task string) (*TeamResult, error) {
+	var result TeamResult
+	err := c.doRequest("POST", fmt.Sprintf("/sessions/%d/invoke?user_id=%s", sessionID, userID), struct {
+		Task string `json:"task"`
+	}{Task: task}, &result)
+	return &result, err
+}
+
 func (c *Client) DeleteSession(sessionID int, userID string) error {
 	return c.doRequest("DELETE", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), nil, nil)
 }

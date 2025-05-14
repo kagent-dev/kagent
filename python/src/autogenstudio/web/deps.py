@@ -127,7 +127,7 @@ async def register_auth_dependencies(app: FastAPI, auth_manager: AuthManager) ->
 
 async def init_managers(database_uri: str, config_dir: str | Path, app_root: str | Path) -> None:
     """Initialize all manager instances"""
-    global _db_manager, _websocket_manager, _team_manager
+    global _db_manager, _websocket_manager, _team_manager, _session_manager
 
     logger.info("Initializing managers...")
 

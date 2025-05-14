@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from ...datamodel import Message, Run, RunStatus, Session
 from ..deps import get_db, get_session_manager
-from ..sessionmanager import SessionManager
+from ...sessionmanager import SessionManager
 
 router = APIRouter()
 

@@ -5,8 +5,10 @@ from typing import Dict
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
-from ...datamodel import Message, Response, Run, Session
-from ..deps import get_db
+from ...datamodel import Message, Response, Run, Session, RunStatus, MessageConfig, TeamResult
+from ..deps import get_db, get_session_manager
+from pydantic import BaseModel
+from .invoke import format_team_result
 
 router = APIRouter()
 
@@ -126,7 +128,43 @@ async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -
         raise HTTPException(status_code=500, detail="Internal server error while fetching session data") from e
 
 
-@router.get("/{session_id}/invoke")
-async def invoke_run(session_id: int, run_id: int, user_id: str, db=Depends(get_db)) -> Dict:
-    """Invoke a run"""
+class InvokeRequest(BaseModel):
+    task: str
+
+
+@router.post("/{session_id}/invoke")
+async def invoke(
+    session_id: int, user_id: str, request: InvokeRequest, db=Depends(get_db), session_mgr=Depends(get_session_manager)
+) -> Response:
+    try:
+        run = Run(
+            session_id=session_id,
+            user_id=user_id,
+            status=RunStatus.CREATED,
+            task=MessageConfig(
+                content=request.task,
+                source="user",
+            ).model_dump(),
+            team_result={},
+        )
+        response: Response = db.upsert(run)
+        if not response.status or not response.data:
+            raise HTTPException(status_code=500, detail="Failed to create run")
+        run_id = response.data["id"]
+        result: TeamResult = await session_mgr.start(run_id, request.task)
+        response = Response(status=True, data=format_team_result(result), message="Run executed successfully")
+        return response
+
+    except Exception as e:
+        logger.error(f"Error invoking run: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error while invoking run: {str(e)}") from e
+
+
+@router.post("/{session_id}/invoke/stream")
+async def stream(session_id: int, user_id: str, db=Depends(get_db), session_mgr=Depends(get_session_manager)):
+    # Create a new run
+    # Start the run
+    # Stream the run
+    # Return the run
+    """Stream a run"""
     pass
