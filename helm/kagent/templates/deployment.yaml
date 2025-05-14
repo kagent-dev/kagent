@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "kagent.fullname" . }}
+  namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
@@ -90,7 +91,7 @@ spec:
           imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
-              value: "http://{{ include "kagent.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/api"
+              value: "http://{{ include "kagent.fullname" . }}.{{ include "kagent.namespace" . }}.svc.cluster.local/api"
           {{- with .Values.ui.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}

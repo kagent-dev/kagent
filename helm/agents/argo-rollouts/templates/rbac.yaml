@@ -123,4 +123,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ include "kagent.fullname" . }}
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ include "kagent.namespace" . }}

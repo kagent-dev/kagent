@@ -1,6 +1,7 @@
 import React, { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import CodeBlock from "./CodeBlock";
+import gfm from 'remark-gfm'
 
 interface TruncatableTextProps {
   content: string;
@@ -25,6 +26,11 @@ const components = {
     const { children, className } = props;
     return <a href={children} target="_blank" rel="noopener noreferrer" className={className}>{children}</a>;
   },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: (props: any) => {
+    const { children } = props;
+    return <table className="min-w-full divide-y divide-gray-300 table-fixed">{children}</table>;
+  },
 };
 
 export const TruncatableText = memo(({ content, isJson = false, className = "", isStreaming = false }: TruncatableTextProps) => {
@@ -35,7 +41,10 @@ export const TruncatableText = memo(({ content, isJson = false, className = "", 
 
     return (
       <div className="relative">
-        <ReactMarkdown className={`prose-md prose max-w-none dark:prose-invert dark:text-primary-foreground ${isStreaming ? "streaming-content" : ""}`} components={components}>
+        <ReactMarkdown
+          className={`prose-md prose max-w-none dark:prose-invert dark:text-primary-foreground ${isStreaming ? "streaming-content" : ""}`}
+          components={components}
+          remarkPlugins={[gfm]}>
           {content.trim()}
         </ReactMarkdown>
 

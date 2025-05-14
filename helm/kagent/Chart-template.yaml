@@ -32,3 +32,7 @@ dependencies:
     version: ${VERSION}
     repository: file://../agents/helm
     condition: helm-agent.enabled
+  - name: cilium-crd-agent
+    version: ${VERSION}
+    repository: file://../agents/cilium-crd
+    condition: cilium-crd-agent.enabled

@@ -107,6 +107,10 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# -- Override the namespace
+# @default -- `.Release.Namespace`
+namespaceOverride: ""
+
 podAnnotations: {}
 
 podSecurityContext: {}
@@ -157,4 +161,7 @@ argo-rollouts-agent:
   enabled: true
 
 helm-agent:
+  enabled: true
+
+cilium-crd-agent:
   enabled: true
