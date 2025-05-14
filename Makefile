@@ -182,6 +182,8 @@ helm-agents:
 	helm package helm/agents/helm
 	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
 	helm package helm/agents/argo-rollouts
+	VERSION=$(VERSION) envsubst < helm/agents/cilium-crd/Chart-template.yaml > helm/agents/cilium-crd/Chart.yaml
+	helm package helm/agents/cilium-crd
 
 .PHONY: helm-version
 helm-version: helm-agents
