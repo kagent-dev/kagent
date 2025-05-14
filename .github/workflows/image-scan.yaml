@@ -8,6 +8,7 @@ on:
   # Trigger the workflow on push to the main branch
   push:
     branches: [ main ]
+
   workflow_dispatch:
 
 jobs:

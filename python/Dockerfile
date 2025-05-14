@@ -1,32 +1,38 @@
-ARG TOOLS_UV_VERSION=latest
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS builder
+### STAGE 1: base image
+ARG BASE_IMAGE_REGISTRY=cgr.dev
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN apk update && apk add  \
+    curl openssl unzip bash git ca-certificates
+
+### STAGE 2: python
+FROM base-os AS python-os
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+RUN apk update && apk add python3 uv
+
+### STAGE 3: tools
+FROM python-os AS python-builder
 ARG TARGETARCH
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    build-essential \
-    curl \
-    ca-certificates \
-    && apt-get update \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /app/downloads /usr/local/bin/
+WORKDIR /app/downloads
 
-# Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$TARGETARCH/kubectl" \
     && chmod +x kubectl \
     && mv kubectl /usr/local/bin/
 
-# Install kubectl argo plugin
-RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/$TOOLS_ARGO_CD_VERSION/download/kubectl-argo-rollouts-linux-$TARGETARCH \
+RUN curl -Lo /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/$TOOLS_ARGO_CD_VERSION/download/kubectl-argo-rollouts-linux-$TARGETARCH \
     && chmod +x /usr/local/bin/kubectl-argo-rollouts
 
-# Install Istio
 RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=$TARGETARCH sh - \
-    && mv istio-$TOOLS_ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl \
-    && rm -rf istio-$TOOLS_ISTIO_VERSION
+    && mv istio-*/bin/istioctl /usr/local/bin/istioctl \
+    && rm -rf istio-*
 
 # Install Helm
 RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
@@ -34,68 +40,61 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
     && ./get_helm.sh \
     && rm get_helm.sh
 
-FROM ghcr.io/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS final
+### STAGE 4: final
+FROM python-os AS final
+ARG TOOLS_PYTHON_VERSION=3.12
 
-ARG TARGETARCH
+COPY --from=python-builder /usr/local/bin/kubectl /usr/local/bin/kubectl
+COPY --from=python-builder /usr/local/bin/istioctl /usr/local/bin/istioctl
+COPY --from=python-builder /usr/local/bin/helm /usr/local/bin/helm
+COPY --from=python-builder /usr/local/bin/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    ca-certificates \
-    curl \
-    gnupg \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV GIT_LFS_SKIP_SMUDGE=1
+ENV UV_LINK_MODE=copy
+ENV UV_PROJECT_ENVIRONMENT="/app/python/.venv"
 
-COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
-COPY --from=builder /usr/local/bin/istioctl /usr/local/bin/istioctl
-COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
-
-RUN mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    UV_LINK_MODE=copy  \
-    PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/sbin:/bin:/root/.cargo/bin"
-
-RUN uv python install 3.12
-
-# Create groups and users
-RUN groupadd -g 1002 pythongroup \
-    && useradd  -u 1002 -g pythongroup -s /bin/bash -m python \
-    && mkdir -p /app/python /root/.cache/uv \
-    && chown -R python:pythongroup /app/python
-
-# Set up Python backend
 WORKDIR /app/python
+RUN addgroup -g 1001 pythongroup && \
+    adduser -u 1001 -G pythongroup -s /bin/bash -D python && \
+    chown -R python:pythongroup /app/python
+
+RUN --mount=type=cache,target=/app/python/.cache,rw  \
+    echo "Installing Python $TOOLS_PYTHON_VERSION..."                 \
+    && uv venv .venv                                 \
+    && uv python install $TOOLS_PYTHON_VERSION                        \
+    && uv cache dir                                  \
+    && uv version
+
 COPY pyproject.toml .
 COPY .python-version .
 COPY uv.lock .
 COPY README.md .
-RUN --mount=type=cache,target=/root/.cache/uv uv cache dir && uv venv .venv && uv pip install hatchling
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
 COPY src src
-RUN chown -R python:pythongroup /app/python
 
-# Generate tools and agents
-RUN mkdir -p /root/.autogenstudio/configs
-RUN --mount=type=cache,target=/root/.cache/uv uv run tool_gen -o /root/.autogenstudio/configs
+# Install dependencies
+RUN --mount=type=cache,target=/app/python/.cache                  \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv venv .venv && uv sync --locked
 
-# Ensure correct permissions
+# Generate configs
+RUN --mount=type=cache,target=/app/python/.cache                  \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    mkdir -p /app/python/.autogenstudio/configs && uv run tool_gen -o /app/python/.autogenstudio/configs
+
+# Test if the tool is working and fetch all dependencies
+RUN --mount=type=cache,target=/app/python/.cache                  \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv run kagent-engine --help
+
 RUN chown -R python:pythongroup /app/python && \
-    chmod -R 755 /app
+    chmod -vR 755 /app/python/.venv/bin
 
-RUN mkdir -p /app/python/.cache/uv && \
-    chown -R python:pythongroup /app/python/.cache
-
+ENV UV_OFFLINE=1
 EXPOSE 8081
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
 LABEL org.opencontainers.image.description="Kagent app is the apiserver for running agents."
-
+LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 CMD ["uv", "run", "kagent-engine", "serve", "--host", "0.0.0.0", "--port", "8081"]

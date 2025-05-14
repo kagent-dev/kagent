@@ -4,6 +4,7 @@ apiVersion: kagent.dev/v1alpha1
 kind: Agent
 metadata:
   name: observability-agent
+  namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:

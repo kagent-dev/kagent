@@ -21,7 +21,7 @@ import { cn, isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { createModelConfig } from '@/app/actions/modelConfigs';
 import { ModelProviderCombobox } from '@/components/ModelProviderCombobox';
 import { PROVIDERS_INFO, isValidProviderInfoKey } from '@/lib/providers';
-import { OLLAMA_DEFAULT_TAG } from '@/lib/constants';
+import { OLLAMA_DEFAULT_TAG, OLLAMA_DEFAULT_HOST } from '@/lib/constants';
 
 const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
 const modelConfigSchema = z.object({
@@ -32,6 +32,7 @@ const modelConfigSchema = z.object({
     azureEndpoint: z.string().optional(),
     azureApiVersion: z.string().optional(),
     modelTag: z.string().optional(),
+    ollamaBaseUrl: z.string().optional(),
 }).refine(data => data.providerName === 'ollama' || (data.apiKey && data.apiKey.length > 0), {
     message: "API Key is required for this provider.",
     path: ["apiKey"],
@@ -130,6 +131,7 @@ export function ModelConfigStep({
         defaultValues: {
             providerName: undefined, configName: "", modelName: "",
             apiKey: "", azureEndpoint: "", azureApiVersion: "", modelTag: "",
+            ollamaBaseUrl: "",
         },
     });
     const formStep1Select = useForm<SelectModelFormData>({
@@ -189,7 +191,9 @@ export function ModelConfigStep({
                 if (modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
                     payload.model = `${values.modelName}:${modelTag}`;
                 }
-                payload.ollama = {};
+                payload.ollama = {
+                    host: values.ollamaBaseUrl || "",
+                };
             break;
         }
 
@@ -342,46 +346,70 @@ export function ModelConfigStep({
                                     </FormItem>
                                 )}/>
 
-                            {/* Model Tag Field for Ollama */}
+                            {/* Add the Ollama Base URL field after the Model Tag field for Ollama */}
                             {isOllama && (
-                                <FormField
-                                    control={formStep1Create.control}
-                                    name="modelTag"
-                                    render={({ field }) => (
-                                        <FormItem className="flex flex-col">
-                                            <FormLabel>Model Tag</FormLabel>
-                                            <FormControl>
-                                                <Input
-                                                    placeholder={OLLAMA_DEFAULT_TAG}
-                                                    {...field}
-                                                    onChange={e => {
-                                                        field.onChange(e);
+                                <>
+                                    {/* Model Tag Field for Ollama */}
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="modelTag"
+                                        render={({ field }) => (
+                                            <FormItem className="flex flex-col">
+                                                <FormLabel>Model Tag</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        placeholder={OLLAMA_DEFAULT_TAG}
+                                                        {...field}
+                                                        onChange={e => {
+                                                            field.onChange(e);
 
-                                                        if (watchedProvider === 'ollama') {
-                                                            const currentName = formStep1Create.getValues("configName");
-                                                            const newTag = e.target.value.trim();
+                                                            if (watchedProvider === 'ollama') {
+                                                                const currentName = formStep1Create.getValues("configName");
+                                                                const newTag = e.target.value.trim();
 
-                                                            const newAutoName = generateConfigName(
-                                                                watchedProvider,
-                                                                currentModelName,
-                                                                newTag
-                                                            );
+                                                                const newAutoName = generateConfigName(
+                                                                    watchedProvider,
+                                                                    currentModelName,
+                                                                    newTag
+                                                                );
 
-                                                            if (newAutoName && (!currentName || currentName === lastAutoGenName)) {
-                                                                formStep1Create.setValue('configName', newAutoName, { shouldValidate: true });
-                                                                setLastAutoGenName(newAutoName);
+                                                                if (newAutoName && (!currentName || currentName === lastAutoGenName)) {
+                                                                    formStep1Create.setValue('configName', newAutoName, { shouldValidate: true });
+                                                                    setLastAutoGenName(newAutoName);
+                                                                }
                                                             }
-                                                        }
-                                                    }}
-                                                />
-                                            </FormControl>
-                                            <FormDescription>
-                                                Specify a tag for the Ollama model (e.g., latest, 7b, 13b)
-                                            </FormDescription>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                                        }}
+                                                    />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    Specify a tag for the Ollama model (e.g., latest, 7b, 13b)
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+
+                                    {/* Ollama Base URL Field */}
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="ollamaBaseUrl"
+                                        render={({ field }) => (
+                                            <FormItem className="flex flex-col">
+                                                <FormLabel>Ollama Base URL</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        placeholder={OLLAMA_DEFAULT_HOST}
+                                                        {...field}
+                                                    />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    The base URL where your Ollama instance is running (default: {OLLAMA_DEFAULT_HOST})
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </>
                             )}
 
                             <FormField
