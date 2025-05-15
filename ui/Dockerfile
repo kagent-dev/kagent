@@ -1,5 +1,6 @@
 ### STAGE 1: base image
 ARG LOCALARCH=amd64
+ARG TARGETARCH
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-arm64
@@ -16,6 +17,7 @@ RUN apk update \
 ### STAGE 2: python
 FROM base-os AS node-os
 ARG TOOLS_BUN_VERSION
+ARG TARGETARCH
 ARG LOCALARCH
 
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -35,6 +37,7 @@ RUN --mount=type=cache,target=/cache/bun,rw \
 ### STAGE 2: build + ui
 FROM --platform=linux/${LOCALARCH} node-os AS ui-builder
 ARG LOCALARCH
+ARG TARGETARCH
 
 WORKDIR /app/ui
 
