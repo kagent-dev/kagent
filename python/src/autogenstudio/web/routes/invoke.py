@@ -11,6 +11,7 @@ from autogen_agentchat.messages import (
     TextMessage,
     ToolCallExecutionEvent,
     ToolCallRequestEvent,
+    ToolCallSummaryMessage,
 )
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -88,6 +89,7 @@ def format_message(message: Any) -> dict:
                 ToolCallExecutionEvent,
                 LLMCallEventMessage,
                 MemoryQueryEvent,
+                ToolCallSummaryMessage,
             ),
         ):
             return message.model_dump()

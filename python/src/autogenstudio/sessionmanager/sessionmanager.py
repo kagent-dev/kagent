@@ -11,6 +11,7 @@ from autogen_agentchat.messages import (
     ChatMessage,
     HandoffMessage,
     MemoryQueryEvent,
+    ToolCallSummaryMessage,
     ModelClientStreamingChunkEvent,
     MultiModalMessage,
     StopMessage,
@@ -142,14 +143,17 @@ class SessionManager:
                             HandoffMessage,
                             ToolCallRequestEvent,
                             ToolCallExecutionEvent,
+                            ToolCallSummaryMessage,
                             LLMCallEventMessage,
-                            ModelClientStreamingChunkEvent,
                             MemoryQueryEvent,
                         ),
                     ):
                         formatted_message = format_message(message)
                         yield formatted_message
                         await self._save_message(user_id, run_id, message)
+                    elif isinstance(message, ModelClientStreamingChunkEvent):
+                        formatted_message = format_message(message)
+                        yield formatted_message
 
                 if final_result:
                     await self._update_run(run_id, RunStatus.COMPLETE, team_result=final_result)

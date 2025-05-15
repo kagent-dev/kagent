@@ -69,7 +69,7 @@ async def delete_session(session_id: int, user_id: str, db=Depends(get_db)) -> D
 
 
 @router.get("/{session_id}/runs")
-async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def list_session_runs(session_id: int, user_id: str, db: DatabaseManager = Depends(get_db)) -> Dict:
     """Get complete session history organized by runs"""
 
     try:
