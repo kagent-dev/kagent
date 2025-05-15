@@ -43,8 +43,7 @@ RUN --mount=type=cache,target=/cache/bun,rw \
 #copy the rest of the files
 COPY . .
 RUN --mount=type=cache,target=/cache/bun,rw     \
-    bun install --production  --frosen-lockfile \
-    && bun run build  --help                    \
+    bun install --frosen-lockfile               \
     && bun run build  --no-lint                 \
     && mkdir -p /app/ui/public
 
