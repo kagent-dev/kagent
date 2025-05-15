@@ -28,14 +28,14 @@ interface AuthSectionProps {
   onApiKeyChange: (value: string) => void;
   onToggleShowApiKey: () => void;
   selectedProvider: Provider | null;
-  isUsingGateway: boolean;
-  onIsUsingGatewayChange: (checked: boolean) => void;
+  isApiKeyNeeded: boolean;
+  onApiKeyNeededChange: (isApiKeyNeeded: boolean) => void;
 }
 
 export const AuthSection: React.FC<AuthSectionProps> = ({
   isOllamaSelected, isEditMode, apiKey, showApiKey, errors, isSubmitting,
   isLoading, onApiKeyChange, onToggleShowApiKey, selectedProvider,
-  isUsingGateway, onIsUsingGatewayChange
+  isApiKeyNeeded, onApiKeyNeededChange
 }) => {
   return (
     <Card>
@@ -56,7 +56,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                    onChange={(e) => onApiKeyChange(e.target.value)}
                    className={`${errors.apiKey ? "border-destructive" : ""} pr-10 w-full`}
                    placeholder={isEditMode ? "Enter new API key to update" : "Enter API key..."}
-                   disabled={isSubmitting || isLoading || isUsingGateway || isOllamaSelected}
+                   disabled={isSubmitting || isLoading || !isApiKeyNeeded || isOllamaSelected}
                    autoComplete="new-password"
                  />
                  <Button
@@ -65,7 +65,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                    size="sm"
                    className="absolute right-0 top-0 h-full px-3"
                    onClick={onToggleShowApiKey}
-                   disabled={isSubmitting || isLoading || isUsingGateway || isOllamaSelected}
+                   disabled={isSubmitting || isLoading || !isApiKeyNeeded || isOllamaSelected}
                    title={showApiKey ? "Hide API Key" : "Show API Key"}
                  >
                    {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -89,15 +89,21 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
             <div className="flex items-center space-x-2 pt-3">
               <Checkbox
                 id="api-gateway-checkbox"
-                checked={isUsingGateway}
-                onCheckedChange={(checked) => onIsUsingGatewayChange(!!checked)}
+                checked={!isApiKeyNeeded}
+                onCheckedChange={(checkboxIsChecked) => {
+                  const newIsApiKeyNeeded = !checkboxIsChecked;
+                  onApiKeyNeededChange(newIsApiKeyNeeded);
+                  if (newIsApiKeyNeeded) {
+                    onApiKeyChange("");
+                  }
+                }}
                 disabled={isSubmitting || isLoading || isOllamaSelected}
               />
               <Label
                 htmlFor="api-gateway-checkbox"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
               >
-                I am using an AI API Gateway
+                I don&apos;t need to provide an API key
               </Label>
             </div>
            </div>

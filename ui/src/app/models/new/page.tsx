@@ -121,8 +121,7 @@ function ModelPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [errors, setErrors] = useState<ValidationErrors>({});
-  const [isUsingGateway, setIsUsingGateway] = useState(false);
-
+  const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -203,9 +202,9 @@ function ModelPageContent() {
           }
 
           if (!modelData.apiKeySecretRef) {
-            setIsUsingGateway(true);
+            setIsApiKeyNeeded(false);
           } else {
-            setIsUsingGateway(false);
+            setIsApiKeyNeeded(true);
           }
 
           const fetchedParams = modelData.modelParams || {};
@@ -300,13 +299,13 @@ function ModelPageContent() {
   }, [selectedCombinedModel, isEditMode, isEditingName, modelTag]);
 
   useEffect(() => {
-    if (isUsingGateway) {
+    if (!isApiKeyNeeded) {
       setApiKey("");
       if (errors.apiKey) {
         setErrors(prev => ({ ...prev, apiKey: undefined }));
       }
     }
-  }, [isUsingGateway]);
+  }, [isApiKeyNeeded]);
 
   const validateForm = () => {
     const newErrors: ValidationErrors = { requiredParams: {} };
@@ -314,8 +313,8 @@ function ModelPageContent() {
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
     const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
-    if (!isEditMode && !isOllamaNow && !isUsingGateway && !apiKey.trim()) {
-      newErrors.apiKey = "API key is required for new models (except Ollama or when using an AI API Gateway)";
+    if (!isEditMode && !isOllamaNow && isApiKeyNeeded && !apiKey.trim()) {
+      newErrors.apiKey = "API key is required for new models (except for Ollama or when you don't need an API key)";
     }
 
     requiredParams.forEach(param => {
@@ -401,7 +400,7 @@ function ModelPageContent() {
     setIsSubmitting(true);
     setErrors({});
 
-    const finalApiKey = isUsingGateway ? "" : apiKey.trim();
+    const finalApiKey = isApiKeyNeeded ? apiKey.trim() : "";
 
     let finalModelName = modelName;
     if (finalSelectedProvider.type === 'Ollama') {
@@ -419,7 +418,6 @@ function ModelPageContent() {
       },
       model: finalModelName,
       apiKey: finalApiKey,
-      isUsingGateway: isUsingGateway,
     };
 
     const providerParams = processModelParams(requiredParams, optionalParams);
@@ -456,7 +454,6 @@ function ModelPageContent() {
           anthropic: payload.anthropic,
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
-          isUsingGateway: isUsingGateway,
         };
         response = await updateModelConfig(modelId, updatePayload);
       } else {
@@ -540,8 +537,8 @@ function ModelPageContent() {
             onApiKeyChange={setApiKey}
             onToggleShowApiKey={() => setShowApiKey(!showApiKey)}
             selectedProvider={selectedProvider}
-            isUsingGateway={isUsingGateway}
-            onIsUsingGatewayChange={setIsUsingGateway}
+            isApiKeyNeeded={isApiKeyNeeded}
+            onApiKeyNeededChange={setIsApiKeyNeeded}
           />
 
           <ParamsSection

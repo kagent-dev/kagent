@@ -180,7 +180,6 @@ export function ModelConfigStep({
             provider: { name: providerInfo.name, type: providerInfo.type },
             model: values.modelName,
             apiKey: values.apiKey || "",
-            isUsingGateway: false,
         };
         switch (values.providerName) {
             case 'azure-openai':
