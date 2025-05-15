@@ -30,8 +30,8 @@ RUN --mount=type=cache,target=/cache/bun,rw \
     && bun --version
 
 ### STAGE 2: build + ui
-ARG BUILDPLATFORM
-FROM node-os AS ui-builder
+ARG BUILDARCH
+FROM --platform=linux/$BUILDARCH node-os AS ui-builder
 
 WORKDIR /app/ui
 

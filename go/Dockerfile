@@ -1,11 +1,12 @@
 ### STAGE 1: base image
+ARG BUILDARCH
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS base-os
+FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/go:latest AS base-os
 
-ARG TARGETPLATFORM
 ARG BUILDPLATFORM
-ARG TARGETOS
+ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG TARGETOS
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
