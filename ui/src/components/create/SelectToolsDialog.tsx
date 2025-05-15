@@ -11,7 +11,7 @@ import Link from "next/link";
 import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider, isAgentTool, isMcpTool, isMcpProvider, componentToAgentTool } from "@/lib/toolUtils";
 import KagentLogo from "../kagent-logo";
 // Maximum number of tools that can be selected
-const MAX_TOOLS_LIMIT = 10;
+const MAX_TOOLS_LIMIT = 20;
 
 interface SelectedToolEntry {
   originalItemIdentifier: string;
