@@ -53,14 +53,11 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const providerParams: Record<string, any> = {};
   const numericKeys = new Set([
-    'max_tokens',
-    'top_k',
+    'maxTokens',
+    'topK',
     'seed',
     'n',
     'timeout',
-    'temperature',
-    'frequency_penalty',
-    'presence_penalty'
   ]);
 
   const booleanKeys = new Set([

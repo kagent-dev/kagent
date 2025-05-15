@@ -233,7 +233,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                     onBlur={() => validateField('name', name)}
                     className={`${errors.name ? "border-red-500" : ""}`}
                     placeholder="Enter agent name..."
-                    disabled={isSubmitting || isLoading}
+                    disabled={isSubmitting || isLoading || isEditMode}
                   />
                   {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
                 </div>
