@@ -32,7 +32,7 @@ FROM node-os AS ui-builder
 WORKDIR /app/ui
 COPY package*.json ./
 RUN --mount=type=cache,target=/cache/bun,rw \
-    bun install -- production --prefer-offline
+    bun install --production --prefer-offline
 
 COPY . .
 RUN --mount=type=cache,target=/cache/bun,rw \
