@@ -2,7 +2,7 @@ package client
 
 import (
 	"bufio"
-	"io"
+	"bytes"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 )
@@ -24,15 +24,27 @@ func (c *Client) InvokeTask(req *InvokeTaskRequest) (*InvokeTaskResult, error) {
 	return &invoke, err
 }
 
-func (c *Client) InvokeTaskStream(req *InvokeTaskRequest, w io.Writer) error {
+func (c *Client) InvokeTaskStream(req *InvokeTaskRequest) (<-chan *SseEvent, error) {
 	resp, err := c.startRequest("POST", "/invoke/stream", req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		w.Write(append(line, '\n'))
-	}
-	return nil
+	ch := make(chan *SseEvent)
+	go func() {
+		defer close(ch)
+		currentEvent := &SseEvent{}
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if bytes.Contains(line, []byte("event")) {
+				currentEvent.Event = string(bytes.TrimPrefix(line, []byte("event:")))
+			}
+			if bytes.Contains(line, []byte("data")) {
+				currentEvent.Data = bytes.TrimPrefix(line, []byte("data:"))
+				ch <- currentEvent
+				currentEvent = &SseEvent{}
+			}
+		}
+	}()
+	return ch, nil
 }

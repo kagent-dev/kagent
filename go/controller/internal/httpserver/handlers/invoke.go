@@ -100,10 +100,10 @@ func (h *InvokeHandler) HandleInvokeAgentStream(w ErrorResponseWriter, r *http.R
 		return
 	}
 
-	err = h.AutogenClient.InvokeTaskStream(&autogen_client.InvokeTaskRequest{
+	ch, err := h.AutogenClient.InvokeTaskStream(&autogen_client.InvokeTaskRequest{
 		Task:       req.Message,
 		TeamConfig: team.Component,
-	}, w)
+	})
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to invoke task", err))
 		return
@@ -114,6 +114,10 @@ func (h *InvokeHandler) HandleInvokeAgentStream(w ErrorResponseWriter, r *http.R
 	log.Info("Successfully invoked agent")
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
+
+	for event := range ch {
+		w.Write([]byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event.Event, event.Data)))
+	}
 }
 
 // HandleStartAgent processes asynchronous agent execution requests.

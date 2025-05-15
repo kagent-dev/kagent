@@ -150,3 +150,8 @@ type ModelInfo struct {
 	Name            string `json:"name"`
 	FunctionCalling bool   `json:"function_calling"`
 }
+
+type SseEvent struct {
+	Event string `json:"event"`
+	Data  []byte `json:"data"`
+}

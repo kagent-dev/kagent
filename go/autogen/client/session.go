@@ -32,11 +32,6 @@ func (c *Client) InvokeSession(sessionID int, userID string, task string) (*Team
 	return &result, err
 }
 
-type SseEvent struct {
-	Event string `json:"event"`
-	Data  []byte `json:"data"`
-}
-
 func (c *Client) InvokeSessionStream(sessionID int, userID string, task string) (<-chan *SseEvent, error) {
 	resp, err := c.startRequest("POST", fmt.Sprintf("/sessions/%d/invoke/stream?user_id=%s", sessionID, userID), struct {
 		Task string `json:"task"`
