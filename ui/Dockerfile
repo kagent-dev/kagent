@@ -38,7 +38,7 @@ WORKDIR /app/ui
 #copy the package.json and bun.lockb files
 COPY package*.json ./
 RUN --mount=type=cache,target=/cache/bun,rw \
-    bun install --production  --frosen-lockfile
+    bun install --frosen-lockfile
 
 #copy the rest of the files
 COPY . .
