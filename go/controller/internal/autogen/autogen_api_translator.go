@@ -1152,8 +1152,11 @@ func (a *apiTranslator) getMemoryApiKey(ctx context.Context, memory *v1alpha1.Me
 }
 
 func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v1alpha1.ModelConfig) ([]byte, error) {
+	// Only retrieve the secret if APIKeySecretRef is provided
+	if modelConfig.Spec.APIKeySecretRef == "" {
+		return []byte(""), nil
+	}
 
-	// get model api key
 	modelApiKeySecret := &v1.Secret{}
 	err := fetchObjKube(
 		ctx,
@@ -1163,18 +1166,17 @@ func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v
 		modelConfig.Namespace,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch API key secret %s/%s: %w", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef, err)
 	}
 
 	if modelApiKeySecret.Data == nil {
-		return nil, fmt.Errorf("model api key secret data not found")
+		return nil, fmt.Errorf("API key secret %s/%s data not found", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef)
 	}
 
 	modelApiKey, ok := modelApiKeySecret.Data[modelConfig.Spec.APIKeySecretKey]
 	if !ok {
-		return nil, fmt.Errorf("model api key not found")
+		return nil, fmt.Errorf("API key not found in secret %s/%s with key %s", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef, modelConfig.Spec.APIKeySecretKey)
 	}
-
 	return modelApiKey, nil
 }
 
