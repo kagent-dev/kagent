@@ -96,6 +96,7 @@ export interface CreateModelConfigPayload {
   provider: Pick<Provider, "name" | "type">;
   model: string;
   apiKey: string;
+  isUsingGateway: boolean;
   openAI?: OpenAIConfigPayload;
   anthropic?: AnthropicConfigPayload;
   azureOpenAI?: AzureOpenAIConfigPayload;
@@ -106,6 +107,7 @@ export interface UpdateModelConfigPayload {
     provider: Pick<Provider, "name" | "type">;
     model: string;
     apiKey?: string | null;
+    isUsingGateway?: boolean;
     openAI?: OpenAIConfigPayload;
     anthropic?: AnthropicConfigPayload;
     azureOpenAI?: AzureOpenAIConfigPayload;

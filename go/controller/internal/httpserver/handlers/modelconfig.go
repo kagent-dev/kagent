@@ -164,6 +164,7 @@ type CreateModelConfigRequest struct {
 	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
 	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
+	IsUsingGateway  bool                        `json:"isUsingGateway"`
 }
 
 type Provider struct {
@@ -210,6 +211,8 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	// If the provider is Ollama, we don't need to create a secret.
 	if providerTypeEnum == v1alpha1.Ollama {
 		log.V(1).Info("Ollama provider, skipping secret creation")
+	} else if req.IsUsingGateway {
+		log.V(1).Info("Using AI API Gateway, skipping secret creation")
 	} else {
 		apiKey := req.APIKey
 		secretName := req.Name
@@ -313,6 +316,7 @@ type UpdateModelConfigRequest struct {
 	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
 	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
+	IsUsingGateway  bool                        `json:"isUsingGateway"`
 }
 
 func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *http.Request) {
@@ -360,8 +364,8 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		Ollama:      nil,
 	}
 
-	// --- Update Secret if API Key is provided (and not Ollama) ---
-	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.Ollama
+	// --- Update Secret if API Key is provided (and not Ollama or using AI API Gateway) ---
+	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.Ollama && !req.IsUsingGateway
 	if shouldUpdateSecret {
 		secretName := configName
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
