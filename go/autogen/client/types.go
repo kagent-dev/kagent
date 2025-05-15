@@ -1,7 +1,10 @@
 package client
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 )
@@ -154,4 +157,26 @@ type ModelInfo struct {
 type SseEvent struct {
 	Event string `json:"event"`
 	Data  []byte `json:"data"`
+}
+
+func streamSseResponse(r io.ReadCloser) chan *SseEvent {
+	scanner := bufio.NewScanner(r)
+	ch := make(chan *SseEvent)
+	go func() {
+		defer close(ch)
+		defer r.Close()
+		currentEvent := &SseEvent{}
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if bytes.Contains(line, []byte("event")) {
+				currentEvent.Event = string(bytes.TrimPrefix(line, []byte("event:")))
+			}
+			if bytes.Contains(line, []byte("data")) {
+				currentEvent.Data = bytes.TrimPrefix(line, []byte("data:"))
+				ch <- currentEvent
+				currentEvent = &SseEvent{}
+			}
+		}
+	}()
+	return ch
 }
