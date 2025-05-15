@@ -30,6 +30,7 @@ RUN --mount=type=cache,target=/cache/bun,rw \
     && bun --version
 
 ### STAGE 2: build + ui
+ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM node-os AS ui-builder
 
 WORKDIR /app/ui
