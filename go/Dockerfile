@@ -4,7 +4,7 @@ ARG BASE_IMAGE_REGISTRY=cgr.dev
 
 FROM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS base-arm64
 FROM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS base-amd64
-FROM base-${TARGETARCH} AS base-os
+FROM --platform=linux/${TARGETARCH} base-${TARGETARCH} AS base-os
 
 FROM --platform=linux/${LOCALARCH} base-os AS builder
 ARG TARGETPLATFORM
