@@ -34,7 +34,7 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
-TOOLS_BUN_VERSION ?= v1.2.13
+TOOLS_BUN_VERSION ?= 1.2.13
 TOOLS_K9S_VERSION ?= 0.50.4
 TOOLS_KIND_VERSION ?= 0.27.0
 TOOLS_NODE_VERSION ?= 22.15.0

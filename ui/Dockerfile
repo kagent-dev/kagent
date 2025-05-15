@@ -1,6 +1,8 @@
 ### STAGE 1: base image
+ARG TOOLS_BUN_VERSION=1.2.13
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
+#FROM $BASE_IMAGE_REGISTRY/oven/bun:${TOOLS_BUN_VERSION}-alpine AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -22,11 +24,9 @@ ENV CYPRESS_INSTALL_BINARY=0
 ENV NODE_PATH=/cache/node_modules
 ENV PATH=$BUN_INSTALL/bin:$PATH
 
-# Install Bun (uses official install script)
-# brew install oven-sh/bun/bun
 RUN --mount=type=cache,target=/cache/bun,rw \
     mkdir -p $BUN_INSTALL  \
-    && curl -fsSL https://bun.sh/install | bash -s "bun-v1.2.13" \
+    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
     && bun --version
 
 ### STAGE 2: build + ui
@@ -38,12 +38,13 @@ WORKDIR /app/ui
 #copy the package.json and bun.lockb files
 COPY package*.json ./
 RUN --mount=type=cache,target=/cache/bun,rw \
-    bun install --frosen-lockfile
+    bun install  \
+    && bun install --help
 
 #copy the rest of the files
 COPY . .
 RUN --mount=type=cache,target=/cache/bun,rw     \
-    bun install --frosen-lockfile               \
+    bun install                                 \
     && bun run build  --no-lint                 \
     && mkdir -p /app/ui/public
 
