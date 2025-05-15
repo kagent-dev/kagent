@@ -1,9 +1,8 @@
-{{- if .Values.contrib.agents.helm.enabled }}
----
 apiVersion: kagent.dev/v1alpha1
 kind: Agent
 metadata:
   name: helm-agent
+  namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
@@ -144,7 +143,7 @@ spec:
     4. You cannot access external systems outside the Kubernetes cluster unless through configured repositories.
 
     Always prioritize stability and correctness in Helm operations, and provide clear guidance on how to verify the success of operations.
-  modelConfig: {{ .Values.contrib.agents.helm.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
+  modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
     - type: Builtin
       builtin:
@@ -178,4 +177,3 @@ spec:
         name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
-{{- end }}

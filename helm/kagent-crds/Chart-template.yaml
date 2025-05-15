@@ -1,5 +1,5 @@
 apiVersion: v2
 name: kagent-crds
-description: CRDs for KAgent
+description: CRDs for kagent
 type: application
 version: ${VERSION}

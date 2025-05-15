@@ -7,8 +7,7 @@ ENV LC_ALL=C.UTF-8
 RUN apk update \
     && apk add curl openssl unzip bash git ca-certificates nginx supervisor \
     && update-ca-certificates \
-    && rm -rf /var/cache/apk/* \
-    && find /
+    && rm -rf /var/cache/apk/*
 
 ### STAGE 2: python
 FROM base-os AS node-os

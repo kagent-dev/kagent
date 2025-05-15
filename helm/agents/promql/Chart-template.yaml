@@ -1,0 +1,5 @@
+apiVersion: v2
+name: promql-agent
+description: A PromQL Agent for kagent
+type: application
+version: ${VERSION}

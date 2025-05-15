@@ -1,0 +1,10 @@
+modelConfigRef: ""
+prometheus:
+  url: "prometheus.kagent:9090"
+  username: ""
+  password: ""
+grafana:
+  url: "grafana.kagent:3000"
+  username: ""
+  password: ""
+  apiKey: ""

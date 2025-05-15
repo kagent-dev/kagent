@@ -107,6 +107,10 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# -- Override the namespace
+# @default -- `.Release.Namespace`
+namespaceOverride: ""
+
 podAnnotations: {}
 
 podSecurityContext: {}
@@ -120,32 +124,6 @@ securityContext: {}
   # runAsNonRoot: true
   # runAsUser: 1000
 
-contrib:
-  agents:
-    k8s:
-      enabled: true
-    istio:
-      enabled: true
-    helm:
-      enabled: true
-    promql:
-      enabled: true
-    observability:
-      enabled: true
-      prometheus:
-        url: ""
-        username: ""
-        password: ""
-      grafana:
-        url: ""
-        username: ""
-        password: ""
-        apiKey: ""
-    argoRolloutsConversion:
-      enabled: true
-    kgateway:
-      enabled: true
-
 otel:
   tracing:
     enabled: false
@@ -154,3 +132,36 @@ otel:
         endpoint: http://localhost:4317
         timeout: 10
         insecure: true
+
+k8s-agent:
+  enabled: true
+
+kgateway-agent:
+  enabled: true
+
+istio-agent:
+  enabled: true
+
+promql-agent:
+  enabled: true
+
+observability-agent:
+  enabled: true
+  prometheus:
+    url: ""
+    username: ""
+    password: ""
+  grafana:
+    url: ""
+    username: ""
+    password: ""
+    apiKey: ""
+
+argo-rollouts-agent:
+  enabled: true
+
+helm-agent:
+  enabled: true
+
+cilium-crd-agent:
+  enabled: true

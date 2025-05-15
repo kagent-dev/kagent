@@ -166,10 +166,30 @@ retag-docker-images: build
 	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
 	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
 
+.PHONY: helm-agents
+helm-agents:
+	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
+	helm package helm/agents/k8s
+	VERSION=$(VERSION) envsubst < helm/agents/kgateway/Chart-template.yaml > helm/agents/kgateway/Chart.yaml
+	helm package helm/agents/kgateway
+	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
+	helm package helm/agents/istio
+	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
+	helm package helm/agents/promql
+	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
+	helm package helm/agents/observability
+	VERSION=$(VERSION) envsubst < helm/agents/helm/Chart-template.yaml > helm/agents/helm/Chart.yaml
+	helm package helm/agents/helm
+	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
+	helm package helm/agents/argo-rollouts
+	VERSION=$(VERSION) envsubst < helm/agents/cilium-crd/Chart-template.yaml > helm/agents/cilium-crd/Chart.yaml
+	helm package helm/agents/cilium-crd
+
 .PHONY: helm-version
-helm-version:
+helm-version: helm-agents
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
+	helm dependency update helm/kagent
 	helm package helm/kagent-crds
 	helm package helm/kagent
 
@@ -225,7 +245,7 @@ kagent-cli-install:
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
-	@echo "Port forwarding to KAgent CLI..."
+	@echo "Port forwarding to kagent CLI..."
 	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80
 
 .PHONY: open-dev-container

@@ -1,0 +1,126 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagent.fullname" . }}-argo-role
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+    - ''
+  resources:
+    - namespaces
+    - services
+    - endpoints
+    - pods
+    - persistentvolumeclaims
+  verbs:
+    - "*"
+- apiGroups:
+    - apps
+  resources:
+    - deployments
+    - daemonsets
+    - replicasets
+    - statefulsets
+  verbs:
+    - "*"
+- apiGroups:
+    - policy
+  resources:
+    - poddisruptionbudgets
+  verbs:
+    - "*"
+- apiGroups:
+    - autoscaling
+  resources:
+    - horizontalpodautoscalers
+  verbs:
+    - "*"
+- apiGroups:
+    - networking.k8s.io
+  resources:
+    - networkpolicies
+    - ingresses
+  verbs:
+    - "*"
+- apiGroups:
+    - rbac.authorization.k8s.io
+  resources:
+    - clusterroles
+    - clusterrolebindings
+    - roles
+    - rolebindings
+  verbs:
+    - "*"
+- apiGroups:
+    - apiextensions.k8s.io
+  resources:
+    - customresourcedefinitions
+  verbs:
+    - "*"
+- apiGroups:
+    - authentication.k8s.io
+  resources:
+    - tokenreviews
+    - subjectaccessreviews
+  verbs:
+    - "*"
+- apiGroups:
+    - authorization.k8s.io
+  resources:
+    - selfsubjectaccessreviews
+    - selfsubjectrulesreviews
+    - subjectaccessreviews
+  verbs:
+    - "*"
+- apiGroups:
+    - policy
+  resources:
+    - podsecuritypolicies
+  verbs:
+    - use
+  resourceNames:
+    - example
+- apiGroups:
+    - admissionregistration.k8s.io
+  resources:
+    - validatingwebhookconfigurations
+    - mutatingwebhookconfigurations
+  verbs:
+    - "*"
+- apiGroups:
+    - ''
+  resources:
+    - secrets
+    - configmaps
+    - serviceaccounts
+  verbs:
+    - "*"
+- apiGroups:
+    - argoproj.io
+    - gateway.networking.k8s.io
+  resources:
+    - "*"
+  verbs:
+    - "*"
+- apiGroups:
+    - ''
+  resources:
+    - pods/portforward
+  verbs:
+    - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kagent.fullname" . }}-argo-rolebinding
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kagent.fullname" . }}-argo-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagent.fullname" . }}
+    namespace: {{ include "kagent.namespace" . }}

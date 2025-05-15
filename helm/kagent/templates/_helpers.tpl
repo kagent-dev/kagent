@@ -55,7 +55,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*Default model name*/}}
 {{- define "kagent.defaultModelConfigName" -}}
-{{ include "kagent.defaultProviderName" . }}-model-config
+default-model-config
+{{- end }}
+
+{{/*
+Expand the namespace of the release.
+Allows overriding it for multi-namespace deployments in combined charts.
+*/}}
+{{- define "kagent.namespace" -}}
+{{- default .Release.Namespace .Values.namespaceOverride | trunc 63 | trimSuffix "-" -}}
 {{- end }}
 
 {{/*
