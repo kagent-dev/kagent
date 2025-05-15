@@ -31,6 +31,7 @@ KIND_CLUSTER_NAME ?= kagent
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
+LOCALARCH=$(shell uname -m | sed 's/aarch64/arm64/g' | sed 's/x86_64/amd64/g')
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
@@ -43,7 +44,8 @@ TOOLS_ARGO_CD_VERSION ?= 3.0.0
 TOOLS_KUBECTL_VERSION ?= 1.33.4
 
 # build args
-TOOLS_IMAGE_BUILD_ARGS = --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
+TOOLS_IMAGE_BUILD_ARGS =  --build-arg LOCALARCH=$(LOCALARCH)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)

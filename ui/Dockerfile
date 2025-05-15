@@ -1,8 +1,11 @@
 ### STAGE 1: base image
-ARG TOOLS_BUN_VERSION=1.2.13
+ARG TARGETARCH
+ARG LOCALARCH=${TARGETARCH}
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
-#FROM $BASE_IMAGE_REGISTRY/oven/bun:${TOOLS_BUN_VERSION}-alpine AS base-os
+
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-arm64
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-amd64
+FROM base-${TARGETARCH} AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -30,16 +33,17 @@ RUN --mount=type=cache,target=/cache/bun,rw \
     && bun --version
 
 ### STAGE 2: build + ui
-ARG BUILDARCH
-FROM --platform=linux/$BUILDARCH node-os AS ui-builder
+ARG TARGETARCH
+ARG LOCALARCH
+FROM --platform=linux/${LOCALARCH} node-os AS ui-builder
 
 WORKDIR /app/ui
 
 #copy the package.json and bun.lockb files
 COPY package*.json ./
 RUN --mount=type=cache,target=/cache/bun,rw \
-    bun install  \
-    && bun install --help
+    echo "Running bun install : $LOCALARCH -> $TARGETARCH" \
+    && bun install
 
 #copy the rest of the files
 COPY . .
