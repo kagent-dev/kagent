@@ -84,6 +84,7 @@ build-all: BUILDER ?=docker buildx --builder $(BUILDER_NAME)
 build-all: BUILD_ARGS ?= --platform linux/amd64,linux/arm64 --output type=tar,dest=/tmp/
 build-all:
 	#docker buildx rm $(BUILDER_NAME) || :
+	docker run --privileged --rm tonistiigi/binfmt --install all || :
 	docker buildx ls | grep $(BUILDER_NAME)  || docker buildx create --name $(BUILDER_NAME) --use || :
 	$(BUILDER) build $(BUILD_ARGS)$(CONTROLLER_IMAGE_NAME).tar $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile ./go
 	$(BUILDER) build $(BUILD_ARGS)$(APP_IMAGE_NAME).tar 	   $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile ./ui

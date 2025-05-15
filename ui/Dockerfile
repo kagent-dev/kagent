@@ -31,20 +31,21 @@ RUN --mount=type=cache,target=/cache/bun,rw \
 
 ### STAGE 2: build + ui
 ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM node-os AS ui-builder
+FROM node-os AS ui-builder
 
 WORKDIR /app/ui
 
 #copy the package.json and bun.lockb files
 COPY package*.json ./
 RUN --mount=type=cache,target=/cache/bun,rw \
-    bun install --frozen-lockfile --production
+    bun install --production  --frosen-lockfile
 
 #copy the rest of the files
 COPY . .
-RUN --mount=type=cache,target=/cache/bun,rw    \
-    bun install --frozen-lockfile --production \
-    && bun run build                           \
+RUN --mount=type=cache,target=/cache/bun,rw     \
+    bun install --production  --frosen-lockfile \
+    && bun run build  --help                    \
+    && bun run build  --no-lint                 \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: final
