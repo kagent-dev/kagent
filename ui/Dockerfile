@@ -16,6 +16,7 @@ ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV BUN_INSTALL=/usr/local/bun
 ENV NVM_DIR=/usr/local/nvm
 ENV NODE_ENV=production
+ENV CYPRESS_INSTALL_BINARY=0
 ENV NODE_PATH=/cache/node_modules
 ENV PATH=$BUN_INSTALL/bin:$PATH
 
@@ -27,7 +28,7 @@ RUN --mount=type=cache,target=/cache/bun,rw \
     && bun --version
 
 ### STAGE 2: build + ui
-FROM node-os AS ui-builder
+FROM --platform=$BUILDPLATFORM node-os AS ui-builder
 
 WORKDIR /app/ui
 COPY package*.json ./
@@ -36,7 +37,7 @@ RUN --mount=type=cache,target=/cache/bun,rw \
 
 COPY . .
 RUN --mount=type=cache,target=/cache/bun,rw \
-    bun run build                           \
+    && bun run build                        \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: final
