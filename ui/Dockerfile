@@ -1,11 +1,7 @@
 ### STAGE 1: base image
 ARG LOCALARCH=amd64
-ARG TARGETARCH
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-arm64
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-amd64
-FROM --platform=linux/${TARGETARCH} base-${TARGETARCH} AS base-os
+FROM --platform=linux/${LOCALARCH} $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -29,6 +25,8 @@ ENV CYPRESS_INSTALL_BINARY=0
 ENV NODE_PATH=/cache/node_modules
 ENV PATH=$BUN_INSTALL/bin:$PATH
 
+# Install Bun (uses official install script)
+# brew install oven-sh/bun/bun
 RUN --mount=type=cache,target=/cache/bun,rw \
     mkdir -p $BUN_INSTALL  \
     && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
