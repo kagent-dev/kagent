@@ -1152,58 +1152,32 @@ func (a *apiTranslator) getMemoryApiKey(ctx context.Context, memory *v1alpha1.Me
 }
 
 func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v1alpha1.ModelConfig) ([]byte, error) {
-	// If APIKeySecretRef is provided, retrieve the secret
-	if modelConfig.Spec.APIKeySecretRef != "" {
-		modelApiKeySecret := &v1.Secret{}
-		err := fetchObjKube(
-			ctx,
-			a.kube,
-			modelApiKeySecret,
-			modelConfig.Spec.APIKeySecretRef,
-			modelConfig.Namespace,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch API key secret %s/%s: %w", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef, err)
-		}
-
-		if modelApiKeySecret.Data == nil {
-			return nil, fmt.Errorf("API key secret %s/%s data not found", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef)
-		}
-
-		modelApiKey, ok := modelApiKeySecret.Data[modelConfig.Spec.APIKeySecretKey]
-		if !ok {
-			return nil, fmt.Errorf("API key not found in secret %s/%s with key %s", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef, modelConfig.Spec.APIKeySecretKey)
-		}
-		return modelApiKey, nil
-	}
-
-	// If APIKeySecretRef is empty, check for BaseURL in provider-specific config
-	providerHasBaseURL := false
-	switch modelConfig.Spec.Provider {
-	case v1alpha1.OpenAI:
-		if modelConfig.Spec.OpenAI != nil && modelConfig.Spec.OpenAI.BaseURL != "" {
-			providerHasBaseURL = true
-		}
-	case v1alpha1.Anthropic:
-		if modelConfig.Spec.Anthropic != nil && modelConfig.Spec.Anthropic.BaseURL != "" {
-			providerHasBaseURL = true
-		}
-	case v1alpha1.AzureOpenAI:
-		if modelConfig.Spec.AzureOpenAI != nil && modelConfig.Spec.AzureOpenAI.Endpoint != "" {
-			providerHasBaseURL = true
-		}
-	case v1alpha1.Ollama:
-		if modelConfig.Spec.Ollama != nil && modelConfig.Spec.Ollama.Host != "" {
-			providerHasBaseURL = true
-		}
-	}
-
-	if providerHasBaseURL {
+	// Only retrieve the secret if APIKeySecretRef is provided
+	if modelConfig.Spec.APIKeySecretRef == "" {
 		return []byte(""), nil
 	}
 
-	// If APIKeySecretRef is empty and no provider-specific BaseURL is set, return an error
-	return nil, fmt.Errorf("modelConfig %s/%s: APIKeySecretRef is empty and no provider-specific BaseURL or Endpoint is configured, one is required", modelConfig.Namespace, modelConfig.Name)
+	modelApiKeySecret := &v1.Secret{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		modelApiKeySecret,
+		modelConfig.Spec.APIKeySecretRef,
+		modelConfig.Namespace,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch API key secret %s/%s: %w", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef, err)
+	}
+
+	if modelApiKeySecret.Data == nil {
+		return nil, fmt.Errorf("API key secret %s/%s data not found", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef)
+	}
+
+	modelApiKey, ok := modelApiKeySecret.Data[modelConfig.Spec.APIKeySecretKey]
+	if !ok {
+		return nil, fmt.Errorf("API key not found in secret %s/%s with key %s", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef, modelConfig.Spec.APIKeySecretKey)
+	}
+	return modelApiKey, nil
 }
 
 func getRefFromString(ref string, parentNamespace string) types.NamespacedName {
