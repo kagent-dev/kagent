@@ -13,9 +13,9 @@ description = "kagent is a tool for building and deploying agent-based applicati
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "autogen-core>=0.5.6",
-  "autogen-agentchat>=0.5.6",
-  "autogen-ext[anthropic,azure,mcp,ollama,openai]>=0.5.6",
+  "autogen-core>=0.5.7",
+  "autogen-agentchat>=0.5.7",
+  "autogen-ext[anthropic,azure,mcp,ollama,openai]>=0.5.7",
   "openai>=1.72.0",
   "tiktoken==0.8.0",
   "python-dotenv>=1.1.0",
@@ -62,9 +62,6 @@ kagent-engine = "kagent.cli:run"
 tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]
-autogen-agentchat = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-agentchat", rev = "e9a09f039d4c490cf52f11466b0636c089b9acf3" }
-autogen-ext = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-ext", rev = "e9a09f039d4c490cf52f11466b0636c089b9acf3" }
-autogen-core = { git = "https://github.com/kagent-dev/autogen.git", subdirectory = "python/packages/autogen-core", rev = "e9a09f039d4c490cf52f11466b0636c089b9acf3" }
 kagent = { workspace = true }
 
 [tool.ruff]
