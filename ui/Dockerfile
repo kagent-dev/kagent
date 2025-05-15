@@ -11,6 +11,8 @@ RUN apk update \
 
 ### STAGE 2: python
 FROM base-os AS node-os
+ARG TOOLS_BUN_VERSION
+
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV BUN_INSTALL=/usr/local/bun
@@ -24,7 +26,7 @@ ENV PATH=$BUN_INSTALL/bin:$PATH
 # brew install oven-sh/bun/bun
 RUN --mount=type=cache,target=/cache/bun,rw \
     mkdir -p $BUN_INSTALL  \
-    && curl -fsSL https://bun.sh/install | bash \
+    && curl -fsSL https://bun.sh/install | bash -s "bun-v1.2.13" \
     && bun --version
 
 ### STAGE 2: build + ui
