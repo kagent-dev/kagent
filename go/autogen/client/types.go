@@ -55,6 +55,9 @@ type ModelsUsage struct {
 }
 
 func (m *ModelsUsage) Add(other *ModelsUsage) {
+	if other == nil {
+		return
+	}
 	m.PromptTokens += other.PromptTokens
 	m.CompletionTokens += other.CompletionTokens
 }

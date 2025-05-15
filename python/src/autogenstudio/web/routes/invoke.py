@@ -5,6 +5,7 @@ from typing import Any, Union
 from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import (
     HandoffMessage,
+    MemoryQueryEvent,
     ModelClientStreamingChunkEvent,
     StopMessage,
     TextMessage,
@@ -86,6 +87,7 @@ def format_message(message: Any) -> dict:
                 ToolCallRequestEvent,
                 ToolCallExecutionEvent,
                 LLMCallEventMessage,
+                MemoryQueryEvent,
             ),
         ):
             return message.model_dump()

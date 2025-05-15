@@ -1,13 +1,16 @@
 # api/routes/sessions.py
-import re
+import json
 from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from loguru import logger
-
-from ...datamodel import Message, Response, Run, Session, RunStatus, MessageConfig, TeamResult
-from ..deps import get_db, get_session_manager
 from pydantic import BaseModel
+
+from ...database import DatabaseManager
+from ...datamodel import Message, MessageConfig, Response, Run, RunStatus, Session, TeamResult
+from ...sessionmanager import SessionManager
+from ..deps import get_db, get_session_manager
 from .invoke import format_team_result
 
 router = APIRouter()
@@ -134,24 +137,15 @@ class InvokeRequest(BaseModel):
 
 @router.post("/{session_id}/invoke")
 async def invoke(
-    session_id: int, user_id: str, request: InvokeRequest, db=Depends(get_db), session_mgr=Depends(get_session_manager)
+    session_id: int,
+    user_id: str,
+    request: InvokeRequest,
+    db: DatabaseManager = Depends(get_db),
+    session_mgr: SessionManager = Depends(get_session_manager),
 ) -> Response:
     try:
-        run = Run(
-            session_id=session_id,
-            user_id=user_id,
-            status=RunStatus.CREATED,
-            task=MessageConfig(
-                content=request.task,
-                source="user",
-            ).model_dump(),
-            team_result={},
-        )
-        response: Response = db.upsert(run)
-        if not response.status or not response.data:
-            raise HTTPException(status_code=500, detail="Failed to create run")
-        run_id = response.data["id"]
-        result: TeamResult = await session_mgr.start(run_id, request.task)
+        run = _create_run(session_id, user_id, db, request.task)
+        result: TeamResult = await session_mgr.start(user_id, run.id, request.task)
         response = Response(status=True, data=format_team_result(result), message="Run executed successfully")
         return response
 
@@ -160,11 +154,45 @@ async def invoke(
         raise HTTPException(status_code=500, detail=f"Internal server error while invoking run: {str(e)}") from e
 
 
+def _create_run(session_id: int, user_id: str, db: DatabaseManager, task: str) -> Run:
+    run = Run(
+        session_id=session_id,
+        user_id=user_id,
+        status=RunStatus.CREATED,
+        task=MessageConfig(
+            content=task,
+            source="user",
+        ).model_dump(),
+        team_result={},
+    )
+    response: Response = db.upsert(run, return_json=False)
+    if not response.status or not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create run")
+    return response.data
+
+
 @router.post("/{session_id}/invoke/stream")
-async def stream(session_id: int, user_id: str, db=Depends(get_db), session_mgr=Depends(get_session_manager)):
-    # Create a new run
-    # Start the run
-    # Stream the run
-    # Return the run
-    """Stream a run"""
-    pass
+async def stream(
+    session_id: int,
+    user_id: str,
+    request: InvokeRequest,
+    db: DatabaseManager = Depends(get_db),
+    session_mgr: SessionManager = Depends(get_session_manager),
+):
+    async def event_generator():
+        try:
+            # Create a new run
+            run = _create_run(session_id, user_id, db, request.task)
+            # Start the run
+            async for event in session_mgr.start_stream(user_id, run.id, request.task):
+                if "task_result" in event:
+                    yield f"event: task_result\ndata: {json.dumps(event)}\n\n"
+                else:
+                    yield f"event: event\ndata: {json.dumps(event)}\n\n"
+            yield f"event: completion\ndata: {json.dumps({'type': 'completion', 'status': 'success', 'data': None})}\n\n"
+        except Exception as e:
+            logger.error(f"Error during SSE stream generation: {e}", exc_info=True)
+            error_payload = {"type": "error", "data": {"message": str(e), "details": type(e).__name__}}
+            yield f"data: {json.dumps(error_payload)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

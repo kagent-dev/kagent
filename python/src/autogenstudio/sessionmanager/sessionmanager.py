@@ -64,7 +64,9 @@ class SessionManager:
             duration=0,
         ).model_dump()
 
-    async def start(self, run_id: int, task: str | ChatMessage | Sequence[ChatMessage] | None) -> TeamResult:
+    async def start(
+        self, user_id: str, run_id: int, task: str | ChatMessage | Sequence[ChatMessage] | None
+    ) -> TeamResult:
         """Start a run"""
 
         with RunContext.populate_context(run_id=run_id):
@@ -89,6 +91,8 @@ class SessionManager:
                 if team_manager._team:
                     state = await team_manager._team.save_state()
                     await self._update_session_state(session.id, state)
+                for message in result.task_result.messages:
+                    await self._save_message(user_id, run_id, message)
                 await self._update_run(run_id, RunStatus.COMPLETE, team_result=result.model_dump())
                 return result
             except Exception as e:
@@ -96,7 +100,7 @@ class SessionManager:
                 raise e
 
     async def start_stream(
-        self, run_id: int, task: str | ChatMessage | Sequence[ChatMessage] | None
+        self, user_id: str, run_id: int, task: str | ChatMessage | Sequence[ChatMessage] | None
     ) -> AsyncGenerator[dict, None]:
         """Start streaming task execution with proper run management"""
 
@@ -104,7 +108,7 @@ class SessionManager:
             team_manager = TeamManager()
             cancellation_token = CancellationToken()
             final_result = None
-
+            session: Optional[Session] = None
             try:
                 # Update run with task and status
                 run = await self._get_run(run_id)
@@ -139,33 +143,14 @@ class SessionManager:
                             ToolCallRequestEvent,
                             ToolCallExecutionEvent,
                             LLMCallEventMessage,
+                            ModelClientStreamingChunkEvent,
+                            MemoryQueryEvent,
                         ),
                     ):
                         formatted_message = format_message(message)
                         yield formatted_message
-                        await self._save_message(run_id, message)
-                    else:
-                        formatted_message = None
-                    if formatted_message:
-                        yield formatted_message
+                        await self._save_message(user_id, run_id, message)
 
-                        # Save messages by concrete type
-                        if isinstance(
-                            message,
-                            (
-                                TextMessage,
-                                MultiModalMessage,
-                                StopMessage,
-                                HandoffMessage,
-                                ToolCallRequestEvent,
-                                ToolCallExecutionEvent,
-                                LLMCallEventMessage,
-                            ),
-                        ):
-                            await self._save_message(run_id, message)
-                        # Capture final result if it's a TeamResult
-                        elif isinstance(message, TeamResult):
-                            final_result = message.model_dump()
                 if final_result:
                     await self._update_run(run_id, RunStatus.COMPLETE, team_result=final_result)
                 else:
@@ -187,17 +172,17 @@ class SessionManager:
                 await self._update_run(run_id, RunStatus.ERROR, team_result=error_result, error=str(e))
                 yield {"type": "error", "data": error_result}
                 # Save team state to session
-                if team_manager._team:
+                if team_manager._team and session:
                     state = await team_manager._team.save_state()
                     await self._update_session_state(session.id, state)
             finally:
                 # Save team state to session
-                if team_manager._team:
+                if team_manager._team and session:
                     state = await team_manager._team.save_state()
                     await self._update_session_state(session.id, state)
 
     async def _save_message(
-        self, run_id: int, message: Union[BaseAgentEvent | BaseChatMessage, BaseChatMessage]
+        self, user_id: str, run_id: int, message: Union[BaseAgentEvent | BaseChatMessage, BaseChatMessage]
     ) -> None:
         """Save a message to the database"""
 
@@ -207,7 +192,7 @@ class SessionManager:
                 session_id=run.session_id,
                 run_id=run_id,
                 config=self._convert_images_in_dict(message.model_dump()),
-                user_id=None,  # You might want to pass this from somewhere
+                user_id=user_id,
             )
             self.db_manager.upsert(db_message)
 

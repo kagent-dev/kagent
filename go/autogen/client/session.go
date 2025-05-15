@@ -1,6 +1,10 @@
 package client
 
-import "fmt"
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+)
 
 func (c *Client) ListSessions(userID string) ([]*Session, error) {
 	var sessions []*Session
@@ -26,6 +30,38 @@ func (c *Client) InvokeSession(sessionID int, userID string, task string) (*Team
 		Task string `json:"task"`
 	}{Task: task}, &result)
 	return &result, err
+}
+
+type SseEvent struct {
+	Event string `json:"event"`
+	Data  []byte `json:"data"`
+}
+
+func (c *Client) InvokeSessionStream(sessionID int, userID string, task string) (<-chan *SseEvent, error) {
+	resp, err := c.startRequest("POST", fmt.Sprintf("/sessions/%d/invoke/stream?user_id=%s", sessionID, userID), struct {
+		Task string `json:"task"`
+	}{Task: task})
+	if err != nil {
+		return nil, err
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	ch := make(chan *SseEvent)
+	go func() {
+		defer close(ch)
+		currentEvent := &SseEvent{}
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if bytes.Contains(line, []byte("event")) {
+				currentEvent.Event = string(bytes.TrimPrefix(line, []byte("event:")))
+			}
+			if bytes.Contains(line, []byte("data")) {
+				currentEvent.Data = bytes.TrimPrefix(line, []byte("data:"))
+				ch <- currentEvent
+				currentEvent = &SseEvent{}
+			}
+		}
+	}()
+	return ch, nil
 }
 
 func (c *Client) DeleteSession(sessionID int, userID string) error {
