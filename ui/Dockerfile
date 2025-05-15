@@ -31,12 +31,16 @@ RUN --mount=type=cache,target=/cache/bun,rw \
 FROM --platform=$BUILDPLATFORM node-os AS ui-builder
 
 WORKDIR /app/ui
+
+#copy the package.json and bun.lockb files
 COPY package*.json ./
 RUN --mount=type=cache,target=/cache/bun,rw \
     bun install -- production --prefer-offline
 
+#copy the rest of the files
 COPY . .
 RUN --mount=type=cache,target=/cache/bun,rw \
+    bun install -- production --prefer-offline \
     && bun run build                        \
     && mkdir -p /app/ui/public
 
