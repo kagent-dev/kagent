@@ -38,13 +38,13 @@ WORKDIR /app/ui
 #copy the package.json and bun.lockb files
 COPY package*.json ./
 RUN --mount=type=cache,target=/cache/bun,rw \
-    bun install -- production --prefer-offline
+    bun install --frozen-lockfile --production
 
 #copy the rest of the files
 COPY . .
-RUN --mount=type=cache,target=/cache/bun,rw \
-    bun install -- production --prefer-offline \
-    && bun run build                        \
+RUN --mount=type=cache,target=/cache/bun,rw    \
+    bun install --frozen-lockfile --production \
+    && bun run build                           \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: final
