@@ -40,16 +40,16 @@ WORKDIR /app/ui
 
 #copy the package.json
 COPY package*.json .
-RUN --mount=type=cache,target=/cache/bun,rw            \
-    echo "Running install : $LOCALARCH -> $TARGETARCH" \
+RUN --mount=type=cache,target=/cache/bun,rw             \
+    echo "Running install : $LOCALARCH -> $TARGETARCH"  \
     && bun install
 
 #copy the rest of the files
 COPY . .
-RUN --mount=type=cache,target=/cache/bun,rw           \
-    bun install                                       \
-    echo "Running build : $LOCALARCH -> $TARGETARCH"  \
-    && bun run build  --no-lint                       \
+RUN --mount=type=cache,target=/cache/bun,rw             \
+    echo "Running build : $LOCALARCH -> $TARGETARCH"    \
+    && bun install                                      \
+    && bun run build  --no-lint                         \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: final
