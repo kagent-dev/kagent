@@ -1,6 +1,5 @@
 ### STAGE 1: base image
-ARG TARGETARCH
-ARG LOCALARCH=${TARGETARCH}
+ARG LOCALARCH=amd64
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-arm64
@@ -17,6 +16,7 @@ RUN apk update \
 ### STAGE 2: python
 FROM base-os AS node-os
 ARG TOOLS_BUN_VERSION
+ARG LOCALARCH
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUN_INSTALL_CACHE_DIR=/cache/bun
@@ -33,23 +33,23 @@ RUN --mount=type=cache,target=/cache/bun,rw \
     && bun --version
 
 ### STAGE 2: build + ui
-ARG TARGETARCH
-ARG LOCALARCH
 FROM --platform=linux/${LOCALARCH} node-os AS ui-builder
+ARG LOCALARCH
 
 WORKDIR /app/ui
 
-#copy the package.json and bun.lockb files
-COPY package*.json ./
-RUN --mount=type=cache,target=/cache/bun,rw \
-    echo "Running bun install : $LOCALARCH -> $TARGETARCH" \
+#copy the package.json
+COPY package*.json .
+RUN --mount=type=cache,target=/cache/bun,rw            \
+    echo "Running install : $LOCALARCH -> $TARGETARCH" \
     && bun install
 
 #copy the rest of the files
 COPY . .
-RUN --mount=type=cache,target=/cache/bun,rw     \
-    bun install                                 \
-    && bun run build  --no-lint                 \
+RUN --mount=type=cache,target=/cache/bun,rw           \
+    bun install                                       \
+    echo "Running build : $LOCALARCH -> $TARGETARCH"  \
+    && bun run build  --no-lint                       \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: final

@@ -1,12 +1,15 @@
 ### STAGE 1: base image
-ARG BUILDARCH
+ARG LOCALARCH=amd64
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/go:latest AS base-os
 
-ARG BUILDPLATFORM
+FROM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS base-arm64
+FROM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS base-amd64
+FROM base-${TARGETARCH} AS base-os
+
+FROM --platform=linux/${LOCALARCH} base-os AS builder
 ARG TARGETPLATFORM
 ARG TARGETARCH
-ARG TARGETOS
+ARG LOCALARCH
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -14,7 +17,9 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
-RUN go mod download
+RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
+    --mount=type=cache,target=/root/.cache/go-build,rw \
+     go mod download
 
 # Copy the go source
 COPY autogen autogen
@@ -25,13 +30,16 @@ COPY controller controller
 # was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
 # the docker BUILDPLATFORM arg will be linux/arm64 when for Apple x86 it will be linux/amd64. Therefore,
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager controller/cmd/main.go
+RUN --mount=type=cache,target=/root/go/pkg/mod,rw         \
+    --mount=type=cache,target=/root/.cache/go-build,rw    \
+    echo "Running build : $LOCALARCH -> $TARGETARCH"      \
+     && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager controller/cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
-COPY --from=base-os /workspace/manager .
+COPY --from=builder /workspace/manager .
 USER 65532:65532
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent

@@ -35,7 +35,7 @@ LOCALARCH=$(shell uname -m | sed 's/aarch64/arm64/g' | sed 's/x86_64/amd64/g')
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
-TOOLS_BUN_VERSION ?= 1.2.13
+TOOLS_BUN_VERSION ?= 1.2.12
 TOOLS_K9S_VERSION ?= 0.50.4
 TOOLS_KIND_VERSION ?= 0.27.0
 TOOLS_NODE_VERSION ?= 22.15.0
