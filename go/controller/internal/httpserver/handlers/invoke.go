@@ -120,31 +120,6 @@ func (h *InvokeHandler) HandleInvokeAgentStream(w ErrorResponseWriter, r *http.R
 	}
 }
 
-// HandleStartAgent processes asynchronous agent execution requests.
-// func (h *InvokeHandler) HandleStartAgent(w ErrorResponseWriter, r *http.Request) {
-// 	log := ctrllog.FromContext(r.Context()).WithName("invoke-handler").WithValues("operation", "start")
-
-// 	agentID, req, err := h.extractAgentParams(w, r, log)
-// 	if err != nil {
-// 		return
-// 	}
-
-// 	session, _, err := h.createSessionAndRun(w, agentID, req.UserID, log)
-// 	if err != nil {
-// 		return
-// 	}
-
-// 	log.Info("Asynchronous request - returning immediately")
-// 	response := InvokeResponse{
-// 		SessionID: fmt.Sprintf("%d", session.ID),
-// 		Status:    "processing",
-// 		StatusURL: fmt.Sprintf("/api/sessions/%d", session.ID),
-// 	}
-
-// 	log.Info("Successfully started agent")
-// 	RespondWithJSON(w, http.StatusAccepted, response)
-// }
-
 // extractAgentParams parses and validates agent ID and user ID from the request.
 func (h *InvokeHandler) extractAgentParams(w ErrorResponseWriter, r *http.Request, log logr.Logger) (int, *InvokeRequest, error) {
 	agentIDStr, err := GetPathParam(r, "agentId")
@@ -177,40 +152,4 @@ func (h *InvokeHandler) extractAgentParams(w ErrorResponseWriter, r *http.Reques
 	log.WithValues("userID", userID)
 
 	return agentID, &invokeRequest, nil
-}
-
-// createSessionAndRun creates a session and run for the specified agent.
-func (h *InvokeHandler) createSessionAndRun(w ErrorResponseWriter, agentID int, userID string, log logr.Logger) (*autogen_client.Session, *autogen_client.CreateRunResult, error) {
-	if h.client == nil {
-		panic("No client available for agent execution - this is a critical error")
-	}
-
-	sessionRequest := &autogen_client.CreateSession{
-		UserID: userID,
-		Name:   fmt.Sprintf("Invocation of agent %d", agentID),
-		TeamID: agentID,
-	}
-
-	log.V(1).Info("Creating session for agent execution")
-
-	session, err := h.client.CreateSession(sessionRequest)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
-		return nil, nil, err
-	}
-
-	runRequest := &autogen_client.CreateRunRequest{
-		UserID:    userID,
-		SessionID: session.ID,
-	}
-
-	log.V(1).Info("Creating run for agent execution")
-	run, err := h.client.CreateRun(runRequest)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to create run", err))
-		return nil, nil, err
-	}
-
-	log.WithValues("sessionID", session.ID, "runID", run.ID)
-	return session, run, nil
 }
