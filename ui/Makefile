@@ -8,6 +8,14 @@ build:
 	bun install
 	bun run build --no-lint
 
+.PHONY: clean
+clean:
+	rm -rf node_modules
+	rm -f bun.lockb
+	rm -rf dist
+	rm -rf .bun
+	rm -rf .cache
+
 .PHONY: install-bun
 install-bun:
 	brew install bun
