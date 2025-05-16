@@ -34,6 +34,7 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
+TOOLS_BUN_VERSION ?= 1.2.12
 TOOLS_K9S_VERSION ?= 0.50.4
 TOOLS_KIND_VERSION ?= 0.27.0
 TOOLS_NODE_VERSION ?= 22.15.0
@@ -42,9 +43,10 @@ TOOLS_ARGO_CD_VERSION ?= 3.0.0
 TOOLS_KUBECTL_VERSION ?= 1.33.4
 
 # build args
-TOOLS_IMAGE_BUILD_ARGS = --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
+TOOLS_IMAGE_BUILD_ARGS =  --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_K9S_VERSION=$(TOOLS_K9S_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KIND_VERSION=$(TOOLS_KIND_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
@@ -76,7 +78,17 @@ check-openai-key:
 		exit 1; \
 	fi
 
-# Build targets
+.PHONY: build-all  # build all all using buildx
+build-all: BUILDER_NAME ?= kagent-builder
+build-all: BUILDER ?=docker buildx --builder $(BUILDER_NAME)
+build-all: BUILD_ARGS ?= --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
+build-all:
+	#docker buildx rm $(BUILDER_NAME) || :
+	docker run --privileged --rm tonistiigi/binfmt --install all || :
+	docker buildx ls | grep $(BUILDER_NAME)  || docker buildx create --name $(BUILDER_NAME) --use || :
+	$(BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile ./go
+	$(BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile ./ui
+	$(BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
@@ -246,7 +258,7 @@ helm-publish: helm-version
 	helm push kgateway-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
 
 .PHONY: kagent-cli-install
-kagent-cli-install: build-cli-local helm-version kind-load-docker-images
+kagent-cli-install: build-cli-local kind-load-docker-images
 kagent-cli-install:
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
 

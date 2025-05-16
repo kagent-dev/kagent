@@ -1,0 +1,19 @@
+[install]
+
+# equivalent to `--production` flag
+production = true
+
+# whether to install devDependencies
+dev = true
+
+# whether to install optionalDependencies
+optional = true
+
+# whether to install peerDependencies
+peer = false
+
+# equivalent to `--save-text-lockfile` flag
+saveTextLockfile = false
+
+# equivalent to `--frozen-lockfile` flag
+frozenLockfile = true
