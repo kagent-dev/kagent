@@ -25,7 +25,7 @@ func VersionCmd(c *ishell.Context) {
 		return
 	}
 
-	client := autogen_client.New(cfg.APIURL, cfg.WSURL)
+	client := autogen_client.New(cfg.APIURL)
 	version, err := client.GetVersion()
 	if err != nil {
 		c.Println("Warning: Could not fetch backend version")

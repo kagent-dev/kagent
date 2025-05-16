@@ -42,7 +42,7 @@ var _ = Describe("E2e", func() {
 		ctx = context.Background()
 
 		// Initialize agent client
-		agentClient = autogen_client.New(APIEndpoint, WSEndpoint)
+		agentClient = autogen_client.New(APIEndpoint)
 
 		// Initialize controller-runtime client
 		cfg, err := config.GetConfig()

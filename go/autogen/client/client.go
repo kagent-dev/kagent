@@ -12,17 +12,15 @@ import (
 
 type Client struct {
 	BaseURL    string
-	WSURL      string
 	HTTPClient *http.Client
 }
 
-func New(baseURL, wsURL string) *Client {
+func New(baseURL string) *Client {
 	// Ensure baseURL doesn't end with a slash
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	return &Client{
 		BaseURL: baseURL,
-		WSURL:   wsURL,
 		HTTPClient: &http.Client{
 			Timeout: time.Minute * 30,
 		},

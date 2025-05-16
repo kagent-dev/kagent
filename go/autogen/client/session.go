@@ -16,10 +16,25 @@ func (c *Client) CreateSession(session *CreateSession) (*Session, error) {
 	return &result, err
 }
 
-func (c *Client) GetSession(sessionID int, userID string) (*Session, error) {
+func (c *Client) GetSessionById(sessionID int, userID string) (*Session, error) {
 	var session Session
 	err := c.doRequest("GET", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), nil, &session)
 	return &session, err
+}
+
+func (c *Client) GetSession(sessionLabel string, userID string) (*Session, error) {
+	allSessions, err := c.ListSessions(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, session := range allSessions {
+		if session.Name == sessionLabel {
+			return session, nil
+		}
+	}
+
+	return nil, nil
 }
 
 func (c *Client) InvokeSession(sessionID int, userID string, task string) (*TeamResult, error) {
