@@ -122,14 +122,15 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathModelConfig+"/{configName}", adaptHandler(s.handlers.ModelConfig.HandleDeleteModelConfig)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathModelConfig+"/{configName}", adaptHandler(s.handlers.ModelConfig.HandleUpdateModelConfig)).Methods(http.MethodPut)
 
-	// Runs
-	s.router.HandleFunc(APIPathRuns, adaptHandler(s.handlers.Runs.HandleCreateRun)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathSessions+"/{sessionID}/runs", adaptHandler(s.handlers.Runs.HandleListSessionRuns)).Methods(http.MethodGet)
-
 	// Sessions
 	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleListSessions)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleCreateSession)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathSessions+"/{sessionID}", adaptHandler(s.handlers.Sessions.HandleGetSession)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions+"/{sessionID}/invoke", adaptHandler(s.handlers.Sessions.HandleSessionInvoke)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{sessionID}/invoke/stream", adaptHandler(s.handlers.Sessions.HandleSessionInvokeStream)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{sessionID}/messages", adaptHandler(s.handlers.Sessions.HandleListSessionMessages)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions+"/{sessionID}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathSessions+"/{sessionID}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut)
 
 	// Tools
 	s.router.HandleFunc(APIPathTools, adaptHandler(s.handlers.Tools.HandleListTools)).Methods(http.MethodGet)
@@ -148,7 +149,7 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Agents
 	s.router.HandleFunc(APIPathAgents+"/{agentId}/invoke", adaptHandler(s.handlers.Invoke.HandleInvokeAgent)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgents+"/{agentId}/start", adaptHandler(s.handlers.Invoke.HandleStartAgent)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgents+"/{agentId}/invoke/stream", adaptHandler(s.handlers.Invoke.HandleInvokeAgentStream)).Methods(http.MethodPost)
 
 	// Providers
 	s.router.HandleFunc(APIPathProviders+"/models", adaptHandler(s.handlers.Provider.HandleListSupportedModelProviders)).Methods(http.MethodGet)

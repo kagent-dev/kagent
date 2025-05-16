@@ -1,4 +1,4 @@
-import { Component, RunStatus, ToolConfig } from "@/types/datamodel";
+import { Component, ToolConfig } from "@/types/datamodel";
 
 export interface CreateAgentFormData {
   name: string;
@@ -23,16 +23,6 @@ export interface CreateSessionRequest {
   name?: string;
   user_id: string;
   team_id: string;
-}
-
-export interface CreateRunRequest {
-  user_id: string;
-  session_id?: number;
-}
-
-export interface CreateRunResponse {
-  run_id: string;
-  status: RunStatus;
 }
 
 export interface BaseResponse<T> {

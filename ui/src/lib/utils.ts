@@ -1,8 +1,8 @@
 import { LLMCall } from "@/components/chat/LLMCallModal";
-import { FunctionCall, FunctionExecutionResult, ImageContent, TeamResult } from "@/types/datamodel";
+import { ImageContent, TaskResultMessage } from "@/types/datamodel";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { MemoryQueryEvent, TextMessageConfig } from "@/types/datamodel";
+import type { CompletionMessage, MemoryQueryEvent, ModelClientStreamingChunkEvent, TextMessageConfig, ToolCallExecutionEvent, ToolCallRequestEvent, ToolCallSummaryMessage } from "@/types/datamodel";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -150,9 +150,16 @@ export const createRFC1123ValidName = (parts: string[]): string => {
 };
 
 export const messageUtils = {
-  isToolCallContent(content: unknown): content is FunctionCall[] {
-    if (!Array.isArray(content) || content.length === 0) return false;
-    return content.every((item) => typeof item === "object" && item !== null && "id" in item && "arguments" in item && "name" in item);
+  isToolCallRequestEvent(content: unknown): content is ToolCallRequestEvent {
+    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallRequestEvent";
+  },
+
+  isToolCallExecutionEvent(content: unknown): content is ToolCallExecutionEvent {
+    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallExecutionEvent";
+  },
+
+  isToolCallSummaryMessage(content: unknown): content is ToolCallSummaryMessage {
+    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallSummaryMessage";
   },
 
   isMultiModalContent(content: unknown): content is (string | ImageContent)[] {
@@ -160,9 +167,12 @@ export const messageUtils = {
     return content.every((item) => typeof item === "string" || (typeof item === "object" && item !== null && ("url" in item || "data" in item)));
   },
 
-  isFunctionExecutionResult(content: unknown): content is FunctionExecutionResult[] {
-    if (!Array.isArray(content)) return false;
-    return content.every((item) => typeof item === "object" && item !== null && "call_id" in item && "content" in item);
+  isCompletionMessage(content: unknown): content is CompletionMessage {
+    return typeof content === "object" && content !== null && "type" in content && content.type === "completion";
+  },
+
+  isStreamingMessage(content: unknown): content is ModelClientStreamingChunkEvent {
+    return typeof content === "object" && content !== null && "type" in content && content.type === "ModelClientStreamingChunkEvent";
   },
 
   isMemoryQueryEvent(content: unknown): content is MemoryQueryEvent {
@@ -187,7 +197,7 @@ export const messageUtils = {
     }
   },
 
-  isTeamResult(content: unknown): content is TeamResult {
+  isTaskResultMessage(content: unknown): content is TaskResultMessage {
     return typeof content === "object" && content !== null && "task_result" in content && "duration" in content && "usage" in content;
   },
 

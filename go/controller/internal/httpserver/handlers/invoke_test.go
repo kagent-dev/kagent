@@ -183,50 +183,6 @@ var _ = Describe("InvokeHandler", func() {
 			Expect(response.Response).NotTo(BeEmpty())
 		})
 
-		It("should handle asynchronous invocation successfully", func() {
-			mockClient.createSessionFunc = func(req *autogen_client.CreateSession) (*autogen_client.Session, error) {
-				return &autogen_client.Session{
-					ID:      42,
-					UserID:  req.UserID,
-					Version: "1.0",
-					TeamID:  req.TeamID,
-					Name:    req.Name,
-				}, nil
-			}
-
-			mockClient.createRunFunc = func(req *autogen_client.CreateRunRequest) (*autogen_client.CreateRunResult, error) {
-				return &autogen_client.CreateRunResult{
-					ID: 123,
-				}, nil
-			}
-
-			agentID := "1"
-			reqBody := handlers.InvokeRequest{
-				Message: "Test message",
-				UserID:  "test-user",
-			}
-			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/start", bytes.NewBuffer(jsonBody))
-			req.Header.Set("Content-Type", "application/json")
-
-			router := mux.NewRouter()
-			router.HandleFunc("/api/agents/{agentId}/start", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleStartAgent(responseRecorder, r)
-			}).Methods("POST")
-
-			router.ServeHTTP(responseRecorder, req)
-
-			Expect(responseRecorder.Code).To(Equal(http.StatusOK))
-
-			var response handlers.InvokeResponse
-			decodeErr := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
-			Expect(decodeErr).NotTo(HaveOccurred())
-
-			Expect(response.SessionID).To(Equal("42"))
-			Expect(response.Status).To(Equal("processing"))
-			Expect(response.StatusURL).To(Equal("/api/sessions/42"))
-		})
-
 		It("should handle errors in session creation", func() {
 			mockClient.createSessionFunc = func(req *autogen_client.CreateSession) (*autogen_client.Session, error) {
 				return nil, fmt.Errorf("session creation failed")

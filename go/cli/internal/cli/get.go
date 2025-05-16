@@ -114,7 +114,7 @@ func GetSessionCmd(c *ishell.Context) {
 			c.Printf("Failed to convert session name to ID: %v\n", err)
 			return
 		}
-		session, err := client.GetSession(sessionID, cfg.UserID)
+		session, err := client.GetSessionById(sessionID, cfg.UserID)
 		if err != nil {
 			c.Printf("Failed to get session %s: %v\n", resourceName, err)
 			return

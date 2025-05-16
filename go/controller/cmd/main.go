@@ -84,7 +84,6 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var autogenStudioBaseURL string
-	var autogenStudioWsURL string
 	var defaultModelConfig types.NamespacedName
 	var tlsOpts []func(*tls.Config)
 	var httpServerAddr string
@@ -110,7 +109,6 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 
 	flag.StringVar(&autogenStudioBaseURL, "autogen-base-url", "http://127.0.0.1:8081/api", "The base url of the Autogen Studio server.")
-	flag.StringVar(&autogenStudioWsURL, "autogen-ws-url", "ws://127.0.0.1:8081/api/ws", "The base url of the Autogen Studio websocket server.")
 
 	flag.StringVar(&defaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
 	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
@@ -249,7 +247,6 @@ func main() {
 
 	autogenClient := autogen_client.New(
 		autogenStudioBaseURL,
-		autogenStudioWsURL,
 	)
 
 	// wait for autogen to become ready on port 8081 before starting the manager

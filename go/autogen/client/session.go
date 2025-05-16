@@ -1,6 +1,8 @@
 package client
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func (c *Client) ListSessions(userID string) ([]*Session, error) {
 	var sessions []*Session
@@ -14,10 +16,44 @@ func (c *Client) CreateSession(session *CreateSession) (*Session, error) {
 	return &result, err
 }
 
-func (c *Client) GetSession(sessionID int, userID string) (*Session, error) {
+func (c *Client) GetSessionById(sessionID int, userID string) (*Session, error) {
 	var session Session
 	err := c.doRequest("GET", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), nil, &session)
 	return &session, err
+}
+
+func (c *Client) GetSession(sessionLabel string, userID string) (*Session, error) {
+	allSessions, err := c.ListSessions(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, session := range allSessions {
+		if session.Name == sessionLabel {
+			return session, nil
+		}
+	}
+
+	return nil, fmt.Errorf("session not found: %s", sessionLabel)
+}
+
+func (c *Client) InvokeSession(sessionID int, userID string, task string) (*TeamResult, error) {
+	var result TeamResult
+	err := c.doRequest("POST", fmt.Sprintf("/sessions/%d/invoke?user_id=%s", sessionID, userID), struct {
+		Task string `json:"task"`
+	}{Task: task}, &result)
+	return &result, err
+}
+
+func (c *Client) InvokeSessionStream(sessionID int, userID string, task string) (<-chan *SseEvent, error) {
+	resp, err := c.startRequest("POST", fmt.Sprintf("/sessions/%d/invoke/stream?user_id=%s", sessionID, userID), struct {
+		Task string `json:"task"`
+	}{Task: task})
+	if err != nil {
+		return nil, err
+	}
+	ch := streamSseResponse(resp.Body)
+	return ch, nil
 }
 
 func (c *Client) DeleteSession(sessionID int, userID string) error {
@@ -36,4 +72,10 @@ func (c *Client) ListSessionRuns(sessionID int, userID string) ([]*Run, error) {
 		result = append(result, &run)
 	}
 	return result, err
+}
+
+func (c *Client) UpdateSession(sessionID int, userID string, session *Session) (*Session, error) {
+	var updatedSession Session
+	err := c.doRequest("PUT", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), session, &updatedSession)
+	return &updatedSession, err
 }

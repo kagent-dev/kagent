@@ -1,23 +1,9 @@
 "use server";
 
 import { BaseResponse, CreateSessionRequest } from "@/lib/types";
-import { Run, Session } from "@/types/datamodel";
+import {  Session, AgentMessageConfig } from "@/types/datamodel";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-
-/**
- * Gets all runs for a session
- * @param sessionId The session ID
- * @returns A promise with the session runs
- */
-export async function getSessionRuns(sessionId: string): Promise<BaseResponse<Run[]>> {
-  try {
-    const data = await fetchApi<Run[]>(`/sessions/${sessionId}/runs`);
-    return { success: true, data };
-  } catch (error) {
-    return createErrorResponse<Run[]>(error, "Error getting session runs");
-  }
-}
 
 /**
  * Deletes a session
@@ -28,9 +14,6 @@ export async function deleteSession(sessionId: number): Promise<BaseResponse<voi
   try {
     await fetchApi(`/sessions/${sessionId}`, {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
     });
 
     revalidatePath("/");
@@ -58,10 +41,11 @@ export async function getSession(sessionId: string): Promise<BaseResponse<Sessio
  * Gets all sessions
  * @returns A promise with all sessions
  */
-export async function getSessions(): Promise<BaseResponse<Session[]>> {
+export async function getSessions(agentId: number): Promise<BaseResponse<Session[]>> {
   try {
     const data = await fetchApi<Session[]>(`/sessions`);
-    return { success: true, data };
+    const filteredSessions = data.filter((session) => Number(session.team_id) === Number(agentId));
+    return { success: true, data: filteredSessions };
   } catch (error) {
     return createErrorResponse<Session[]>(error, "Error getting sessions");
   }
@@ -82,6 +66,7 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
       body: JSON.stringify({
         user_id: session.user_id,
         team_id: Number(session.team_id),
+        name: session.name,
       }),
     });
 
@@ -89,9 +74,69 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
       throw new Error("Failed to create session");
     }
 
-    revalidatePath(`/agents/${response.team_id}/chat`);
     return { success: true, data: response };
   } catch (error) {
     return createErrorResponse<Session>(error, "Error creating session");
+  }
+}
+
+/**
+ * Gets all messages for a session
+ * @param sessionId The session ID
+ * @returns A promise with the session messages
+ */
+export async function getSessionMessages(sessionId: string): Promise<BaseResponse<AgentMessageConfig[]>> {
+  try {
+    const data = await fetchApi<AgentMessageConfig[]>(`/sessions/${sessionId}/messages`);
+    return { success: true, data };
+  } catch (error) {
+    return createErrorResponse<AgentMessageConfig[]>(error, "Error getting session messages");
+  }
+}
+
+/**
+ * Check if a session exists
+ * @param sessionId The session ID to check
+ * @returns A promise with boolean indicating if session exists
+ */
+export async function checkSessionExists(sessionId: string): Promise<BaseResponse<boolean>> {
+  try {
+    const response = await fetchApi<Session>(`/sessions/${sessionId}`);
+    return { success: true, data: !!response };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (error: any) {
+    // If we get a 404, return success: true but data: false
+    if (error?.status === 404) {
+      return { success: true, data: false };
+    }
+    return createErrorResponse<boolean>(error, "Error checking session");
+  }
+}
+
+/**
+ * Updates a session
+ * @param session The session to update
+ * @returns A promise with the updated session
+ */
+export async function updateSession(session: Session): Promise<BaseResponse<Session>> {
+  try {
+    const sessionToUpdate = {
+      ...session,
+      team_id: Number(session.team_id)
+    };
+
+    const response = await fetchApi<Session>(`/sessions/${session.id}`, {
+      method: "PUT",
+      body: JSON.stringify(sessionToUpdate),
+    });
+
+    if (!response) {
+      throw new Error("Failed to update session");
+    }
+
+    revalidatePath("/");
+    return { success: true, data: response };
+  } catch (error) {
+    return createErrorResponse<Session>(error, "Error updating session");
   }
 }

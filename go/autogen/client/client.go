@@ -12,17 +12,15 @@ import (
 
 type Client struct {
 	BaseURL    string
-	WSURL      string
 	HTTPClient *http.Client
 }
 
-func New(baseURL, wsURL string) *Client {
+func New(baseURL string) *Client {
 	// Ensure baseURL doesn't end with a slash
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	return &Client{
 		BaseURL: baseURL,
-		WSURL:   wsURL,
 		HTTPClient: &http.Client{
 			Timeout: time.Minute * 30,
 		},
@@ -42,12 +40,12 @@ func (c *Client) GetVersion() (string, error) {
 	return result.Version, nil
 }
 
-func (c *Client) doRequest(method, path string, body interface{}, result interface{}) error {
+func (c *Client) startRequest(method, path string, body interface{}) (*http.Response, error) {
 	var bodyReader *bytes.Reader
 	if body != nil {
 		bodyBytes, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("error marshaling request body: %w", err)
+			return nil, fmt.Errorf("error marshaling request body: %w", err)
 		}
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
@@ -67,12 +65,16 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 		req, err = http.NewRequest(method, url, nil)
 	}
 	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
+		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.HTTPClient.Do(req)
+	return c.HTTPClient.Do(req)
+}
+
+func (c *Client) doRequest(method, path string, body interface{}, result interface{}) error {
+	resp, err := c.startRequest(method, path, body)
 	if err != nil {
 		return fmt.Errorf("error making request: %w", err)
 	}

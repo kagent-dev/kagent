@@ -1,32 +1,31 @@
 import { messageUtils } from "@/lib/utils";
-import { Message, Run } from "@/types/datamodel";
+import { AgentMessageConfig } from "@/types/datamodel";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import LLMCallModal from "@/components/chat/LLMCallModal";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import MemoryQueryDisplay from "./MemoryQueryDisplay";
+import KagentLogo from "../kagent-logo";
 
 interface ChatMessageProps {
-  message: Message;
-  run: Run | null;
+  message: AgentMessageConfig;
+  allMessages: AgentMessageConfig[];
 }
 
-function SingleMessage({ source, message, isStreaming }: { source: string; message: string; isStreaming: boolean }) {
-  return (
-    <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${source === "user" ? "border-l-blue-500" : "border-l-violet-500"}`}>
-      <div className="flex flex-col gap-1 w-full">
-        <div className="text-xs font-bold">{source}</div>
-        <TruncatableText content={message} isStreaming={isStreaming} className="break-all text-primary-foreground" />
-      </div>
-    </div>
-  );
-}
-
-export default function ChatMessage({ message, run }: ChatMessageProps) {
-  if (!message?.config) {
+export default function ChatMessage({ message, allMessages }: ChatMessageProps) {
+  if (!message) {
     return null;
   }
 
-  const { content: messageContent, source } = message.config;
+  // We also ignroe the task_result messages (for now)
+  if (messageUtils.isTaskResultMessage(message) || messageUtils.isStreamingMessage(message) || messageUtils.isCompletionMessage(message)) {
+    return null;
+  }
+
+  if (messageUtils.isToolCallSummaryMessage(message) || (messageUtils.isToolCallRequestEvent(message) || messageUtils.isToolCallExecutionEvent(message))) {
+    return <ToolCallDisplay currentMessage={message} allMessages={allMessages} />;
+  }
+
+  const { content, source } = message;
 
   // Filter out system messages
   // TODO: Decide whether we want to filter out som agent
@@ -34,31 +33,24 @@ export default function ChatMessage({ message, run }: ChatMessageProps) {
     return null;
   }
 
-  if (messageUtils.isMemoryQueryEvent(message.config)) {
-   return <MemoryQueryDisplay currentMessage={message} />
+  if (messageUtils.isMemoryQueryEvent(message)) {
+    return <MemoryQueryDisplay currentMessage={message} />
   }
 
-  // Handle special message types
-  if (messageUtils.isTeamResult(message.config)) {
-    return (
-      <div className="text-sm p-4">
-        <span className="font-semibold">Task completed</span>
-        <ul className="mt-2">
-          <li>Stop reason: {message.config.task_result.stop_reason}</li>
-          <li>Duration: {Math.floor(message.config.duration)} seconds</li>
-          <li>Messages sent: {message.config.task_result.messages.length}</li>
-        </ul>
-      </div>
-    );
+
+  if (messageUtils.isLlmCallEvent(message)) {
+    return <LLMCallModal content={String(message)} />;
   }
 
-  if (messageUtils.isFunctionExecutionResult(messageContent) || (messageUtils.isToolCallContent(messageContent) && run)) {
-    return <ToolCallDisplay currentMessage={message} currentRun={run} />;
-  }
 
-  if (messageUtils.isLlmCallEvent(messageContent)) {
-    return <LLMCallModal content={String(messageContent)} />;
-  }
+  return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${source === "user" ? "border-l-blue-500" : "border-l-violet-500"}`}>
+    <div className="flex flex-col gap-1 w-full">
+      {source !== "user" ? <div className="flex items-center gap-1">
+        <KagentLogo className="w-4 h-4" />
+        <div className="text-xs font-bold">{source}</div>
+      </div> : <div className="text-xs font-bold">{source}</div>}
+      <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
+    </div>
+  </div>
 
-  return <SingleMessage source={source} message={String(messageContent)} isStreaming={false} />;
 }

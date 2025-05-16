@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -88,7 +90,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	log = log.WithValues("userID", userID)
 
 	log.V(1).Info("Getting session from Autogen")
-	session, err := h.AutogenClient.GetSession(sessionID, userID)
+	session, err := h.AutogenClient.GetSessionById(sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get session", err))
 		return
@@ -101,4 +103,165 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 
 	log.Info("Successfully retrieved session")
 	RespondWithJSON(w, http.StatusOK, session)
+}
+
+func (h *SessionsHandler) HandleSessionInvoke(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "invoke")
+
+	sessionID, err := GetIntPathParam(r, "sessionID")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("sessionID", sessionID)
+
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to read request body", err))
+		return
+	}
+
+	result, err := h.AutogenClient.InvokeSession(sessionID, userID, string(body))
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to invoke session", err))
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, result)
+}
+
+func (h *SessionsHandler) HandleSessionInvokeStream(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "invoke-stream")
+
+	sessionID, err := GetIntPathParam(r, "sessionID")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("sessionID", sessionID)
+
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to read request body", err))
+		return
+	}
+
+	ch, err := h.AutogenClient.InvokeSessionStream(sessionID, userID, string(body))
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to invoke session", err))
+		return
+	}
+
+	for event := range ch {
+		w.Write([]byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event.Event, event.Data)))
+	}
+}
+
+// HandleListSessionMessages handles GET /api/sessions/{sessionID}/messages requests
+func (h *SessionsHandler) HandleListSessionMessages(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "list-session-messages")
+
+	sessionID, err := GetIntPathParam(r, "sessionID")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("sessionID", sessionID)
+
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	log.V(1).Info("Listing runs for session from Autogen")
+	runs, err := h.AutogenClient.ListSessionRuns(sessionID, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list session runs", err))
+		return
+	}
+
+	// Collect the list of configs within runs and messages
+	configs := []autogen_client.TaskMessageMap{}
+	for _, run := range runs {
+		for _, message := range run.Messages {
+			configs = append(configs, message.Config)
+		}
+	}
+
+	log.Info("Successfully listed session runs", "count", len(runs))
+	RespondWithJSON(w, http.StatusOK, configs)
+}
+
+func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "delete-session")
+
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	sessionID, err := GetIntPathParam(r, "sessionID")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("sessionID", sessionID)
+
+	err = h.AutogenClient.DeleteSession(sessionID, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to delete session", err))
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "update-session")
+
+	sessionID, err := GetIntPathParam(r, "sessionID")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("sessionID", sessionID)
+
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	var sessionRequest *autogen_client.Session
+	if err := DecodeJSONBody(r, &sessionRequest); err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+
+	updatedSession, err := h.AutogenClient.UpdateSession(sessionID, userID, sessionRequest)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to update session", err))
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, updatedSession)
 }

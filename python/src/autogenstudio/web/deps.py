@@ -13,6 +13,7 @@ from .auth import AuthConfig, AuthManager, AuthMiddleware
 from .auth.dependencies import get_auth_manager
 from .config import settings
 from .managers.connection import WebSocketManager
+from ..sessionmanager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ _db_manager: Optional[DatabaseManager] = None
 _websocket_manager: Optional[WebSocketManager] = None
 _team_manager: Optional[TeamManager] = None
 _auth_manager: Optional[AuthManager] = None
+_session_manager: Optional[SessionManager] = None
 # Context manager for database sessions
 
 
@@ -47,6 +49,13 @@ async def get_db() -> DatabaseManager:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database manager not initialized"
         )
     return _db_manager
+
+
+async def get_session_manager() -> SessionManager:
+    """Dependency provider for session manager"""
+    if not _session_manager:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Session manager not initialized")
+    return _session_manager
 
 
 async def get_websocket_manager() -> WebSocketManager:
@@ -118,7 +127,7 @@ async def register_auth_dependencies(app: FastAPI, auth_manager: AuthManager) ->
 
 async def init_managers(database_uri: str, config_dir: str | Path, app_root: str | Path) -> None:
     """Initialize all manager instances"""
-    global _db_manager, _websocket_manager, _team_manager
+    global _db_manager, _websocket_manager, _team_manager, _session_manager
 
     logger.info("Initializing managers...")
 
@@ -138,6 +147,10 @@ async def init_managers(database_uri: str, config_dir: str | Path, app_root: str
         # Initialize team manager
         _team_manager = TeamManager()
         logger.info("Team manager initialized")
+
+        # Initialize session manager
+        _session_manager = SessionManager(db_manager=_db_manager)
+        logger.info("Session manager initialized")
 
     except Exception as e:
         logger.error(f"Failed to initialize managers: {str(e)}")
@@ -164,6 +177,8 @@ async def cleanup_managers() -> None:
     _team_manager = None
 
     _auth_manager = None
+
+    _session_manager = None
 
     # Cleanup database manager last
     if _db_manager:

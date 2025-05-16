@@ -52,7 +52,7 @@ var _ = Describe("AutogenClient", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(200))
 
-		client := autogen_client.New("http://localhost:8081/api", "ws://localhost:8081/api/ws")
+		client := autogen_client.New("http://localhost:8081/api")
 
 		scheme := scheme.Scheme
 		err = v1alpha1.AddToScheme(scheme)

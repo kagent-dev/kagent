@@ -35,6 +35,10 @@ type AgentSpec struct {
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// +optional
 	ModelConfig string `json:"modelConfig,omitempty"`
+	// Whether to stream the response from the model.
+	// If not specified, the default value is true.
+	// +optional
+	Stream *bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
 	// +optional

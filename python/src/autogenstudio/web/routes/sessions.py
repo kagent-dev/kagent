@@ -1,12 +1,17 @@
 # api/routes/sessions.py
-import re
+import json
 from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from loguru import logger
+from pydantic import BaseModel
 
-from ...datamodel import Message, Response, Run, Session
-from ..deps import get_db
+from ...database import DatabaseManager
+from ...datamodel import Message, MessageConfig, Response, Run, RunStatus, Session, TeamResult
+from ...sessionmanager import SessionManager
+from ..deps import get_db, get_session_manager
+from .invoke import format_team_result
 
 router = APIRouter()
 
@@ -44,16 +49,23 @@ async def create_session(session: Session, db=Depends(get_db)) -> Response:
 async def update_session(session_id: int, user_id: str, session: Session, db=Depends(get_db)) -> Dict:
     """Update an existing session"""
     # First verify the session belongs to user
-    existing = db.get(Session, filters={"id": session_id, "user_id": user_id})
-    if not existing.status or not existing.data:
+    existing_response = db.get(Session, filters={"id": session_id, "user_id": user_id}, return_json=False)
+    if not existing_response.status or not existing_response.data:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Update the session
-    response = db.upsert(session)
-    if not response.status:
-        raise HTTPException(status_code=400, detail=response.message)
+    # Get the existing session
+    existing_session = existing_response.data[0]
+    existing_session.name = session.name
 
-    return {"status": True, "data": response.data, "message": "Session updated successfully"}
+    try:
+        response = db.upsert(existing_session)
+        if not response.status:
+            raise HTTPException(status_code=400, detail=response.message)
+
+        return {"status": True, "data": response.data, "message": "Session updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating session name: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid session data: {str(e)}") from e
 
 
 @router.delete("/{session_id}")
@@ -64,7 +76,7 @@ async def delete_session(session_id: int, user_id: str, db=Depends(get_db)) -> D
 
 
 @router.get("/{session_id}/runs")
-async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -> Dict:
+async def list_session_runs(session_id: int, user_id: str, db: DatabaseManager = Depends(get_db)) -> Dict:
     """Get complete session history organized by runs"""
 
     try:
@@ -124,3 +136,70 @@ async def list_session_runs(session_id: int, user_id: str, db=Depends(get_db)) -
     except Exception as e:
         logger.error(f"Unexpected error in list_messages: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error while fetching session data") from e
+
+
+class InvokeRequest(BaseModel):
+    task: str
+
+
+@router.post("/{session_id}/invoke")
+async def invoke(
+    session_id: int,
+    user_id: str,
+    request: InvokeRequest,
+    db: DatabaseManager = Depends(get_db),
+    session_mgr: SessionManager = Depends(get_session_manager),
+) -> Response:
+    try:
+        run = _create_run(session_id, user_id, db, request.task)
+        result: TeamResult = await session_mgr.start(user_id, run.id, request.task)
+        response = Response(status=True, data=format_team_result(result), message="Run executed successfully")
+        return response
+
+    except Exception as e:
+        logger.error(f"Error invoking run: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error while invoking run: {str(e)}") from e
+
+
+def _create_run(session_id: int, user_id: str, db: DatabaseManager, task: str) -> Run:
+    run = Run(
+        session_id=session_id,
+        user_id=user_id,
+        status=RunStatus.CREATED,
+        task=MessageConfig(
+            content=task,
+            source="user",
+        ).model_dump(),
+        team_result={},
+    )
+    response: Response = db.upsert(run, return_json=False)
+    if not response.status or not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create run")
+    return response.data
+
+
+@router.post("/{session_id}/invoke/stream")
+async def stream(
+    session_id: int,
+    user_id: str,
+    request: InvokeRequest,
+    db: DatabaseManager = Depends(get_db),
+    session_mgr: SessionManager = Depends(get_session_manager),
+):
+    async def event_generator():
+        try:
+            # Create a new run
+            run = _create_run(session_id, user_id, db, request.task)
+            # Start the run
+            async for event in session_mgr.start_stream(user_id, run.id, request.task):
+                if "task_result" in event:
+                    yield f"event: task_result\ndata: {json.dumps(event)}\n\n"
+                else:
+                    yield f"event: event\ndata: {json.dumps(event)}\n\n"
+            yield f"event: completion\ndata: {json.dumps({'type': 'completion', 'status': 'success', 'data': None})}\n\n"
+        except Exception as e:
+            logger.error(f"Error during SSE stream generation: {e}", exc_info=True)
+            error_payload = {"type": "error", "data": {"message": str(e), "details": type(e).__name__}}
+            yield f"data: {json.dumps(error_payload)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

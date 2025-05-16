@@ -1,7 +1,10 @@
 package client
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 )
@@ -55,6 +58,9 @@ type ModelsUsage struct {
 }
 
 func (m *ModelsUsage) Add(other *ModelsUsage) {
+	if other == nil {
+		return
+	}
 	m.PromptTokens += other.PromptTokens
 	m.CompletionTokens += other.CompletionTokens
 }
@@ -63,12 +69,7 @@ func (m *ModelsUsage) String() string {
 	return fmt.Sprintf("Prompt Tokens: %d, Completion Tokens: %d", m.PromptTokens, m.CompletionTokens)
 }
 
-type TaskMessage struct {
-	Source      string       `json:"source"`
-	ModelsUsage *ModelsUsage `json:"models_usage"`
-	Content     string       `json:"content"`
-	Type        string       `json:"type"`
-}
+type TaskMessageMap map[string]interface{}
 
 type RunMessage struct {
 	CreatedAt   *string                `json:"created_at,omitempty"`
@@ -119,8 +120,8 @@ type TeamResult struct {
 }
 
 type TaskResult struct {
-	Messages   []TaskMessage `json:"messages"`
-	StopReason string        `json:"stop_reason"`
+	Messages   []TaskMessageMap `json:"messages"`
+	StopReason string           `json:"stop_reason"`
 }
 
 // APIResponse is the common response wrapper for all API responses
@@ -131,11 +132,13 @@ type APIResponse struct {
 }
 
 type Session struct {
-	ID      int    `json:"id"`
-	UserID  string `json:"user_id"`
-	Version string `json:"version"`
-	TeamID  int    `json:"team_id"`
-	Name    string `json:"name"`
+	ID        int    `json:"id"`
+	UserID    string `json:"user_id"`
+	Version   string `json:"version"`
+	TeamID    int    `json:"team_id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type CreateSession struct {
@@ -151,4 +154,31 @@ type ProviderModels map[string][]ModelInfo
 type ModelInfo struct {
 	Name            string `json:"name"`
 	FunctionCalling bool   `json:"function_calling"`
+}
+
+type SseEvent struct {
+	Event string `json:"event"`
+	Data  []byte `json:"data"`
+}
+
+func streamSseResponse(r io.ReadCloser) chan *SseEvent {
+	scanner := bufio.NewScanner(r)
+	ch := make(chan *SseEvent)
+	go func() {
+		defer close(ch)
+		defer r.Close()
+		currentEvent := &SseEvent{}
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if bytes.HasPrefix(line, []byte("event:")) {
+				currentEvent.Event = string(bytes.TrimPrefix(line, []byte("event:")))
+			}
+			if bytes.HasPrefix(line, []byte("data:")) {
+				currentEvent.Data = bytes.TrimPrefix(line, []byte("data:"))
+				ch <- currentEvent
+				currentEvent = &SseEvent{}
+			}
+		}
+	}()
+	return ch
 }

@@ -25,7 +25,7 @@ func DeleteCmd(c *ishell.Context) {
 		return
 	}
 
-	client := autogen_client.New(cfg.APIURL, cfg.WSURL)
+	client := autogen_client.New(cfg.APIURL)
 
 	switch resourceType {
 	case "team":

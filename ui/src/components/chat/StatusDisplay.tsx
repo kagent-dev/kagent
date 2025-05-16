@@ -1,7 +1,7 @@
 import React from "react";
 import { AlertTriangle, MessageSquare } from "lucide-react";
-import type { ChatStatus } from "@/lib/ws";
 import KagentLogo from "@/components/kagent-logo";
+import { ChatStatus } from "./ChatInterface";
 
 interface StatusDisplayProps {
   chatStatus: ChatStatus;

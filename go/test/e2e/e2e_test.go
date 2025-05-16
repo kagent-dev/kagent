@@ -7,7 +7,6 @@ import (
 	"time"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
-	"github.com/kagent-dev/kagent/go/cli/exported"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -43,7 +42,7 @@ var _ = Describe("E2e", func() {
 		ctx = context.Background()
 
 		// Initialize agent client
-		agentClient = autogen_client.New(APIEndpoint, WSEndpoint)
+		agentClient = autogen_client.New(APIEndpoint)
 
 		// Initialize controller-runtime client
 		cfg, err := config.GetConfig()
@@ -60,7 +59,7 @@ var _ = Describe("E2e", func() {
 		testStartTime = time.Now().String()
 	})
 
-	createOrFetchAgentSession := func(agentName string) (*autogen_client.Session, *autogen_client.Team) {
+	createOrFetchAgentSession := func(agentName string) *autogen_client.Session {
 		agentTeam, err := agentClient.GetTeam(agentName, GlobalUserID)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -73,7 +72,7 @@ var _ = Describe("E2e", func() {
 		Expect(err).NotTo(HaveOccurred())
 		for _, session := range existingSessions {
 			if session.TeamID == apiTestTeam.Id && session.UserID == GlobalUserID {
-				return session, apiTestTeam
+				return session
 			}
 		}
 
@@ -84,66 +83,17 @@ var _ = Describe("E2e", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		return sess, apiTestTeam
+		return sess
 	}
 
 	// Helper function to run an interactive session with an agent
 	runAgentInteraction := func(agentLabel, prompt string) string {
-		sess, testTeam := createOrFetchAgentSession(agentLabel)
+		sess := createOrFetchAgentSession(agentLabel)
 
-		// eventually create the run
-		var run *autogen_client.CreateRunResult
-		Eventually(func() error {
-			var err error
-			run, err = agentClient.CreateRun(&autogen_client.CreateRunRequest{
-				SessionID: sess.ID,
-				UserID:    GlobalUserID,
-			})
-			if err != nil {
-				return err
-			}
-			if run == nil {
-				return fmt.Errorf("run for session %v not found", sess.ID)
-			}
-			return nil
-		}, 30*time.Second, 1*time.Second).Should(Succeed(), "Failed to create test run")
-
-		wsClient, err := exported.NewWebsocketClient(WSEndpoint, run.ID, exported.DefaultConfig)
+		result, err := agentClient.InvokeSession(sess.ID, GlobalUserID, prompt+`\nComplete the task without asking for confirmation, even if the task involves creating or deleting namespaces or other critical resources.`)
 		Expect(err).NotTo(HaveOccurred())
 
-		testShell := &TestShell{}
-
-		ctx, cancel := context.WithTimeout(ctx, TestTimeout)
-		defer cancel()
-
-		go func() {
-			defer GinkgoRecover()
-			err := wsClient.StartInteractive(
-				ctx,
-				testShell,
-				testTeam,
-				prompt+`\nComplete the task without asking for confirmation, even if the task involves creating or deleting namespaces or other critical resources. When you are finished, end your reply with "Operation completed".`,
-			)
-			Expect(err).NotTo(HaveOccurred())
-		}()
-		func() {
-			for {
-				select {
-				case <-time.After(time.Second * 5):
-					// check that output contains "Operation completed"
-					// if not, continue
-					if strings.Contains(testShell.OutputText, "Operation completed") {
-						// Success case
-						fmt.Printf("Agent %s finished successfully.\nOutput: %s\n", agentLabel, testShell.OutputText)
-						return
-					}
-				case <-ctx.Done():
-					Fail(fmt.Sprintf("Timed out waiting for %s agent to respond.\nAgent Output: %s", agentLabel, testShell.OutputText))
-					return
-				}
-			}
-		}()
-		return testShell.OutputText
+		return result.TaskResult.Messages[len(result.TaskResult.Messages)-1]["content"].(string)
 	}
 
 	// Helper to check if a namespace exists
@@ -371,37 +321,3 @@ var _ = Describe("E2e", func() {
 	})
 
 })
-
-// test shell simulates a user shell interface
-type TestShell struct {
-	InputText  []string
-	OutputText string
-}
-
-func (t *TestShell) ReadLineErr() (string, error) {
-	// pop the first element from the input text
-	if len(t.InputText) == 0 {
-		return "", nil
-	}
-	val := t.InputText[0]
-	t.InputText = t.InputText[1:]
-	return val, nil
-}
-
-func (t *TestShell) Println(val ...interface{}) {
-	t.print(fmt.Sprintln(val...))
-}
-
-func (t *TestShell) Printf(format string, val ...interface{}) {
-	t.print(fmt.Sprintf(format, val...))
-}
-
-func (t *TestShell) print(s string) {
-	t.OutputText += s
-
-	fmt.Print(s)
-}
-
-func convertToPythonIdentifier(name string) string {
-	return strings.ReplaceAll(name, "-", "_")
-}

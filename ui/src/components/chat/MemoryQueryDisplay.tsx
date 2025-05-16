@@ -1,14 +1,14 @@
 import React, { useState } from "react";
-import { MemoryQueryEvent, Message } from "@/types/datamodel";
+import { AgentMessageConfig, MemoryQueryEvent } from "@/types/datamodel";
 import { ChevronDown } from "lucide-react";
 
 interface MemoryQueryDisplayProps {
-  currentMessage: Message;
+  currentMessage: AgentMessageConfig;
 }
 
 const MemoryQueryDisplay = ({ currentMessage }: MemoryQueryDisplayProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const eventData = currentMessage.config as MemoryQueryEvent;
+  const eventData = currentMessage as MemoryQueryEvent;
   const toggleExpand = () => setIsExpanded(!isExpanded);
 
   return (

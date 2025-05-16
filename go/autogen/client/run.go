@@ -44,3 +44,7 @@ func (c *Client) GetRunMessages(runID uuid.UUID) ([]*RunMessage, error) {
 	err := c.doRequest("GET", fmt.Sprintf("/runs/%s/messages", runID), nil, &messages)
 	return messages, err
 }
+
+func (c *Client) DeleteRun(runID uuid.UUID) error {
+	return c.doRequest("DELETE", fmt.Sprintf("/runs/%s", runID), nil, nil)
+}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
@@ -97,15 +96,10 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 	ctx context.Context,
 	autogenTeam *autogen_client.Team,
 ) (TaskHandler, error) {
-	teamComponent, err := fetchAgentTeam(autogenTeam.Component)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get team component: %w", err)
-	}
-
 	return func(ctx context.Context, task string) (string, error) {
 		resp, err := a.autogenClient.InvokeTask(&autogen_client.InvokeTaskRequest{
 			Task:       task,
-			TeamConfig: teamComponent,
+			TeamConfig: autogenTeam.Component,
 		})
 		if err != nil {
 			return "", fmt.Errorf("failed to invoke task: %w", err)
@@ -113,11 +107,11 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 
 		var lastMessageContent string
 		for _, msg := range resp.TaskResult.Messages {
-			switch msg.Content.(type) {
+			switch msg["content"].(type) {
 			case string:
-				lastMessageContent = msg.Content.(string)
+				lastMessageContent = msg["content"].(string)
 			default:
-				b, err := json.Marshal(msg.Content)
+				b, err := json.Marshal(msg["content"])
 				if err != nil {
 					return "", fmt.Errorf("failed to marshal message content: %w", err)
 				}
@@ -127,31 +121,4 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 
 		return lastMessageContent, nil
 	}, nil
-}
-
-// TODO(ilackarms): remove this once we stop translating the user proxy agent
-// this is a hack to fetch the internally "wrapped" agent team that is produced by the translator, without the society of mind agent and user proxy agent
-func fetchAgentTeam(teamComponent *api.Component) (*api.Component, error) {
-	teamConfig := &api.RoundRobinGroupChatConfig{}
-	err := teamConfig.FromConfig(teamComponent.Config)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, participant := range teamConfig.Participants {
-		switch participant.Provider {
-		case "kagent.agents.TaskAgent":
-			taskAgentConfig := &api.TaskAgentConfig{}
-			err := taskAgentConfig.FromConfig(participant.Config)
-			if err != nil {
-				return nil, err
-			}
-
-			// this is the "society of mind" TaskAgent agent, it wraps another team which contains our agent participant, so we must unwrap
-			// this is created per-agent for each agent internally by the kagent translator
-			return taskAgentConfig.Team, nil
-		}
-	}
-
-	return nil, fmt.Errorf("failed to find agent team in component")
 }
