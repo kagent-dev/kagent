@@ -118,7 +118,7 @@ function ModelPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [errors, setErrors] = useState<ValidationErrors>({});
-
+  const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -196,6 +196,12 @@ function ModelPageContent() {
 
           if (providerFormKey && modelData.model) {
             setSelectedCombinedModel(`${providerFormKey}::${modelName}`);
+          }
+
+          if (!modelData.apiKeySecretRef) {
+            setIsApiKeyNeeded(false);
+          } else {
+            setIsApiKeyNeeded(true);
           }
 
           const fetchedParams = modelData.modelParams || {};
@@ -289,14 +295,23 @@ function ModelPageContent() {
     }
   }, [selectedCombinedModel, isEditMode, isEditingName, modelTag]);
 
+  useEffect(() => {
+    if (!isApiKeyNeeded) {
+      setApiKey("");
+      if (errors.apiKey) {
+        setErrors(prev => ({ ...prev, apiKey: undefined }));
+      }
+    }
+  }, [isApiKeyNeeded]);
+
   const validateForm = () => {
     const newErrors: ValidationErrors = { requiredParams: {} };
 
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
     const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
-    if (!isEditMode && !isOllamaNow && !apiKey.trim()) {
-      newErrors.apiKey = "API key is required for new models (except Ollama)";
+    if (!isEditMode && !isOllamaNow && isApiKeyNeeded && !apiKey.trim()) {
+      newErrors.apiKey = "API key is required for new models (except for Ollama or when you don't need an API key)";
     }
 
     requiredParams.forEach(param => {
@@ -382,6 +397,8 @@ function ModelPageContent() {
     setIsSubmitting(true);
     setErrors({});
 
+    const finalApiKey = isApiKeyNeeded ? apiKey.trim() : "";
+
     let finalModelName = modelName;
     if (finalSelectedProvider.type === 'Ollama') {
       const tag = modelTag.trim();
@@ -397,7 +414,7 @@ function ModelPageContent() {
         type: finalSelectedProvider.type,
       },
       model: finalModelName,
-      apiKey: apiKey.trim(),
+      apiKey: finalApiKey,
     };
 
     const providerParams = processModelParams(requiredParams, optionalParams);
@@ -429,7 +446,7 @@ function ModelPageContent() {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
-          apiKey: apiKey.trim() ? apiKey.trim() : null,
+          apiKey: finalApiKey ? finalApiKey : null,
           openAI: payload.openAI,
           anthropic: payload.anthropic,
           azureOpenAI: payload.azureOpenAI,
@@ -517,6 +534,8 @@ function ModelPageContent() {
             onApiKeyChange={setApiKey}
             onToggleShowApiKey={() => setShowApiKey(!showApiKey)}
             selectedProvider={selectedProvider}
+            isApiKeyNeeded={isApiKeyNeeded}
+            onApiKeyNeededChange={setIsApiKeyNeeded}
           />
 
           <ParamsSection

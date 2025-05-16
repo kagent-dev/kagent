@@ -11,22 +11,86 @@ import (
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+	"github.com/spf13/cobra"
 )
 
-func checkServerConnection(client *autogen_client.Client) error {
-	// Only check if we have a valid client
-	if client == nil {
-		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
-	}
-
-	_, err := client.GetVersion()
-	if err != nil {
-		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
-	}
-	return nil
-}
-
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rootCmd := &cobra.Command{
+		Use:   "kagent",
+		Short: "kagent is a CLI for kagent",
+		Long:  `kagent is a CLI for kagent`,
+		Run: func(cmd *cobra.Command, args []string) {
+			runInteractive()
+		},
+	}
+
+	cfg := &config.Config{}
+
+	rootCmd.PersistentFlags().StringVar(&cfg.APIURL, "api-url", "http://localhost:8081/api", "API URL")
+	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", "admin@kagent.dev", "User ID")
+	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
+	rootCmd.PersistentFlags().StringVar(&cfg.A2AURL, "a2a-url", "http://localhost:8083/api/a2a", "A2A URL")
+	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
+	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
+	installCmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install kagent",
+		Long:  `Install kagent`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.InstallCmd(cmd.Context(), cfg)
+		},
+	}
+
+	uninstallCmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Uninstall kagent",
+		Long:  `Uninstall kagent`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.UninstallCmd(cmd.Context(), cfg)
+		},
+	}
+
+	invokeCfg := &cli.InvokeCfg{
+		Config: cfg,
+	}
+
+	invokeCmd := &cobra.Command{
+		Use:   "invoke",
+		Short: "Invoke a kagent agent",
+		Long:  `Invoke a kagent agent`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.InvokeCmd(cmd.Context(), invokeCfg)
+		},
+	}
+
+	invokeCmd.Flags().StringVarP(&invokeCfg.Task, "task", "t", "", "Task")
+	invokeCmd.Flags().StringVarP(&invokeCfg.Session, "session", "s", "", "Session")
+	invokeCmd.Flags().StringVarP(&invokeCfg.Agent, "agent", "a", "", "Agent")
+	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
+	invokeCmd.MarkFlagRequired("task")
+
+	bugReportCmd := &cobra.Command{
+		Use:   "bug-report",
+		Short: "Generate a bug report",
+		Long:  `Generate a bug report`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.BugReportCmd()
+		},
+	}
+
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print the kagent version",
+		Long:  `Print the kagent version`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.VersionCmd()
+		},
+	}
+
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd)
 
 	// Initialize config
 	if err := config.Init(); err != nil {
@@ -34,13 +98,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		os.Exit(1)
+	}
+
+}
+
+func runInteractive() {
 	cfg, err := config.Get()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting config: %v\n", err)
 		os.Exit(1)
 	}
 
-	client := autogen_client.New(cfg.APIURL, cfg.WSURL)
+	client := autogen_client.New(cfg.APIURL)
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
 	// Error connecting to server, port-forward the server
@@ -111,7 +182,7 @@ Examples:
 - chat
 `,
 		Func: func(c *ishell.Context) {
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
@@ -148,7 +219,7 @@ Examples:
   get session
   `,
 		Func: func(c *ishell.Context) {
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
@@ -168,7 +239,7 @@ Examples:
   get run
   `,
 		Func: func(c *ishell.Context) {
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
@@ -188,7 +259,7 @@ Examples:
   get agent
   `,
 		Func: func(c *ishell.Context) {
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
@@ -208,7 +279,7 @@ Examples:
   get tool
   `,
 		Func: func(c *ishell.Context) {
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
@@ -234,11 +305,11 @@ Example:
   bug-report
 `,
 		Func: func(c *ishell.Context) {
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
-			cli.BugReportCmd(c)
+			cli.BugReportCmd()
 		},
 	}
 
@@ -248,7 +319,7 @@ Example:
 		// Hidden create command
 		if len(c.Args) > 0 && c.Args[0] == "create" {
 			c.Args = c.Args[1:]
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
@@ -256,7 +327,7 @@ Example:
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		} else if len(c.Args) > 0 && c.Args[0] == "delete" {
 			c.Args = c.Args[1:]
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
@@ -272,7 +343,7 @@ Example:
 		Aliases: []string{"v"},
 		Help:    "Print the kagent version.",
 		Func: func(c *ishell.Context) {
-			cli.VersionCmd(c)
+			cli.VersionCmd()
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		},
 	})
@@ -282,7 +353,8 @@ Example:
 		Aliases: []string{"i"},
 		Help:    "Install kagent.",
 		Func: func(c *ishell.Context) {
-			cli.InstallCmd(ctx, c)
+			cfg := config.GetCfg(c)
+			cli.InstallCmd(ctx, cfg)
 		},
 	})
 
@@ -291,11 +363,12 @@ Example:
 		Aliases: []string{"u"},
 		Help:    "Uninstall kagent.",
 		Func: func(c *ishell.Context) {
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
-			cli.UninstallCmd(ctx, c)
+			cfg := config.GetCfg(c)
+			cli.UninstallCmd(ctx, cfg)
 		},
 	})
 
@@ -304,7 +377,7 @@ Example:
 		Aliases: []string{"d"},
 		Help:    "Open the kagent dashboard.",
 		Func: func(c *ishell.Context) {
-			if err := checkServerConnection(client); err != nil {
+			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}

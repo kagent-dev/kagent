@@ -168,10 +168,10 @@ func streamSseResponse(r io.ReadCloser) chan *SseEvent {
 		currentEvent := &SseEvent{}
 		for scanner.Scan() {
 			line := scanner.Bytes()
-			if bytes.Contains(line, []byte("event")) {
+			if bytes.HasPrefix(line, []byte("event:")) {
 				currentEvent.Event = string(bytes.TrimPrefix(line, []byte("event:")))
 			}
-			if bytes.Contains(line, []byte("data")) {
+			if bytes.HasPrefix(line, []byte("data:")) {
 				currentEvent.Data = bytes.TrimPrefix(line, []byte("data:"))
 				ch <- currentEvent
 				currentEvent = &SseEvent{}

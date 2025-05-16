@@ -1,6 +1,6 @@
 ### STAGE 1: base image
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
+FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -11,11 +11,15 @@ RUN apk update \
 
 ### STAGE 2: python
 FROM base-os AS node-os
+ARG TOOLS_BUN_VERSION
+ARG TARGETARCH
+
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV BUN_INSTALL=/usr/local/bun
 ENV NVM_DIR=/usr/local/nvm
 ENV NODE_ENV=production
+ENV CYPRESS_INSTALL_BINARY=0
 ENV NODE_PATH=/cache/node_modules
 ENV PATH=$BUN_INSTALL/bin:$PATH
 
@@ -23,20 +27,25 @@ ENV PATH=$BUN_INSTALL/bin:$PATH
 # brew install oven-sh/bun/bun
 RUN --mount=type=cache,target=/cache/bun,rw \
     mkdir -p $BUN_INSTALL  \
-    && curl -fsSL https://bun.sh/install | bash \
+    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
     && bun --version
 
 ### STAGE 2: build + ui
-FROM node-os AS ui-builder
+FROM --platform=linux/$BUILDARCH node-os AS ui-builder
+ARG TARGETARCH
 
 WORKDIR /app/ui
-COPY package*.json ./
-RUN --mount=type=cache,target=/cache/bun,rw \
-    bun install -- production --prefer-offline
 
+#copy the package.json
+COPY package*.json .
+RUN --mount=type=cache,target=/cache/bun,rw             \
+    bun install
+
+#copy the rest of the files
 COPY . .
-RUN --mount=type=cache,target=/cache/bun,rw \
-    bun run build                           \
+RUN --mount=type=cache,target=/cache/bun,rw             \
+    bun install                                      \
+    && bun run build  --no-lint                         \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: final

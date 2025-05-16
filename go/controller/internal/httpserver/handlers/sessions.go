@@ -90,7 +90,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	log = log.WithValues("userID", userID)
 
 	log.V(1).Info("Getting session from Autogen")
-	session, err := h.AutogenClient.GetSession(sessionID, userID)
+	session, err := h.AutogenClient.GetSessionById(sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get session", err))
 		return

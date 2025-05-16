@@ -4,15 +4,32 @@ FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-
 RUN apk update && apk add  \
     curl openssl unzip bash git ca-certificates
 
 ### STAGE 2: python
 FROM base-os AS python-os
+ARG TOOLS_PYTHON_VERSION=3.12
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 RUN apk update && apk add python3 uv
+
+ENV GIT_LFS_SKIP_SMUDGE=1
+ENV UV_LINK_MODE=copy
+ENV UV_PROJECT_ENVIRONMENT="/app/python/.venv"
+
+WORKDIR /app/python
+RUN addgroup -g 1001 pythongroup && \
+    adduser -u 1001 -G pythongroup -s /bin/bash -D python && \
+    chown -R python:pythongroup /app/python
+
+RUN --mount=type=cache,target=/app/python/.cache,rw  \
+    echo "Installing Python $TOOLS_PYTHON_VERSION..."                 \
+    && uv venv .venv                                 \
+    && uv python install $TOOLS_PYTHON_VERSION                        \
+    && uv cache dir                                  \
+    && uv version
 
 ### STAGE 3: tools
 FROM python-os AS python-builder
@@ -42,30 +59,11 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 
 ### STAGE 4: final
 FROM python-os AS final
-ARG TOOLS_PYTHON_VERSION=3.12
 
 COPY --from=python-builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 COPY --from=python-builder /usr/local/bin/istioctl /usr/local/bin/istioctl
 COPY --from=python-builder /usr/local/bin/helm /usr/local/bin/helm
 COPY --from=python-builder /usr/local/bin/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV GIT_LFS_SKIP_SMUDGE=1
-ENV UV_LINK_MODE=copy
-ENV UV_PROJECT_ENVIRONMENT="/app/python/.venv"
-
-WORKDIR /app/python
-RUN addgroup -g 1001 pythongroup && \
-    adduser -u 1001 -G pythongroup -s /bin/bash -D python && \
-    chown -R python:pythongroup /app/python
-
-RUN --mount=type=cache,target=/app/python/.cache,rw  \
-    echo "Installing Python $TOOLS_PYTHON_VERSION..."                 \
-    && uv venv .venv                                 \
-    && uv python install $TOOLS_PYTHON_VERSION                        \
-    && uv cache dir                                  \
-    && uv version
 
 COPY pyproject.toml .
 COPY .python-version .
