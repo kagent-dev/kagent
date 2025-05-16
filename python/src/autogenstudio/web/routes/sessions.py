@@ -65,7 +65,7 @@ async def update_session(session_id: int, user_id: str, session: Session, db=Dep
         return {"status": True, "data": response.data, "message": "Session updated successfully"}
     except Exception as e:
         logger.error(f"Error updating session name: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Invalid session data: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid session data: {str(e)}") from e
 
 
 @router.delete("/{session_id}")
