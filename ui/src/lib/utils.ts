@@ -1,5 +1,5 @@
 import { LLMCall } from "@/components/chat/LLMCallModal";
-import { FunctionCall, FunctionExecutionResult, ImageContent, TaskResultMessage } from "@/types/datamodel";
+import { ImageContent, TaskResultMessage } from "@/types/datamodel";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type { CompletionMessage, MemoryQueryEvent, ModelClientStreamingChunkEvent, TextMessageConfig, ToolCallExecutionEvent, ToolCallRequestEvent, ToolCallSummaryMessage } from "@/types/datamodel";

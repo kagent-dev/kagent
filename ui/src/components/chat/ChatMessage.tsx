@@ -4,7 +4,6 @@ import { TruncatableText } from "@/components/chat/TruncatableText";
 import LLMCallModal from "@/components/chat/LLMCallModal";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import MemoryQueryDisplay from "./MemoryQueryDisplay";
-import StreamingMessage from "./StreamingMessage";
 import KagentLogo from "../kagent-logo";
 
 interface ChatMessageProps {

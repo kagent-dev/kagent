@@ -69,7 +69,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
         if (typeof summaryContent === 'string') {
           // Find the first call without a result
           const callWithoutResult = Array.from(newToolState.entries()).find(
-            ([_, entry]) => !entry.result
+            ([entry]) => !entry.result
           );
           
           if (callWithoutResult) {

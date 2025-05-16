@@ -1,16 +1,9 @@
 import { ArrowLeft, ArrowRightFromLine } from "lucide-react";
-import type { CompletionMessage, TaskResultMessage, TextMessageConfig } from "@/types/datamodel";
+import type { TextMessageConfig } from "@/types/datamodel";
 import { TokenStats } from "@/lib/types";
 
-
 export function calculateTokenStats(prevStats: TokenStats, messageConfig: TextMessageConfig): TokenStats {
-  // 
-
-  console.log("messageConfig:", messageConfig);
   const usage = messageConfig.models_usage;
-
-
-  console.log("usage:", usage);
   if (usage) {
     return {
       total: prevStats.total + usage.prompt_tokens + usage.completion_tokens,

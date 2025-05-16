@@ -132,11 +132,13 @@ type APIResponse struct {
 }
 
 type Session struct {
-	ID      int    `json:"id"`
-	UserID  string `json:"user_id"`
-	Version string `json:"version"`
-	TeamID  int    `json:"team_id"`
-	Name    string `json:"name"`
+	ID        int    `json:"id"`
+	UserID    string `json:"user_id"`
+	Version   string `json:"version"`
+	TeamID    int    `json:"team_id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type CreateSession struct {

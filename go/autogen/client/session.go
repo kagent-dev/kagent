@@ -73,3 +73,9 @@ func (c *Client) ListSessionRuns(sessionID int, userID string) ([]*Run, error) {
 	}
 	return result, err
 }
+
+func (c *Client) UpdateSession(sessionID int, userID string, session *Session) (*Session, error) {
+	var updatedSession Session
+	err := c.doRequest("PUT", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), session, &updatedSession)
+	return &updatedSession, err
+}

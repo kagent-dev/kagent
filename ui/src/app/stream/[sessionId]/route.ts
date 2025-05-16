@@ -1,12 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { getBackendUrl } from '@/lib/utils';
 import { getCurrentUserId } from '@/app/actions/utils';
 
-export async function POST(
-  request: Request,
-  { params }: { params: { sessionId: string } }
-) {
 
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ sessionId: string }> }
+) {
     const { sessionId } = await params;
     console.log("Received request to invoke stream");
   try {

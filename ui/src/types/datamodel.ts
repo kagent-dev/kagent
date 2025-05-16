@@ -334,20 +334,10 @@ export interface Team extends DBModel {
 
 export interface Session extends DBModel {
   name: string;
-  team_id?: number;
-}
-
-// Runtime Types
-export interface SessionRuns {
-  runs: Run[];
-}
-
-export interface WebSocketMessage {
-  type: "message" | "result" | "completion" | "input_request" | "error" | "llm_call_event" | "system" | "message_chunk";
-  data?: AgentMessageConfig | TaskResult;
-  status?: RunStatus;
-  error?: string;
-  timestamp?: string;
+  team_id: number;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskResult {
@@ -361,27 +351,6 @@ export interface TaskResultMessage {
   duration: number;
 }
 
-export interface Run {
-  id: string;
-  created_at: string;
-  updated_at?: string;
-  status: RunStatus;
-  task: AgentMessageConfig;
-  team_result: TaskResultMessage | null;
-  messages: Message[];
-  error_message?: string;
-}
-
-export interface GetSessionRunsResponse {
-  runs: Run[];
-}
-
-export type RunStatus = "created" | "active" | "awaiting_input" | "timeout" | "complete" | "error" | "stopped";
-
-export interface SessionWithRuns {
-  session: Session;
-  runs: Run[];
-}
 
 export interface ResourceMetadata {
   name: string;

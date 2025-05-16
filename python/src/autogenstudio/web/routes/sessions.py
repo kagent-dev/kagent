@@ -49,16 +49,23 @@ async def create_session(session: Session, db=Depends(get_db)) -> Response:
 async def update_session(session_id: int, user_id: str, session: Session, db=Depends(get_db)) -> Dict:
     """Update an existing session"""
     # First verify the session belongs to user
-    existing = db.get(Session, filters={"id": session_id, "user_id": user_id})
-    if not existing.status or not existing.data:
+    existing_response = db.get(Session, filters={"id": session_id, "user_id": user_id}, return_json=False)
+    if not existing_response.status or not existing_response.data:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Update the session
-    response = db.upsert(session)
-    if not response.status:
-        raise HTTPException(status_code=400, detail=response.message)
+    # Get the existing session
+    existing_session = existing_response.data[0]
+    existing_session.name = session.name
 
-    return {"status": True, "data": response.data, "message": "Session updated successfully"}
+    try:
+        response = db.upsert(existing_session)
+        if not response.status:
+            raise HTTPException(status_code=400, detail=response.message)
+
+        return {"status": True, "data": response.data, "message": "Session updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating session name: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid session data: {str(e)}")
 
 
 @router.delete("/{session_id}")
