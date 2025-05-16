@@ -208,8 +208,8 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	secret := &corev1.Secret{}
 
 	// If the provider is Ollama, we don't need to create a secret.
-	if providerTypeEnum == v1alpha1.Ollama {
-		log.V(1).Info("Ollama provider, skipping secret creation")
+	if providerTypeEnum == v1alpha1.Ollama || req.APIKey == "" {
+		log.V(1).Info("Ollama provider or empty API key, skipping secret creation")
 	} else {
 		apiKey := req.APIKey
 		secretName := req.Name
@@ -360,7 +360,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		Ollama:      nil,
 	}
 
-	// --- Update Secret if API Key is provided (and not Ollama) ---
+	// --- Update Secret if API Key is provided (and not Ollama or using AI API Gateway) ---
 	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.Ollama
 	if shouldUpdateSecret {
 		secretName := configName
