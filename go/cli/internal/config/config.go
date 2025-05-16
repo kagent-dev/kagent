@@ -15,6 +15,7 @@ type Config struct {
 	Namespace    string `mapstructure:"namespace"`
 	A2AURL       string `mapstructure:"a2a_url"`
 	OutputFormat string `mapstructure:"output_format"`
+	Verbose      bool   `mapstructure:"verbose"`
 }
 
 func Init() error {

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/abiosoft/ishell/v2"
 	"github.com/abiosoft/readline"
-	"github.com/jedib0t/go-pretty/v6/table"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/spf13/pflag"
@@ -141,13 +139,6 @@ func ChatCmd(c *ishell.Context) {
 			c.Println("  help - show this help message")
 			continue
 		}
-		// Tool call requests and executions are sent as separate messages, but we should print them together
-		// so if we receive a tool call request, we buffer it until we receive the corresponding tool call execution
-		// We only need to buffer one request and one execution at a time
-		var bufferedToolCallRequest *ToolCallRequestEvent
-		// This is a map of agent source to whether we are currently streaming from that agent
-		// If we are then we don't want to print the whole TextMessage, but only the content of the ModelStreamingEvent
-		streaming := map[string]bool{}
 
 		usage := &autogen_client.ModelsUsage{}
 
@@ -163,170 +154,7 @@ func ChatCmd(c *ishell.Context) {
 			return
 		}
 
-		for event := range ch {
-			ev, err := ParseEvent(event.Data)
-			if err != nil {
-				// TODO: verbose logging
-				continue
-			}
-			switch typed := ev.(type) {
-			case *TextMessage:
-				// c.Println(typed.Content)
-				usage.Add(typed.ModelsUsage)
-				// If we are streaming from this agent, don't print the whole TextMessage, but only the content of the ModelStreamingEvent
-				if streaming[typed.Source] {
-					c.Println()
-					continue
-				}
-				// Do not re-print the user's input, or system message asking for input
-				if typed.Source == "user" || typed.Source == "system" {
-					continue
-				}
-				c.Printf("%s: %s\n", config.BoldYellow("Event Type"), "TextMessage")
-				c.Printf("%s: %s\n", config.BoldGreen("Source"), typed.Source)
-				c.Println()
-				c.Println(typed.Content)
-				c.Println("----------------------------------")
-				c.Println()
-			case *ModelClientStreamingChunkEvent:
-				usage.Add(typed.ModelsUsage)
-				streaming[typed.Source] = true
-				c.Printf(typed.Content)
-			case *ToolCallRequestEvent:
-				bufferedToolCallRequest = typed
-			case *ToolCallExecutionEvent:
-				if bufferedToolCallRequest == nil {
-					c.Printf("Received tool call execution before request: %v\n", typed)
-					continue
-				}
-				usage.Add(typed.ModelsUsage)
-				c.Printf("%s: %s\n", config.BoldYellow("Event Type"), "ToolCall(s)")
-				c.Printf("%s: %s\n", config.BoldGreen("Source"), typed.Source)
-				if verbose {
-					// For each function execution, find the corresponding tool call request and print them together
-					for i, functionExecution := range typed.Content {
-						for _, functionRequest := range bufferedToolCallRequest.Content {
-							if functionExecution.CallID == functionRequest.ID {
-								c.Println()
-								c.Println("++++++++")
-								c.Printf("Tool Call %d: (id: %s)\n", i, functionRequest.ID)
-								c.Println()
-								c.Printf("%s(%s)\n", functionRequest.Name, functionRequest.Arguments)
-								c.Println()
-								c.Println(functionExecution.Content)
-								c.Println("++++++++")
-								c.Println()
-							}
-						}
-					}
-				} else {
-					tw := table.NewWriter()
-					tw.AppendHeader(table.Row{"#", "Name", "Arguments"})
-					for idx, functionRequest := range bufferedToolCallRequest.Content {
-						tw.AppendRow(table.Row{idx, functionRequest.Name, functionRequest.Arguments})
-					}
-					c.Println(tw.Render())
-				}
-
-				c.Println("----------------------------------")
-				c.Println()
-				bufferedToolCallRequest = nil
-			}
-		}
-	}
-}
-
-type Event interface {
-	GetType() string
-}
-
-type BaseEvent struct {
-	Type string `json:"type"`
-}
-
-func (e *BaseEvent) GetType() string {
-	return e.Type
-}
-
-type BaseChatMessage struct {
-	BaseEvent
-	Source      string                      `json:"source"`
-	Metadata    map[string]string           `json:"metadata"`
-	ModelsUsage *autogen_client.ModelsUsage `json:"models_usage"`
-}
-
-type TextMessage struct {
-	BaseChatMessage
-	Content string `json:"content"`
-}
-
-type ModelClientStreamingChunkEvent struct {
-	BaseChatMessage
-	Content string `json:"content"`
-}
-type FunctionCall struct {
-	ID        string `json:"id"`
-	Arguments string `json:"arguments"`
-	Name      string `json:"name"`
-}
-type ToolCallRequestEvent struct {
-	BaseChatMessage
-	Content []FunctionCall `json:"content"`
-}
-
-type FunctionExecutionResult struct {
-	CallID  string `json:"call_id"`
-	Content string `json:"content"`
-}
-
-type ToolCallExecutionEvent struct {
-	BaseChatMessage
-	Content []FunctionExecutionResult `json:"content"`
-}
-
-const (
-	TextMessageLabel                    = "TextMessage"
-	ToolCallRequestEventLabel           = "ToolCallRequestEvent"
-	ToolCallExecutionEventLabel         = "ToolCallExecutionEvent"
-	StopMessageLabel                    = "StopMessage"
-	HandoffMessageLabel                 = "HandoffMessage"
-	ModelClientStreamingChunkEventLabel = "ModelClientStreamingChunkEvent"
-	LLMCallEventMessageLabel            = "LLMCallEventMessage"
-)
-
-func ParseEvent(event []byte) (Event, error) {
-	var baseEvent BaseEvent
-	if err := json.Unmarshal(event, &baseEvent); err != nil {
-		return nil, err
-	}
-
-	switch baseEvent.Type {
-	case TextMessageLabel:
-		var textMessage TextMessage
-		if err := json.Unmarshal(event, &textMessage); err != nil {
-			return nil, err
-		}
-		return &textMessage, nil
-	case ModelClientStreamingChunkEventLabel:
-		var modelClientStreamingChunkEvent ModelClientStreamingChunkEvent
-		if err := json.Unmarshal(event, &modelClientStreamingChunkEvent); err != nil {
-			return nil, err
-		}
-		return &modelClientStreamingChunkEvent, nil
-	case ToolCallRequestEventLabel:
-		var toolCallRequestEvent ToolCallRequestEvent
-		if err := json.Unmarshal(event, &toolCallRequestEvent); err != nil {
-			return nil, err
-		}
-		return &toolCallRequestEvent, nil
-	case ToolCallExecutionEventLabel:
-		var toolCallExecutionEvent ToolCallExecutionEvent
-		if err := json.Unmarshal(event, &toolCallExecutionEvent); err != nil {
-			return nil, err
-		}
-		return &toolCallExecutionEvent, nil
-	default:
-		return nil, fmt.Errorf("unknown event type: %s", baseEvent.Type)
+		StreamEvents(ch, usage, verbose)
 	}
 }
 

@@ -34,7 +34,7 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
 	rootCmd.PersistentFlags().StringVar(&cfg.A2AURL, "a2a-url", "http://localhost:8083/api/a2a", "A2A URL")
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
-
+	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
 	installCmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install kagent",
@@ -71,7 +71,6 @@ func main() {
 	invokeCmd.Flags().StringVarP(&invokeCfg.Agent, "agent", "a", "", "Agent")
 	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
 	invokeCmd.MarkFlagRequired("task")
-	invokeCmd.MarkFlagRequired("agent")
 	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd)
 
 	// Initialize config

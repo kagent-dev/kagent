@@ -111,8 +111,10 @@ async def stream(request: InvokeTaskRequest):
     async def event_generator():
         try:
             async for event in team_manager.run_stream(task=request.task, team_config=request.team_config):
-                logger.info(f"Event: {event}")
-                yield f"event: data_update\ndata: {json.dumps(format_message(event))}\n\n"
+                if isinstance(event, TeamResult):
+                    yield f"event: task_result\ndata: {json.dumps(format_message(event))}\n\n"
+                else:
+                    yield f"event: event\ndata: {json.dumps(format_message(event))}\n\n"
         except Exception as e:
             logger.error(f"Error during SSE stream generation: {e}", exc_info=True)
             error_payload = {"type": "error", "data": {"message": str(e), "details": type(e).__name__}}

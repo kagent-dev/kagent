@@ -50,40 +50,62 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		}
 		task = string(content)
 	}
-
-	team, err := client.GetTeam(cfg.Agent, cfg.Config.UserID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting team: %v\n", err)
-		return
-	}
-
 	// If session is set invoke within a session.
-	if cfg.Session != "0" {
+	if cfg.Session != "" {
 		session, err := client.GetSession(cfg.Session, cfg.Config.UserID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting session: %v\n", err)
 			return
 		}
 
-		result, err := client.InvokeSession(session.ID, cfg.Config.UserID, task)
+		if cfg.Stream {
+			usage := &autogen_client.ModelsUsage{}
+			ch, err := client.InvokeSessionStream(session.ID, cfg.Config.UserID, task)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
+				return
+			}
+			StreamEvents(ch, usage, cfg.Config.Verbose)
+		} else {
+			result, err := client.InvokeSession(session.ID, cfg.Config.UserID, task)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
+				return
+			}
+
+			fmt.Println(result.TaskResult)
+		}
+
+	} else {
+
+		team, err := client.GetTeam(cfg.Agent, cfg.Config.UserID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error getting team: %v\n", err)
 			return
 		}
 
-		fmt.Println(result.TaskResult)
-	} else {
 		req := &autogen_client.InvokeTaskRequest{
 			Task:       task,
 			TeamConfig: team.Component,
 		}
-		result, err := client.InvokeTask(req)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error invoking task: %v\n", err)
-			return
-		}
 
-		fmt.Println(result.TaskResult)
+		if cfg.Stream {
+			usage := &autogen_client.ModelsUsage{}
+			ch, err := client.InvokeTaskStream(req)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error invoking task: %v\n", err)
+				return
+			}
+			StreamEvents(ch, usage, cfg.Config.Verbose)
+		} else {
+			result, err := client.InvokeTask(req)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error invoking task: %v\n", err)
+				return
+			}
+
+			fmt.Println(result.TaskResult)
+		}
 	}
 
 	return
