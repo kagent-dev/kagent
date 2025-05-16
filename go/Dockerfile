@@ -1,11 +1,11 @@
 ### STAGE 1: base image
-ARG LOCALARCH=amd64
+ARG BUILDARCH
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM --platform=linux/${LOCALARCH} $BASE_IMAGE_REGISTRY/chainguard/go:latest AS builder
+FROM --platform=linux/${BUILDARCH} $BASE_IMAGE_REGISTRY/chainguard/go:latest AS builder
 
 ARG TARGETPLATFORM
 ARG TARGETARCH
-ARG LOCALARCH
+ARG BUILDARCH
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -28,7 +28,7 @@ COPY controller controller
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw         \
     --mount=type=cache,target=/root/.cache/go-build,rw    \
-    echo "Running build : $LOCALARCH -> $TARGETARCH"      \
+    echo "Running build : $BUILDARCH -> $TARGETARCH"      \
      && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager controller/cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
