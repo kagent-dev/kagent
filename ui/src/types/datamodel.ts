@@ -31,8 +31,17 @@ export interface FunctionCall {
 }
 
 export interface FunctionExecutionResult {
-  call_id: string;
   content: string;
+}
+
+export interface ToolCallExecutionEvent extends BaseMessageConfig {
+  content: Array<{
+    content: string;
+    name: string;
+    call_id: string;
+    is_error: boolean;
+  }>;
+  type: "ToolCallExecutionEvent";
 }
 
 export interface BaseMessageConfig {
@@ -52,6 +61,11 @@ export interface MemoryQueryEvent extends BaseAgentEvent {
   type: "MemoryQueryEvent";
 }
 
+export interface CompletionMessage extends BaseMessageConfig {
+  type: "completion";
+  status: string;
+}
+
 export interface TextMessageConfig extends BaseMessageConfig {
   content: string;
 }
@@ -69,15 +83,22 @@ export interface HandoffMessageConfig extends BaseMessageConfig {
   target: string;
 }
 
-export interface ToolCallMessageConfig extends BaseMessageConfig {
+export interface ToolCallRequestEvent extends BaseMessageConfig {
   content: FunctionCall[];
+  type: "ToolCallRequestEvent";
 }
 
-export interface ToolCallResultMessageConfig extends BaseMessageConfig {
-  content: FunctionExecutionResult[];
+export interface ToolCallSummaryMessage extends BaseMessageConfig {
+  content: string;
+  type: "ToolCallSummaryMessage";
 }
 
-export type AgentMessageConfig = TextMessageConfig | MultiModalMessageConfig | StopMessageConfig | HandoffMessageConfig | ToolCallMessageConfig | ToolCallResultMessageConfig | MemoryQueryEvent;
+export interface ModelClientStreamingChunkEvent extends BaseAgentEvent { 
+  content: string;
+  type: "ModelClientStreamingChunkEvent";
+}
+
+export type AgentMessageConfig = TextMessageConfig | MultiModalMessageConfig | StopMessageConfig | HandoffMessageConfig | ToolCallRequestEvent | ToolCallExecutionEvent | ToolCallSummaryMessage | MemoryQueryEvent | ModelClientStreamingChunkEvent;
 
 // Tool Configs
 export interface FunctionToolConfig {
@@ -334,7 +355,7 @@ export interface TaskResult {
   stop_reason?: string;
 }
 
-export interface TeamResult {
+export interface TaskResultMessage {
   task_result: TaskResult;
   usage: string;
   duration: number;
@@ -346,7 +367,7 @@ export interface Run {
   updated_at?: string;
   status: RunStatus;
   task: AgentMessageConfig;
-  team_result: TeamResult | null;
+  team_result: TaskResultMessage | null;
   messages: Message[];
   error_message?: string;
 }

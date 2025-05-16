@@ -4,8 +4,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from "../ui/sidebar";
 import { AgentSwitcher } from "./AgentSwitcher";
 import GroupedSessions from "./GroupedSessions";
-import { AgentResponse, SessionWithRuns } from "@/types/datamodel";
-import useChatStore from "@/lib/useChatStore";
+import { AgentResponse, Session, SessionWithRuns } from "@/types/datamodel";
 
 interface SessionsSidebarProps {
   agentId: number;
@@ -15,7 +14,8 @@ interface SessionsSidebarProps {
 }
 
 export default function SessionsSidebar({ agentId, currentAgent, allAgents, sessionsWithRuns }: SessionsSidebarProps) {
-  const storeSessions = useChatStore((state) => state.sessions);
+  // TODO: Fix this!
+  const storeSessions: Session[] = []; // useChatStore((state) => state.sessions);
   const displaySessions = storeSessions.length > 0 ? storeSessions : sessionsWithRuns;
 
   return (

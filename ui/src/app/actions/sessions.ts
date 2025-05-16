@@ -82,6 +82,7 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
       body: JSON.stringify({
         user_id: session.user_id,
         team_id: Number(session.team_id),
+        name: session.name,
       }),
     });
 
@@ -89,7 +90,6 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
       throw new Error("Failed to create session");
     }
 
-    revalidatePath(`/agents/${response.team_id}/chat`);
     return { success: true, data: response };
   } catch (error) {
     return createErrorResponse<Session>(error, "Error creating session");

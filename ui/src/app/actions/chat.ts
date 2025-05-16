@@ -2,16 +2,16 @@
 
 import { AgentMessageConfig, AgentResponse, GetSessionRunsResponse, Message, Run, Session } from "@/types/datamodel";
 import { getTeam } from "./teams";
-import { getSession, getSessionRuns, getSessions } from "./sessions";
-import { fetchApi, getCurrentUserId } from "./utils";
-import { createRunWithSession } from "@/lib/ws";
+import { createSession, getSession, getSessionRuns, getSessions } from "./sessions";
+import { fetchApi, getCurrentUserId, createErrorResponse } from "./utils";
+import { getBackendUrl } from "@/lib/utils";
 
 /**
  * Starts a new chat with an agent
  * @param agentId The agent ID
  * @returns A promise with the team, session, and run data
  */
-export async function startNewChat(agentId: string): Promise<{ team: AgentResponse; session: Session; run: Run }> {
+export async function startNewChat(agentId: string): Promise<{ team: AgentResponse; session: Session; }> {
   try {
     const userId = await getCurrentUserId();
     const teamData = await getTeam(agentId);
@@ -21,8 +21,12 @@ export async function startNewChat(agentId: string): Promise<{ team: AgentRespon
     }
 
     // Create new session and run
-    const { session, run } = await createRunWithSession(agentId, userId);
-    return { team: teamData.data, session, run };
+    const session = await createSession({ user_id: userId, team_id: agentId, name: "New Chat" });
+    if (!session.success || !session.data) {
+      throw new Error("Failed to create session");
+    }
+
+    return { team: teamData.data, session: session.data };
   } catch (error) {
     console.error("Error starting new chat:", error);
     throw error;
@@ -36,22 +40,19 @@ export async function startNewChat(agentId: string): Promise<{ team: AgentRespon
  * @param sessionId The session ID
  * @returns A promise with the created message
  */
-export async function sendMessage(content: string, runId: string, sessionId: number): Promise<Message> {
+export async function sendMessage(content: string, sessionId: number): Promise<Message> {
   try {
     const userId = await getCurrentUserId();
 
-    const createMessage = (config: AgentMessageConfig, runId: string, sessionId: number, userId: string): Message => ({
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      config,
-      session_id: sessionId,
-      run_id: runId,
-      user_id: userId,
-      message_meta: {},
+    const messageResponse = await fetchApi<Message>(`/sessions/${sessionId}/invoke/stream?user_id=${userId}`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
     });
 
-    const message = createMessage({ content, source: "user" }, runId, sessionId, userId);
-    return message;
+
+    console.log("Message response:", messageResponse);
+
+    return messageResponse;
   } catch (error) {
     console.error("Error sending message:", error);
     throw error;
@@ -165,3 +166,40 @@ export async function getChatData(
     throw new Error(error instanceof Error ? error.message : "An unexpected error occurred");
   }
 }
+
+/* // This Server Action is not suitable for returning a raw Response object for streaming to Client Components.
+   // Replaced by a Next.js API Route Handler (app/api/sessions/[sessionId]/invoke/stream/route.ts)
+export async function invokeSessionStream(content: string, sessionId: number): Promise<Response> {
+  const userId = await getCurrentUserId();
+  const backendUrl = getBackendUrl(); 
+  const url = `${backendUrl}/sessions/${sessionId}/invoke/stream?user_id=${userId}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain", // Changed to text/plain as per user updates
+      "Accept": "text/event-stream",
+    },
+    body: content, // Sending plain text
+  });
+ 
+   console.log("Response:", response);
+  
+  if (!response.ok) {
+    let errorMessage = `Request failed with status ${response.status}`;
+    try {
+      const errorData = await response.json(); 
+      if (errorData.error) {
+        errorMessage = errorData.error;
+      } else if (errorData.message) {
+        errorMessage = errorData.message;
+      }
+    } catch (e) {
+      // Ignore
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response; 
+}
+*/

@@ -1,23 +1,26 @@
 import { ArrowLeft, ArrowRightFromLine } from "lucide-react";
-import type { Message } from "@/types/datamodel";
+import type { CompletionMessage, TaskResultMessage, TextMessageConfig } from "@/types/datamodel";
 import { TokenStats } from "@/lib/types";
 
 
-export function calculateTokenStats(messages: Message[]): TokenStats {
-  return messages.reduce(
-    (stats, message) => {
-      const usage = message.config?.models_usage;
-      if (usage) {
-        return {
-          total: stats.total + (usage.prompt_tokens + usage.completion_tokens),
-          input: stats.input + usage.prompt_tokens,
-          output: stats.output + usage.completion_tokens,
-        };
-      }
-      return stats;
-    },
-    { total: 0, input: 0, output: 0 }
-  );
+export function calculateTokenStats(prevStats: TokenStats, messageConfig: TextMessageConfig): TokenStats {
+  // 
+
+  console.log("messageConfig:", messageConfig);
+  const usage = messageConfig.models_usage;
+
+
+  console.log("usage:", usage);
+  if (usage) {
+    return {
+      total: prevStats.total + usage.prompt_tokens + usage.completion_tokens,
+      input: prevStats.input + usage.prompt_tokens,
+      output: prevStats.output + usage.completion_tokens,
+    };
+  }
+
+
+  return prevStats;
 }
 
 interface TokenStatsDisplayProps {
