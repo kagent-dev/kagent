@@ -1,7 +1,6 @@
 ### STAGE 1: base image
-ARG BUILDARCH
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM --platform=linux/${BUILDARCH} $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
+FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -14,7 +13,6 @@ RUN apk update \
 FROM base-os AS node-os
 ARG TOOLS_BUN_VERSION
 ARG TARGETARCH
-ARG BUILDARCH
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUN_INSTALL_CACHE_DIR=/cache/bun
@@ -33,8 +31,7 @@ RUN --mount=type=cache,target=/cache/bun,rw \
     && bun --version
 
 ### STAGE 2: build + ui
-FROM --platform=linux/${BUILDARCH} node-os AS ui-builder
-ARG BUILDARCH
+FROM --platform=linux/$BUILDARCH node-os AS ui-builder
 ARG TARGETARCH
 
 WORKDIR /app/ui
@@ -42,14 +39,12 @@ WORKDIR /app/ui
 #copy the package.json
 COPY package*.json .
 RUN --mount=type=cache,target=/cache/bun,rw             \
-    echo "Running install : $BUILDARCH -> $TARGETARCH"  \
-    && bun install
+    bun install
 
 #copy the rest of the files
 COPY . .
 RUN --mount=type=cache,target=/cache/bun,rw             \
-    echo "Running build : $BUILDARCH -> $TARGETARCH"    \
-    && bun install                                      \
+    bun install                                      \
     && bun run build  --no-lint                         \
     && mkdir -p /app/ui/public
 
