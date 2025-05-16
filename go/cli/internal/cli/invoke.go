@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -73,7 +74,12 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 				return
 			}
 
-			fmt.Println(result.TaskResult)
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(result.TaskResult); err != nil {
+				fmt.Fprintf(os.Stderr, "Error encoding task result: %v\n", err)
+				return
+			}
 		}
 
 	} else {
@@ -104,7 +110,12 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 				return
 			}
 
-			fmt.Println(result.TaskResult)
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(result.TaskResult); err != nil {
+				fmt.Fprintf(os.Stderr, "Error encoding task result: %v\n", err)
+				return
+			}
 		}
 	}
 

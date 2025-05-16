@@ -71,7 +71,26 @@ func main() {
 	invokeCmd.Flags().StringVarP(&invokeCfg.Agent, "agent", "a", "", "Agent")
 	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
 	invokeCmd.MarkFlagRequired("task")
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd)
+
+	bugReportCmd := &cobra.Command{
+		Use:   "bug-report",
+		Short: "Generate a bug report",
+		Long:  `Generate a bug report`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.BugReportCmd()
+		},
+	}
+
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print the kagent version",
+		Long:  `Print the kagent version`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.VersionCmd()
+		},
+	}
+
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd)
 
 	// Initialize config
 	if err := config.Init(); err != nil {
@@ -290,7 +309,7 @@ Example:
 				c.Println(err)
 				return
 			}
-			cli.BugReportCmd(c)
+			cli.BugReportCmd()
 		},
 	}
 
@@ -324,7 +343,7 @@ Example:
 		Aliases: []string{"v"},
 		Help:    "Print the kagent version.",
 		Func: func(c *ishell.Context) {
-			cli.VersionCmd(c)
+			cli.VersionCmd()
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		},
 	})
