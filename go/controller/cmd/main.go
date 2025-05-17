@@ -223,7 +223,7 @@ func main() {
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
 		Cache: cache.Options{
-			DefaultNamespaces: ConfigureNamespaceWatching(watchNamespaces),
+			DefaultNamespaces: configureNamespaceWatching(watchNamespaces),
 		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
@@ -403,10 +403,10 @@ func waitForReady(f func() error, timeout, interval time.Duration) error {
 	}
 }
 
-// ConfigureNamespaceWatching sets up the controller manager to watch specific namespaces
+// configureNamespaceWatching sets up the controller manager to watch specific namespaces
 // based on the provided configuration. It returns the list of namespaces being watched,
 // or nil if watching all namespaces.
-func ConfigureNamespaceWatching(watchNamespaces string) map[string]cache.Config {
+func configureNamespaceWatching(watchNamespaces string) map[string]cache.Config {
 	watchNamespacesList := filterValidNamespaces(strings.Split(watchNamespaces, ","))
 	if len(watchNamespacesList) == 0 {
 		setupLog.Info("Watching all namespaces (no valid namespaces specified)")

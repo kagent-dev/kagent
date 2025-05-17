@@ -1,6 +1,13 @@
 import { TruncatableText } from "./TruncatableText";
 import KagentLogo from "../kagent-logo";
 
+
+function convertToUserFriendlyName(name: string): string {
+  if (!name) return name;
+  name = name.replace(/__NS__/g, "/");
+  return name.replace(/_/g, "-");
+}
+
 interface StreamingMessageProps {
   content: string;
 }

@@ -12,6 +12,7 @@ import { OLLAMA_DEFAULT_TAG } from '@/lib/constants';
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   selectedCombinedModel?: string;
   apiKey?: string;
   requiredParams?: Record<string, string>;
@@ -20,11 +21,13 @@ interface ValidationErrors {
 
 interface BasicInfoSectionProps {
   name: string;
+  namespace: string;
   isEditingName: boolean;
   errors: ValidationErrors;
   isSubmitting: boolean;
   isLoading: boolean;
   onNameChange: (value: string) => void;
+  onNamespaceChange: (value: string) => void;
   onToggleEditName: () => void;
   providers: Provider[];
   providerModelsData: ProviderModelsResponse | null;
@@ -39,12 +42,13 @@ interface BasicInfoSectionProps {
 }
 
 export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
-  name, isEditingName, errors, isSubmitting, isLoading, onNameChange,
-  onToggleEditName, providers, providerModelsData, selectedCombinedModel,
+  name, namespace, isEditingName, errors, isSubmitting, isLoading, onNameChange,
+  onNamespaceChange, onToggleEditName, providers, providerModelsData, selectedCombinedModel,
   onModelChange, selectedProvider, selectedModelSupportsFunctionCalling,
   loadingError, isEditMode, modelTag, onModelTagChange
 }) => {
   const isOllamaSelected = selectedProvider?.type === "Ollama";
+  console.log(selectedCombinedModel)
 
   return (
     <Card>
@@ -79,6 +83,23 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             </Button>
           </div>
           {errors.name && <p className="text-destructive text-sm mt-1">{errors.name}</p>}
+        </div>
+
+        <div>
+          <label className="text-sm mb-2 block">Namespace</label>
+          <Input
+            value={namespace}
+            onChange={(e) => onNamespaceChange(e.target.value)}
+            className={errors.namespace ? "border-destructive" : ""}
+            placeholder="default"
+            disabled={isSubmitting || isLoading || isEditMode}
+          />
+          {errors.namespace && <p className="text-destructive text-sm mt-1">{errors.namespace}</p>}
+          {isEditMode && (
+            <p className="text-[0.8rem] text-muted-foreground mt-1">
+              Namespace cannot be changed after creation.
+            </p>
+          )}
         </div>
 
         <div>

@@ -56,7 +56,7 @@ const getItemDisplayInfo = (item: Component<ToolConfig> | AgentResponse | Tool):
   // Handle AgentResponse specifically (as it's not a Tool or Component)
   if ('agent' in item && item.agent && typeof item.agent === 'object' && 'metadata' in item.agent && item.agent.metadata) {
       const agentResp = item as AgentResponse;
-      displayName = agentResp.agent.metadata.name;
+      displayName = `${agentResp.agent.metadata.namespace}/${agentResp.agent.metadata.name}`;
       description = agentResp.agent.spec.description;
       // Use the same identifier format as AgentTool for consistency
       identifier = `agent-${displayName}`;
@@ -162,8 +162,11 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     const agentCategorySelected = selectedCategories.size === 0 || selectedCategories.has("Agents");
     const agents = agentCategorySelected ? availableAgents.filter(agentResp => {
         const agentName = agentResp.agent.metadata.name.toLowerCase();
+        const agentNamespace = agentResp.agent.metadata.namespace.toLowerCase();
+        const fullName = `${agentNamespace}/${agentName}`.toLowerCase();
         const agentDesc = agentResp.agent.spec.description.toLowerCase();
-        return agentName.includes(searchLower) || agentDesc.includes(searchLower);
+
+        return fullName.includes(searchLower) || agentDesc.includes(searchLower);
       })
     : [];
 
@@ -186,15 +189,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
     // Add agents to the "Agents" category
     if (filteredAvailableItems.agents.length > 0) {
-      groups["Agents"] = filteredAvailableItems.agents.sort((a, b) => 
-        a.agent.metadata.name.localeCompare(b.agent.metadata.name)
-      );
+      groups["Agents"] = filteredAvailableItems.agents.sort((a, b) => {
+        const aFullName = `${a.agent.metadata.namespace}/${a.agent.metadata.name}`;
+        const bFullName = `${b.agent.metadata.namespace}/${b.agent.metadata.name}`;
+        return aFullName.localeCompare(bFullName);
+      });
     }
-    
+
     // Sort categories alphabetically
     return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
            .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
-           
+
   }, [filteredAvailableItems]);
 
   const isItemSelected = (item: Component<ToolConfig> | AgentResponse): boolean => {
@@ -213,10 +218,11 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
     if ('agent' in item && item.agent && typeof item.agent === 'object' && 'metadata' in item.agent) {
         const agentResp = item as AgentResponse;
+        const agentFullName = `${agentResp.agent.metadata.namespace}/${agentResp.agent.metadata.name}`;
         toolToAdd = {
             type: "Agent",
             agent: {
-                ref: agentResp.agent.metadata.name,
+                ref: agentFullName,
                 description: agentResp.agent.spec.description
             }
         };

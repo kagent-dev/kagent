@@ -26,10 +26,6 @@ func NewTeamsHandler(base *Base) *TeamsHandler {
 	return &TeamsHandler{Base: base}
 }
 
-func convertToKubernetesIdentifier(name string) string {
-	return strings.ReplaceAll(name, "_", "-")
-}
-
 // HandleListTeams handles GET /api/teams requests
 func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "list")
@@ -49,30 +45,28 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 
 	teamsWithID := make([]map[string]interface{}, 0)
 	for _, team := range agentList.Items {
-		log.V(1).Info("Processing team", "teamName", team.Name)
-		autogenTeam, err := h.AutogenClient.GetTeam(convertToKubernetesIdentifier(team.Name), userID)
+		teamFullName := fmt.Sprintf("%s/%s", team.Namespace, team.Name)
+		log.V(1).Info("Processing team", "teamName", teamFullName)
+		autogenTeam, err := h.AutogenClient.GetTeam(teamFullName, userID)
 		if err != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to get team from Autogen", err))
 			return
 		}
 
 		if autogenTeam == nil {
-			log.V(1).Info("Team not found in Autogen", "teamName", team.Name)
+			log.V(1).Info("Team not found in Autogen", "teamName", teamFullName)
 			continue
 		}
 
 		// Get the model config for the team
 		modelConfig := &v1alpha1.ModelConfig{}
-		if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-			Name:      team.Spec.ModelConfig,
-			Namespace: common.GetResourceNamespace(),
-		}, modelConfig); err != nil {
-			log.Error(err, "Failed to get model config", "modelConfigRef", team.Spec.ModelConfig)
+		if err := common.FetchObjKube(r.Context(), h.KubeClient, modelConfig, team.Spec.ModelConfig, common.GetResourceNamespace()); err != nil {
+			log.Error(err, "Failed to get model config", "modelConfigRef", modelConfig.Namespace, "/", modelConfig.Name)
 			continue
 		}
 
 		if modelConfig == nil {
-			log.V(1).Info("Model config not found", "modelConfigRef", team.Spec.ModelConfig)
+			log.V(1).Info("Model config not found", "modelConfigRef", modelConfig.Namespace, "/", modelConfig.Name)
 			continue
 		}
 
@@ -98,13 +92,11 @@ func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) 
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
-	log = log.WithValues("teamName", teamRequest.Name)
+	teamFullName := fmt.Sprintf("%s/%s", teamRequest.Namespace, teamRequest.Name)
+	log = log.WithValues("teamName", teamFullName)
 
 	existingTeam := &v1alpha1.Agent{}
-	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      teamRequest.Name,
-		Namespace: common.GetResourceNamespace(),
-	}, existingTeam); err != nil {
+	if err := common.FetchObjKube(r.Context(), h.KubeClient, existingTeam, teamFullName, common.GetResourceNamespace()); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get team", err))
 		return
 	}
@@ -131,10 +123,8 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
-	log = log.WithValues("teamName", teamRequest.Name)
-
-	// Default to kagent namespace
-	teamRequest.Namespace = common.GetResourceNamespace()
+	teamFullName := fmt.Sprintf("%s/%s", teamRequest.Namespace, teamRequest.Name)
+	log = log.WithValues("teamName", teamFullName)
 
 	kubeClientWrapper := client_wrapper.NewKubeClientWrapper(h.KubeClient)
 	kubeClientWrapper.AddInMemory(teamRequest)
@@ -146,6 +136,10 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 
 	log.V(1).Info("Translating agent to Autogen format")
 	autogenTeam, err := apiTranslator.TranslateGroupChatForAgent(r.Context(), teamRequest)
+	log.WithValues(
+		"name", teamRequest.Name,
+		"namespace", teamRequest.Namespace,
+	)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to translate agent to Autogen format", err))
 		return
@@ -224,15 +218,18 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamLabel := convertToKubernetesIdentifier(autogenTeam.Component.Label)
+	teamLabel := autogenTeam.Component.Label
 	log = log.WithValues("teamLabel", teamLabel)
 
 	log.V(1).Info("Getting team from Kubernetes")
 	team := &v1alpha1.Agent{}
-	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      teamLabel,
-		Namespace: common.GetResourceNamespace(),
-	}, team); err != nil {
+	if err := common.FetchObjKube(
+		r.Context(),
+		h.KubeClient,
+		team,
+		teamLabel,
+		common.GetResourceNamespace(),
+	); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Team not found in Kubernetes", err))
 		return
 	}
@@ -240,10 +237,13 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	// Get the model config for the team
 	log.V(1).Info("Getting model config", "modelConfigRef", team.Spec.ModelConfig)
 	modelConfig := &v1alpha1.ModelConfig{}
-	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      team.Spec.ModelConfig,
-		Namespace: common.GetResourceNamespace(),
-	}, modelConfig); err != nil {
+	if err := common.FetchObjKube(
+		r.Context(),
+		h.KubeClient,
+		modelConfig,
+		team.Spec.ModelConfig,
+		team.Namespace,
+	); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get model config", err))
 		return
 	}
@@ -261,22 +261,29 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	RespondWithJSON(w, http.StatusOK, teamWithID)
 }
 
-// HandleDeleteTeam handles DELETE /api/teams/{teamLabel} requests
+// HandleDeleteTeam handles DELETE /api/teams/{namespace}/{teamName} requests
 func (h *TeamsHandler) HandleDeleteTeam(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "delete")
 
-	teamLabel, err := GetPathParam(r, "teamLabel")
+	namespace, err := GetPathParam(r, "namespace")
 	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get team label from path", err))
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
 		return
 	}
-	log = log.WithValues("teamLabel", teamLabel)
+
+	teamName, err := GetPathParam(r, "teamName")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get teamName from path", err))
+		return
+	}
+
+	log = log.WithValues("namespace", namespace, "teamName", teamName)
 
 	log.V(1).Info("Getting team from Kubernetes")
 	team := &v1alpha1.Agent{}
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      teamLabel,
-		Namespace: common.GetResourceNamespace(),
+		Name:      teamName,
+		Namespace: namespace,
 	}, team); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Team not found in Kubernetes", err))
 		return

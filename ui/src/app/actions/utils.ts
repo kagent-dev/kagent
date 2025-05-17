@@ -16,13 +16,18 @@ type ApiOptions = RequestInit & {
  * @returns Promise with the response data
  * @throws Error with a descriptive message if the request fails
  */
-export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promise<T> {
+export async function fetchApi<T>(
+  path: string,
+  options: ApiOptions = {}
+): Promise<T> {
   const userId = await getCurrentUserId();
   // Ensure path starts with a slash
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   const url = `${getBackendUrl()}${cleanPath}`;
-  const urlWithUser = url.includes("?") ? `${url}&user_id=${userId}` : `${url}?user_id=${userId}`;
-  
+  const urlWithUser = url.includes("?")
+    ? `${url}&user_id=${userId}`
+    : `${url}?user_id=${userId}`;
+
   try {
     const response = await fetch(urlWithUser, {
       ...options,
@@ -51,7 +56,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
         // If we can't parse the error response, use the default error message
         console.warn("Could not parse error response:", parseError);
       }
-      
+
       throw new Error(errorMessage);
     }
 
@@ -72,7 +77,9 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
       throw new Error(`Network error - Could not reach backend server. ${url}`);
     }
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error(`Request timed out - server took too long to respond. ${url}`);
+      throw new Error(
+        `Request timed out - server took too long to respond. ${url}`
+      );
     }
 
     console.error("Error in fetchApi:", {
@@ -82,7 +89,9 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
     });
 
     // Include more error details for debugging
-    throw new Error(`${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(
+      `${error instanceof Error ? error.message : "Unknown error"}`
+    );
   }
 }
 
@@ -92,7 +101,10 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
  * @param defaultMessage Default error message if the error doesn't have a message
  * @returns A BaseResponse object with error information
  */
-export function createErrorResponse<T>(error: unknown, defaultMessage: string): { success: false; error: string; data?: T } {
+export function createErrorResponse<T>(
+  error: unknown,
+  defaultMessage: string
+): { success: false; error: string; data?: T } {
   const errorMessage = error instanceof Error ? error.message : defaultMessage;
   console.error(defaultMessage, error);
   return { success: false, error: errorMessage };

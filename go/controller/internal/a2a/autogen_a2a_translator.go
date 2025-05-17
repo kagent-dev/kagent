@@ -71,7 +71,7 @@ func (a *autogenA2ATranslator) translateCardForAgent(
 	}
 	skills := a2AConfig.Skills
 	if len(skills) == 0 {
-		return nil, fmt.Errorf("no skills found for agent %s", agent.Name)
+		return nil, fmt.Errorf("no skills found for agent %s", agent.Namespace+"/"+agent.Name)
 	}
 	var convertedSkills []server.AgentSkill
 	for _, skill := range skills {

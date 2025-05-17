@@ -27,6 +27,7 @@ import { ParamsSection } from '@/components/models/new/ParamsSection';
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   selectedCombinedModel?: string;
   apiKey?: string;
   requiredParams?: Record<string, string>;
@@ -100,8 +101,10 @@ function ModelPageContent() {
 
   const isEditMode = searchParams.get("edit") === "true";
   const modelId = searchParams.get("id");
+  const urlNamespace = searchParams.get("namespace")
 
   const [name, setName] = useState("");
+  const [namespace, setNamespace] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [apiKey, setApiKey] = useState("");
@@ -168,10 +171,10 @@ function ModelPageContent() {
   useEffect(() => {
     let isMounted = true;
     const fetchModelData = async () => {
-      if (isEditMode && modelId && providers.length > 0 && providerModelsData) {
+      if (isEditMode && modelId && urlNamespace && providers.length > 0 && providerModelsData) {
         try {
           if (!isLoading) setIsLoading(true);
-          const response = await getModelConfig(modelId);
+          const response = await getModelConfig(urlNamespace, modelId);
           if (!isMounted) return;
 
           if (!response.success || !response.data) {
@@ -179,6 +182,7 @@ function ModelPageContent() {
           }
           const modelData = response.data;
           setName(modelData.name);
+          setNamespace(modelData.namespace || ""); // TODO(multi-namespace): set default kagent's namespace (Release.Namespace)
 
           const provider = providers.find(p => p.type === modelData.providerName);
           setSelectedProvider(provider || null);
@@ -309,6 +313,7 @@ function ModelPageContent() {
     const newErrors: ValidationErrors = { requiredParams: {} };
 
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
+    if (!isResourceNameValid(namespace)) newErrors.namespace = "Namespace must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
     const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
     if (!isEditMode && !isOllamaNow && isApiKeyNeeded && !apiKey.trim()) {
@@ -348,7 +353,7 @@ function ModelPageContent() {
     }
 
     setErrors(newErrors);
-    const hasBaseErrors = !!newErrors.name || !!newErrors.selectedCombinedModel || !!newErrors.apiKey;
+    const hasBaseErrors = !!newErrors.name || !!newErrors.namespace || !!newErrors.selectedCombinedModel || !!newErrors.apiKey;
     const hasRequiredParamErrors = Object.keys(newErrors.requiredParams || {}).length > 0;
     const hasOptionalParamErrors = !!newErrors.optionalParams;
     return !hasBaseErrors && !hasRequiredParamErrors && !hasOptionalParamErrors;
@@ -410,6 +415,7 @@ function ModelPageContent() {
 
     const payload: CreateModelConfigPayload = {
       name: name.trim(),
+      namespace: namespace.trim(),
       provider: {
         name: finalSelectedProvider.name,
         type: finalSelectedProvider.type,
@@ -443,7 +449,7 @@ function ModelPageContent() {
 
     try {
       let response;
-      if (isEditMode && modelId) {
+      if (isEditMode && modelId && urlNamespace) {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
@@ -453,7 +459,7 @@ function ModelPageContent() {
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
         };
-        response = await updateModelConfig(modelId, updatePayload);
+        response = await updateModelConfig(urlNamespace, modelId, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }
@@ -498,6 +504,8 @@ function ModelPageContent() {
         <div className="space-y-6">
           <BasicInfoSection
             name={name}
+            namespace={namespace}
+            onNamespaceChange={setNamespace}
             isEditingName={isEditingName}
             errors={errors}
             isSubmitting={isSubmitting}

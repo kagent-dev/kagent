@@ -99,7 +99,7 @@ func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
 
 	// TODO(sbx0r): temporary mock on GlobalUserID.
 	//              This block will be removed after resolving previous TODO
-	team, err := a.autogenClient.GetTeam(req.Name, common.GetGlobalUserID())
+	team, err := a.autogenClient.GetTeam(req.NamespacedName.String(), common.GetGlobalUserID())
 	if err != nil {
 		return fmt.Errorf("failed to get agent on agent deletion %s/%s: %w",
 			req.Namespace, req.Name, err)
@@ -462,15 +462,18 @@ func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1al
 	for _, agent := range agents {
 		autogenTeam, err := a.autogenTranslator.TranslateGroupChatForAgent(ctx, agent)
 		if err != nil {
-			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf("failed to translate agent %s: %v", agent.Name, err)
+			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf(
+				"failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
 			continue
 		}
 		if err := a.reconcileA2A(ctx, autogenTeam, agent); err != nil {
-			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf("failed to reconcile A2A for agent %s: %v", agent.Name, err)
+			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf(
+				"failed to reconcile A2A for agent %s/%s: %v", agent.Namespace, agent.Name, err)
 			continue
 		}
 		if err := a.upsertTeam(autogenTeam); err != nil {
-			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf("failed to upsert agent %s: %v", agent.Name, err)
+			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf(
+				"failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
 			continue
 		}
 	}
@@ -485,11 +488,11 @@ func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1al
 func (a *autogenReconciler) reconcileToolServer(ctx context.Context, server *v1alpha1.ToolServer) (int, error) {
 	toolServer, err := a.autogenTranslator.TranslateToolServer(ctx, server)
 	if err != nil {
-		return 0, fmt.Errorf("failed to translate tool server %s: %v", server.Name, err)
+		return 0, fmt.Errorf("failed to translate tool server %s/%s: %v", server.Namespace, server.Name, err)
 	}
 	serverID, err := a.upsertToolServer(toolServer)
 	if err != nil {
-		return 0, fmt.Errorf("failed to upsert tool server %s: %v", server.Name, err)
+		return 0, fmt.Errorf("failed to upsert tool server %s/%s: %v", server.Namespace, server.Name, err)
 	}
 
 	return serverID, nil
@@ -563,7 +566,6 @@ func (a *autogenReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.R
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
-		client.InNamespace(req.Namespace),
 	); err != nil {
 		return nil, fmt.Errorf("failed to list agents: %v", err)
 	}
@@ -571,7 +573,7 @@ func (a *autogenReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.R
 	var agents []*v1alpha1.Agent
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
-		if getRefFromString(agent.Spec.ModelConfig, agent.Namespace) == req.NamespacedName {
+		if common.GetRefFromString(agent.Spec.ModelConfig, agent.Namespace) == req.NamespacedName {
 			agents = append(agents, agent)
 		}
 	}
@@ -591,7 +593,7 @@ func (a *autogenReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req
 
 	var models []string
 	for _, model := range modelsList.Items {
-		if getRefFromString(model.Spec.APIKeySecretRef, model.Namespace) == req.NamespacedName {
+		if common.GetRefFromString(model.Spec.APIKeySecretRef, model.Namespace) == req.NamespacedName {
 			models = append(models, model.Name)
 		}
 	}
@@ -627,7 +629,6 @@ func (a *autogenReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
-		client.InNamespace(req.Namespace),
 	); err != nil {
 		return nil, fmt.Errorf("failed to list agents: %v", err)
 	}
@@ -636,7 +637,7 @@ func (a *autogenReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
 		for _, memory := range agent.Spec.Memory {
-			if getRefFromString(memory, agent.Namespace) == req.NamespacedName {
+			if common.GetRefFromString(memory, agent.Namespace) == req.NamespacedName {
 				agents = append(agents, agent)
 				break
 			}
@@ -651,7 +652,6 @@ func (a *autogenReconciler) findTeamsUsingAgent(ctx context.Context, req ctrl.Re
 	if err := a.kube.List(
 		ctx,
 		&teamsList,
-		client.InNamespace(req.Namespace),
 	); err != nil {
 		return nil, fmt.Errorf("failed to list teams: %v", err)
 	}
@@ -660,7 +660,7 @@ func (a *autogenReconciler) findTeamsUsingAgent(ctx context.Context, req ctrl.Re
 	for i := range teamsList.Items {
 		team := &teamsList.Items[i]
 		for _, participant := range team.Spec.Participants {
-			if getRefFromString(participant, team.Namespace) == req.NamespacedName {
+			if common.GetRefFromString(participant, team.Namespace) == req.NamespacedName {
 				teams = append(teams, team)
 				break
 			}
@@ -675,7 +675,6 @@ func (a *autogenReconciler) findTeamsUsingModel(ctx context.Context, req ctrl.Re
 	if err := a.kube.List(
 		ctx,
 		&teamsList,
-		client.InNamespace(req.Namespace),
 	); err != nil {
 		return nil, fmt.Errorf("failed to list teams: %v", err)
 	}
@@ -683,7 +682,7 @@ func (a *autogenReconciler) findTeamsUsingModel(ctx context.Context, req ctrl.Re
 	var teams []*v1alpha1.Team
 	for i := range teamsList.Items {
 		team := &teamsList.Items[i]
-		if getRefFromString(team.Spec.ModelConfig, team.Namespace) == req.NamespacedName {
+		if common.GetRefFromString(team.Spec.ModelConfig, team.Namespace) == req.NamespacedName {
 			teams = append(teams, team)
 		}
 	}
@@ -703,7 +702,7 @@ func (a *autogenReconciler) findTeamsUsingApiKeySecret(ctx context.Context, req 
 
 	var models []string
 	for _, model := range modelsList.Items {
-		if getRefFromString(model.Spec.APIKeySecretRef, model.Namespace) == req.NamespacedName {
+		if common.GetRefFromString(model.Spec.APIKeySecretRef, model.Namespace) == req.NamespacedName {
 			models = append(models, model.Name)
 		}
 	}
@@ -739,7 +738,6 @@ func (a *autogenReconciler) findAgentsUsingToolServer(ctx context.Context, req c
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
-		client.InNamespace(req.Namespace),
 	); err != nil {
 		return nil, fmt.Errorf("failed to list agents: %v", err)
 	}
@@ -747,7 +745,7 @@ func (a *autogenReconciler) findAgentsUsingToolServer(ctx context.Context, req c
 	var agents []*v1alpha1.Agent
 	appendAgentIfUsesToolServer := func(agent *v1alpha1.Agent) {
 		for _, tool := range agent.Spec.Tools {
-			if tool.McpServer != nil && getRefFromString(tool.McpServer.ToolServer, agent.Namespace) == req.NamespacedName {
+			if tool.McpServer != nil && common.GetRefFromString(tool.McpServer.ToolServer, agent.Namespace) == req.NamespacedName {
 				agents = append(agents, agent)
 				return
 			}

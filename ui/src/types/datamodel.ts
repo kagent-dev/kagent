@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export type ComponentType = "team" | "agent" | "model" | "tool" | "termination" | "chat_completion_context" | "tool_server";
+export type ComponentType =
+  | "team"
+  | "agent"
+  | "model"
+  | "tool"
+  | "termination"
+  | "chat_completion_context"
+  | "tool_server";
 
 export interface Component<T extends ComponentConfig> {
   provider: string;
@@ -102,12 +109,23 @@ export interface ToolCallSummaryMessage extends BaseMessageConfig {
   type: "ToolCallSummaryMessage";
 }
 
+<<<<<<< HEAD
 export interface ModelClientStreamingChunkEvent extends BaseAgentEvent { 
   content: string;
   type: "ModelClientStreamingChunkEvent";
 }
 
 export type AgentMessageConfig = TextMessageConfig | MultiModalMessageConfig | StopMessageConfig | HandoffMessageConfig | ToolCallRequestEvent | ToolCallExecutionEvent | ToolCallSummaryMessage | MemoryQueryEvent | ModelClientStreamingChunkEvent;
+=======
+export type AgentMessageConfig =
+  | TextMessageConfig
+  | MultiModalMessageConfig
+  | StopMessageConfig
+  | HandoffMessageConfig
+  | ToolCallMessageConfig
+  | ToolCallResultMessageConfig
+  | MemoryQueryEvent;
+>>>>>>> 0579dac (feat(multi-namespace): bulk commit)
 
 // Tool Configs
 export interface FunctionToolConfig {
@@ -278,9 +296,16 @@ export interface TextMessageTerminationConfig {
 }
 
 // Config type unions based on provider
-export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | TaskAgentConfig;
+export type TeamConfig =
+  | SelectorGroupChatConfig
+  | RoundRobinGroupChatConfig
+  | TaskAgentConfig;
 
-export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | UserProxyAgentConfig | TaskAgentConfig;
+export type AgentConfig =
+  | MultimodalWebSurferConfig
+  | AssistantAgentConfig
+  | UserProxyAgentConfig
+  | TaskAgentConfig;
 
 export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig;
 
@@ -290,9 +315,20 @@ export type ToolServerConfig = StdioMcpServerConfig | SseMcpServerConfig;
 
 export type ChatCompletionContextConfig = UnboundedChatCompletionContextConfig;
 
-export type TerminationConfig = OrTerminationConfig | MaxMessageTerminationConfig | TextMentionTerminationConfig | TextMessageTerminationConfig;
+export type TerminationConfig =
+  | OrTerminationConfig
+  | MaxMessageTerminationConfig
+  | TextMentionTerminationConfig
+  | TextMessageTerminationConfig;
 
-export type ComponentConfig = TeamConfig | AgentConfig | ModelConfig | ToolConfig | TerminationConfig | ChatCompletionContextConfig | ToolServerConfig;
+export type ComponentConfig =
+  | TeamConfig
+  | AgentConfig
+  | ModelConfig
+  | ToolConfig
+  | TerminationConfig
+  | ChatCompletionContextConfig
+  | ToolServerConfig;
 
 // DB Models
 export interface DBModel {
@@ -343,10 +379,35 @@ export interface Team extends DBModel {
 
 export interface Session extends DBModel {
   name: string;
+<<<<<<< HEAD
   team_id: number;
   user_id: string;
   created_at: string;
   updated_at: string;
+=======
+  team_id?: number;
+}
+
+// Runtime Types
+export interface SessionRuns {
+  runs: Run[];
+}
+
+export interface WebSocketMessage {
+  type:
+    | "message"
+    | "result"
+    | "completion"
+    | "input_request"
+    | "error"
+    | "llm_call_event"
+    | "system"
+    | "message_chunk";
+  data?: AgentMessageConfig | TaskResult;
+  status?: RunStatus;
+  error?: string;
+  timestamp?: string;
+>>>>>>> 0579dac (feat(multi-namespace): bulk commit)
 }
 
 export interface TaskResult {
@@ -360,13 +421,44 @@ export interface TaskResultMessage {
   duration: number;
 }
 
+<<<<<<< HEAD
+=======
+export interface Run {
+  id: string;
+  created_at: string;
+  updated_at?: string;
+  status: RunStatus;
+  task: AgentMessageConfig;
+  team_result: TeamResult | null;
+  messages: Message[];
+  error_message?: string;
+}
+
+export interface GetSessionRunsResponse {
+  runs: Run[];
+}
+
+export type RunStatus =
+  | "created"
+  | "active"
+  | "awaiting_input"
+  | "timeout"
+  | "complete"
+  | "error"
+  | "stopped";
+
+export interface SessionWithRuns {
+  session: Session;
+  runs: Run[];
+}
+>>>>>>> 0579dac (feat(multi-namespace): bulk commit)
 
 export interface ResourceMetadata {
   name: string;
-  namespace?: string;
+  namespace: string;
 }
 
-export type ToolProviderType = "Builtin" | "McpServer" | "Agent"
+export type ToolProviderType = "Builtin" | "McpServer" | "Agent";
 
 export interface Tool {
   type: ToolProviderType;

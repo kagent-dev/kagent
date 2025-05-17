@@ -177,6 +177,7 @@ export function ModelConfigStep({
         const providerInfo = PROVIDERS_INFO[values.providerName];
         const payload: CreateModelConfigPayload = {
             name: values.configName,
+            namespace: values.configName,
             provider: { name: providerInfo.name, type: providerInfo.type },
             model: values.modelName,
             apiKey: values.apiKey || "",

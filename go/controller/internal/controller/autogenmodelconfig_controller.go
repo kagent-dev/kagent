@@ -34,6 +34,7 @@ type AutogenModelConfigReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	Reconciler autogen.AutogenReconciler
+	// WatchNamespaces []string
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=modelconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -41,7 +42,21 @@ type AutogenModelConfigReconciler struct {
 // +kubebuilder:rbac:groups=kagent.dev,resources=modelconfigs/finalizers,verbs=update
 
 func (r *AutogenModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
+
+	// if len(r.WatchNamespaces) > 0 {
+	// 	namespaceFound := slices.Contains(r.WatchNamespaces, req.Namespace)
+
+	// 	if !namespaceFound {
+	// 		logger.Info("Skipping reconciliation for ModelConfig in namespace not being watched",
+	// 			"namespace", req.Namespace,
+	// 			"name", req.Name,
+	// 			"watchedNamespaces", r.WatchNamespaces)
+	// 		return ctrl.Result{}, nil
+	// 	}
+	// }
+
+	logger.Info("Reconciling ModelConfig", "namespace", req.Namespace, "name", req.Name)
 	return ctrl.Result{}, r.Reconciler.ReconcileAutogenModelConfig(ctx, req)
 }
 

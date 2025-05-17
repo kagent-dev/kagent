@@ -10,6 +10,7 @@ import { isResourceNameValid } from "@/lib/utils";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   description?: string;
   systemPrompt?: string;
   model?: string;
@@ -20,6 +21,7 @@ interface ValidationErrors {
 
 export interface AgentFormData {
   name: string;
+  namespace: string;
   description: string;
   systemPrompt: string;
   model: Partial<ModelConfig>;
@@ -90,7 +92,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       setModels(response.data);
       setError("");
     } catch (err) {
-      console.error("Error fetching models:", error);
+      console.error("Error fetching models:", err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
@@ -106,7 +108,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         setError("");
       }
     } catch (err) {
-      console.error("Error fetching tools:", error);
+      console.error("Error fetching tools:", err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
@@ -135,6 +137,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.systemPrompt = "Agent instructions are required";
     }
 
+    // TODO: refactor this name. It's not about the model but ModelConfig name
     if (!data.model || data.model === undefined) {
       errors.model = "Please select a model";
     }
@@ -154,7 +157,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
 
       const teams = teamsResult.data;
-      
+
       // Find the team/agent with the matching ID
       const agent = teams.find((team) => String(team.id) === id);
 
@@ -199,10 +202,19 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
     try {
       const errors = validateAgentData(agentData);
+      console.log(agentData)
 
       if (Object.keys(errors).length > 0) {
         console.log("Errors validating agent data", errors);
         return { success: false, error: "Validation failed", data: {} as Agent };
+      }
+
+      if (agentData.model) {
+        if (agentData.model.name && agentData.model.name.includes('/')) {
+          const [namespace, name] = agentData.model.name.split('/');
+          agentData.model.namespace = namespace;
+          agentData.model.name = name;
+        }
       }
 
       // Use the same createTeam endpoint for updates

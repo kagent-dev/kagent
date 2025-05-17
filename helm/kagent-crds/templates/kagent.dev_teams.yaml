@@ -55,8 +55,15 @@ spec:
                 format: int64
                 type: integer
               modelConfig:
+                description: Can either be a reference to the name of a ModelConfig
+                  in the same namespace as the referencing Team, or a reference to
+                  the name of a ModelConfig in a different namespace in the form <namespace>/<name>
                 type: string
               participants:
+                description: Each Participant can either be a reference to the name
+                  of an Agent in the same namespace as the referencing Team, or a
+                  reference to the name of an Agent in a different namespace in the
+                  form <namespace>/<name>
                 items:
                   type: string
                 type: array

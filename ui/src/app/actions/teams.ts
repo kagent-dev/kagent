@@ -13,29 +13,41 @@ import { isBuiltinTool, isMcpTool, isAgentTool } from "@/lib/toolUtils";
  * @param allAgents List of all available agents to look up descriptions
  * @returns An AgentTool object, potentially augmented with description
  */
-function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
+function convertToolRepresentation(
+  tool: unknown,
+  allAgents: AgentResponse[]
+): Tool {
   const typedTool = tool as Partial<Tool>;
   if (isBuiltinTool(typedTool)) {
     return tool as Tool;
   } else if (isMcpTool(typedTool)) {
     return tool as Tool;
   } else if (isAgentTool(typedTool)) {
-    const agentName = typedTool.agent.ref;
-    const foundAgent = allAgents.find(a => a.agent.metadata.name === agentName);
+    const agentRef = typedTool.agent.ref;
+    const foundAgent = allAgents.find((a) => {
+      const fullName = `${a.agent.metadata.namespace}/${a.agent.metadata.name}`;
+      return fullName === agentRef || a.agent.metadata.name === agentRef;
+    });
     const description = foundAgent?.agent.spec.description;
+
+    let formattedRef = agentRef;
+    if (foundAgent && !agentRef.includes("/")) {
+      formattedRef = `${foundAgent.agent.metadata.namespace}/${foundAgent.agent.metadata.name}`;
+    }
+
     return {
       ...typedTool,
       type: "Agent",
       agent: {
         ...typedTool.agent,
-        ref: agentName,
-        description: description
-      }
+        ref: formattedRef,
+        description: description,
+      },
     } as Tool;
   }
 
   // Check if it's a Component<ToolConfig>
-  if (tool && typeof tool === 'object' && 'provider' in tool) {
+  if (tool && typeof tool === "object" && "provider" in tool) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const componentTool = tool as Component<any>;
     return {
@@ -45,7 +57,7 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
         description: componentTool.description || "",
         config: componentTool.config || {},
         label: componentTool.label,
-      }
+      },
     } as Tool;
   }
 
@@ -57,7 +69,7 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
       name: "unknown",
       description: "Unknown tool",
       config: {},
-    }
+    },
   } as Tool;
 }
 
@@ -67,9 +79,14 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
  * @param allAgents List of all available agents to look up descriptions
  * @returns An array of Tool objects
  */
-function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[]): Tool[] {
+function extractToolsFromResponse(
+  data: AgentResponse,
+  allAgents: AgentResponse[]
+): Tool[] {
   if (data.agent?.spec?.tools) {
-    return data.agent.spec.tools.map(tool => convertToolRepresentation(tool, allAgents));
+    return data.agent.spec.tools.map((tool) =>
+      convertToolRepresentation(tool, allAgents)
+    );
   }
   return [];
 }
@@ -79,11 +96,15 @@ function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[
  * @param config The config object to process
  * @returns A new object with all values as strings
  */
-function processConfigObject(config: Record<string, unknown>): Record<string, string> {
+function processConfigObject(
+  config: Record<string, unknown>
+): Record<string, string> {
   return Object.entries(config).reduce((acc, [key, value]) => {
     // If value is an object and not null, process it recursively
     if (typeof value === "object" && value !== null) {
-      acc[key] = JSON.stringify(processConfigObject(value as Record<string, unknown>));
+      acc[key] = JSON.stringify(
+        processConfigObject(value as Record<string, unknown>)
+      );
     } else {
       // For primitive values, convert to string
       acc[key] = String(value);
@@ -101,11 +122,13 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
   return {
     metadata: {
       name: agentFormData.name,
+      namespace: agentFormData.namespace,
     },
     spec: {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
-      modelConfig: agentFormData.model.name || "",
+      modelConfig:
+        `${agentFormData.model.namespace}/${agentFormData.model.name}` || "",
       memory: agentFormData.memory,
       tools: agentFormData.tools.map((tool) => {
         // Convert to the proper Tool structure based on the tool type
@@ -114,12 +137,14 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
             type: "Builtin",
             builtin: {
               name: tool.builtin.name,
-              config: tool.builtin.config ? processConfigObject(tool.builtin.config) : {},
+              config: tool.builtin.config
+                ? processConfigObject(tool.builtin.config)
+                : {},
               label: tool.builtin.label,
             },
           } as Tool;
         }
-        
+
         if (isMcpTool(tool) && tool.mcpServer) {
           return {
             type: "McpServer",
@@ -134,11 +159,11 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           return {
             type: "Agent",
             agent: {
-              ref: tool.agent.ref
+              ref: tool.agent.ref,
             },
           } as Tool;
         }
-        
+
         // Default case - shouldn't happen with proper type checking
         console.warn("Unknown tool type:", tool);
         return tool;
@@ -152,14 +177,16 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
  * @param teamLabel The team label or ID
  * @returns A promise with the team data
  */
-export async function getTeam(teamLabel: string | number): Promise<BaseResponse<AgentResponse>> {
+export async function getTeam(
+  teamLabel: string | number
+): Promise<BaseResponse<AgentResponse>> {
   try {
     const teamData = await fetchApi<AgentResponse>(`/teams/${teamLabel}`);
 
     // Fetch all teams to get descriptions for agent tools
     // We use fetchApi directly to avoid circular dependency/logic issues with calling getTeams() here
     const allTeamsData = await fetchApi<AgentResponse[]>(`/teams`);
-    
+
     // Extract and augment tools using the list of all teams
     const tools = extractToolsFromResponse(teamData, allTeamsData);
 
@@ -182,10 +209,12 @@ export async function getTeam(teamLabel: string | number): Promise<BaseResponse<
 
 /**
  * Deletes a team
- * @param teamLabel The team label
+ * @param teamLabel The team label (in namespace/name format)
  * @returns A promise with the delete result
  */
-export async function deleteTeam(teamLabel: string): Promise<BaseResponse<void>> {
+export async function deleteTeam(
+  teamLabel: string
+): Promise<BaseResponse<void>> {
   try {
     await fetchApi(`/teams/${teamLabel}`, {
       method: "DELETE",
@@ -207,7 +236,10 @@ export async function deleteTeam(teamLabel: string): Promise<BaseResponse<void>>
  * @param update Whether to update an existing agent
  * @returns A promise with the created/updated agent
  */
-export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
+export async function createAgent(
+  agentConfig: AgentFormData,
+  update: boolean = false
+): Promise<BaseResponse<Agent>> {
   try {
     const agentSpec = fromAgentFormDataToAgent(agentConfig);
     const response = await fetchApi<Agent>(`/teams`, {
@@ -236,45 +268,50 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
 export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
   try {
     const data = await fetchApi<AgentResponse[]>(`/teams`);
-    
-    const validTeams = data.filter(team => !!team.agent);
-    const agentMap = new Map(validTeams.map(agentResp => [agentResp.agent.metadata.name, agentResp]));
 
-    const convertedData: AgentResponse[] = validTeams.map(team => {
-      const augmentedTools = team.agent.spec.tools?.map(tool => {
-        // Check if it's an Agent tool reference needing description
-        if (isAgentTool(tool)) {
-          const agentName = tool.agent.ref;
-          const foundAgent = agentMap.get(agentName);
-          return {
-            ...tool,
-            type: "Agent",
-            agent: {
-              ...tool.agent,
-              ref: agentName,
-              description: foundAgent?.agent.spec.description
-            }
-          } as Tool;
-        }
-        return tool as Tool;
-      }) || [];
+    const validTeams = data.filter((team) => !!team.agent);
+    const agentMap = new Map(
+      validTeams.map((agentResp) => [agentResp.agent.metadata.name, agentResp])
+    );
+
+    const convertedData: AgentResponse[] = validTeams.map((team) => {
+      const augmentedTools =
+        team.agent.spec.tools?.map((tool) => {
+          // Check if it's an Agent tool reference needing description
+          if (isAgentTool(tool)) {
+            const agentName = tool.agent.ref;
+            const foundAgent = agentMap.get(agentName);
+            return {
+              ...tool,
+              type: "Agent",
+              agent: {
+                ...tool.agent,
+                ref: agentName,
+                description: foundAgent?.agent.spec.description,
+              },
+            } as Tool;
+          }
+          return tool as Tool;
+        }) || [];
 
       return {
         ...team,
-        agent: { 
+        agent: {
           ...team.agent,
-          spec: { 
+          spec: {
             ...team.agent.spec,
-            tools: augmentedTools
-          }
+            tools: augmentedTools,
+          },
         },
       };
     });
 
-    const sortedData = convertedData.sort((a, b) => 
-      a.agent.metadata.name.localeCompare(b.agent.metadata.name)
-    );
-    
+    const sortedData = convertedData.sort((a, b) => {
+      const aFullName = `${a.agent.metadata.namespace}/${a.agent.metadata.name}`;
+      const bFullName = `${b.agent.metadata.namespace}/${b.agent.metadata.name}`;
+      return aFullName.localeCompare(bFullName);
+    });
+
     return { success: true, data: sortedData };
   } catch (error) {
     return createErrorResponse<AgentResponse[]>(error, "Error getting teams");

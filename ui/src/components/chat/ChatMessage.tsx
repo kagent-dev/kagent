@@ -10,6 +10,11 @@ import { useState } from "react";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
 
+function convertToUserFriendlyName(name: string): string {
+  name = name.replace(/__NS__/g, "/");
+  return name.replace(/_/g, "-");
+}
+
 interface ChatMessageProps {
   message: AgentMessageConfig & { id?: number };
   allMessages: AgentMessageConfig[];

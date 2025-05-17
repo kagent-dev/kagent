@@ -349,6 +349,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     const newServer: ToolServer = {
       metadata: {
         name: finalServerName,
+        namespace: ""
       },
 
       spec: {
