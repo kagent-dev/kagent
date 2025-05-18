@@ -40,7 +40,7 @@ class GenerateResourceTool(BaseTool, Component[GenerateResourceToolConfig]):
         config (GenerateResourceToolConfig): Configuration for the GenerateResourceTool.
     """
 
-    component_description = "GenerateResourceTool knows how to generate a resource YAML configuration for Istio, Gateway API, Argo resources from a detailed description."
+    component_description = "GenerateResourceTool knows how to generate a resource YAML configuration for Istio, Linkerd, Gateway API, Argo resources from a detailed description."
     component_type = "tool"
     component_config_schema = GenerateResourceToolConfig
     component_provider_override = "kagent.tools.k8s.GenerateResourceTool"

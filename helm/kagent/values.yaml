@@ -142,6 +142,9 @@ kgateway-agent:
 istio-agent:
   enabled: true
 
+linkerd-agent:
+  enabled: true
+
 promql-agent:
   enabled: true
 

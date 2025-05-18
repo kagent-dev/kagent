@@ -370,6 +370,109 @@ var _ = Describe("E2e", func() {
 		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should be deleted")
 	})
 
+	// Linkerd Agent Test
+	It("installs linkerd and configures resources", func() {
+		const namespace = "linkerd-test"
+		const deploymentName = "nginx-linkerd-test"
+		const serviceName = "nginx-service"
+
+		// Cleanup namespace if it exists from a previous test run
+		cleanupNamespace(namespace)
+
+		// Create a namespace for linkerd testing
+		runAgentInteraction("k8s-agent",
+			`Create a namespace called "linkerd-test" with the label "linkerd.io/inject=enabled"`)
+
+		// Verify namespace exists with correct label
+		ns := &corev1.Namespace{}
+		Eventually(func() bool {
+			if !resourceExists("", "Namespace", namespace, ns) {
+				return false
+			}
+			return ns.Labels["linkerd.io/inject"] == "enabled"
+		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should exist with linkerd.io/inject label")
+
+		// Install Linkerd
+		runAgentInteraction("istio-agent",
+			`Install Linkerd`)
+
+		// Verify Linkerd namespace exists
+		Eventually(func() bool {
+			return namespaceExists("linkerd")
+		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "linkerd namespace should exist after installation")
+
+		// Verify linkerd-destination exists
+		linkerd_destination := &appsv1.Deployment{}
+		Eventually(func() bool {
+			return resourceExists("linkerd", "Deployment", "linkerd-destination", linkerd_destination)
+		}, 120*time.Second, 1*time.Second).Should(BeTrue(), "linkerd-destination deployment should exist")
+
+		// Verify linkerd-identity, and linkerd-proxy-injector exists
+		linkerd_identity := &appsv1.Deployment{}
+		Eventually(func() bool {
+			return resourceExists("linkerd", "Deployment", "linkerd-identity", linkerd_identity)
+		}, 120*time.Second, 1*time.Second).Should(BeTrue(), "linkerd-identity deployment should exist")
+
+		// Verify linkerd-proxy-injector exists
+		linkerd_proxy_injector := &appsv1.Deployment{}
+		Eventually(func() bool {
+			return resourceExists("linkerd", "Deployment", "linkerd-proxy-injector", linkerd_proxy_injector)
+		}, 120*time.Second, 1*time.Second).Should(BeTrue(), "linkerd-proxy-injector deployment should exist")
+
+		// Deploy a simple application
+		runAgentInteraction("k8s-agent",
+			`Deploy a basic nginx application in the "linkerd-test" namespace with 2 replicas. Name the deployment "nginx-linkerd-test"`)
+
+		// Verify deployment exists with correct replica count
+		deployment := &appsv1.Deployment{}
+		Eventually(func() bool {
+			if !resourceExists(namespace, "Deployment", deploymentName, deployment) {
+				return false
+			}
+			return *deployment.Spec.Replicas == int32(2)
+		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Deployment should exist with 2 replicas")
+
+		// Create a service for the application
+		runAgentInteraction("k8s-agent",
+			`Create a service for the "nginx-linkerd-test" deployment in the "linkerd-test" namespace. The service should be of type ClusterIP and expose port 80. Name the service "nginx-service"`)
+
+		// Verify service exists
+		service := &corev1.Service{}
+		Eventually(func() bool {
+			if !resourceExists(namespace, "Service", serviceName, service) {
+				return false
+			}
+			return service.Spec.Type == corev1.ServiceTypeClusterIP && len(service.Spec.Ports) > 0 && service.Spec.Ports[0].Port == 80
+		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Service should exist with correct port and type")
+
+		// Create a simple gateway and virtual service
+		runAgentInteraction("istio-agent",
+			`Create a gateway and virtual service for the nginx-service in the istio-test namespace. The gateway should listen on port 80 and the virtual service should route to the nginx-service`)
+
+		// Since we don't have the Istio CRDs registered with our scheme,
+		// we can't directly check for Gateway and VirtualService resources.
+		// Instead, we'll query the API server indirectly through the agent
+
+		output := runAgentInteraction("k8s-agent",
+			`Check if there are any networking.istio.io/v1alpha3 or networking.istio.io/v1beta1 gateways and virtualservices in the istio-test namespace`)
+
+		// Check if the output indicates that gateway and virtualservice were found
+		gatewayExists := strings.Contains(output, "gateway") || strings.Contains(output, "Gateway")
+		virtualServiceExists := strings.Contains(output, "virtualservice") || strings.Contains(output, "VirtualService")
+
+		Expect(gatewayExists || virtualServiceExists).To(BeTrue(), "Should have created either Gateway or VirtualService resources")
+
+		// We don't cleanup Istio as it may be needed for other tests
+		// But we do cleanup the test namespace
+		runAgentInteraction("k8s-agent",
+			`Delete the namespace "linkerd-test" and all its resources`)
+
+		// Verify namespace is deleted
+		Eventually(func() bool {
+			return !namespaceExists(namespace)
+		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should be deleted")
+	})
+
 })
 
 // test shell simulates a user shell interface

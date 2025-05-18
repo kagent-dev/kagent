@@ -8,6 +8,12 @@ class ResourceTypes(Enum):
     ISTIO_PEER_AUTHENTICATION = "peer_authentication"
     ISTIO_VIRTUAL_SERVICE = "virtual_service"
 
+    # Linkerd
+    LINKERD_AUTH_POLICY = "auth_policy"
+    LINKERD_GATEWAY = "gateway"
+    LINKERD_PEER_AUTHENTICATION = "peer_authentication"
+    LINKERD_VIRTUAL_SERVICE = "virtual_service"
+
     # Argo
     ARGO_ROLLOUT = "rollout"
     ARGO_ANALYSIS_TEMPLATE = "analysis_template"

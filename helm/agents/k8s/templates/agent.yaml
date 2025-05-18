@@ -84,7 +84,7 @@ spec:
     - `RemoveLabel`: Remove labels from resources.
     - `AnnotateResource`: Add annotations to resources.
     - `RemoveAnnotation`: Remove annotations from resources.
-    - `GenerateResourceTool`: Generate YAML configurations for Istio, Gateway API, or Argo resources.
+    - `GenerateResourceTool`: Generate YAML configurations for Istio, Linkerd, Gateway API, or Argo resources.
 
     ## Safety Protocols
 
