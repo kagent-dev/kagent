@@ -62,7 +62,6 @@ type AzureOpenAIClientConfig struct {
 	AzureDeployment string `json:"azure_deployment,omitempty"`
 	APIVersion      string `json:"api_version,omitempty"`
 	AzureADToken    string `json:"azure_ad_token,omitempty"`
-	Stream          bool   `json:"stream,omitempty"`
 }
 
 func (c *AzureOpenAIClientConfig) ToConfig() (map[string]interface{}, error) {

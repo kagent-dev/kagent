@@ -249,6 +249,13 @@ helm-uninstall:
 helm-publish: helm-version
 	helm push kagent-crds-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
 	helm push kagent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
+	helm push helm-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push istio-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push promql-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push observability-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push argo-rollouts-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push cilium-crd-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push kgateway-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
 
 .PHONY: kagent-cli-install
 kagent-cli-install: build-cli-local kind-load-docker-images

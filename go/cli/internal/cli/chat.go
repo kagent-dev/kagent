@@ -1,36 +1,21 @@
 package cli
 
 import (
-	"context"
+	"errors"
 	"fmt"
+	"math/rand"
 	"slices"
 
 	"github.com/abiosoft/ishell/v2"
+	"github.com/abiosoft/readline"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
-	"github.com/kagent-dev/kagent/go/cli/internal/ws"
 	"github.com/spf13/pflag"
-	"golang.org/x/exp/rand"
 )
 
 const (
 	sessionCreateNew = "[New Session]"
 )
-
-func generateRandomString(prefix string, length int) (string, error) {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
-	}
-
-	return prefix + string(b), nil
-}
 
 func ChatCmd(c *ishell.Context) {
 	verbose := false
@@ -112,7 +97,7 @@ func ChatCmd(c *ishell.Context) {
 		c.Print("Enter a session name: ")
 		sessionName, err := c.ReadLineErr()
 		if err != nil {
-			c.Println(err)
+			c.Printf("Failed to read session name: %v\n", err)
 			c.ShowPrompt(true)
 			return
 		}
@@ -123,7 +108,7 @@ func ChatCmd(c *ishell.Context) {
 			TeamID: team.Id,
 		})
 		if err != nil {
-			c.Println(err)
+			c.Printf("Failed to create session: %v\n", err)
 			return
 		}
 	} else {
@@ -132,33 +117,50 @@ func ChatCmd(c *ishell.Context) {
 
 	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", team.Component.Label, session.Name))
 	c.SetPrompt(promptStr)
-
-	run, err := client.CreateRun(&autogen_client.CreateRunRequest{
-		SessionID: session.ID,
-		UserID:    session.UserID,
-	})
-	if err != nil {
-		c.Println(err)
-		return
-	}
-
-	wsConfig := ws.DefaultConfig()
-	wsConfig.Verbose = verbose
-	wsClient, err := ws.NewClient(cfg.WSURL, run.ID, wsConfig)
-	if err != nil {
-		c.Println(err)
-		return
-	}
-	c.ShowPrompt(false)
-	c.Print("Enter a task: ")
-	task, err := c.ReadLineErr()
-	if err != nil {
-		c.Println(err)
-		c.ShowPrompt(true)
-		return
-	}
 	c.ShowPrompt(true)
-	if err := wsClient.StartInteractive(context.Background(), c, team, task); err != nil {
-		c.Println(err)
+
+	for {
+		task, err := c.ReadLineErr()
+		if err != nil {
+			if errors.Is(err, readline.ErrInterrupt) {
+				c.Println("exiting chat session...")
+				return
+			}
+			c.Printf("Failed to read task: %v\n", err)
+			return
+		}
+		if task == "exit" {
+			c.Println("exiting chat session...")
+			return
+		}
+		if task == "help" {
+			c.Println("Available commands:")
+			c.Println("  exit - exit the chat session")
+			c.Println("  help - show this help message")
+			continue
+		}
+
+		usage := &autogen_client.ModelsUsage{}
+
+		// title := getThinkingVerb()
+		// s := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
+		// s.Suffix = " " + title
+		// s.Start()
+		// defer s.Stop()
+
+		ch, err := client.InvokeSessionStream(session.ID, cfg.UserID, task)
+		if err != nil {
+			c.Printf("Failed to invoke session: %v\n", err)
+			return
+		}
+
+		StreamEvents(ch, usage, verbose)
 	}
+}
+
+// Yes, this is AI generated, and so is this comment.
+var thinkingVerbs = []string{"thinking", "processing", "mulling over", "pondering", "reflecting", "evaluating", "analyzing", "synthesizing", "interpreting", "inferring", "deducing", "reasoning", "evaluating", "synthesizing", "interpreting", "inferring", "deducing", "reasoning"}
+
+func getThinkingVerb() string {
+	return thinkingVerbs[rand.Intn(len(thinkingVerbs))]
 }

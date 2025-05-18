@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...datamodel import Message, Run, RunStatus, Session
-from ..deps import get_db
+from ..deps import get_db, get_session_manager
+from ...sessionmanager import SessionManager
 
 router = APIRouter()
 
@@ -63,3 +64,10 @@ async def get_run_messages(run_id: int, db=Depends(get_db)) -> Dict:
     messages = db.get(Message, filters={"run_id": run_id}, order="created_at asc", return_json=False)
 
     return {"status": True, "data": messages.data}
+
+
+@router.delete("/{run_id}")
+async def delete_run(run_id: int, db=Depends(get_db)) -> Dict:
+    """Delete a run"""
+    db.delete(Run, filters={"id": run_id})
+    return {"status": True}

@@ -70,6 +70,7 @@ class Message(BaseDBModel, table=True):
 class Session(BaseDBModel, table=True):
     __table_args__ = {"sqlite_autoincrement": True}
     team_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("team.id", ondelete="CASCADE")))
+    team_state: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     name: Optional[str] = None
 
     @field_validator("created_at", "updated_at", mode="before")

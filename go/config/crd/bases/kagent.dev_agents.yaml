@@ -107,6 +107,11 @@ spec:
                 type: array
               modelConfig:
                 type: string
+              stream:
+                description: |-
+                  Whether to stream the response from the model.
+                  If not specified, the default value is true.
+                type: boolean
               systemMessage:
                 minLength: 1
                 type: string

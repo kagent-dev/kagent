@@ -3,29 +3,40 @@ import React from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from "../ui/sidebar";
 import { AgentSwitcher } from "./AgentSwitcher";
-import GroupedSessions from "./GroupedSessions";
-import { AgentResponse, SessionWithRuns } from "@/types/datamodel";
-import useChatStore from "@/lib/useChatStore";
+import GroupedChats from "./GroupedChats";
+import { AgentResponse, Session } from "@/types/datamodel";
+import { Loader2 } from "lucide-react";
 
 interface SessionsSidebarProps {
   agentId: number;
   currentAgent: AgentResponse;
   allAgents: AgentResponse[];
-  sessionsWithRuns: SessionWithRuns[];
+  agentSessions: Session[];
+  isLoadingSessions?: boolean;
 }
 
-export default function SessionsSidebar({ agentId, currentAgent, allAgents, sessionsWithRuns }: SessionsSidebarProps) {
-  const storeSessions = useChatStore((state) => state.sessions);
-  const displaySessions = storeSessions.length > 0 ? storeSessions : sessionsWithRuns;
-
-  return (
+export default function SessionsSidebar({ 
+  agentId, 
+  currentAgent, 
+  allAgents, 
+  agentSessions, 
+  isLoadingSessions = false 
+}: SessionsSidebarProps) {
+    return (
     <Sidebar side="left" collapsible="offcanvas">
       <SidebarHeader>
         <AgentSwitcher currentAgent={currentAgent} allAgents={allAgents} />
       </SidebarHeader>
       <SidebarContent>
         <ScrollArea className="flex-1 my-4">
-          <GroupedSessions agentId={agentId} sessionsWithRuns={displaySessions} />
+          {isLoadingSessions ? (
+            <div className="flex items-center justify-center h-20">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading sessions...</span>
+            </div>
+          ) : (
+            <GroupedChats agentId={agentId} sessions={agentSessions} />
+          )}
         </ScrollArea>
       </SidebarContent>
       <SidebarRail />
