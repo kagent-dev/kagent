@@ -92,6 +92,11 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 model: agentResponse.model,
                 name: agent.spec.modelConfig,
               });
+              
+              // Set selected memories if they exist
+              if (agent.spec.memory && Array.isArray(agent.spec.memory)) {
+                setSelectedMemories(agent.spec.memory);
+              }
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
               toast.error("Failed to extract agent data from team structure");

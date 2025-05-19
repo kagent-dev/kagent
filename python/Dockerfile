@@ -79,7 +79,7 @@ RUN --mount=type=cache,target=/app/python/.cache                  \
 # Generate configs
 RUN --mount=type=cache,target=/app/python/.cache                  \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    mkdir -p /app/python/.autogenstudio/configs && uv run tool_gen -o /app/python/.autogenstudio/configs
+    mkdir -p /root/.autogenstudio/configs && uv run tool_gen -o /root/.autogenstudio/configs
 
 # Test if the tool is working and fetch all dependencies
 RUN --mount=type=cache,target=/app/python/.cache                  \
