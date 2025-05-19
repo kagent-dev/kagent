@@ -845,6 +845,7 @@ func addOpenaiApiKeyToConfig(
 
 // createModelClientForProvider creates a model client component based on the model provider
 func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelConfig *v1alpha1.ModelConfig, stream bool) (*api.Component, error) {
+
 	switch modelConfig.Spec.Provider {
 	case v1alpha1.Anthropic:
 		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
@@ -939,14 +940,6 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 				if err == nil {
 					config.TopP = topP
 				}
-			}
-
-			if len(azureConfig.DefaultHeaders) > 0 {
-				headers := make(map[string]string)
-				for k, v := range azureConfig.DefaultHeaders {
-					headers[k] = v
-				}
-				config.DefaultHeaders = headers
 			}
 		}
 
@@ -1044,6 +1037,14 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			if ollamaConfig.Options != nil {
 				config.Options = ollamaConfig.Options
 			}
+		}
+
+		if len(modelConfig.Spec.DefaultHeaders) > 0 {
+			headers := make(map[string]string)
+			for k, v := range modelConfig.Spec.DefaultHeaders {
+				headers[k] = v
+			}
+			config.DefaultHeaders = headers
 		}
 
 		return &api.Component{

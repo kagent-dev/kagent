@@ -133,10 +133,6 @@ type AzureOpenAIConfig struct {
 	// Top-p sampling parameter
 	// +optional
 	TopP string `json:"topP,omitempty"`
-
-	// Default Headers
-	// +optional
-	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
 }
 
 // OllamaConfig contains Ollama-specific configuration options
@@ -170,6 +166,9 @@ type ModelConfigSpec struct {
 	// The key in the secret that contains the API key
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey"`
+
+	// +optional
+	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
 
 	// ModelInfo contains information about the model.
 	// This field is required if the model is not one of the
