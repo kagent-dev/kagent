@@ -258,7 +258,7 @@ helm-publish: helm-version
 	helm push kgateway-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
 
 .PHONY: kagent-cli-install
-kagent-cli-install: build-cli-local kind-load-docker-images
+kagent-cli-install: build-cli-local kind-load-docker-images helm-version
 kagent-cli-install:
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
 
