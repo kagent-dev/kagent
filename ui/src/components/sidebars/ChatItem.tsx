@@ -9,7 +9,7 @@ import {
   AlertDialogHeader,
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { MoreHorizontal, Trash2, Download } from "lucide-react";
 import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -20,9 +20,10 @@ interface ChatItemProps {
   onDelete: (sessionId: number) => Promise<void>;
   agentId?: number;
   sessionName?: string;
+  onDownload?: (sessionId: number) => Promise<void>;
 }
 
-const ChatItem = ({ sessionId, agentId, onDelete, sessionName }: ChatItemProps) => {
+const ChatItem = ({ sessionId, agentId, onDelete, sessionName, onDownload }: ChatItemProps) => {
   const title = sessionName || "Untitled";
   return (
     <>
@@ -41,6 +42,18 @@ const ChatItem = ({ sessionId, agentId, onDelete, sessionName }: ChatItemProps) 
               </SidebarMenuAction>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
+              <DropdownMenuItem onSelect={(e) => {
+                if (onDownload) {
+                  onDownload(sessionId);
+                } else {
+                  e.preventDefault();
+                }
+              }} className="p-0">
+                <Button variant={"ghost"} className="w-full justify-start px-2 py-1.5">
+                  <Download className="mr-2 h-4 w-4" />
+                  <span>Download</span>
+                </Button>
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>

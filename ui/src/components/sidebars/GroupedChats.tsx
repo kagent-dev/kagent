@@ -4,10 +4,11 @@ import ChatGroup from "./SessionGroup";
 import { Session } from "@/types/datamodel";
 import { isToday, isYesterday } from "date-fns";
 import { EmptyState } from "./EmptyState";
-import { deleteSession } from "@/app/actions/sessions";
+import { deleteSession, getSessionMessages } from "@/app/actions/sessions";
 import { Button } from "@/components/ui/button";
 import { PlusCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 interface GroupedChatsProps {
   agentId: number;
@@ -77,6 +78,26 @@ export default function GroupedChats({ agentId, sessions }: GroupedChatsProps) {
     }
   };
 
+  const onDownloadClick = async (sessionId: number) => {
+    toast.promise(
+      getSessionMessages(String(sessionId)).then(messages => {
+        const blob = new Blob([JSON.stringify(messages, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `session-${sessionId}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        return messages;
+      }),
+      {
+        loading: "Downloading session...",
+        success: "Session downloaded successfully",
+        error: "Failed to download session",
+      }
+    );
+  }
+
   const handleNewChat = () => {
     // Force a full page reload instead of client-side navigation
     window.location.href = `/agents/${agentId}/chat`;
@@ -101,11 +122,11 @@ export default function GroupedChats({ agentId, sessions }: GroupedChatsProps) {
         <EmptyState />
       ) : (
         <>
-          {groupedChats.today.length > 0 && <ChatGroup title="Today" sessions={groupedChats.today} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />}
+          {groupedChats.today.length > 0 && <ChatGroup title="Today" sessions={groupedChats.today} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} />}
           {groupedChats.yesterday.length > 0 && (
-            <ChatGroup title="Yesterday" sessions={groupedChats.yesterday} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />
+            <ChatGroup title="Yesterday" sessions={groupedChats.yesterday} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} />
           )}
-          {groupedChats.older.length > 0 && <ChatGroup title="Older" sessions={groupedChats.older} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} />}
+          {groupedChats.older.length > 0 && <ChatGroup title="Older" sessions={groupedChats.older} agentId={agentId} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} />}
         </>
       )}
     </>
