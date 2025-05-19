@@ -119,12 +119,18 @@ func main() {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
 			}
-			resourceType := args[0]
+			resourceType := ""
 			resourceName := ""
+			if len(args) > 0 {
+				resourceType = args[0]
+			} else {
+				fmt.Fprintf(os.Stderr, "Invalid resource type: %s\n", resourceType)
+				os.Exit(1)
+			}
 			if len(args) > 1 {
 				resourceName = args[1]
 			}
-			switch strings.ToLower(resourceType) {
+			switch strings.TrimSuffix(strings.ToLower(resourceType), "s") {
 			case "session":
 				cli.GetSessionCmd(cfg, resourceName)
 			case "run":
