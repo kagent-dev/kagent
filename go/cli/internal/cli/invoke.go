@@ -25,7 +25,7 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 
 	var pf *portForward
 	if err := CheckServerConnection(client); err != nil {
-		pf = newPortForward(ctx, cfg.Config)
+		pf = NewPortForward(ctx, cfg.Config)
 		defer pf.Stop()
 	}
 
