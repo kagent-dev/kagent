@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -35,21 +35,24 @@ import {
 } from "@/components/ui/select"
 
 import { getSupportedMemoryProviders } from '@/app/actions/providers'
-import { createMemory } from '@/app/actions/memories'
+import { createMemory, getMemory, updateMemory } from '@/app/actions/memories'
 import { Provider, CreateMemoryRequest, PineconeConfigPayload } from '@/lib/types'
 
 // Base schema
 const baseFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   providerType: z.string().min(1, "Provider is required"),
-  apiKey: z.string().min(1, "API Key is required"),
+  apiKey: z.string().min(1, "API Key is required").or(z.literal('')), // Allow empty API key in edit mode
   // Generic object to hold dynamic provider parameters
   providerParams: z.record(z.string(), z.any()).optional(),
 })
 
 // Function to create a refined schema based on selected provider
-const createRefinedSchema = (selectedProvider: Provider | null) => {
+const createRefinedSchema = (selectedProvider: Provider | null, isEditing: boolean = false) => {
   return baseFormSchema.refine((data) => {
+    // Skip API key validation in edit mode
+    if (isEditing && data.apiKey === '') return true;
+    
     if (!selectedProvider || !data.providerParams) return true;
     for (const param of selectedProvider.requiredParams) {
       if (data.providerParams[param] === undefined || data.providerParams[param] === '') {
@@ -64,14 +67,36 @@ const createRefinedSchema = (selectedProvider: Provider | null) => {
 
 export default function NewMemoryPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const editMode = searchParams.has('edit')
+  const memoryNameToEdit = searchParams.get('edit')
+  
   const [providers, setProviders] = useState<Provider[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
-  const [currentSchema, setCurrentSchema] = useState(createRefinedSchema(null));
+  const [currentSchema, setCurrentSchema] = useState(createRefinedSchema(null, editMode));
+
+  // Parameter labels for human-readable field names
+  const paramLabels: Record<string, string> = {
+    topK: "Top Results",
+    scoreThreshold: "Similarity Threshold",
+    indexHost: "Index Host URL",
+    namespace: "Namespace",
+    recordFields: "Record Fields",
+  };
+
+  // Parameter descriptions for better UX
+  const paramDescriptions: Record<string, string> = {
+    topK: "Number of top results to return from the database",
+    scoreThreshold: "Minimum similarity score (0.0-1.0) for returned results",
+    indexHost: "The host URL for your database",
+    namespace: "Optional namespace",
+    recordFields: "Comma-separated list of fields to include in query results",
+  };
 
   useEffect(() => {
-    setCurrentSchema(createRefinedSchema(selectedProvider));
-  }, [selectedProvider]);
+    setCurrentSchema(createRefinedSchema(selectedProvider, editMode));
+  }, [selectedProvider, editMode]);
 
   type MemoryFormValues = z.infer<typeof baseFormSchema>;
 
@@ -81,7 +106,10 @@ export default function NewMemoryPage() {
       name: '',
       providerType: '',
       apiKey: '',
-      providerParams: {},
+      providerParams: {
+        topK: 5,
+        scoreThreshold: 0.10,
+      },
     },
   })
 
@@ -95,6 +123,11 @@ export default function NewMemoryPage() {
         const response = await getSupportedMemoryProviders()
         if (response.success && response.data) {
           setProviders(response.data)
+          
+          // If in edit mode, load the memory details after providers are loaded
+          if (editMode && memoryNameToEdit) {
+            await loadMemoryForEditing(memoryNameToEdit, response.data)
+          }
         } else {
           throw new Error(response.error || 'Failed to load providers')
         }
@@ -103,11 +136,43 @@ export default function NewMemoryPage() {
       }
     }
     loadProviders()
-  }, [])
+  }, [editMode, memoryNameToEdit])
+
+  const loadMemoryForEditing = async (memoryName: string, availableProviders: Provider[]) => {
+    try {
+      setIsLoading(true)
+      const memory = await getMemory(memoryName)
+      
+      // Find the correct provider
+      const provider = availableProviders.find(p => p.type === memory.providerName)
+      if (provider) {
+        setSelectedProvider(provider)
+        
+        // Set form values
+        form.setValue('name', memory.name)
+        form.setValue('providerType', provider.type)
+        // We don't need to set API key in edit mode as the field will be hidden
+        form.setValue('apiKey', '')
+        
+        // Set provider params
+        if (memory.memoryParams) {
+          Object.entries(memory.memoryParams).forEach(([key, value]) => {
+            if (value !== null && value !== undefined) {
+              form.setValue(`providerParams.${key}`, value)
+            }
+          })
+        }
+      }
+    } catch (error) {
+      toast.error(`Error loading memory: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const onSubmit = async (values: MemoryFormValues) => {
     setIsLoading(true)
-    toast.info('Creating memory...')
+    toast.info(editMode ? 'Updating memory...' : 'Creating memory...')
 
     if (!selectedProvider) {
         toast.error('Selected provider not found. Please refresh.')
@@ -159,16 +224,21 @@ export default function NewMemoryPage() {
          }
        }
 
-
       memoryData.pinecone = pineconePayload;
     }
 
     try {
-      await createMemory(memoryData)
-      toast.success(`Memory "${values.name}" created successfully!`)
+      if (editMode) {
+        // Remove the API key and provider params from the memory data
+        const { apiKey, provider, ...rest } = memoryData;
+        await updateMemory(rest)
+      } else {
+        await createMemory(memoryData)
+      }
+      toast.success(`Memory "${values.name}" ${editMode ? 'updated' : 'created'} successfully!`)
       router.push('/memories')
     } catch (error) {
-      toast.error(`Failed to create memory: ${error instanceof Error ? error.message : String(error)}`)
+      toast.error(`Failed to ${editMode ? 'update' : 'create'} memory: ${error instanceof Error ? error.message : String(error)}`)
       setIsLoading(false)
     }
   }
@@ -190,8 +260,8 @@ export default function NewMemoryPage() {
     <div className="container mx-auto py-10 max-w-2xl">
       <Card>
         <CardHeader>
-          <CardTitle>Create New Memory</CardTitle>
-          <CardDescription>Configure a new memory provider connection.</CardDescription>
+          <CardTitle>{editMode ? 'Edit Memory' : 'Create New Memory'}</CardTitle>
+          <CardDescription>{editMode ? 'Update your memory provider connection.' : 'Configure a new memory provider connection.'}</CardDescription>
         </CardHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -203,9 +273,13 @@ export default function NewMemoryPage() {
                   <FormItem>
                     <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., my-pinecone-memory" {...field} />
+                      <Input placeholder="e.g., my-pinecone-memory" {...field} disabled={editMode} />
                     </FormControl>
-                    <FormDescription>A unique name for this memory configuration.</FormDescription>
+                    <FormDescription>
+                      {editMode 
+                        ? "Memory name cannot be changed when editing." 
+                        : "A unique name for this memory configuration."}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -217,49 +291,75 @@ export default function NewMemoryPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Provider</FormLabel>
-                    <Select onValueChange={handleProviderChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a memory provider" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {providers.map((provider) => (
-                          <SelectItem key={provider.type} value={provider.type}>
-                            {provider.name} ({provider.type})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Choose the type of memory provider.</FormDescription>
+                    {editMode ? (
+                      <>
+                        <FormControl>
+                          <Input 
+                            value={selectedProvider?.name ? `${selectedProvider.name} (${selectedProvider.type})` : 'Loading...'}
+                            disabled={true}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Provider cannot be changed when editing.
+                        </FormDescription>
+                      </>
+                    ) : (
+                      <>
+                        <Select onValueChange={handleProviderChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a memory provider" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {providers.map((provider) => (
+                              <SelectItem key={provider.type} value={provider.type}>
+                                {provider.name} ({provider.type})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>Choose the type of memory provider.</FormDescription>
+                      </>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="apiKey"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>API Key</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="Enter API Key" {...field} />
-                    </FormControl>
-                    <FormDescription>Your API key for the selected provider.</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Only show API Key field when not in edit mode */}
+              {!editMode && (
+                <FormField
+                  control={form.control}
+                  name="apiKey"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>API Key</FormLabel>
+                      <FormControl>
+                        <Input type="password" placeholder="Enter API Key" {...field} />
+                      </FormControl>
+                      <FormDescription>Your API key for the selected provider.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               {selectedProvider && getAllParams().map((paramName) => {
                 const isRequired = selectedProvider.requiredParams.includes(paramName);
                 let inputType = "text";
+                let inputProps = {};
+                
                 if (paramName.toLowerCase().includes('key') || paramName.toLowerCase().includes('secret')) {
                   inputType = "password";
                 }
-                if (paramName.toLowerCase().includes('number') || paramName.toLowerCase().includes('topk') || paramName.toLowerCase().includes('threshold')) {
-                    inputType = "number";
+                else if (paramName.toLowerCase().includes('topk')) {
+                  inputType = "number";
+                  inputProps = { min: 1 };
+                }
+                else if (paramName.toLowerCase().includes('threshold')) {
+                  inputType = "number";
+                  inputProps = { step: "0.01", min: 0, max: 1 };
                 }
 
                 return (
@@ -269,15 +369,21 @@ export default function NewMemoryPage() {
                     name={`providerParams.${paramName}`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{paramName}{isRequired ? ' *' : ' (Optional)'}</FormLabel>
+                        <FormLabel>
+                          {paramLabels[paramName] || paramName}{isRequired ? ' *' : ' (Optional)'}
+                        </FormLabel>
                         <FormControl>
                           <Input
                              type={inputType}
-                             placeholder={`Enter ${paramName}`}
+                             placeholder={`Enter ${paramLabels[paramName] || paramName}`}
                              {...field}
                              value={field.value ?? ''}
+                             {...inputProps}
                            />
                         </FormControl>
+                        <FormDescription>
+                          {paramDescriptions[paramName] || `Configuration parameter for ${selectedProvider.name}`}
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -290,7 +396,7 @@ export default function NewMemoryPage() {
                 Cancel
               </Button>
               <Button type="submit" disabled={isLoading} className="ml-2">
-                {isLoading ? 'Creating...' : 'Create Memory'}
+                {isLoading ? (editMode ? 'Updating...' : 'Creating...') : (editMode ? 'Update Memory' : 'Create Memory')}
               </Button>
             </CardFooter>
           </form>
