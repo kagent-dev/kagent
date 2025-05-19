@@ -89,6 +89,7 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 
 var aliasMap = map[string]string{
 	"npx": "bunx",
+	"npm": "bun",
 }
 
 func commandAlias(command string) string {
