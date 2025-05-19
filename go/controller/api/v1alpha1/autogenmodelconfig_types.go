@@ -133,6 +133,10 @@ type AzureOpenAIConfig struct {
 	// Top-p sampling parameter
 	// +optional
 	TopP string `json:"topP,omitempty"`
+
+	// Default Headers
+	// +optional
+	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
 }
 
 // OllamaConfig contains Ollama-specific configuration options

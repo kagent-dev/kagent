@@ -940,6 +940,14 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 					config.TopP = topP
 				}
 			}
+
+			if len(azureConfig.DefaultHeaders) > 0 {
+				headers := make(map[string]string)
+				for k, v := range azureConfig.DefaultHeaders {
+					headers[k] = v
+				}
+				config.DefaultHeaders = headers
+			}
 		}
 
 		return &api.Component{

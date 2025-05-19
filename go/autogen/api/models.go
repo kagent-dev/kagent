@@ -58,10 +58,11 @@ type AzureOpenAIClientConfig struct {
 	BaseOpenAIClientConfig
 
 	// AzureOpenAIClientConfig specific fields
-	AzureEndpoint   string `json:"azure_endpoint,omitempty"`
-	AzureDeployment string `json:"azure_deployment,omitempty"`
-	APIVersion      string `json:"api_version,omitempty"`
-	AzureADToken    string `json:"azure_ad_token,omitempty"`
+	AzureEndpoint   string            `json:"azure_endpoint,omitempty"`
+	AzureDeployment string            `json:"azure_deployment,omitempty"`
+	APIVersion      string            `json:"api_version,omitempty"`
+	AzureADToken    string            `json:"azure_ad_token,omitempty"`
+	DefaultHeaders  map[string]string `json:"default_headers,omitempty"`
 }
 
 func (c *AzureOpenAIClientConfig) ToConfig() (map[string]interface{}, error) {

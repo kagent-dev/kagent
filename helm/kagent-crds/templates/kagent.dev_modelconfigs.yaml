@@ -91,6 +91,11 @@ spec:
                   azureEndpoint:
                     description: Endpoint for the Azure OpenAI API
                     type: string
+                  defaultHeaders:
+                    additionalProperties:
+                      type: string
+                    description: Default Headers
+                    type: object
                   maxTokens:
                     description: Maximum tokens to generate
                     type: integer
