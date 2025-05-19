@@ -15,7 +15,7 @@ from .auth.middleware import AuthMiddleware
 from .config import settings
 from .deps import cleanup_managers, init_auth_manager, init_managers, register_auth_dependencies
 from .initialization import AppInitializer
-from .routes import gallery, invoke, models, runs, sessions, settingsroute, teams, tool_servers, tools, validation, ws
+from .routes import gallery, invoke, models, runs, sessions, settingsroute, teams, tool_servers, tools, validation, ws, feedback
 
 # Initialize application
 app_file_path = os.path.dirname(os.path.abspath(__file__))
@@ -166,6 +166,13 @@ api.include_router(
     invoke.router,
     prefix="/invoke",
     tags=["invoke"],
+    responses={404: {"description": "Not found"}},
+)
+
+api.include_router(
+    feedback.router,
+    prefix="/feedback",
+    tags=["feedback"],
     responses={404: {"description": "Not found"}},
 )
 
