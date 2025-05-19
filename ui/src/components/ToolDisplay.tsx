@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { FunctionCall, FunctionExecutionResult } from "@/types/datamodel";
+import { FunctionExecutionResult, FunctionCall } from "@/types/datamodel";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
 import { FunctionSquare, CheckCircle, Clock, Code, ChevronUp, ChevronDown, Loader2, Text, Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";

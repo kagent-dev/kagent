@@ -1,3 +1,4 @@
+import { describe, expect, it, jest, beforeEach, afterEach, afterAll } from '@jest/globals';
 import { getWsUrl, getBackendUrl, getWebSocketUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
 
 describe('URL Generation Utilities', () => {
@@ -129,20 +130,42 @@ describe('Resource Name Validation', () => {
 
 describe('Message Utilities', () => {
   describe('messageUtils', () => {
-    describe('isToolCallContent', () => {
-      it('should identify valid tool call content', () => {
-        const validContent = [{
-          id: '1',
-          name: 'tool',
-          arguments: {}
-        }];
-        expect(messageUtils.isToolCallContent(validContent)).toBe(true);
+    describe('isToolCallRequestEvent', () => {
+      it('should identify valid tool call request events', () => {
+        const validContent = { type: 'ToolCallRequestEvent' };
+        expect(messageUtils.isToolCallRequestEvent(validContent)).toBe(true);
       });
 
-      it('should reject invalid tool call content', () => {
-        expect(messageUtils.isToolCallContent([])).toBe(false);
-        expect(messageUtils.isToolCallContent([{ id: '1' }])).toBe(false);
-        expect(messageUtils.isToolCallContent('not an array')).toBe(false);
+      it('should reject invalid tool call request events', () => {
+        expect(messageUtils.isToolCallRequestEvent({})).toBe(false);
+        expect(messageUtils.isToolCallRequestEvent({ type: 'OtherEvent' })).toBe(false);
+        expect(messageUtils.isToolCallRequestEvent('not an object')).toBe(false);
+      });
+    });
+
+    describe('isToolCallExecutionEvent', () => {
+      it('should identify valid tool call execution events', () => {
+        const validContent = { type: 'ToolCallExecutionEvent' };
+        expect(messageUtils.isToolCallExecutionEvent(validContent)).toBe(true);
+      });
+
+      it('should reject invalid tool call execution events', () => {
+        expect(messageUtils.isToolCallExecutionEvent({})).toBe(false);
+        expect(messageUtils.isToolCallExecutionEvent({ type: 'OtherEvent' })).toBe(false);
+        expect(messageUtils.isToolCallExecutionEvent('not an object')).toBe(false);
+      });
+    });
+
+    describe('isToolCallSummaryMessage', () => {
+      it('should identify valid tool call summary messages', () => {
+        const validContent = { type: 'ToolCallSummaryMessage' };
+        expect(messageUtils.isToolCallSummaryMessage(validContent)).toBe(true);
+      });
+
+      it('should reject invalid tool call summary messages', () => {
+        expect(messageUtils.isToolCallSummaryMessage({})).toBe(false);
+        expect(messageUtils.isToolCallSummaryMessage({ type: 'OtherMessage' })).toBe(false);
+        expect(messageUtils.isToolCallSummaryMessage('not an object')).toBe(false);
       });
     });
 
