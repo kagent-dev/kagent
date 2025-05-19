@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Edit } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { MemoryResponse } from '@/lib/types'
@@ -35,6 +35,11 @@ export default function MemoriesPage() {
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [memoryNameToDelete, setMemoryNameToDelete] = useState<string | null>(null)
+
+  // Helper function to display not set for null/undefined/empty values
+  const formatValue = (value: any): string => {
+    return value === null || value === undefined || value === '' ? 'not set' : String(value);
+  }
 
   useEffect(() => {
     async function loadMemories() {
@@ -116,13 +121,22 @@ export default function MemoriesPage() {
               memories.map((memory) => (
                 <TableRow key={memory.name}>
                   <TableCell className="font-medium">{memory.name}</TableCell>
-                  <TableCell>{memory.providerName}</TableCell>
-                  <TableCell>{memory.memoryParams?.indexHost}</TableCell>
-                  <TableCell>{memory.memoryParams?.topK}</TableCell>
-                  <TableCell>{memory.memoryParams?.namespace}</TableCell>
-                  <TableCell>{memory.memoryParams?.recordFields}</TableCell>
-                  <TableCell>{memory.memoryParams?.scoreThreshold}</TableCell>
+                  <TableCell>{formatValue(memory.providerName)}</TableCell>
+                  <TableCell>{formatValue(memory.memoryParams?.indexHost)}</TableCell>
+                  <TableCell>{formatValue(memory.memoryParams?.topK)}</TableCell>
+                  <TableCell>{formatValue(memory.memoryParams?.namespace)}</TableCell>
+                  <TableCell>{formatValue(memory.memoryParams?.recordFields)}</TableCell>
+                  <TableCell>{formatValue(memory.memoryParams?.scoreThreshold)}</TableCell>
                   <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => router.push(`/memories/new?edit=${encodeURIComponent(memory.name)}`)}
+                      aria-label="Edit memory"
+                      className="mr-1"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

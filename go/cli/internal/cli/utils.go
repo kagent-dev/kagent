@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
+	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -30,9 +32,9 @@ type portForward struct {
 	cancel context.CancelFunc
 }
 
-func newPortForward(ctx context.Context, cfg *config.Config) *portForward {
+func NewPortForward(ctx context.Context, cfg *config.Config) *portForward {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent", "8081:8081")
 	// Error connecting to server, port-forward the server
 	go func() {
 		if err := cmd.Start(); err != nil {
@@ -40,6 +42,16 @@ func newPortForward(ctx context.Context, cfg *config.Config) *portForward {
 			os.Exit(1)
 		}
 	}()
+
+	client := autogen_client.New(cfg.APIURL)
+	// Try to connect 5 times
+	for i := 0; i < 5; i++ {
+		if err := CheckServerConnection(client); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
 	return &portForward{
 		cmd:    cmd,
 		cancel: cancel,
@@ -49,7 +61,9 @@ func newPortForward(ctx context.Context, cfg *config.Config) *portForward {
 func (p *portForward) Stop() {
 	p.cancel()
 	if err := p.cmd.Wait(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error waiting for port-forward to exit: %v\n", err)
+		if !strings.Contains(err.Error(), "signal: killed") {
+			fmt.Fprintf(os.Stderr, "Error waiting for port-forward to exit: %v\n", err)
+		}
 	}
 }
 

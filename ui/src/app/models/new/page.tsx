@@ -119,6 +119,7 @@ function ModelPageContent() {
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
+  const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -538,16 +539,21 @@ function ModelPageContent() {
             onApiKeyNeededChange={setIsApiKeyNeeded}
           />
 
-          <ParamsSection
-            selectedProvider={selectedProvider}
-            requiredParams={requiredParams}
-            optionalParams={optionalParams}
-            errors={errors}
-            isSubmitting={isSubmitting}
-            isLoading={isLoading}
-            onRequiredParamChange={handleRequiredParamChange}
-            onOptionalParamChange={handleOptionalParamChange}
-          />
+          {selectedProvider && selectedCombinedModel && (
+            <ParamsSection
+              selectedProvider={selectedProvider}
+              requiredParams={requiredParams}
+              optionalParams={optionalParams}
+              errors={errors}
+              isSubmitting={isSubmitting}
+              isLoading={isLoading}
+              onRequiredParamChange={handleRequiredParamChange}
+              onOptionalParamChange={handleOptionalParamChange}
+              isExpanded={isParamsSectionExpanded}
+              onToggleExpand={() => setIsParamsSectionExpanded(!isParamsSectionExpanded)}
+              title="Custom parameters"
+            />
+          )}
         </div>
 
         <div className="flex justify-end pt-6">
