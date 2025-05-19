@@ -30,7 +30,7 @@ const ChatItem = ({ sessionId, agentId, onDelete, sessionName }: ChatItemProps) 
         <SidebarMenuItem key={sessionId}>
           <SidebarMenuButton asChild>
             <Link href={`/agents/${agentId}/chat/${sessionId}`}>
-              <span className="text-ellipsis truncate max-w-[100px] text-sm" title={title}>{title}</span>
+              <span className="text-ellipsis truncate max-w-[300px] text-sm" title={title}>{title}</span>
             </Link>
           </SidebarMenuButton>
           <DropdownMenu modal={false}>

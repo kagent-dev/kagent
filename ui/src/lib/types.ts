@@ -126,3 +126,8 @@ export interface CreateMemoryRequest {
   apiKey: string;
   pinecone?: PineconeConfigPayload;
 }
+
+export interface UpdateMemoryRequest {
+  name: string;
+  pinecone?: PineconeConfigPayload;
+}

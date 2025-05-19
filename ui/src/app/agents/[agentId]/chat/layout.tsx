@@ -54,7 +54,10 @@ export default async function ChatLayout({ children, params }: { children: React
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider style={{
+      "--sidebar-width": "350px",
+      "--sidebar-width-mobile": "150px",
+    } as React.CSSProperties}>
       <ChatLayoutUI
         agentId={agentId}
         currentAgent={currentAgent}
