@@ -2,7 +2,6 @@ package common
 
 import (
 	"context"
-	"log"
 	"os"
 	"strings"
 
@@ -30,8 +29,6 @@ func MakePtr[T any](v T) *T {
 }
 
 func GetRefFromString(ref string, parentNamespace string) types.NamespacedName {
-	log.Printf("GetRefFromString: processing ref='%s' with parentNamespace='%s'", ref, parentNamespace)
-
 	parts := strings.Split(ref, "/")
 	var (
 		namespace string
@@ -40,13 +37,9 @@ func GetRefFromString(ref string, parentNamespace string) types.NamespacedName {
 	if len(parts) == 2 {
 		namespace = parts[0]
 		name = parts[1]
-		log.Printf("GetRefFromString: ref '%s' contains namespace separator, parsed: namespace='%s', name='%s'",
-			ref, namespace, name)
 	} else {
 		namespace = parentNamespace
 		name = ref
-		log.Printf("GetRefFromString: ref '%s' has no namespace separator, using parent: namespace='%s', name='%s'",
-			ref, namespace, name)
 	}
 
 	return types.NamespacedName{
@@ -57,15 +50,12 @@ func GetRefFromString(ref string, parentNamespace string) types.NamespacedName {
 
 func FetchObjKube(ctx context.Context, kube client.Client, obj client.Object, objName, objNamespace string) error {
 	ref := GetRefFromString(objName, objNamespace)
-	log.Printf("FetchObjKube: attempting to fetch %T '%s' in namespace '%s'", obj, ref.Name, ref.Namespace)
 
 	err := kube.Get(ctx, ref, obj)
 	if err != nil {
-		log.Printf("FetchObjKube: failed to fetch %T '%s' in namespace '%s': %v", obj, ref.Name, ref.Namespace, err)
 		return err
 	}
 
-	log.Printf("FetchObjKube: successfully fetched %T '%s' in namespace '%s'", obj, ref.Name, ref.Namespace)
 	return nil
 }
 

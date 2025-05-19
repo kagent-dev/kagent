@@ -91,7 +91,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             value={namespace}
             onChange={(e) => onNamespaceChange(e.target.value)}
             className={errors.namespace ? "border-destructive" : ""}
-            placeholder="default"
+            placeholder="The namespace to create MemoryConfig in"
             disabled={isSubmitting || isLoading || isEditMode}
           />
           {errors.namespace && <p className="text-destructive text-sm mt-1">{errors.namespace}</p>}
@@ -120,16 +120,16 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             </div>
             {selectedProvider && (
               (() => {
-                 const providerKey = getProviderFormKey(selectedProvider.type as BackendModelProviderType);
-                 const providerInfo = providerKey ? PROVIDERS_INFO[providerKey] : undefined;
-                 return providerInfo?.modelDocsLink ? (
-                   <Button variant="outline" size="icon" asChild>
-                     <Link href={providerInfo.modelDocsLink} target="_blank" rel="noopener noreferrer" title={`View available ${selectedProvider.name} models`}>
-                       <ExternalLinkIcon className="h-4 w-4" />
-                     </Link>
-                   </Button>
-                 ) : null;
-               })()
+                const providerKey = getProviderFormKey(selectedProvider.type as BackendModelProviderType);
+                const providerInfo = providerKey ? PROVIDERS_INFO[providerKey] : undefined;
+                return providerInfo?.modelDocsLink ? (
+                  <Button variant="outline" size="icon" asChild>
+                    <Link href={providerInfo.modelDocsLink} target="_blank" rel="noopener noreferrer" title={`View available ${selectedProvider.name} models`}>
+                      <ExternalLinkIcon className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                ) : null;
+              })()
             )}
           </div>
           {errors.selectedCombinedModel && <p className="text-destructive text-sm mt-1">{errors.selectedCombinedModel}</p>}

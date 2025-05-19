@@ -313,33 +313,25 @@ func (a *apiTranslator) translateGroupChatForTeam(
 
 	modelConfigRef := a.defaultModelConfig
 	if team.Spec.ModelConfig != "" {
-		log.Printf("translateGroupChatForTeam: team %s/%s specifies ModelConfig '%s'",
-			team.Namespace, team.Name, team.Spec.ModelConfig)
 		// If ModelConfig contains only the name of the ModelConfig, use the namespace of the team.
 		modelConfigRef = common.GetRefFromString(team.Spec.ModelConfig, team.Namespace)
-		log.Printf("translateGroupChatForTeam: resolved ModelConfig ref: namespace='%s', name='%s'",
-			modelConfigRef.Namespace, modelConfigRef.Name)
 	} else {
 		log.Printf("translateGroupChatForTeam: team %s/%s using default ModelConfig: namespace='%s', name='%s'",
 			team.Namespace, team.Name, modelConfigRef.Namespace, modelConfigRef.Name)
 	}
 
 	modelConfigObj := &v1alpha1.ModelConfig{}
-	if err := common.FetchObjKube(
+	err := common.FetchObjKube(
 		ctx,
 		a.kube,
 		modelConfigObj,
 		modelConfigRef.Name,
 		modelConfigRef.Namespace,
-	); err != nil {
-		log.Printf("translateGroupChatForTeam: failed to fetch ModelConfig for team %s/%s: %v",
-			team.Namespace, team.Name, err)
+	)
+	if err != nil {
 		return nil, fmt.Errorf(
 			"failed to fetch ModelConfig %s: %w", modelConfigRef.String(), err)
 	}
-
-	log.Printf("translateGroupChatForTeam: successfully fetched ModelConfig %s/%s for team %s/%s",
-		modelConfigObj.Namespace, modelConfigObj.Name, team.Namespace, team.Name)
 
 	modelClientWithStreaming, err := a.createModelClientForProvider(ctx, modelConfigObj, true)
 	if err != nil {
@@ -480,7 +472,7 @@ func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha
 		// If ModelConfig contains only the name of the ModelConfig, use the namespace of the agent.
 		modelConfig = common.GetRefFromString(agent.Spec.ModelConfig, agent.Namespace)
 	} else {
-		log.Printf("Agent %s/%s using default ModelConfig: namespace='%s', name='%s'",
+		log.Printf("ModelConfig for Agent %s/%s not defined. Using default ModelConfig: namespace='%s', name='%s'",
 			agent.Namespace, agent.Name, modelConfig.Namespace, modelConfig.Name)
 	}
 	if err := a.kube.Get(ctx, modelConfig, &v1alpha1.ModelConfig{}); err != nil {
@@ -575,13 +567,14 @@ func (a *apiTranslator) translateAssistantAgent(
 			// Translate a nested tool
 			toolAgent := v1alpha1.Agent{}
 
-			if err := common.FetchObjKube(
+			err := common.FetchObjKube(
 				ctx,
 				a.kube,
 				&toolAgent,
 				refFullName,
-				agent.Namespace,
-			); err != nil {
+				agent.Namespace, // redundant
+			)
+			if err != nil {
 				return nil, err
 			}
 
@@ -638,8 +631,8 @@ func (a *apiTranslator) translateAssistantAgent(
 	}
 
 	if agent.Spec.Memory != nil {
-		for _, memoryName := range agent.Spec.Memory {
-			autogenMemory, err := a.translateMemory(ctx, memoryName, agent.Namespace)
+		for _, memoryRef := range agent.Spec.Memory {
+			autogenMemory, err := a.translateMemory(ctx, memoryRef, agent.Namespace)
 			if err != nil {
 				return nil, err
 			}
@@ -657,9 +650,9 @@ func (a *apiTranslator) translateAssistantAgent(
 	}, nil
 }
 
-func (a *apiTranslator) translateMemory(ctx context.Context, memoryName string, memoryNamespace string) (*api.Component, error) {
+func (a *apiTranslator) translateMemory(ctx context.Context, memoryRef string, defaultNamespace string) (*api.Component, error) {
 	memoryObj := &v1alpha1.Memory{}
-	if err := common.FetchObjKube(ctx, a.kube, memoryObj, memoryName, memoryNamespace); err != nil {
+	if err := common.FetchObjKube(ctx, a.kube, memoryObj, memoryRef, defaultNamespace); err != nil {
 		return nil, err
 	}
 
@@ -739,18 +732,19 @@ func (a *apiTranslator) translateBuiltinTool(
 func translateToolServerTool(
 	ctx context.Context,
 	kube client.Client,
-	toolServerName string,
+	toolServerRef string,
 	toolName string,
-	agentNamespace string,
+	defaultNamespace string,
 ) (*api.Component, error) {
 	toolServerObj := &v1alpha1.ToolServer{}
-	if err := common.FetchObjKube(
+	err := common.FetchObjKube(
 		ctx,
 		kube,
 		toolServerObj,
-		toolServerName,
-		agentNamespace,
-	); err != nil {
+		toolServerRef,
+		defaultNamespace,
+	)
+	if err != nil {
 		return nil, err
 	}
 

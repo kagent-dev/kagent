@@ -37,14 +37,9 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
         const filteredAgents = currentAgentName
           ? response.data.filter((agentResp: AgentResponse) => {
             const toolAgentFullName = `${agentResp.agent.metadata.namespace}/${agentResp.agent.metadata.name}`;
-            console.log(toolAgentFullName)
-            if (currentAgentName.includes('/')) {
-              return toolAgentFullName !== currentAgentName;
-            } else {
-              return agentResp.agent.metadata.name !== currentAgentName;
-            }
+            return toolAgentFullName !== currentAgentName;
           })
-        : response.data;
+          : response.data;
 
         setAvailableAgents(filteredAgents);
       } else {
@@ -94,7 +89,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
         if (getToolIdentifier(tool) === parentToolIdentifier && isMcpTool(tool) && tool.mcpServer) {
           const newToolNames = tool.mcpServer.toolNames.filter(name => name !== mcpToolNameToRemove);
           if (newToolNames.length === 0) {
-            return null; 
+            return null;
           }
           return {
             ...tool,
@@ -138,7 +133,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
           },
         };
       }
-      
+
       return prevTool;
     });
   };

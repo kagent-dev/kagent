@@ -13,10 +13,7 @@ import { isBuiltinTool, isMcpTool, isAgentTool } from "@/lib/toolUtils";
  * @param allAgents List of all available agents to look up descriptions
  * @returns An AgentTool object, potentially augmented with description
  */
-function convertToolRepresentation(
-  tool: unknown,
-  allAgents: AgentResponse[]
-): Tool {
+function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
   const typedTool = tool as Partial<Tool>;
   if (isBuiltinTool(typedTool)) {
     return tool as Tool;
@@ -25,6 +22,19 @@ function convertToolRepresentation(
   } else if (isAgentTool(typedTool)) {
     const agentRef = typedTool.agent.ref;
     const foundAgent = allAgents.find((a) => {
+      // TODO: Resolve namespace ambiguity for agent references
+      //   Problem:
+      //     - When agentRef lacks namespace prefix (e.g., "agent-1" instead of "ns/agent-1")
+      //     - Current behavior returns first matched agent across all namespaces
+      //     - Can lead to incorrect selection when multiple agents share the same name
+      //   Example:
+      //     - agentRef = "agent-1"
+      //     - Available: ["ns-1/agent-1", "ns-2/agent-1"]
+      //     - Will always match "ns-1/agent-1" regardless of intent
+      //   Solutions:
+      //     - Option 1: Use namespace of the referring agent
+      //     - Option 2: Use system default namespace
+      //     - Option 3: Require explicit namespace specification
       const fullName = `${a.agent.metadata.namespace}/${a.agent.metadata.name}`;
       return fullName === agentRef || a.agent.metadata.name === agentRef;
     });
@@ -47,7 +57,7 @@ function convertToolRepresentation(
   }
 
   // Check if it's a Component<ToolConfig>
-  if (tool && typeof tool === "object" && "provider" in tool) {
+  if (tool && typeof tool === 'object' && 'provider' in tool) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const componentTool = tool as Component<any>;
     return {
@@ -57,7 +67,7 @@ function convertToolRepresentation(
         description: componentTool.description || "",
         config: componentTool.config || {},
         label: componentTool.label,
-      },
+      }
     } as Tool;
   }
 
@@ -69,7 +79,7 @@ function convertToolRepresentation(
       name: "unknown",
       description: "Unknown tool",
       config: {},
-    },
+    }
   } as Tool;
 }
 
@@ -79,14 +89,9 @@ function convertToolRepresentation(
  * @param allAgents List of all available agents to look up descriptions
  * @returns An array of Tool objects
  */
-function extractToolsFromResponse(
-  data: AgentResponse,
-  allAgents: AgentResponse[]
-): Tool[] {
+function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[]): Tool[] {
   if (data.agent?.spec?.tools) {
-    return data.agent.spec.tools.map((tool) =>
-      convertToolRepresentation(tool, allAgents)
-    );
+    return data.agent.spec.tools.map((tool) => convertToolRepresentation(tool, allAgents));
   }
   return [];
 }
@@ -96,15 +101,11 @@ function extractToolsFromResponse(
  * @param config The config object to process
  * @returns A new object with all values as strings
  */
-function processConfigObject(
-  config: Record<string, unknown>
-): Record<string, string> {
+function processConfigObject(config: Record<string, unknown>): Record<string, string> {
   return Object.entries(config).reduce((acc, [key, value]) => {
     // If value is an object and not null, process it recursively
     if (typeof value === "object" && value !== null) {
-      acc[key] = JSON.stringify(
-        processConfigObject(value as Record<string, unknown>)
-      );
+      acc[key] = JSON.stringify(processConfigObject(value as Record<string, unknown>));
     } else {
       // For primitive values, convert to string
       acc[key] = String(value);
@@ -127,8 +128,8 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     spec: {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
-      modelConfig:
-        `${agentFormData.model.namespace}/${agentFormData.model.name}` || "",
+      // If ModelConfig is empty, the controller will use the default ModelConfig defined during controller's installation
+      modelConfig: `${agentFormData.model.namespace}/${agentFormData.model.name}` || "",
       memory: agentFormData.memory,
       tools: agentFormData.tools.map((tool) => {
         // Convert to the proper Tool structure based on the tool type
@@ -137,9 +138,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
             type: "Builtin",
             builtin: {
               name: tool.builtin.name,
-              config: tool.builtin.config
-                ? processConfigObject(tool.builtin.config)
-                : {},
+              config: tool.builtin.config ? processConfigObject(tool.builtin.config) : {},
               label: tool.builtin.label,
             },
           } as Tool;
@@ -159,6 +158,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           return {
             type: "Agent",
             agent: {
+              // TODO: Decide if we should format this ref before assignment to make sure it's defined as a fullname (namespace/name)
               ref: tool.agent.ref,
             },
           } as Tool;
@@ -177,9 +177,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
  * @param teamLabel The team label or ID
  * @returns A promise with the team data
  */
-export async function getTeam(
-  teamLabel: string | number
-): Promise<BaseResponse<AgentResponse>> {
+export async function getTeam(teamLabel: string | number): Promise<BaseResponse<AgentResponse>> {
   try {
     const teamData = await fetchApi<AgentResponse>(`/teams/${teamLabel}`);
 
@@ -212,9 +210,7 @@ export async function getTeam(
  * @param teamLabel The team label (in namespace/name format)
  * @returns A promise with the delete result
  */
-export async function deleteTeam(
-  teamLabel: string
-): Promise<BaseResponse<void>> {
+export async function deleteTeam(teamLabel: string): Promise<BaseResponse<void>> {
   try {
     await fetchApi(`/teams/${teamLabel}`, {
       method: "DELETE",
@@ -236,10 +232,7 @@ export async function deleteTeam(
  * @param update Whether to update an existing agent
  * @returns A promise with the created/updated agent
  */
-export async function createAgent(
-  agentConfig: AgentFormData,
-  update: boolean = false
-): Promise<BaseResponse<Agent>> {
+export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
   try {
     const agentSpec = fromAgentFormDataToAgent(agentConfig);
     const response = await fetchApi<Agent>(`/teams`, {
@@ -254,6 +247,7 @@ export async function createAgent(
       throw new Error("Failed to create team");
     }
 
+    // TODO: Make sure if it works for the multinamespace
     revalidatePath(`/agents/${response.metadata.name}/chat`);
     return { success: true, data: response };
   } catch (error) {
@@ -269,9 +263,10 @@ export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
   try {
     const data = await fetchApi<AgentResponse[]>(`/teams`);
 
-    const validTeams = data.filter((team) => !!team.agent);
+    const validTeams = data.filter(team => !!team.agent);
     const agentMap = new Map(
-      validTeams.map((agentResp) => [agentResp.agent.metadata.name, agentResp])
+      // TODO: potential collision. use fullname instead the name only
+      validTeams.map(agentResp => [agentResp.agent.metadata.name, agentResp])
     );
 
     const convertedData: AgentResponse[] = validTeams.map((team) => {
@@ -279,6 +274,7 @@ export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
         team.agent.spec.tools?.map((tool) => {
           // Check if it's an Agent tool reference needing description
           if (isAgentTool(tool)) {
+            // TODO: make sure that it works with multinamespace
             const agentName = tool.agent.ref;
             const foundAgent = agentMap.get(agentName);
             return {

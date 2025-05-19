@@ -1,12 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-import {
-  BaseResponse,
-  ModelConfig,
-  CreateModelConfigPayload,
-  UpdateModelConfigPayload,
-} from "@/lib/types";
+import { BaseResponse, ModelConfig, CreateModelConfigPayload, UpdateModelConfigPayload } from "@/lib/types";
 
 /**
  * Gets all available models
@@ -32,10 +27,7 @@ export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
       data: response,
     };
   } catch (error) {
-    return createErrorResponse<ModelConfig[]>(
-      error,
-      "Error getting model configs"
-    );
+    return createErrorResponse<ModelConfig[]>(error, "Error getting model configs");
   }
 }
 
@@ -45,14 +37,9 @@ export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
  * @param configName The model configuration name
  * @returns A promise with the model data
  */
-export async function getModelConfig(
-  namespace: string,
-  configName: string
-): Promise<BaseResponse<ModelConfig>> {
+export async function getModelConfig(namespace: string, configName: string): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>(
-      `/modelconfigs/${namespace}/${configName}`
-    );
+    const response = await fetchApi<ModelConfig>(`/modelconfigs/${namespace}/${configName}`);
 
     if (!response) {
       throw new Error("Failed to get model config");
@@ -72,9 +59,7 @@ export async function getModelConfig(
  * @param config The model configuration to create
  * @returns A promise with the created model
  */
-export async function createModelConfig(
-  config: CreateModelConfigPayload
-): Promise<BaseResponse<ModelConfig>> {
+export async function createModelConfig(config: CreateModelConfigPayload): Promise<BaseResponse<ModelConfig>> {
   try {
     const response = await fetchApi<ModelConfig>("/modelconfigs", {
       method: "POST",
@@ -90,10 +75,7 @@ export async function createModelConfig(
       data: response,
     };
   } catch (error) {
-    return createErrorResponse<ModelConfig>(
-      error,
-      "Error creating model configuration"
-    );
+    return createErrorResponse<ModelConfig>(error, "Error creating model configuration");
   }
 }
 
@@ -104,41 +86,29 @@ export async function createModelConfig(
  * @param config The updated configuration data
  * @returns A promise with the updated model
  */
-export async function updateModelConfig(
-  namespace: string,
-  configName: string,
-  config: UpdateModelConfigPayload
-): Promise<BaseResponse<ModelConfig>> {
+export async function updateModelConfig(namespace: string, configName: string, config: UpdateModelConfigPayload): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>(
-      `/modelconfigs/${namespace}/${configName}`,
-      {
-        method: "PUT", // Or PATCH depending on backend implementation
-        body: JSON.stringify(config),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const response = await fetchApi<ModelConfig>(`/modelconfigs/${namespace}/${configName}`, {
+      method: "PUT",
+      body: JSON.stringify(config),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
 
     if (!response) {
       throw new Error("Failed to update model config");
     }
 
     revalidatePath("/models"); // Revalidate list page
-    revalidatePath(
-      `/models/new?edit=true&namespace=${namespace}&id=${configName}`
-    ); // Revalidate edit page if needed
+    revalidatePath(`/models/new?edit=true&namespace=${namespace}&id=${configName}`); // Revalidate edit page if needed
 
     return {
       success: true,
       data: response,
     };
   } catch (error) {
-    return createErrorResponse<ModelConfig>(
-      error,
-      "Error updating model configuration"
-    );
+    return createErrorResponse<ModelConfig>(error, "Error updating model configuration");
   }
 }
 
@@ -148,10 +118,7 @@ export async function updateModelConfig(
  * @param configName The name of the model configuration to delete
  * @returns A promise with the deleted model
  */
-export async function deleteModelConfig(
-  namespace: string,
-  configName: string
-): Promise<BaseResponse<void>> {
+export async function deleteModelConfig(namespace: string, configName: string): Promise<BaseResponse<void>> {
   try {
     await fetchApi(`/modelconfigs/${namespace}/${configName}`, {
       method: "DELETE",
@@ -163,9 +130,6 @@ export async function deleteModelConfig(
     revalidatePath("/models");
     return { success: true };
   } catch (error) {
-    return createErrorResponse<void>(
-      error,
-      "Error deleting model configuration"
-    );
+    return createErrorResponse<void>(error, "Error deleting model configuration");
   }
 }

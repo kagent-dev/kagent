@@ -34,6 +34,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const [showAdvancedCommand, setShowAdvancedCommand] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverName, setServerName] = useState("");
+  const [namespace, setNamespace] = useState("");
   const [userEditedName, setUserEditedName] = useState(false);
 
   // Command structure fields
@@ -115,6 +116,11 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const handleServerNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setServerName(e.target.value);
     setUserEditedName(true);
+  };
+
+  // Handle namespace input changes
+  const handleNamespaceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNamespace(e.target.value);
   };
 
   // Auto-generate server name when package name or URL changes, but only if user hasn't manually edited the name
@@ -294,6 +300,14 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
       return;
     }
 
+    // Get the final namespace name
+    const finalNamespaceName = namespace.trim();
+
+    if (namespace && !isResourceNameValid(namespace)) {
+      setError("Namespace must conform to RFC 1123 subdomain standard (lowercase alphanumeric characters, '-' or '.', must start and end with alphanumeric character)");
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null); // Clear any previous errors
 
@@ -349,7 +363,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     const newServer: ToolServer = {
       metadata: {
         name: finalServerName,
-        namespace: ""
+        namespace: finalNamespaceName,
       },
 
       spec: {
@@ -382,6 +396,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     setArgPairs([{ value: "" }]);
     setEnvPairs([{ key: "", value: "" }]);
     setServerName("");
+    setNamespace("");
     setUserEditedName(false);
     setStderr("");
     setCwd("");
@@ -458,15 +473,43 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <Input 
-                id="server-name" 
-                placeholder="e.g., my-tool-server" 
-                value={serverName} 
+              <Input
+                id="server-name"
+                placeholder="e.g., my-tool-server"
+                value={serverName}
                 onChange={handleServerNameChange}
                 className={!isResourceNameValid(serverName) && serverName ? "border-red-300" : ""}
               />
               {!isResourceNameValid(serverName) && serverName && (
                 <p className="text-xs text-red-500">Name must conform to RFC 1123 subdomain format</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="namespace">Namespace (Optional)</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="inline-flex">
+                        <InfoIcon className="h-4 w-4 text-gray-400" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs text-xs">If left blank, the server will be created in the default namespace</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <Input 
+                id="namespace"
+                placeholder="Leave blank for the KAgent`s default namespace"
+                value={namespace}
+                onChange={handleNamespaceChange}
+                className={!isResourceNameValid(namespace) && namespace ? "border-red-300" : ""}
+              />
+              {!isResourceNameValid(namespace) && namespace && (
+                <p className="text-xs text-red-500">Namespace must conform to RFC 1123 subdomain format</p>
               )}
             </div>
 

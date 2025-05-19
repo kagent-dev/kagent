@@ -47,15 +47,18 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
     content = message.data.task_result.stop_reason || "An error occurred";
   }
 
+  let displaySource
+
   // Filter out system messages
   if (source === "system" || source === "user_proxy" || (typeof source === "string" && source.endsWith("society_of_mind_agent"))) {
     return null;
+  } else if (source !== "user") {
+    displaySource = convertToUserFriendlyName(source);
   }
 
   if (messageUtils.isMemoryQueryEvent(message)) {
     return <MemoryQueryDisplay currentMessage={message} />
   }
-
 
   if (messageUtils.isLlmCallEvent(message)) {
     return <LLMCallModal content={String(message)} />;
@@ -74,10 +77,10 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
   const messageBorderColor = isErrorMessage ? "border-l-red-500" : source === "user" ? "border-l-blue-500" : "border-l-violet-500";
   return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${messageBorderColor}`}>
     <div className="flex flex-col gap-1 w-full">
-      {source !== "user" ? <div className="flex items-center gap-1">
+      {displaySource !== "user" ? <div className="flex items-center gap-1">
         <KagentLogo className="w-4 h-4" />
-        <div className="text-xs font-bold">{source}</div>
-      </div> : <div className="text-xs font-bold">{source}</div>}
+        <div className="text-xs font-bold">{displaySource}</div>
+      </div> : <div className="text-xs font-bold">{displaySource}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
       
       {source !== "user" && messageId !== undefined && (

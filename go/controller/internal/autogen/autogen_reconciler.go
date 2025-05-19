@@ -392,6 +392,10 @@ func (a *autogenReconciler) reconcileToolServerStatus(
 func (a *autogenReconciler) ReconcileAutogenMemory(ctx context.Context, req ctrl.Request) error {
 	memory := &v1alpha1.Memory{}
 	if err := a.kube.Get(ctx, req.NamespacedName, memory); err != nil {
+		if errors.IsNotFound(err) {
+			return a.handleMemoryDeletion(req)
+		}
+
 		return fmt.Errorf("failed to get memory %s: %v", req.Name, err)
 	}
 
@@ -401,6 +405,13 @@ func (a *autogenReconciler) ReconcileAutogenMemory(ctx context.Context, req ctrl
 	}
 
 	return a.reconcileMemoryStatus(ctx, memory, a.reconcileAgents(ctx, agents...))
+}
+
+func (a *autogenReconciler) handleMemoryDeletion(req ctrl.Request) error {
+
+	// TODO(sbx0r): implement memory deletion
+
+	return nil
 }
 
 func (a *autogenReconciler) reconcileMemoryStatus(ctx context.Context, memory *v1alpha1.Memory, err error) error {
@@ -441,11 +452,13 @@ func (a *autogenReconciler) reconcileTeams(ctx context.Context, teams ...*v1alph
 	for _, team := range teams {
 		autogenTeam, err := a.autogenTranslator.TranslateGroupChatForTeam(ctx, team)
 		if err != nil {
-			errs[types.NamespacedName{Name: team.Name, Namespace: team.Namespace}] = fmt.Errorf("failed to translate team %s: %v", team.Name, err)
+			errs[types.NamespacedName{Name: team.Name, Namespace: team.Namespace}] = fmt.Errorf(
+				"failed to translate team %s/%s: %v", team.Namespace, team.Name, err)
 			continue
 		}
 		if err := a.upsertTeam(autogenTeam); err != nil {
-			errs[types.NamespacedName{Name: team.Name, Namespace: team.Namespace}] = fmt.Errorf("failed to upsert team %s: %v", team.Name, err)
+			errs[types.NamespacedName{Name: team.Name, Namespace: team.Namespace}] = fmt.Errorf(
+				"failed to upsert team %s/%s: %v", team.Namespace, team.Name, err)
 			continue
 		}
 	}

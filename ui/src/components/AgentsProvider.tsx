@@ -91,9 +91,9 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
       setModels(response.data);
       setError("");
-    } catch (err) {
-      console.error("Error fetching models:", err);
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+    } catch (error) {
+      console.error("Error fetching models:", error);
+      setError(error instanceof Error ? error.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
@@ -107,9 +107,9 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         setTools(response.data);
         setError("");
       }
-    } catch (err) {
-      console.error("Error fetching tools:", err);
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+    } catch (error) {
+      console.error("Error fetching tools:", error);
+      setError(error instanceof Error ? error.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
@@ -137,7 +137,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.systemPrompt = "Agent instructions are required";
     }
 
-    // TODO: refactor this name. It's not about the model but ModelConfig name
+    // TODO: refactor this variable name. It's not about the model but ModelConfig name
     if (!data.model || data.model === undefined) {
       errors.model = "Please select a model";
     }
@@ -202,7 +202,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
     try {
       const errors = validateAgentData(agentData);
-      console.log(agentData)
 
       if (Object.keys(errors).length > 0) {
         console.log("Errors validating agent data", errors);

@@ -36,7 +36,7 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
         </SelectTrigger>
         <SelectContent>
           {allModels.map((model, idx) => (
-            <SelectItem key={`${idx}_${model.name}`} value={`${model.namespace}/${model.name}`}>
+            <SelectItem key={`${idx}_${model.namespace}_${model.name}`} value={`${model.namespace}/${model.name}`}>
               {model.model} ({model.namespace}/{model.name})
             </SelectItem>
           ))}

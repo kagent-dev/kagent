@@ -123,7 +123,7 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
                   const foundToolDefinition = allToolDefinitions.find(def => def.provider === toolProvider) || null;
 
                   if (foundToolDefinition) {
-                      description = foundToolDefinition.description || "Description not found";
+                    description = foundToolDefinition.description || "Description not found";
                   }
 
                 }
@@ -227,7 +227,7 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
             <SidebarGroup>
               <div className="flex items-center justify-between px-2 mb-1">
                 <SidebarGroupLabel className="font-bold mb-0 p-0">
-                  {selectedTeam?.agent.metadata.name} ({selectedTeam?.model})
+                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} ({selectedTeam?.model})
                 </SidebarGroupLabel>
                 <Button
                   variant="ghost"

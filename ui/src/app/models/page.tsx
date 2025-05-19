@@ -75,11 +75,11 @@ export default function ModelsPage() {
             if (!response.success) {
                 throw new Error(response.error || "Failed to delete model");
             }
-            toast.success(`Model "${modelToDelete.name}" deleted successfully`);
+            toast.success(`Model "${modelToDelete.namespace}/${modelToDelete.name}" deleted successfully`);
             setModelToDelete(null);
             await fetchModels();
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : "Failed to delete model";
+            const errorMessage = err instanceof Error ? err.message : `Failed to delete model ${modelToDelete.namespace}/${modelToDelete.name}`;
             toast.error(errorMessage);
             setModelToDelete(null);
         }
@@ -107,21 +107,21 @@ export default function ModelsPage() {
                     <LoadingState />
                 ) : (
                     <div className="space-y-4">
-                        {models.map((model) => {
-                            const modelId = getModelUniqueId(model);
+                        {models.map((modelConfig) => {
+                            const modelConfigId = getModelUniqueId(modelConfig);
                             return (
-                                <div key={modelId} className="border rounded-lg overflow-hidden">
+                                <div key={modelConfigId} className="border rounded-lg overflow-hidden">
                                     <div
                                         className="flex items-center justify-between p-4 cursor-pointer hover:bg-secondary/5"
-                                        onClick={() => toggleRow(model)}
+                                        onClick={() => toggleRow(modelConfig)}
                                     >
                                         <div className="flex items-center space-x-2">
-                                            {expandedRows.has(model.name) ? (
+                                            {expandedRows.has(modelConfigId) ? (
                                                 <ChevronDown className="h-4 w-4" />
                                             ) : (
                                                 <ChevronRight className="h-4 w-4" />
                                             )}
-                                            <span className="font-medium">{model.name}</span>
+                                            <span className="font-medium">{modelConfigId}</span>
                                         </div>
                                         <div className="flex space-x-2">
                                             <Button
@@ -129,7 +129,7 @@ export default function ModelsPage() {
                                                 size="sm"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleEdit(model);
+                                                    handleEdit(modelConfig);
                                                 }}
                                             >
                                                 <Pencil className="h-4 w-4" />
@@ -139,37 +139,37 @@ export default function ModelsPage() {
                                                 size="sm"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleDelete(model);
+                                                    handleDelete(modelConfig);
                                                 }}
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
                                         </div>
                                     </div>
-                                    {expandedRows.has(modelId) && (
+                                    {expandedRows.has(modelConfigId) && (
                                         <div className="p-4 border-t bg-secondary/10">
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
                                                     <p className="text-sm font-medium text-muted-foreground">Provider</p>
-                                                    <p>{model.providerName}</p>
+                                                    <p>{modelConfig.providerName}</p>
                                                 </div>
                                                 <div>
                                                     <p className="text-sm font-medium text-muted-foreground">Model</p>
-                                                    <p>{model.model}</p>
+                                                    <p>{modelConfig.model}</p>
                                                 </div>
                                                 <div>
                                                     <p className="text-sm font-medium text-muted-foreground">Namespace</p>
-                                                    <p>{model.namespace}</p>
+                                                    <p>{modelConfig.namespace}</p>
                                                 </div>
                                                 <div>
                                                     <p className="text-sm font-medium text-muted-foreground">API Key Secret</p>
-                                                    <p>{model.apiKeySecretRef}</p>
+                                                    <p>{modelConfig.apiKeySecretRef}</p>
                                                 </div>
-                                                {model.modelParams && (
+                                                {modelConfig.modelParams && (
                                                     <div className="col-span-2">
                                                         <p className="text-sm font-medium text-muted-foreground">Model Parameters</p>
                                                         <pre className="mt-1 text-sm bg-muted p-2 rounded">
-                                                            {JSON.stringify(model.modelParams, null, 2)}
+                                                            {JSON.stringify(modelConfig.modelParams, null, 2)}
                                                         </pre>
                                                     </div>
                                                 )}

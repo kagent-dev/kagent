@@ -139,7 +139,7 @@ func (s *HTTPServer) setupRoutes() {
 	// Tool Servers
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathToolServers+"/{toolServerName}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{toolServerName}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
 
 	// Teams
 	s.router.HandleFunc(APIPathTeams, adaptHandler(s.handlers.Teams.HandleListTeams)).Methods(http.MethodGet)
@@ -162,9 +162,9 @@ func (s *HTTPServer) setupRoutes() {
 	// Memories
 	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleListMemories)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleCreateMemory)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
 
 	// Feedback
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)

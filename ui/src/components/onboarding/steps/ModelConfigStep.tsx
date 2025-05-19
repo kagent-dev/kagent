@@ -195,7 +195,7 @@ export function ModelConfigStep({
                 payload.ollama = {
                     host: values.ollamaBaseUrl || "",
                 };
-            break;
+                break;
         }
 
         try {
@@ -345,7 +345,7 @@ export function ModelConfigStep({
                                             </p>
                                         )}
                                     </FormItem>
-                                )}/>
+                                )} />
 
                             {/* Add the Ollama Base URL field after the Model Tag field for Ollama */}
                             {isOllama && (
@@ -425,7 +425,7 @@ export function ModelConfigStep({
                                                 {...field}
                                                 onChange={e => {
                                                     field.onChange(e);
-                                                    if (e.target.value !== lastAutoGenName) {}
+                                                    if (e.target.value !== lastAutoGenName) { }
                                                 }}
                                             />
                                         </FormControl>
@@ -441,35 +441,35 @@ export function ModelConfigStep({
                                         control={formStep1Create.control}
                                         name="azureEndpoint"
                                         render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Azure Endpoint</FormLabel>
-                                            <FormControl>
-                                            <Input type="url" placeholder="https://your-resource.openai.azure.com/" {...field} />
-                                            </FormControl>
-                                            <FormDescription>
-                                            Your Azure OpenAI resource endpoint URL.
-                                            {PROVIDERS_INFO['azure-openai']?.apiKeyLink && (
-                                                <> (<a href={PROVIDERS_INFO['azure-openai'].apiKeyLink} target="_blank" rel="noopener noreferrer" className="underline">Find it here</a>)</>
-                                            )}
-                                            </FormDescription>
-                                            <FormMessage />
-                                        </FormItem>
+                                            <FormItem>
+                                                <FormLabel>Azure Endpoint</FormLabel>
+                                                <FormControl>
+                                                    <Input type="url" placeholder="https://your-resource.openai.azure.com/" {...field} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    Your Azure OpenAI resource endpoint URL.
+                                                    {PROVIDERS_INFO['azure-openai']?.apiKeyLink && (
+                                                        <> (<a href={PROVIDERS_INFO['azure-openai'].apiKeyLink} target="_blank" rel="noopener noreferrer" className="underline">Find it here</a>)</>
+                                                    )}
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
                                         )}
                                     />
                                     <FormField
                                         control={formStep1Create.control}
                                         name="azureApiVersion"
                                         render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Azure API Version</FormLabel>
-                                            <FormControl>
-                                            <Input placeholder="e.g., 2024-02-01" {...field} />
-                                            </FormControl>
-                                            <FormDescription>
-                                            The API version for your Azure OpenAI deployment (e.g., 2024-02-01).
-                                            </FormDescription>
-                                            <FormMessage />
-                                        </FormItem>
+                                            <FormItem>
+                                                <FormLabel>Azure API Version</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="e.g., 2024-02-01" {...field} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    The API version for your Azure OpenAI deployment (e.g., 2024-02-01).
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
                                         )}
                                     />
                                 </>

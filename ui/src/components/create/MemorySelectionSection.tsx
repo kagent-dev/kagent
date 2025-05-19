@@ -37,15 +37,17 @@ export function MemorySelectionSection({
   error,
 }: MemorySelectionSectionProps) {
   const [open, setOpen] = React.useState(false);
-  const handleSelect = (memoryName: string) => {
-    const newSelection = selectedMemories.includes(memoryName)
-      ? selectedMemories.filter((name) => name !== memoryName)
-      : [...selectedMemories, memoryName];
+  const getMemoryFullName = (memory: MemoryResponse) => `${memory.namespace}/${memory.name}`;
+  const handleSelect = (memory: MemoryResponse) => {
+    const memoryFullName = getMemoryFullName(memory);
+    const newSelection = selectedMemories.includes(memoryFullName)
+      ? selectedMemories.filter((name) => name !== memoryFullName)
+      : [...selectedMemories, memoryFullName];
     onSelectionChange(newSelection);
   };
 
-  const handleRemove = (memoryName: string) => {
-    const newSelection = selectedMemories.filter((name) => name !== memoryName);
+  const handleRemove = (memoryFullName: string) => {
+    const newSelection = selectedMemories.filter((id) => id !== memoryFullName);
     onSelectionChange(newSelection);
   };
 
@@ -67,18 +69,18 @@ export function MemorySelectionSection({
               {selectedMemories.length === 0 && (
                 <span className="text-muted-foreground">Select memories...</span>
               )}
-              {selectedMemories.map((name) => (
+              {selectedMemories.map((memoryFullName) => (
                 <Badge
-                  key={name}
+                  key={memoryFullName}
                   variant="secondary"
                   className="flex items-center gap-1 whitespace-nowrap"
                 >
-                  {name}
+                  {memoryFullName}
                   <X
                     className="h-3 w-3 cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleRemove(name);
+                      handleRemove(memoryFullName);
                     }}
                   />
                 </Badge>
@@ -91,28 +93,31 @@ export function MemorySelectionSection({
           <Command>
             <CommandInput placeholder="Search memories..." disabled={disabled} />
             <CommandList>
-               <CommandEmpty>No memory found.</CommandEmpty>
+              <CommandEmpty>No memory found.</CommandEmpty>
               <CommandGroup>
-                {availableMemories.map((memory) => (
-                  <CommandItem
-                    key={memory.name}
-                    value={memory.name}
-                    onSelect={() => {
-                       handleSelect(memory.name);
-                    }}
-                    disabled={disabled}
-                  >
-                    <Check
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        selectedMemories.includes(memory.name)
-                          ? "opacity-100"
-                          : "opacity-0"
-                      )}
-                    />
-                     {memory.name}
-                  </CommandItem>
-                ))}
+                {availableMemories.map((memory) => {
+                  const memoryFullName = getMemoryFullName(memory)
+                  return (
+                    <CommandItem
+                      key={memoryFullName}
+                      value={memoryFullName}
+                      onSelect={() => {
+                        handleSelect(memory);
+                      }}
+                      disabled={disabled}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          selectedMemories.includes(memoryFullName)
+                            ? "opacity-100"
+                            : "opacity-0"
+                        )}
+                      />
+                      {memoryFullName}
+                    </CommandItem>
+                  )
+                })}
               </CommandGroup>
             </CommandList>
           </Command>
@@ -121,4 +126,4 @@ export function MemorySelectionSection({
       {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
     </div>
   );
-} 
+}

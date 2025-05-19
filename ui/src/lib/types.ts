@@ -47,39 +47,39 @@ export interface Provider {
 
 // Export OpenAIConfigPayload
 export interface OpenAIConfigPayload {
-  baseUrl?: string;
-  organization?: string;
-  temperature?: string;
-  maxTokens?: number;
-  topP?: string;
-  frequencyPenalty?: string;
-  presencePenalty?: string;
-  seed?: number;
-  n?: number;
-  timeout?: number;
+    baseUrl?: string;
+    organization?: string;
+    temperature?: string;
+    maxTokens?: number;
+    topP?: string;
+    frequencyPenalty?: string;
+    presencePenalty?: string;
+    seed?: number;
+    n?: number;
+    timeout?: number;
 }
 
 export interface AnthropicConfigPayload {
-  baseUrl?: string;
-  maxTokens?: number;
-  temperature?: string;
-  topP?: string;
-  topK?: number;
+    baseUrl?: string;
+    maxTokens?: number;
+    temperature?: string;
+    topP?: string;
+    topK?: number;
 }
 
 export interface AzureOpenAIConfigPayload {
-  azureEndpoint: string;
-  apiVersion: string;
-  azureDeployment?: string;
-  azureAdToken?: string;
-  temperature?: string;
-  maxTokens?: number;
-  topP?: string;
+    azureEndpoint: string;
+    apiVersion: string;
+    azureDeployment?: string;
+    azureAdToken?: string;
+    temperature?: string;
+    maxTokens?: number;
+    topP?: string;
 }
 
 export interface OllamaConfigPayload {
-  host?: string;
-  options?: Record<string, string>;
+    host?: string;
+    options?: Record<string, string>;
 }
 
 export interface CreateModelConfigPayload {
@@ -95,13 +95,13 @@ export interface CreateModelConfigPayload {
 }
 
 export interface UpdateModelConfigPayload {
-  provider: Pick<Provider, "name" | "type">;
-  model: string;
-  apiKey?: string | null;
-  openAI?: OpenAIConfigPayload;
-  anthropic?: AnthropicConfigPayload;
-  azureOpenAI?: AzureOpenAIConfigPayload;
-  ollama?: OllamaConfigPayload;
+    provider: Pick<Provider, "name" | "type">;
+    model: string;
+    apiKey?: string | null;
+    openAI?: OpenAIConfigPayload;
+    anthropic?: AnthropicConfigPayload;
+    azureOpenAI?: AzureOpenAIConfigPayload;
+    ollama?: OllamaConfigPayload;
 }
 
 export interface MemoryResponse {
@@ -115,15 +115,16 @@ export interface MemoryResponse {
 }
 
 export interface PineconeConfigPayload {
-  indexHost: string;
-  topK?: number;
-  namespace?: string;
-  recordFields?: string[];
-  scoreThreshold?: string;
+    indexHost: string;
+    topK?: number;
+    namespace?: string;
+    recordFields?: string[];
+    scoreThreshold?: string;
 }
 
 export interface CreateMemoryRequest {
   name: string;
+  namespace?: string;
   provider: Pick<Provider, "type">;
   apiKey: string;
   pinecone?: PineconeConfigPayload;
@@ -131,7 +132,7 @@ export interface CreateMemoryRequest {
 
 export interface UpdateMemoryRequest {
   name: string;
-  namespace: string;
+  namespace?: string;
   pinecone?: PineconeConfigPayload;
 }
 
