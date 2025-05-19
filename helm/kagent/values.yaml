@@ -35,8 +35,6 @@ providers:
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
-      defaultHeaders:
-        application: "kagent"
 
 controller:
   loglevel: "info"
