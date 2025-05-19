@@ -124,7 +124,7 @@ func main() {
 			if len(args) > 0 {
 				resourceType = args[0]
 			} else {
-				fmt.Fprintf(os.Stderr, "Invalid resource type: %s\n", resourceType)
+				fmt.Fprintf(os.Stderr, "No resource type provided\n")
 				os.Exit(1)
 			}
 			if len(args) > 1 {
