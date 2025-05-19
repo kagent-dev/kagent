@@ -16,7 +16,6 @@ interface GroupedChatsProps {
 }
 
 export default function GroupedChats({ agentId, sessions }: GroupedChatsProps) {
-  const router = useRouter();
   // Local state to manage sessions for immediate UI updates
   const [localSessions, setLocalSessions] = useState<Session[]>(sessions);
 

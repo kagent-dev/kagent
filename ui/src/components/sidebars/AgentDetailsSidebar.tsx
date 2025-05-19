@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { ChevronRight, Edit, Plus } from "lucide-react";
 import type { AgentResponse, Tool, Component, ToolConfig, MCPToolConfig } from "@/types/datamodel";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
-import { AgentActions } from "./AgentActions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
 import { getToolIdentifier, getToolProvider, getToolDisplayName, SSE_MCP_TOOL_PROVIDER_NAME, STDIO_MCP_TOOL_PROVIDER_NAME, isAgentTool } from "@/lib/toolUtils";
