@@ -5,6 +5,9 @@ import LLMCallModal from "@/components/chat/LLMCallModal";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import MemoryQueryDisplay from "./MemoryQueryDisplay";
 import KagentLogo from "../kagent-logo";
+import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { useState } from "react";
+import { FeedbackDialog } from "./FeedbackDialog";
 
 interface ChatMessageProps {
   message: AgentMessageConfig;
@@ -12,6 +15,9 @@ interface ChatMessageProps {
 }
 
 export default function ChatMessage({ message, allMessages }: ChatMessageProps) {
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+  const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
+
   if (!message) {
     return null;
   }
@@ -47,8 +53,16 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
     return <LLMCallModal content={String(message)} />;
   }
 
-  const messageBorderColor = isErrorMessage ? "border-l-red-500" : source === "user" ? "border-l-blue-500" : "border-l-violet-500";
+  const handleFeedback = (isPositive: boolean) => {
+    setIsPositiveFeedback(isPositive);
+    setFeedbackDialogOpen(true);
+  };
+  
+  // Get all preceding messages for this message
+  const getMessageIndex = allMessages.findIndex(m => m === message);
+  const precedingMessages = getMessageIndex > 0 ? allMessages.slice(0, getMessageIndex) : [];
 
+  const messageBorderColor = isErrorMessage ? "border-l-red-500" : source === "user" ? "border-l-blue-500" : "border-l-violet-500";
   return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${messageBorderColor}`}>
     <div className="flex flex-col gap-1 w-full">
       {source !== "user" ? <div className="flex items-center gap-1">
@@ -56,7 +70,35 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
         <div className="text-xs font-bold">{source}</div>
       </div> : <div className="text-xs font-bold">{source}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
+      
+      {/* Feedback buttons - only show for agent responses, not user messages */}
+      {source !== "user" && (
+        <div className="flex mt-2 justify-end gap-2">
+          <button 
+            onClick={() => handleFeedback(true)}
+            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Thumbs up"
+          >
+            <ThumbsUp className="w-4 h-4" />
+          </button>
+          <button 
+            onClick={() => handleFeedback(false)}
+            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Thumbs down"
+          >
+            <ThumbsDown className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
-  </div>
 
+    {/* Feedback Dialog */}
+    <FeedbackDialog 
+      isOpen={feedbackDialogOpen}
+      onClose={() => setFeedbackDialogOpen(false)}
+      isPositive={isPositiveFeedback}
+      message={message}
+      precedingMessages={precedingMessages}
+    />
+  </div>
 }
