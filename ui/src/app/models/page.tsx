@@ -60,7 +60,7 @@ export default function ModelsPage() {
     };
 
     const handleEdit = (model: ModelConfig) => {
-        router.push(`/models/new?edit=true&namespace=${model.namespace}&id=${model.name}`);
+        router.push(`/models/new?edit=true&namespace=${model.namespace}&name=${model.name}`);
     };
 
     const handleDelete = async (model: ModelConfig) => {

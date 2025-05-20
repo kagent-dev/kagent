@@ -101,7 +101,7 @@ export async function updateModelConfig(namespace: string, configName: string, c
     }
 
     revalidatePath("/models"); // Revalidate list page
-    revalidatePath(`/models/new?edit=true&namespace=${namespace}&id=${configName}`); // Revalidate edit page if needed
+    revalidatePath(`/models/new?edit=true&namespace=${namespace}&name=${configName}`); // Revalidate edit page if needed
 
     return {
       success: true,

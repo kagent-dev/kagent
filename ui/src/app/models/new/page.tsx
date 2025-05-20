@@ -100,7 +100,7 @@ function ModelPageContent() {
   const searchParams = useSearchParams();
 
   const isEditMode = searchParams.get("edit") === "true";
-  const modelId = searchParams.get("id");
+  const modelConfigName = searchParams.get("name");
   const urlNamespace = searchParams.get("namespace")
 
   const [name, setName] = useState("");
@@ -171,10 +171,10 @@ function ModelPageContent() {
   useEffect(() => {
     let isMounted = true;
     const fetchModelData = async () => {
-      if (isEditMode && modelId && urlNamespace && providers.length > 0 && providerModelsData) {
+      if (isEditMode && modelConfigName && urlNamespace && providers.length > 0 && providerModelsData) {
         try {
           if (!isLoading) setIsLoading(true);
-          const response = await getModelConfig(urlNamespace, modelId);
+          const response = await getModelConfig(urlNamespace, modelConfigName);
           if (!isMounted) return;
 
           if (!response.success || !response.data) {
@@ -247,7 +247,7 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelId, providers, providerModelsData]);
+  }, [isEditMode, modelConfigName, providers, providerModelsData]);
 
   useEffect(() => {
     if (selectedProvider) {
@@ -449,7 +449,7 @@ function ModelPageContent() {
 
     try {
       let response;
-      if (isEditMode && modelId && urlNamespace) {
+      if (isEditMode && modelConfigName && urlNamespace) {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
@@ -459,7 +459,7 @@ function ModelPageContent() {
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
         };
-        response = await updateModelConfig(urlNamespace, modelId, updatePayload);
+        response = await updateModelConfig(urlNamespace, modelConfigName, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }

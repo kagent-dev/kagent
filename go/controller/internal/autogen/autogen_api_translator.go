@@ -549,19 +549,19 @@ func (a *apiTranslator) translateAssistantAgent(
 				tools = append(tools, autogenTool)
 			}
 		case tool.Agent != nil:
-			refFullName := common.GetRefFromString(tool.Agent.Ref, agent.Namespace).String()
+			toolRefFullName := common.GetRefFromString(tool.Agent.Ref, agent.Namespace).String()
 			agentFullName := fmt.Sprintf("%s/%s", agent.Namespace, agent.Name)
 
-			if refFullName == agentFullName {
+			if toolRefFullName == agentFullName {
 				return nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentFullName)
 			}
 
-			if state.isVisited(tool.Agent.Ref) {
-				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentFullName, refFullName)
+			if state.isVisited(toolRefFullName) {
+				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentFullName, toolRefFullName)
 			}
 
 			if state.depth > MAX_DEPTH {
-				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentFullName, refFullName)
+				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentFullName, toolRefFullName)
 			}
 
 			// Translate a nested tool
@@ -571,7 +571,7 @@ func (a *apiTranslator) translateAssistantAgent(
 				ctx,
 				a.kube,
 				&toolAgent,
-				refFullName,
+				toolRefFullName,
 				agent.Namespace, // redundant
 			)
 			if err != nil {

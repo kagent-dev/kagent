@@ -223,7 +223,7 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 // HandleGetTeam handles GET /api/teams/{teamID} requests
 func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "get")
-	log.V(1).Info("Received request to get Team")
+	log.Info("Received request to get Team")
 
 	userID, err := GetUserID(r)
 	if err != nil {
@@ -239,7 +239,7 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	}
 	log = log.WithValues("teamID", teamID)
 
-	log.V(1).Info("Getting Team from Autogen")
+	log.Info("Getting Team from Autogen")
 	autogenTeam, err := h.AutogenClient.GetTeamByID(teamID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get Team from Autogen", err))
@@ -249,7 +249,7 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	teamLabel := autogenTeam.Component.Label
 	log = log.WithValues("teamLabel", teamLabel)
 
-	log.V(1).Info("Getting Team from Kubernetes")
+	log.Info("Getting Team from Kubernetes")
 	team := &v1alpha1.Agent{}
 	if err := common.FetchObjKube(
 		r.Context(),
