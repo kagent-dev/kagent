@@ -35,6 +35,17 @@ interface AgentPageContentProps {
   agentId: string | null;
 }
 
+const DEFAULT_SYSTEM_PROMPT = `# Instructions
+    - If user question is unclear, ask for clarification before running any tools
+    - Always be helpful and friendly
+    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
+    - Do not delete the original Deployment until the user explicitly confirms that the Rollout is ready to take over production traffic.
+
+# Response format:
+    - ALWAYS format your response as Markdown
+    - Your response will include a summary of actions you took and an explanation of the result
+    - If you created any artifacts such as files or resources, you will include those in your response as well`
+
 // Inner component that uses useSearchParams, wrapped in Suspense
 function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   const router = useRouter();
@@ -43,7 +54,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   // Basic form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState(isEditMode ? "" : DEFAULT_SYSTEM_PROMPT);
 
   // Default to the first model
   type SelectedModelType = Pick<ModelConfig, 'name' | 'model'>;
@@ -224,14 +235,17 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-xl font-bold">
                   <KagentLogo className="h-5 w-5" />
                   Basic Information
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <label className="text-sm mb-2 block">Agent Name</label>
+                  <label className="text-base mb-2 block font-bold">Agent Name</label>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    This is the name of the agent that will be displayed in the UI and used to identify the agent.
+                  </p>
                   <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -244,7 +258,10 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 </div>
 
                 <div>
-                  <label className="text-sm mb-2 block">Description</label>
+                  <label className="text-base mb-2 block font-bold">Description</label>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    This is a description of the agent. It's for your reference only and it's not going to be used by the agent.
+                  </p>
                   <Textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -283,6 +300,9 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   <Settings2 className="h-5 w-5" />
                   Memory
                 </CardTitle>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    The memories that the agent will use to answer the user's questions.
+                  </p>
               </CardHeader>
               <CardContent>
                 <MemorySelectionSection
