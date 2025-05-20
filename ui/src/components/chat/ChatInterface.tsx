@@ -257,7 +257,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
                     setIsStreaming(true);
                     setStreamingContent(prev => prev + eventDataJson.content);
                   } else if (messageUtils.isTextMessageContent(eventDataJson)) {
-                    // The model usage is sent within the TextMessage, after the streaming is ocmplete
+                    // The model usage is sent within the TextMessage, after the streaming is complete
                     setTokenStats(prev => calculateTokenStats(prev, eventDataJson as TextMessageConfig));
                     setIsStreaming(false);
                     setStreamingContent("");
@@ -268,9 +268,19 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
                     }
                   }
                   else {
-                    setIsStreaming(false);
-                    setStreamingContent("");
-                    setMessages(prevMessages => [...prevMessages, eventDataJson]);
+                    // For tool call messages and other non-streaming messages,
+                    // add them to the messages array immediately but don't stop streaming
+                    if (messageUtils.isToolCallRequestEvent(eventDataJson) || 
+                        messageUtils.isToolCallExecutionEvent(eventDataJson) || 
+                        messageUtils.isToolCallSummaryMessage(eventDataJson)) {
+                      // Add tool call messages immediately without stopping streaming
+                      setMessages(prevMessages => [...prevMessages, eventDataJson]);
+                    } else {
+                      // For other non-tool, non-streaming messages, use original behavior
+                      setIsStreaming(false);
+                      setStreamingContent("");
+                      setMessages(prevMessages => [...prevMessages, eventDataJson]);
+                    }
                   }
                 } catch (error) {
                   toast.error("Error parsing event data");
