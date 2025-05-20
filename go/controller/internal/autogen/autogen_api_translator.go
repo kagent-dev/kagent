@@ -600,7 +600,7 @@ func (a *apiTranslator) translateBuiltinTool(
 		}
 	}
 	if toolNeedsOpenaiApiKey(tool.Name) {
-		if modelConfig.Spec.Provider != v1alpha1.OpenAI {
+		if (modelConfig.Spec.Provider != v1alpha1.OpenAI) && modelConfig.Spec.Provider != v1alpha1.AzureOpenAI {
 			return nil, fmt.Errorf("tool %s requires OpenAI API key, but model config is not OpenAI", tool.Name)
 		}
 		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
@@ -892,7 +892,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert Anthropic config: %w", err)
 		}
-
+		a.applyDefaultHeaders(modelConfig, &config.BaseClientConfig)
 		return &api.Component{
 			Provider:      "autogen_ext.models.anthropic.AnthropicChatCompletionClient",
 			ComponentType: "model",
@@ -942,7 +942,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 				}
 			}
 		}
-
+		a.applyDefaultHeaders(modelConfig, &config.BaseClientConfig)
 		return &api.Component{
 			Provider:      "autogen_ext.models.openai.AzureOpenAIChatCompletionClient",
 			ComponentType: "model",
@@ -1014,6 +1014,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			}
 		}
 
+		a.applyDefaultHeaders(modelConfig, &config.BaseClientConfig)
 		return &api.Component{
 			Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
 			ComponentType: "model",
@@ -1039,14 +1040,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			}
 		}
 
-		if len(modelConfig.Spec.DefaultHeaders) > 0 {
-			headers := make(map[string]string)
-			for k, v := range modelConfig.Spec.DefaultHeaders {
-				headers[k] = v
-			}
-			config.DefaultHeaders = headers
-		}
-
+		a.applyDefaultHeaders(modelConfig, &config.BaseClientConfig)
 		return &api.Component{
 			Provider:      "autogen_ext.models.ollama.OllamaChatCompletionClient",
 			ComponentType: "model",
@@ -1056,6 +1050,16 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 
 	default:
 		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
+	}
+}
+
+func (a *apiTranslator) applyDefaultHeaders(modelConfig *v1alpha1.ModelConfig, config *api.BaseClientConfig) {
+	if len(modelConfig.Spec.DefaultHeaders) > 0 {
+		headers := make(map[string]string)
+		for k, v := range modelConfig.Spec.DefaultHeaders {
+			headers[k] = v
+		}
+		config.DefaultHeaders = headers
 	}
 }
 
