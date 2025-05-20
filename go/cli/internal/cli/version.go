@@ -15,17 +15,10 @@ var (
 	BuildDate = "unknown"
 )
 
-func VersionCmd() {
+func VersionCmd(cfg *config.Config) {
 	fmt.Fprintf(os.Stdout, "kagent version %s\n", Version)
 	fmt.Fprintf(os.Stdout, "git commit: %s\n", GitCommit)
 	fmt.Fprintf(os.Stdout, "build date: %s\n", BuildDate)
-
-	// Get backend version
-	cfg, err := config.Get()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: could not load config")
-		return
-	}
 
 	client := autogen_client.New(cfg.APIURL)
 	version, err := client.GetVersion()

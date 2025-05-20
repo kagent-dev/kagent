@@ -9,11 +9,12 @@ interface ChatGroupProps {
   title: string;
   sessions: Session[];
   onDeleteSession: (sessionId: number) => Promise<void>;
+  onDownloadSession: (sessionId: number) => Promise<void>;
   agentId?: number;
 }
 
 // The sessions are grouped by today, yesterday, and older
-const ChatGroup = ({ title, sessions, onDeleteSession, agentId }: ChatGroupProps) => {
+const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentId }: ChatGroupProps) => {
   return (
     <SidebarGroup>
       <SidebarMenu>
@@ -28,7 +29,7 @@ const ChatGroup = ({ title, sessions, onDeleteSession, agentId }: ChatGroupProps
             <CollapsibleContent>
               <SidebarMenuSub>
                 {sessions.map((session) => (
-                  <ChatItem key={session.id} sessionId={session.id!} agentId={agentId} onDelete={onDeleteSession} sessionName={session.name} />
+                  <ChatItem key={session.id} sessionId={session.id!} agentId={agentId} onDelete={onDeleteSession} sessionName={session.name} onDownload={onDownloadSession} />
                 ))}
               </SidebarMenuSub>
             </CollapsibleContent>

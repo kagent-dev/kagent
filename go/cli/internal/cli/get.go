@@ -2,147 +2,125 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"strconv"
 
-	"github.com/abiosoft/ishell/v2"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
-func GetAgentCmd(c *ishell.Context) {
-	var resourceName string
-	if len(c.Args) > 0 {
-		resourceName = c.Args[0]
-	}
-	client := config.GetClient(c)
-	cfg := config.GetCfg(c)
+func GetAgentCmd(cfg *config.Config, resourceName string) {
+	client := autogen_client.New(cfg.APIURL)
 
 	if resourceName == "" {
 		agentList, err := client.ListTeams(cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get agents: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to get agents: %v\n", err)
 			return
 		}
 
 		if len(agentList) == 0 {
-			c.Println("No agents found")
+			fmt.Println("No agents found")
 			return
 		}
 
 		if err := printTeams(agentList); err != nil {
-			c.Printf("Failed to print agents: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to print agents: %v\n", err)
 			return
 		}
 	} else {
 		agent, err := client.GetTeam(resourceName, cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get agent %s: %v\n", resourceName, err)
+			fmt.Fprintf(os.Stderr, "Failed to get agent %s: %v\n", resourceName, err)
 			return
 		}
 		byt, _ := json.MarshalIndent(agent, "", "  ")
-		c.Println(string(byt))
+		fmt.Fprintln(os.Stdout, string(byt))
 	}
 }
 
-func GetRunCmd(c *ishell.Context) {
-	var resourceName string
-	if len(c.Args) > 0 {
-		resourceName = c.Args[0]
-	}
-	client := config.GetClient(c)
-	cfg := config.GetCfg(c)
+func GetRunCmd(cfg *config.Config, resourceName string) {
+	client := autogen_client.New(cfg.APIURL)
 	if resourceName == "" {
 		runList, err := client.ListRuns(cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get runs: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to get runs: %v\n", err)
 			return
 		}
 
 		if len(runList) == 0 {
-			c.Println("No runs found")
+			fmt.Println("No runs found")
 			return
 		}
 
 		if err := printRuns(runList); err != nil {
-			c.Printf("Failed to print runs: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to print runs: %v\n", err)
 			return
 		}
 	} else {
 		// Convert run ID from string to integer
 		runID, err := strconv.Atoi(resourceName)
 		if err != nil {
-			c.Printf("Invalid run ID: %s, must be a number: %v\n", resourceName, err)
+			fmt.Fprintf(os.Stderr, "Invalid run ID: %s, must be a number: %v\n", resourceName, err)
 			return
 		}
 
 		run, err := client.GetRun(runID)
 		if err != nil {
-			c.Printf("Failed to get run %d: %v\n", runID, err)
+			fmt.Fprintf(os.Stderr, "Failed to get run %d: %v\n", runID, err)
 			return
 		}
 		byt, _ := json.MarshalIndent(run, "", "  ")
-		c.Println(string(byt))
+		fmt.Fprintln(os.Stdout, string(byt))
 	}
 }
 
-func GetSessionCmd(c *ishell.Context) {
-	var resourceName string
-	if len(c.Args) > 0 {
-		resourceName = c.Args[0]
-	}
-	client := config.GetClient(c)
-	cfg := config.GetCfg(c)
+func GetSessionCmd(cfg *config.Config, resourceName string) {
+	client := autogen_client.New(cfg.APIURL)
 	if resourceName == "" {
 		sessionList, err := client.ListSessions(cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get sessions: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to get sessions: %v\n", err)
 			return
 		}
 
 		if len(sessionList) == 0 {
-			c.Println("No sessions found")
+			fmt.Println("No sessions found")
 			return
 		}
 
 		if err := printSessions(sessionList); err != nil {
-			c.Printf("Failed to print sessions: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to print sessions: %v\n", err)
 			return
 		}
 	} else {
 		sessionID, err := strconv.Atoi(resourceName)
 		if err != nil {
-			c.Printf("Failed to convert session name to ID: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to convert session name to ID: %v\n", err)
 			return
 		}
 		session, err := client.GetSessionById(sessionID, cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get session %s: %v\n", resourceName, err)
+			fmt.Fprintf(os.Stderr, "Failed to get session %s: %v\n", resourceName, err)
 			return
 		}
 		byt, _ := json.MarshalIndent(session, "", "  ")
-		c.Println(string(byt))
+		fmt.Fprintln(os.Stdout, string(byt))
 	}
 }
 
-func GetToolCmd(c *ishell.Context) {
-	var resourceName string
-	if len(c.Args) > 0 {
-		resourceName = c.Args[0]
+func GetToolCmd(cfg *config.Config) {
+	client := autogen_client.New(cfg.APIURL)
+	toolList, err := client.ListTools(cfg.UserID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get tools: %v\n", err)
+		return
 	}
-	client := config.GetClient(c)
-	cfg := config.GetCfg(c)
-	if resourceName == "" {
-		toolList, err := client.ListTools(cfg.UserID)
-		if err != nil {
-			c.Printf("Failed to get tools: %v\n", err)
-			return
-		}
-		if err := printTools(toolList); err != nil {
-			c.Printf("Failed to print tools: %v\n", err)
-			return
-		}
+	if err := printTools(toolList); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to print tools: %v\n", err)
+		return
 	}
-	// TODO: implement get tool by resource name
 }
 
 func printTools(tools []*autogen_client.Tool) error {

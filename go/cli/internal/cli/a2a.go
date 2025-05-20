@@ -3,15 +3,16 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
 	"github.com/abiosoft/ishell/v2"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/controller/utils/a2autils"
 	"github.com/spf13/pflag"
-	"os"
-	"os/exec"
-	"strings"
-	"time"
 	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
