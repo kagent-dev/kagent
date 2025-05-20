@@ -134,7 +134,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
         setToolCalls(newToolCalls);
     }
 
-  }, [allMessages, ownedCallIds, toolCalls]); // Added toolCalls to dependency array for the comparison
+  }, [allMessages, ownedCallIds, toolCalls]);
 
   // If no tool calls to display for this message, return null
   const currentDisplayableCalls = Array.from(toolCalls.values()).filter(call => ownedCallIds.has(call.id));

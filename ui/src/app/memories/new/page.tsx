@@ -230,8 +230,7 @@ export default function NewMemoryPage() {
     try {
       if (editMode) {
         // Remove the API key and provider params from the memory data
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { apiKey, provider, ...rest } = memoryData;
+        const { apiKey: _apiKey, provider: _provider, ...rest } = memoryData;
         await updateMemory(rest)
       } else {
         await createMemory(memoryData)
