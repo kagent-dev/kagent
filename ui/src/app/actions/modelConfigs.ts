@@ -15,8 +15,12 @@ export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
       throw new Error("Failed to get model configs");
     }
 
-    // Sort models by name
-    response.sort((a, b) => a.name.localeCompare(b.name));
+    // Sort models by namespace/name
+    response.sort((a, b) => {
+      const aFullName = `${a.namespace}/${a.name}`;
+      const bFullName = `${b.namespace}/${b.name}`;
+      return aFullName.localeCompare(bFullName);
+    });
 
     return {
       success: true,
@@ -28,13 +32,14 @@ export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
 }
 
 /**
- * Gets a specific model by name
+ * Gets a specific model by namespace and name
+ * @param namespace The model configuration namespace
  * @param configName The model configuration name
  * @returns A promise with the model data
  */
-export async function getModelConfig(configName: string): Promise<BaseResponse<ModelConfig>> {
+export async function getModelConfig(namespace: string, configName: string): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>(`/modelconfigs/${configName}`);
+    const response = await fetchApi<ModelConfig>(`/modelconfigs/${namespace}/${configName}`);
 
     if (!response) {
       throw new Error("Failed to get model config");
@@ -76,17 +81,15 @@ export async function createModelConfig(config: CreateModelConfigPayload): Promi
 
 /**
  * Updates an existing model configuration
+ * @param namespace The namespace of the model configuration to update
  * @param configName The name of the model configuration to update
  * @param config The updated configuration data
  * @returns A promise with the updated model
  */
-export async function updateModelConfig(
-  configName: string,
-  config: UpdateModelConfigPayload
-): Promise<BaseResponse<ModelConfig>> {
+export async function updateModelConfig(namespace: string, configName: string, config: UpdateModelConfigPayload): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>(`/modelconfigs/${configName}`, {
-      method: "PUT", // Or PATCH depending on backend implementation
+    const response = await fetchApi<ModelConfig>(`/modelconfigs/${namespace}/${configName}`, {
+      method: "PUT",
       body: JSON.stringify(config),
       headers: {
         "Content-Type": "application/json",
@@ -96,9 +99,9 @@ export async function updateModelConfig(
     if (!response) {
       throw new Error("Failed to update model config");
     }
-    
+
     revalidatePath("/models"); // Revalidate list page
-    revalidatePath(`/models/new?edit=true&id=${configName}`); // Revalidate edit page if needed
+    revalidatePath(`/models/new?edit=true&namespace=${namespace}&name=${configName}`); // Revalidate edit page if needed
 
     return {
       success: true,
@@ -111,18 +114,19 @@ export async function updateModelConfig(
 
 /**
  * Deletes a model configuration
+ * @param namespace The namespace of the model config to delete
  * @param configName The name of the model configuration to delete
  * @returns A promise with the deleted model
  */
-export async function deleteModelConfig(configName: string): Promise<BaseResponse<void>> {
+export async function deleteModelConfig(namespace: string, configName: string): Promise<BaseResponse<void>> {
   try {
-    await fetchApi(`/modelconfigs/${configName}`, {
+    await fetchApi(`/modelconfigs/${namespace}/${configName}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
       },
     });
-    
+
     revalidatePath("/models");
     return { success: true };
   } catch (error) {

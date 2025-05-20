@@ -26,9 +26,11 @@ const (
 
 // TeamSpec defines the desired state of Team.
 type TeamSpec struct {
+	// Each Participant can either be a reference to the name of an Agent in the same namespace as the referencing Team, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
 	Participants []string `json:"participants"`
 	Description  string   `json:"description"`
-	ModelConfig  string   `json:"modelConfig"`
+	// Can either be a reference to the name of a ModelConfig in the same namespace as the referencing Team, or a reference to the name of a ModelConfig in a different namespace in the form <namespace>/<name>
+	ModelConfig string `json:"modelConfig"`
 	// +kubebuilder:validation:Optional
 	RoundRobinTeamConfig *RoundRobinTeamConfig `json:"roundRobinTeamConfig"`
 	// +kubebuilder:validation:Optional

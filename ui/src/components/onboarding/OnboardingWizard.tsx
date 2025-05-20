@@ -21,6 +21,7 @@ interface OnboardingStateData {
     modelConfigName?: string;
     modelName?: string;
     agentName?: string;
+    agentNamespace?: string;
     agentDescription?: string;
     agentInstructions?: string;
     selectedTools?: Tool[];
@@ -107,6 +108,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       try {
           const agentPayload: AgentFormData = {
               name: onboardingData.agentName,
+              namespace: onboardingData.agentNamespace || "",
               description: onboardingData.agentDescription || "",
               systemPrompt: onboardingData.agentInstructions,
               model: { name: onboardingData.modelConfigName },

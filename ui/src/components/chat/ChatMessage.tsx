@@ -6,6 +6,11 @@ import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import MemoryQueryDisplay from "./MemoryQueryDisplay";
 import KagentLogo from "../kagent-logo";
 
+function convertToUserFriendlyName(name: string): string {
+  name = name.replace(/__NS__/g, "/");
+  return name.replace(/_/g, "-");
+}
+
 interface ChatMessageProps {
   message: AgentMessageConfig;
   allMessages: AgentMessageConfig[];
@@ -27,30 +32,31 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
 
   const { content, source } = message;
 
+  let displaySource
+
   // Filter out system messages
-  // TODO: Decide whether we want to filter out som agent
+  // TODO: Decide whether we want to filter out some agent
   if (source === "system" || source === "user_proxy" || (typeof source === "string" && source.endsWith("society_of_mind_agent"))) {
     return null;
+  } else if (source !== "user") {
+    displaySource = convertToUserFriendlyName(source);
   }
 
   if (messageUtils.isMemoryQueryEvent(message)) {
     return <MemoryQueryDisplay currentMessage={message} />
   }
 
-
   if (messageUtils.isLlmCallEvent(message)) {
     return <LLMCallModal content={String(message)} />;
   }
 
-
-  return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${source === "user" ? "border-l-blue-500" : "border-l-violet-500"}`}>
+  return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${displaySource === "user" ? "border-l-blue-500" : "border-l-violet-500"}`}>
     <div className="flex flex-col gap-1 w-full">
-      {source !== "user" ? <div className="flex items-center gap-1">
+      {displaySource !== "user" ? <div className="flex items-center gap-1">
         <KagentLogo className="w-4 h-4" />
-        <div className="text-xs font-bold">{source}</div>
-      </div> : <div className="text-xs font-bold">{source}</div>}
+        <div className="text-xs font-bold">{displaySource}</div>
+      </div> : <div className="text-xs font-bold">{displaySource}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
     </div>
   </div>
-
 }

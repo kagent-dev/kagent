@@ -2,6 +2,7 @@ import { Component, ToolConfig } from "@/types/datamodel";
 
 export interface CreateAgentFormData {
   name: string;
+  namespace: string;
   description: string;
   system_prompt: string;
   model: ModelConfig;
@@ -67,7 +68,7 @@ export interface AnthropicConfigPayload {
 }
 
 export interface AzureOpenAIConfigPayload {
-    azureEndpoint: string
+    azureEndpoint: string;
     apiVersion: string;
     azureDeployment?: string;
     azureAdToken?: string;
@@ -83,6 +84,7 @@ export interface OllamaConfigPayload {
 
 export interface CreateModelConfigPayload {
   name: string;
+  namespace: string;
   provider: Pick<Provider, "name" | "type">;
   model: string;
   apiKey: string;
@@ -122,6 +124,7 @@ export interface PineconeConfigPayload {
 
 export interface CreateMemoryRequest {
   name: string;
+  namespace?: string;
   provider: Pick<Provider, "type">;
   apiKey: string;
   pinecone?: PineconeConfigPayload;
@@ -129,5 +132,6 @@ export interface CreateMemoryRequest {
 
 export interface UpdateMemoryRequest {
   name: string;
+  namespace?: string;
   pinecone?: PineconeConfigPayload;
 }

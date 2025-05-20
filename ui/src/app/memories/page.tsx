@@ -35,6 +35,7 @@ export default function MemoriesPage() {
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [memoryNameToDelete, setMemoryNameToDelete] = useState<string | null>(null)
+  const [memoryNamespaceToDelete, setMemoryNamespaceToDelete] = useState<string | null>(null)
 
   // Helper function to display not set for null/undefined/empty values
   const formatValue = (value: string | number | boolean | null | undefined): string => {
@@ -60,24 +61,28 @@ export default function MemoriesPage() {
   }, [])
 
   // Function to open the confirmation dialog
-  const handleDeleteRequest = (name: string) => {
+  const handleDeleteRequest = (namespace: string, name: string) => {
     setMemoryNameToDelete(name)
+    setMemoryNamespaceToDelete(namespace)
     setIsDeleteDialogOpen(true)
   }
 
   // Function to handle the actual deletion after confirmation
   const handleDeleteConfirm = async () => {
-    if (!memoryNameToDelete) return // Should not happen if dialog is open
+    if (!memoryNameToDelete || !memoryNamespaceToDelete) return // Should not happen if dialog is open
 
     const memoryToDelete = memoryNameToDelete;
+    const namespace = memoryNamespaceToDelete || '';
     try {
-      toast.info(`Deleting memory "${memoryToDelete}"...`)
-      await deleteMemory(memoryToDelete)
-      setMemories(memories.filter((m) => m.name !== memoryToDelete))
-      toast.success(`Memory "${memoryToDelete}" deleted successfully.`)
+      toast.info(`Deleting memory "${namespace}/${memoryToDelete}"...`)
+      await deleteMemory(namespace, memoryToDelete)
+      setMemories(memories.filter((m) => 
+        !(m.name === memoryToDelete && m.namespace === namespace)
+      ))
+      toast.success(`Memory "${namespace}/${memoryToDelete}" deleted successfully.`)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred'
-      toast.error(`Failed to delete memory "${memoryToDelete}": ${errorMessage}`)
+      toast.error(`Failed to delete memory "${namespace}/${memoryToDelete}": ${errorMessage}`)
     } finally {
       setIsDeleteDialogOpen(false)
       setMemoryNameToDelete(null)
@@ -100,7 +105,8 @@ export default function MemoriesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[200px]">Name</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead className="w-[200px]">Namespace</TableHead>
               <TableHead>Provider</TableHead>
               <TableHead>Index Host</TableHead>
               <TableHead>Top K</TableHead>
@@ -119,8 +125,9 @@ export default function MemoriesPage() {
                </TableRow>
             ) : (
               memories.map((memory) => (
-                <TableRow key={memory.name}>
+                <TableRow key={`${memory.namespace}/${memory.name}`}>
                   <TableCell className="font-medium">{memory.name}</TableCell>
+                  <TableCell className="font-medium">{memory.namespace}</TableCell>
                   <TableCell>{formatValue(memory.providerName)}</TableCell>
                   <TableCell>{formatValue(memory.memoryParams?.indexHost)}</TableCell>
                   <TableCell>{formatValue(memory.memoryParams?.topK)}</TableCell>
@@ -131,7 +138,7 @@ export default function MemoriesPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => router.push(`/memories/new?edit=${encodeURIComponent(memory.name)}`)}
+                      onClick={() => router.push(`/memories/new?edit=true&namespace=${encodeURIComponent(memory.namespace)}&name=${encodeURIComponent(memory.name)}`)}
                       aria-label="Edit memory"
                       className="mr-1"
                     >
@@ -140,7 +147,7 @@ export default function MemoriesPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleDeleteRequest(memory.name)}
+                      onClick={() => handleDeleteRequest(memory.namespace, memory.name)}
                       aria-label="Delete memory"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -160,7 +167,7 @@ export default function MemoriesPage() {
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              memory configuration named &quot;<span className="font-semibold">{memoryNameToDelete}</span>&quot;.
+              memory configuration named &quot;<span className="font-semibold">{memoryNamespaceToDelete}/{memoryNameToDelete}</span>&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

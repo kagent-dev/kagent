@@ -35,7 +35,7 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
                 <KagentLogo className="w-4 h-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{selectedTeam.agent.metadata.name}</span>
+                <span className="truncate font-semibold">{selectedTeam.agent.metadata.namespace}/{selectedTeam.agent.metadata.name}</span>
                 <span className="truncate text-xs">{selectedTeam.provider} ({selectedTeam.model})</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
@@ -43,16 +43,16 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg" align="start" side={isMobile ? "bottom" : "right"} sideOffset={4}>
             <DropdownMenuLabel className="text-xs text-muted-foreground">Agents</DropdownMenuLabel>
-            {agentResponses.map(({ id, agent}, index) => {
+            {agentResponses.map(({ id, agent }, index) => {
               return (
                 <DropdownMenuItem
-                  key={agent.metadata.name}
+                  key={`${agent.metadata.namespace}/${agent.metadata.name}`}
                   onClick={() => {
                     router.push(`/agents/${id}/chat`);
                   }}
                   className="gap-2 p-2"
                 >
-                  {agent.metadata.name}
+                  {agent.metadata.namespace}/{agent.metadata.name}
                   <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
                 </DropdownMenuItem>
               );

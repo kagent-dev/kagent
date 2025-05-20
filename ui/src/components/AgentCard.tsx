@@ -21,19 +21,21 @@ export function AgentCard({ id, agentResponse: { agent, model, provider } }: Age
     router.push(`/agents/new?edit=true&id=${id}`);
   };
 
+  const agentFullName = `${agent.metadata.namespace}/${agent.metadata.name}`
+
   return (
     <Link href={`/agents/${id}/chat`} passHref>
       <Card className={`group transition-colors cursor-pointer hover:border-violet-500`}>
         <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
           <CardTitle className="flex items-center gap-2">
             <KagentLogo className="h-5 w-5" />
-            {agent.metadata.name}
+            {agentFullName}
           </CardTitle>
           <div className="flex items-center space-x-2 invisible group-hover:visible">
             <Button variant="ghost" size="icon" onClick={handleEditClick} aria-label="Edit Agent">
               <Pencil className="h-4 w-4" />
             </Button>
-            <DeleteButton teamLabel={String(agent.metadata.name)} />
+            <DeleteButton teamLabel={String(agentFullName)} />
           </div>
         </CardHeader>
         <CardContent className="flex flex-col justify-between h-32">

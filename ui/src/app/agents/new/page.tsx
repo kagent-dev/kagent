@@ -22,6 +22,7 @@ import { listMemories } from "@/app/actions/memories";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   description?: string;
   systemPrompt?: string;
   model?: string;
@@ -42,13 +43,21 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 
   // Basic form state
   const [name, setName] = useState("");
+  const [namespace, setNamespace] = useState("");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
 
   // Default to the first model
-  type SelectedModelType = Pick<ModelConfig, 'name' | 'model'>;
-  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { name: models[0].name, model: models[0].model } : null);
-
+  type SelectedModelType = Pick<ModelConfig, 'name' | 'namespace' | 'model'>;
+  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(
+    models && models.length > 0
+      ? {
+        name: models[0].name,
+        model: models[0].model,
+        namespace: models[0].namespace || 'default' // TODO: read it from environment variable (Release.Namespace)
+      }
+      : null
+  );
   // Tools state - now using AgentTool interface correctly
   const [selectedTools, setSelectedTools] = useState<Tool[]>([]);
 
@@ -85,14 +94,24 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
             try {
               // Populate form with existing agent data
               setName(agent.metadata.name || "");
+              setNamespace(agent.metadata.namespace || "");
               setDescription(agent.spec.description || "");
               setSystemPrompt(agent.spec.systemMessage || "");
               setSelectedTools(agent.spec.tools || []);
+
+              // TODO: verify if it's needed. The controller should ensure fullname
+              const modelNamespace = agent.spec.modelConfig.includes('/')
+                ? agent.spec.modelConfig.split('/')[0]
+                : undefined;
+              const agentNamespace = agent.metadata.namespace;
+              const finalNamespace = modelNamespace ?? agentNamespace ?? "";
+
               setSelectedModel({
                 model: agentResponse.model,
                 name: agent.spec.modelConfig,
+                namespace: finalNamespace
               });
-              
+
               // Set selected memories if they exist
               if (agent.spec.memory && Array.isArray(agent.spec.memory)) {
                 setSelectedMemories(agent.spec.memory);
@@ -132,6 +151,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   const validateForm = () => {
     const formData = {
       name,
+      namespace,
       description,
       systemPrompt,
       model: selectedModel || undefined,
@@ -151,6 +171,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
     // Set only the field being validated
     switch (fieldName) {
       case 'name': formData.name = value; break;
+      case 'namespace': formData.namespace = value; break;
       case 'description': formData.description = value; break;
       case 'systemPrompt': formData.systemPrompt = value; break;
       case 'model': formData.model = value; break;
@@ -180,6 +201,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 
       const agentData = {
         name,
+        namespace,
         systemPrompt,
         description,
         model: selectedModel,
@@ -244,6 +266,20 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 </div>
 
                 <div>
+                  <label className="text-sm mb-2 block">Namespace</label>
+                  <Input
+                    value={namespace}
+                    onChange={(e) => setNamespace(e.target.value)}
+                    onBlur={() => validateField('namespace', namespace)}
+                    className={`${errors.namespace ? "border-red-500" : ""}`}
+                    placeholder="Leave blank for the KAgent`s default namespace"
+                    disabled={isEditMode || isSubmitting || isLoading}
+                  />
+                  {errors.namespace && <p className="text-red-500 text-sm mt-1">{errors.namespace}</p>}
+                  {isEditMode && <p className="text-muted-foreground text-xs mt-1">Namespace cannot be changed after creation</p>}
+                </div>
+
+                <div>
                   <label className="text-sm mb-2 block">Description</label>
                   <Textarea
                     value={description}
@@ -256,23 +292,23 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
                 </div>
 
-                <SystemPromptSection 
-                  value={systemPrompt} 
-                  onChange={(e) => setSystemPrompt(e.target.value)} 
+                <SystemPromptSection
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
                   onBlur={() => validateField('systemPrompt', systemPrompt)}
-                  error={errors.systemPrompt} 
-                  disabled={isSubmitting || isLoading} 
+                  error={errors.systemPrompt}
+                  disabled={isSubmitting || isLoading}
                 />
 
-                <ModelSelectionSection 
-                  allModels={models} 
-                  selectedModel={selectedModel} 
+                <ModelSelectionSection
+                  allModels={models}
+                  selectedModel={selectedModel}
                   setSelectedModel={(model) => {
-                    setSelectedModel(model as Pick<ModelConfig, 'name' | 'model'>);
+                    setSelectedModel(model as Pick<ModelConfig, 'name' | 'namespace' | 'model'>);
                     validateField('model', model);
-                  }} 
-                  error={errors.model} 
-                  isSubmitting={isSubmitting || isLoading} 
+                  }}
+                  error={errors.model}
+                  isSubmitting={isSubmitting || isLoading}
                   onBlur={() => validateField('model', selectedModel)}
                 />
               </CardContent>
@@ -301,11 +337,11 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ToolsSection 
-                  allTools={tools} 
-                  selectedTools={selectedTools} 
-                  setSelectedTools={setSelectedTools} 
-                  isSubmitting={isSubmitting || isLoading} 
+                <ToolsSection
+                  allTools={tools}
+                  selectedTools={selectedTools}
+                  setSelectedTools={setSelectedTools}
+                  isSubmitting={isSubmitting || isLoading}
                   onBlur={() => validateField('tools', selectedTools)}
                 />
               </CardContent>
@@ -344,10 +380,10 @@ export default function AgentPage() {
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get("edit") === "true";
   const agentId = searchParams.get("id");
-  
+
   // Create a key based on the edit mode and agent ID
   const formKey = isEditMode ? `edit-${agentId}` : 'create';
-  
+
   return (
     <Suspense fallback={<LoadingState />}>
       <AgentPageContent key={formKey} isEditMode={isEditMode} agentId={agentId} />

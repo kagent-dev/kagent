@@ -35,8 +35,12 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
       const response = await getTeams();
       if (response.success && response.data) {
         const filteredAgents = currentAgentName
-          ? response.data.filter((agentResp: AgentResponse) => agentResp.agent.metadata.name !== currentAgentName)
+          ? response.data.filter((agentResp: AgentResponse) => {
+            const toolAgentFullName = `${agentResp.agent.metadata.namespace}/${agentResp.agent.metadata.name}`;
+            return toolAgentFullName !== currentAgentName;
+          })
           : response.data;
+
         setAvailableAgents(filteredAgents);
       } else {
         console.error("Failed to fetch agents:", response.error);
@@ -85,7 +89,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
         if (getToolIdentifier(tool) === parentToolIdentifier && isMcpTool(tool) && tool.mcpServer) {
           const newToolNames = tool.mcpServer.toolNames.filter(name => name !== mcpToolNameToRemove);
           if (newToolNames.length === 0) {
-            return null; 
+            return null;
           }
           return {
             ...tool,
@@ -129,7 +133,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
           },
         };
       }
-      
+
       return prevTool;
     });
   };
@@ -279,8 +283,12 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
             );
           });
         } else {
-          const displayName = getToolDisplayName(agentTool);
+          let displayName = getToolDisplayName(agentTool);
           const displayDescription = getToolDescription(agentTool);
+
+          if (isAgentTool(agentTool)) {
+            displayName = agentTool.agent.ref;
+          }
 
           let CurrentIcon: React.ElementType;
           let currentIconColor: string;

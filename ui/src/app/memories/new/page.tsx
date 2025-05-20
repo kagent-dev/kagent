@@ -41,6 +41,8 @@ import { Provider, CreateMemoryRequest, PineconeConfigPayload } from '@/lib/type
 // Base schema
 const baseFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
+  // TODO: To make it optional the controller will have to handle it
+  namespace: z.string().min(1, "Namespace is required"),
   providerType: z.string().min(1, "Provider is required"),
   apiKey: z.string().min(1, "API Key is required").or(z.literal('')), // Allow empty API key in edit mode
   // Generic object to hold dynamic provider parameters
@@ -52,7 +54,7 @@ const createRefinedSchema = (selectedProvider: Provider | null, isEditing: boole
   return baseFormSchema.refine((data) => {
     // Skip API key validation in edit mode
     if (isEditing && data.apiKey === '') return true;
-    
+
     if (!selectedProvider || !data.providerParams) return true;
     for (const param of selectedProvider.requiredParams) {
       if (data.providerParams[param] === undefined || data.providerParams[param] === '') {
@@ -68,9 +70,10 @@ const createRefinedSchema = (selectedProvider: Provider | null, isEditing: boole
 export default function NewMemoryPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const editMode = searchParams.has('edit')
-  const memoryNameToEdit = searchParams.get('edit')
-  
+  const editMode = searchParams.get("edit") === "true";
+  const memoryNameToEdit = searchParams.get('name')
+  const memoryNamespaceToEdit = searchParams.get('namespace')
+
   const [providers, setProviders] = useState<Provider[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
@@ -104,6 +107,7 @@ export default function NewMemoryPage() {
     resolver: zodResolver(currentSchema),
     defaultValues: {
       name: '',
+      namespace: '',
       providerType: '',
       apiKey: '',
       providerParams: {
@@ -123,10 +127,10 @@ export default function NewMemoryPage() {
         const response = await getSupportedMemoryProviders()
         if (response.success && response.data) {
           setProviders(response.data)
-          
+
           // If in edit mode, load the memory details after providers are loaded
-          if (editMode && memoryNameToEdit) {
-            await loadMemoryForEditing(memoryNameToEdit, response.data)
+          if (editMode && memoryNameToEdit && memoryNamespaceToEdit) {
+            await loadMemoryForEditing(memoryNamespaceToEdit, memoryNameToEdit, response.data)
           }
         } else {
           throw new Error(response.error || 'Failed to load providers')
@@ -138,22 +142,23 @@ export default function NewMemoryPage() {
     loadProviders()
   }, [editMode, memoryNameToEdit])
 
-  const loadMemoryForEditing = async (memoryName: string, availableProviders: Provider[]) => {
+  const loadMemoryForEditing = async (memoryNamespace: string, memoryName: string, availableProviders: Provider[]) => {
     try {
       setIsLoading(true)
-      const memory = await getMemory(memoryName)
-      
+      const memory = await getMemory(memoryNamespace, memoryName)
+
       // Find the correct provider
       const provider = availableProviders.find(p => p.type === memory.providerName)
       if (provider) {
         setSelectedProvider(provider)
-        
+
         // Set form values
         form.setValue('name', memory.name)
+        form.setValue('namespace', memory.namespace)
         form.setValue('providerType', provider.type)
         // We don't need to set API key in edit mode as the field will be hidden
         form.setValue('apiKey', '')
-        
+
         // Set provider params
         if (memory.memoryParams) {
           Object.entries(memory.memoryParams).forEach(([key, value]) => {
@@ -164,7 +169,7 @@ export default function NewMemoryPage() {
         }
       }
     } catch (error) {
-      toast.error(`Error loading memory: ${error instanceof Error ? error.message : String(error)}`)
+      toast.error(`Error loading memory ${memoryNamespace}/${memoryName}: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setIsLoading(false)
     }
@@ -175,14 +180,15 @@ export default function NewMemoryPage() {
     toast.info(editMode ? 'Updating memory...' : 'Creating memory...')
 
     if (!selectedProvider) {
-        toast.error('Selected provider not found. Please refresh.')
-        setIsLoading(false)
-        return
+      toast.error('Selected provider not found. Please refresh.')
+      setIsLoading(false)
+      return
     }
 
     // Base data for the request
     const memoryData: CreateMemoryRequest = {
       name: values.name,
+      namespace: values.namespace,
       provider: { type: values.providerType },
       apiKey: values.apiKey,
     }
@@ -216,13 +222,13 @@ export default function NewMemoryPage() {
       }
 
       // Handle optional scoreThreshold (expecting string in payload type)
-       if (params.scoreThreshold !== undefined && params.scoreThreshold !== '') {
-         const thresholdNum = Number(params.scoreThreshold);
-         if (!isNaN(thresholdNum)) {
-            // Assuming the type PineconeConfigPayload expects a string here, convert back
-           pineconePayload.scoreThreshold = thresholdNum.toString(); 
-         }
-       }
+      if (params.scoreThreshold !== undefined && params.scoreThreshold !== '') {
+        const thresholdNum = Number(params.scoreThreshold);
+        if (!isNaN(thresholdNum)) {
+          // Assuming the type PineconeConfigPayload expects a string here, convert back
+          pineconePayload.scoreThreshold = thresholdNum.toString();
+        }
+      }
 
       memoryData.pinecone = pineconePayload;
     }
@@ -235,20 +241,20 @@ export default function NewMemoryPage() {
       } else {
         await createMemory(memoryData)
       }
-      toast.success(`Memory "${values.name}" ${editMode ? 'updated' : 'created'} successfully!`)
+      toast.success(`Memory "${values.namespace}/${values.name}" ${editMode ? 'updated' : 'created'} successfully!`)
       router.push('/memories')
     } catch (error) {
-      toast.error(`Failed to ${editMode ? 'update' : 'create'} memory: ${error instanceof Error ? error.message : String(error)}`)
+      toast.error(`Failed to ${editMode ? 'update' : 'create'} memory ${values.namespace}/${values.name}: ${error instanceof Error ? error.message : String(error)}`)
       setIsLoading(false)
     }
   }
 
   const handleProviderChange = (value: string) => {
-     const provider = providers.find(p => p.type === value)
-     setSelectedProvider(provider || null)
-     form.setValue('providerType', value)
-     form.setValue('providerParams', {});
-     form.trigger();
+    const provider = providers.find(p => p.type === value)
+    setSelectedProvider(provider || null)
+    form.setValue('providerType', value)
+    form.setValue('providerParams', {});
+    form.trigger();
   }
 
   const getAllParams = () => {
@@ -276,9 +282,28 @@ export default function NewMemoryPage() {
                       <Input placeholder="e.g., my-pinecone-memory" {...field} disabled={editMode} />
                     </FormControl>
                     <FormDescription>
-                      {editMode 
-                        ? "Memory name cannot be changed when editing." 
+                      {editMode
+                        ? "Memory name cannot be changed when editing."
                         : "A unique name for this memory configuration."}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="namespace"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Namespace</FormLabel>
+                    <FormControl>
+                      <Input placeholder="The namespace where to create Memory" {...field} disabled={editMode} />
+                    </FormControl>
+                    <FormDescription>
+                      {editMode
+                        ? "Memory namespace cannot be changed when editing."
+                        : "An existing namespace for this memory configuration."}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -294,7 +319,7 @@ export default function NewMemoryPage() {
                     {editMode ? (
                       <>
                         <FormControl>
-                          <Input 
+                          <Input
                             value={selectedProvider?.name ? `${selectedProvider.name} (${selectedProvider.type})` : 'Loading...'}
                             disabled={true}
                           />
@@ -349,7 +374,7 @@ export default function NewMemoryPage() {
                 const isRequired = selectedProvider.requiredParams.includes(paramName);
                 let inputType = "text";
                 let inputProps = {};
-                
+
                 if (paramName.toLowerCase().includes('key') || paramName.toLowerCase().includes('secret')) {
                   inputType = "password";
                 }
@@ -374,12 +399,12 @@ export default function NewMemoryPage() {
                         </FormLabel>
                         <FormControl>
                           <Input
-                             type={inputType}
-                             placeholder={`Enter ${paramLabels[paramName] || paramName}`}
-                             {...field}
-                             value={field.value ?? ''}
-                             {...inputProps}
-                           />
+                            type={inputType}
+                            placeholder={`Enter ${paramLabels[paramName] || paramName}`}
+                            {...field}
+                            value={field.value ?? ''}
+                            {...inputProps}
+                          />
                         </FormControl>
                         <FormDescription>
                           {paramDescriptions[paramName] || `Configuration parameter for ${selectedProvider.name}`}

@@ -20,17 +20,39 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
   } else if (isMcpTool(typedTool)) {
     return tool as Tool;
   } else if (isAgentTool(typedTool)) {
-    const agentName = typedTool.agent.ref;
-    const foundAgent = allAgents.find(a => a.agent.metadata.name === agentName);
+    const agentRef = typedTool.agent.ref;
+    const foundAgent = allAgents.find((a) => {
+      // TODO: Resolve namespace ambiguity for agent references
+      //   Problem:
+      //     - When agentRef lacks namespace prefix (e.g., "agent-1" instead of "ns/agent-1")
+      //     - Current behavior returns first matched agent across all namespaces
+      //     - Can lead to incorrect selection when multiple agents share the same name
+      //   Example:
+      //     - agentRef = "agent-1"
+      //     - Available: ["ns-1/agent-1", "ns-2/agent-1"]
+      //     - Will always match "ns-1/agent-1" regardless of intent
+      //   Solutions:
+      //     - Option 1: Use namespace of the referring agent
+      //     - Option 2: Use system default namespace
+      //     - Option 3: Require explicit namespace specification
+      const fullName = `${a.agent.metadata.namespace}/${a.agent.metadata.name}`;
+      return fullName === agentRef || a.agent.metadata.name === agentRef;
+    });
     const description = foundAgent?.agent.spec.description;
+
+    let formattedRef = agentRef;
+    if (foundAgent && !agentRef.includes("/")) {
+      formattedRef = `${foundAgent.agent.metadata.namespace}/${foundAgent.agent.metadata.name}`;
+    }
+
     return {
       ...typedTool,
       type: "Agent",
       agent: {
         ...typedTool.agent,
-        ref: agentName,
-        description: description
-      }
+        ref: formattedRef,
+        description: description,
+      },
     } as Tool;
   }
 
@@ -69,7 +91,7 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
  */
 function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[]): Tool[] {
   if (data.agent?.spec?.tools) {
-    return data.agent.spec.tools.map(tool => convertToolRepresentation(tool, allAgents));
+    return data.agent.spec.tools.map((tool) => convertToolRepresentation(tool, allAgents));
   }
   return [];
 }
@@ -101,11 +123,13 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
   return {
     metadata: {
       name: agentFormData.name,
+      namespace: agentFormData.namespace,
     },
     spec: {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
-      modelConfig: agentFormData.model.name || "",
+      // If ModelConfig is empty, the controller will use the default ModelConfig defined during controller's installation
+      modelConfig: `${agentFormData.model.namespace}/${agentFormData.model.name}` || "",
       memory: agentFormData.memory,
       tools: agentFormData.tools.map((tool) => {
         // Convert to the proper Tool structure based on the tool type
@@ -119,7 +143,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
             },
           } as Tool;
         }
-        
+
         if (isMcpTool(tool) && tool.mcpServer) {
           return {
             type: "McpServer",
@@ -134,11 +158,12 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           return {
             type: "Agent",
             agent: {
-              ref: tool.agent.ref
+              // TODO: Decide if we should format this ref before assignment to make sure it's defined as a fullname (namespace/name)
+              ref: tool.agent.ref,
             },
           } as Tool;
         }
-        
+
         // Default case - shouldn't happen with proper type checking
         console.warn("Unknown tool type:", tool);
         return tool;
@@ -159,7 +184,7 @@ export async function getTeam(teamLabel: string | number): Promise<BaseResponse<
     // Fetch all teams to get descriptions for agent tools
     // We use fetchApi directly to avoid circular dependency/logic issues with calling getTeams() here
     const allTeamsData = await fetchApi<AgentResponse[]>(`/teams`);
-    
+
     // Extract and augment tools using the list of all teams
     const tools = extractToolsFromResponse(teamData, allTeamsData);
 
@@ -182,7 +207,7 @@ export async function getTeam(teamLabel: string | number): Promise<BaseResponse<
 
 /**
  * Deletes a team
- * @param teamLabel The team label
+ * @param teamLabel The team label (in namespace/name format)
  * @returns A promise with the delete result
  */
 export async function deleteTeam(teamLabel: string): Promise<BaseResponse<void>> {
@@ -222,6 +247,7 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
       throw new Error("Failed to create team");
     }
 
+    // TODO: Make sure if it works for the multinamespace
     revalidatePath(`/agents/${response.metadata.name}/chat`);
     return { success: true, data: response };
   } catch (error) {
@@ -236,45 +262,52 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
 export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
   try {
     const data = await fetchApi<AgentResponse[]>(`/teams`);
-    
-    const validTeams = data.filter(team => !!team.agent);
-    const agentMap = new Map(validTeams.map(agentResp => [agentResp.agent.metadata.name, agentResp]));
 
-    const convertedData: AgentResponse[] = validTeams.map(team => {
-      const augmentedTools = team.agent.spec.tools?.map(tool => {
-        // Check if it's an Agent tool reference needing description
-        if (isAgentTool(tool)) {
-          const agentName = tool.agent.ref;
-          const foundAgent = agentMap.get(agentName);
-          return {
-            ...tool,
-            type: "Agent",
-            agent: {
-              ...tool.agent,
-              ref: agentName,
-              description: foundAgent?.agent.spec.description
-            }
-          } as Tool;
-        }
-        return tool as Tool;
-      }) || [];
+    const validTeams = data.filter(team => !!team.agent);
+    const agentMap = new Map(
+      // TODO: potential collision. use fullname instead the name only
+      validTeams.map(agentResp => [agentResp.agent.metadata.name, agentResp])
+    );
+
+    const convertedData: AgentResponse[] = validTeams.map((team) => {
+      const augmentedTools =
+        team.agent.spec.tools?.map((tool) => {
+          // Check if it's an Agent tool reference needing description
+          if (isAgentTool(tool)) {
+            // TODO: make sure that it works with multinamespace
+            const agentName = tool.agent.ref;
+            const foundAgent = agentMap.get(agentName);
+            return {
+              ...tool,
+              type: "Agent",
+              agent: {
+                ...tool.agent,
+                ref: agentName,
+                description: foundAgent?.agent.spec.description,
+              },
+            } as Tool;
+          }
+          return tool as Tool;
+        }) || [];
 
       return {
         ...team,
-        agent: { 
+        agent: {
           ...team.agent,
-          spec: { 
+          spec: {
             ...team.agent.spec,
-            tools: augmentedTools
-          }
+            tools: augmentedTools,
+          },
         },
       };
     });
 
-    const sortedData = convertedData.sort((a, b) => 
-      a.agent.metadata.name.localeCompare(b.agent.metadata.name)
-    );
-    
+    const sortedData = convertedData.sort((a, b) => {
+      const aFullName = `${a.agent.metadata.namespace}/${a.agent.metadata.name}`;
+      const bFullName = `${b.agent.metadata.namespace}/${b.agent.metadata.name}`;
+      return aFullName.localeCompare(bFullName);
+    });
+
     return { success: true, data: sortedData };
   } catch (error) {
     return createErrorResponse<AgentResponse[]>(error, "Error getting teams");

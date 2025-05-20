@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,7 +48,7 @@ func (a *a2aReconciler) ReconcileAutogenAgent(
 		return err
 	}
 	if params == nil {
-		reconcileLog.Info("No a2a handler found for agent, a2a will be disabled", "agent", agent.Name)
+		reconcileLog.Info("No a2a handler found for agent, a2a will be disabled", "agent", agent.Namespace+"/"+agent.Name)
 		return nil
 	}
 
