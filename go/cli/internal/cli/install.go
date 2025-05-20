@@ -211,5 +211,5 @@ func UninstallCmd(ctx context.Context, cfg *config.Config) {
 	}
 
 	s.Stop()
-	fmt.Fprintln(os.Stdout, "kagent uninstalled successfully")
+	fmt.Fprintln(os.Stdout, "\nkagent uninstalled successfully")
 }

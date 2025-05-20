@@ -77,7 +77,12 @@ func main() {
 		Short: "Generate a bug report",
 		Long:  `Generate a bug report`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.BugReportCmd()
+			client := autogen_client.New(cfg.APIURL)
+			if err := cli.CheckServerConnection(client); err != nil {
+				pf := cli.NewPortForward(ctx, cfg)
+				defer pf.Stop()
+			}
+			cli.BugReportCmd(cfg)
 		},
 	}
 
@@ -86,11 +91,62 @@ func main() {
 		Short: "Print the kagent version",
 		Long:  `Print the kagent version`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.VersionCmd()
+			client := autogen_client.New(cfg.APIURL)
+			if err := cli.CheckServerConnection(client); err != nil {
+				pf := cli.NewPortForward(ctx, cfg)
+				defer pf.Stop()
+			}
+			cli.VersionCmd(cfg)
 		},
 	}
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd)
+	dashboardCmd := &cobra.Command{
+		Use:   "dashboard",
+		Short: "Open the kagent dashboard",
+		Long:  `Open the kagent dashboard`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.DashboardCmd(ctx, cfg)
+		},
+	}
+
+	getCmd := &cobra.Command{
+		Use:   "get",
+		Short: "Get a kagent resource",
+		Long:  `Get a kagent resource`,
+		Run: func(cmd *cobra.Command, args []string) {
+			client := autogen_client.New(cfg.APIURL)
+			if err := cli.CheckServerConnection(client); err != nil {
+				pf := cli.NewPortForward(ctx, cfg)
+				defer pf.Stop()
+			}
+			resourceType := ""
+			resourceName := ""
+			if len(args) > 0 {
+				resourceType = args[0]
+			} else {
+				fmt.Fprintf(os.Stderr, "No resource type provided\n")
+				os.Exit(1)
+			}
+			if len(args) > 1 {
+				resourceName = args[1]
+			}
+			switch strings.TrimSuffix(strings.ToLower(resourceType), "s") {
+			case "session":
+				cli.GetSessionCmd(cfg, resourceName)
+			case "run":
+				cli.GetRunCmd(cfg, resourceName)
+			case "agent":
+				cli.GetAgentCmd(cfg, resourceName)
+			case "tool":
+				cli.GetToolCmd(cfg)
+			default:
+				fmt.Fprintf(os.Stderr, "Invalid resource type: %s\n", resourceType)
+				os.Exit(1)
+			}
+		},
+	}
+
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd)
 
 	// Initialize config
 	if err := config.Init(); err != nil {
@@ -223,7 +279,12 @@ Examples:
 				c.Println(err)
 				return
 			}
-			cli.GetSessionCmd(c)
+			cfg := config.GetCfg(c)
+			if len(c.Args) > 0 {
+				cli.GetSessionCmd(cfg, c.Args[0])
+			} else {
+				cli.GetSessionCmd(cfg, "")
+			}
 		},
 	})
 
@@ -243,7 +304,12 @@ Examples:
 				c.Println(err)
 				return
 			}
-			cli.GetRunCmd(c)
+			cfg := config.GetCfg(c)
+			if len(c.Args) > 0 {
+				cli.GetRunCmd(cfg, c.Args[0])
+			} else {
+				cli.GetRunCmd(cfg, "")
+			}
 		},
 	})
 
@@ -263,7 +329,12 @@ Examples:
 				c.Println(err)
 				return
 			}
-			cli.GetAgentCmd(c)
+			cfg := config.GetCfg(c)
+			if len(c.Args) > 0 {
+				cli.GetAgentCmd(cfg, c.Args[0])
+			} else {
+				cli.GetAgentCmd(cfg, "")
+			}
 		},
 	})
 
@@ -283,7 +354,8 @@ Examples:
 				c.Println(err)
 				return
 			}
-			cli.GetToolCmd(c)
+			cfg := config.GetCfg(c)
+			cli.GetToolCmd(cfg)
 		},
 	})
 
@@ -309,7 +381,8 @@ Example:
 				c.Println(err)
 				return
 			}
-			cli.BugReportCmd()
+			cfg := config.GetCfg(c)
+			cli.BugReportCmd(cfg)
 		},
 	}
 
@@ -343,7 +416,7 @@ Example:
 		Aliases: []string{"v"},
 		Help:    "Print the kagent version.",
 		Func: func(c *ishell.Context) {
-			cli.VersionCmd()
+			cli.VersionCmd(cfg)
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		},
 	})
@@ -381,7 +454,8 @@ Example:
 				c.Println(err)
 				return
 			}
-			cli.DashboardCmd(ctx, c)
+			cfg := config.GetCfg(c)
+			cli.DashboardCmd(ctx, cfg)
 		},
 	})
 

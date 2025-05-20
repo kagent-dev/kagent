@@ -4,13 +4,15 @@ package cli
 
 import (
 	"context"
+	"fmt"
+	"os"
 
-	"github.com/abiosoft/ishell/v2"
+	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
-func DashboardCmd(ctx context.Context, c *ishell.Context) {
-	c.Println("Dashboard is not available on this platform")
-	c.Println("You can easily start the dashboard by running:")
-	c.Println("kubectl port-forward -n kagent service/kagent 8082:80")
-	c.Println("and then opening http://localhost:8082 in your browser")
+func DashboardCmd(ctx context.Context, cfg *config.Config) {
+	fmt.Fprintln(os.Stderr, "Dashboard is not available on this platform")
+	fmt.Fprintln(os.Stderr, "You can easily start the dashboard by running:")
+	fmt.Fprintln(os.Stderr, "kubectl port-forward -n kagent service/kagent 8082:80")
+	fmt.Fprintln(os.Stderr, "and then opening http://localhost:8082 in your browser")
 }
