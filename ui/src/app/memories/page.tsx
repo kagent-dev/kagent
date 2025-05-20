@@ -37,7 +37,7 @@ export default function MemoriesPage() {
   const [memoryNameToDelete, setMemoryNameToDelete] = useState<string | null>(null)
 
   // Helper function to display not set for null/undefined/empty values
-  const formatValue = (value: any): string => {
+  const formatValue = (value: string | number | boolean | null | undefined): string => {
     return value === null || value === undefined || value === '' ? 'not set' : String(value);
   }
 
