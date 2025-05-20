@@ -182,7 +182,7 @@ function ModelPageContent() {
           }
           const modelData = response.data;
           setName(modelData.name);
-          setNamespace(modelData.namespace || ""); // TODO(multi-namespace): set default kagent's namespace (Release.Namespace)
+          setNamespace(modelData.namespace);
 
           const provider = providers.find(p => p.type === modelData.providerName);
           setSelectedProvider(provider || null);
@@ -313,7 +313,7 @@ function ModelPageContent() {
     const newErrors: ValidationErrors = { requiredParams: {} };
 
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
-    if (!isResourceNameValid(namespace)) newErrors.namespace = "Namespace must be a valid RFC 1123 subdomain name";
+    if (namespace && !isResourceNameValid(namespace)) newErrors.namespace = "Namespace must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
     const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
     if (!isEditMode && !isOllamaNow && isApiKeyNeeded && !apiKey.trim()) {

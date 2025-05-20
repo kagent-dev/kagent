@@ -67,7 +67,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
       ? {
         name: models[0].name,
         model: models[0].model,
-        namespace: models[0].namespace || 'default' // TODO: read it from environment variable (Release.Namespace)
+        namespace: models[0].namespace || ''
       }
       : null
   );
