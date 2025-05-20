@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from ...datamodel import Feedback, Response
 from ...database.db_manager import DatabaseManager
+from ...datamodel import Feedback, Response
 from ..deps import get_db
 
 router = APIRouter()
@@ -21,21 +21,21 @@ class FeedbackSubmissionRequest(BaseModel):
     messageContent: str = Field(description="Content of the message that received feedback")
     messageSource: str = Field(description="Source of the message (agent name)")
     precedingMessagesContents: list[str] = Field([], description="Contents of messages preceding the feedback")
-    sessionInfo: str = Field(None, description="Session information")
     timestamp: str = Field(None, description="Timestamp of the feedback submission")
-    clientInfo: Dict[str, Any] = Field({}, description="Client information")
+    sessionID: int = Field(None, description="Session ID")
+    userID: str = Field(None, description="User ID")
 
 
-@router.post("/feedback", response_model=Response)
+@router.post("/", response_model=Response)
 async def create_feedback(
-    feedback_data: FeedbackSubmissionRequest,
+    request: FeedbackSubmissionRequest,
     db=Depends(get_db),
-):
+) -> Response:
     """
     Create a new feedback entry from user feedback on agent responses
 
     Args:
-        feedback_data: The feedback data from the client
+        request: The feedback data from the client
         user_id: The ID of the user submitting the feedback
         db_manager: Database manager instance
 
@@ -43,12 +43,8 @@ async def create_feedback(
         Response: Result of the operation with status and message
     """
 
-    # Add client information (can be expanded)
-    if not feedback_data.clientInfo:
-        feedback_data.clientInfo = {"timestamp": feedback_data.timestamp}
-
     # Convert to dict for DB manager
-    feedback_dict = feedback_data.model_dump()
+    feedback_dict = request.model_dump()
 
     # Create feedback in database
     response = await _create_feedback(db, feedback_dict)
@@ -59,6 +55,28 @@ async def create_feedback(
 
     return response
 
+
+@router.get("/", response_model=dict)
+async def list_feedback(
+    user_id: str,
+    db=Depends(get_db),
+):
+    """
+    List all feedback entries for a given user
+
+    Args:
+        user_id: The ID of the user to list feedback for
+        db: The database manager instance
+
+    Returns:
+        Response: Result of the operation with status and message
+    """
+    try:
+        result = db.get(Feedback, filters={"user_id": user_id})
+        return { "status": True, "data": result.data }
+    except Exception as e:
+        logger.error(f"Error listing feedback: {str(e)}")
+        return { "status": False, "message": str(e) }
 
 async def _create_feedback(db: DatabaseManager, feedback_data: dict) -> Response:
     """
@@ -78,14 +96,9 @@ async def _create_feedback(db: DatabaseManager, feedback_data: dict) -> Response
             issue_type=feedback_data.get("issueType"),
             message_content=feedback_data.get("messageContent", ""),
             message_source=feedback_data.get("messageSource", ""),
-            # Store preceding messages as a list
             preceding_messages=feedback_data.get("precedingMessagesContents", []),
-            # Add additional metadata
-            extra_metadata={
-                "timestamp": feedback_data.get("timestamp", datetime.now().isoformat()),
-                "session_info": feedback_data.get("sessionInfo"),
-                "client_info": feedback_data.get("clientInfo", {}),
-            },
+            user_id=feedback_data.get("userID"),
+            session_id=feedback_data.get("sessionID"),
         )
 
         # Try to get session ID if available

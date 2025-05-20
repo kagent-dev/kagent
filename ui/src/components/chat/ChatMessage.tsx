@@ -12,9 +12,10 @@ import { FeedbackDialog } from "./FeedbackDialog";
 interface ChatMessageProps {
   message: AgentMessageConfig;
   allMessages: AgentMessageConfig[];
+  sessionID?: string;
 }
 
-export default function ChatMessage({ message, allMessages }: ChatMessageProps) {
+export default function ChatMessage({ message, allMessages, sessionID }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
@@ -99,6 +100,7 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
       isPositive={isPositiveFeedback}
       message={message}
       precedingMessages={precedingMessages}
+      sessionID={sessionID}
     />
   </div>
 }

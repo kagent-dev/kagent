@@ -342,7 +342,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
             ) : (
               <>
                 {messages.map((message, index) => {
-                  return <ChatMessage key={index} message={message} allMessages={messages} />
+                  return <ChatMessage key={index} message={message} allMessages={messages} sessionID={sessionId} />
                 })}
 
                 {isStreaming && (

@@ -13,23 +13,26 @@ interface FeedbackDialogProps {
   isPositive: boolean;
   message: AgentMessageConfig;
   precedingMessages: AgentMessageConfig[];
+  sessionID?: string;
 }
 
-export function FeedbackDialog({ isOpen, onClose, isPositive, message, precedingMessages }: FeedbackDialogProps) {
+export function FeedbackDialog({ isOpen, onClose, isPositive, message, precedingMessages, sessionID  }: FeedbackDialogProps) {
   const [feedbackText, setFeedbackText] = useState("");
   const [issueType, setIssueType] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+
     try {
       if (isPositive) {
-        await submitPositiveFeedback(message, precedingMessages, feedbackText);
-        toast.success("Thank you for your feedback!");
+        await submitPositiveFeedback(message, precedingMessages, feedbackText, sessionID);
       } else {
-        await submitNegativeFeedback(message, precedingMessages, feedbackText, issueType);
-        toast.success("Thank you for reporting this issue!");
+        await submitNegativeFeedback(message, precedingMessages, feedbackText, issueType, sessionID);
       }
+      toast.success("Thank you for your feedback!");
+      setFeedbackText("");
+      setIssueType(undefined);
       onClose();
     } catch (error) {
       console.error("Error submitting feedback:", error);

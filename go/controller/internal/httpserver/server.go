@@ -168,6 +168,7 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Feedback
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleListFeedback)).Methods(http.MethodGet)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A).Handler(s.config.A2AHandler)
