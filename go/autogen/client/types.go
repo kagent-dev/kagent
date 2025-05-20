@@ -182,3 +182,43 @@ func streamSseResponse(r io.ReadCloser) chan *SseEvent {
 	}()
 	return ch
 }
+
+// FeedbackIssueType represents the category of feedback issue
+type FeedbackIssueType string
+
+const (
+	FeedbackIssueTypeInstructions FeedbackIssueType = "instructions" // Did not follow instructions
+	FeedbackIssueTypeFactual      FeedbackIssueType = "factual"      // Not factually correct
+	FeedbackIssueTypeIncomplete   FeedbackIssueType = "incomplete"   // Incomplete response
+	FeedbackIssueTypeTool         FeedbackIssueType = "tool"         // Should have run the tool
+)
+
+// FeedbackSubmission defines the request payload for submitting feedback
+type FeedbackSubmission struct {
+	// User ID
+	UserID string `json:"userID"`
+
+	// Whether the feedback is positive
+	IsPositive bool `json:"is_positive"`
+
+	// The feedback text provided by the user
+	FeedbackText string `json:"feedback_text"`
+
+	// The type of issue for negative feedback
+	IssueType string `json:"issue_type,omitempty"`
+
+	// Content of the message that received feedback
+	MessageContent string `json:"message_content"`
+
+	// Source of the message (agent name)
+	MessageSource string `json:"message_source"`
+
+	// Contents of messages preceding the feedback
+	PrecedingMessagesContents []string `json:"preceding_messages,omitempty"`
+
+	// Session ID
+	SessionID int `json:"session_id"`
+
+	// Timestamp of the feedback submission
+	CreatedAt string `json:"created_at,omitempty"`
+}

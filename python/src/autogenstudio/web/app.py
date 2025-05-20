@@ -15,7 +15,20 @@ from .auth.middleware import AuthMiddleware
 from .config import settings
 from .deps import cleanup_managers, init_auth_manager, init_managers, register_auth_dependencies
 from .initialization import AppInitializer
-from .routes import gallery, invoke, models, runs, sessions, settingsroute, teams, tool_servers, tools, validation, ws, feedback
+from .routes import (
+    feedback,
+    gallery,
+    invoke,
+    models,
+    runs,
+    sessions,
+    settingsroute,
+    teams,
+    tool_servers,
+    tools,
+    validation,
+    ws,
+)
 
 # Initialize application
 app_file_path = os.path.dirname(os.path.abspath(__file__))
@@ -25,7 +38,6 @@ initializer = AppInitializer(settings, app_file_path)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
-    Lifecycle manager for the FastAPI application.
     Handles initialization and cleanup of application resources.
     """
 
@@ -102,14 +114,6 @@ api.include_router(
     teams.router,
     prefix="/teams",
     tags=["teams"],
-    responses={404: {"description": "Not found"}},
-)
-
-
-api.include_router(
-    ws.router,
-    prefix="/ws",
-    tags=["websocket"],
     responses={404: {"description": "Not found"}},
 )
 

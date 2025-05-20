@@ -73,25 +73,20 @@ class Feedback(BaseDBModel, table=True):
     """
     __table_args__ = {"sqlite_autoincrement": True}
 
-    # Basic feedback information
     is_positive: bool = Field(default=False, description="Whether the feedback is positive or negative")
     feedback_text: str = Field(description="The feedback text provided by the user")
     issue_type: Optional[str] = Field(default=None, description="Category of issue for negative feedback")
 
-    # Message information
     message_content: str = Field(description="Content of the message that received feedback")
     message_source: str = Field(description="Source of the message (agent name)")
 
-    # Contextual information
     preceding_messages: Optional[List[str]] = Field(default=[], sa_column=Column(JSON),
                                                   description="Contents of messages preceding the feedback")
 
-    # Session information
     session_id: Optional[int] = Field(
         default=None, sa_column=Column(Integer, ForeignKey("session.id", ondelete="SET NULL"))
     )
 
-    # Additional metadata (timestamp, session_info, client_info)
     extra_metadata: Optional[Dict[str, Any]] = Field(default={}, sa_column=Column(JSON),
                                               description="Additional metadata about the feedback")
 
