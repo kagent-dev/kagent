@@ -7,7 +7,6 @@ import { EmptyState } from "./EmptyState";
 import { deleteSession, getSessionMessages } from "@/app/actions/sessions";
 import { Button } from "@/components/ui/button";
 import { PlusCircle } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 interface GroupedChatsProps {

@@ -37,6 +37,7 @@ export default function MemoriesPage() {
   const [memoryNameToDelete, setMemoryNameToDelete] = useState<string | null>(null)
 
   // Helper function to display not set for null/undefined/empty values
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const formatValue = (value: any): string => {
     return value === null || value === undefined || value === '' ? 'not set' : String(value);
   }
