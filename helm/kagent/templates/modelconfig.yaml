@@ -1,6 +1,5 @@
 {{- $dot := . }}
-{{- $providerName := $dot.Values.providers.default -}}
-{{- $model := index $dot.Values.providers  $providerName }}
+{{- $model := index $dot.Values.providers $dot.Values.providers.default }}
 ---
 apiVersion: kagent.dev/v1alpha1
 kind: ModelConfig
@@ -19,10 +18,10 @@ spec:
   {{- if .apiKeySecretKey }}
   apiKeySecretKey: {{.apiKeySecretKey}}
   {{- end }}
-  {{- if .defaultHeaders}}
+  {{- if $model.defaultHeaders }}
   defaultHeaders:
   {{- toYaml .defaultHeaders | nindent 4 }}
   {{- end}}}
-  {{ $providerName }}:
+  {{ $dot.Values.providers.default }}:
   {{- toYaml .config | nindent 4 }}
   {{- end}}
