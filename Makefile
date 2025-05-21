@@ -260,7 +260,8 @@ helm-publish: helm-version
 .PHONY: kagent-cli-install
 kagent-cli-install: build-cli-local kind-load-docker-images helm-version
 kagent-cli-install:
-	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local
+	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local install
+	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
