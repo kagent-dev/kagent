@@ -18,10 +18,10 @@ spec:
   {{- if $model.apiKeySecretKey }}
   apiKeySecretKey: {{.apiKeySecretKey}}
   {{- end }}
-  {{ - if $model.defaultHeaders }}
+  {{- if $model.defaultHeaders }}
   defaultHeaders:
-  {{ - toYaml .defaultHeaders | nindent 4 }}
-  {{ - end }}
+  {{- toYaml .defaultHeaders | nindent 4 }}
+  {{- end }}
   {{ $dot.Values.providers.default }}:
   {{- toYaml $model.config | nindent 4 }}
   {{- end}}
