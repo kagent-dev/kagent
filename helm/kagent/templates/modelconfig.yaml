@@ -23,7 +23,7 @@ spec:
   apiKeySecretKey: {{.apiKeySecretKey}}
   {{- end }}
   {{- if hasKey $model "defaultHeaders" }}
-    defaultHeaders:
+  defaultHeaders:
     {{- toYaml $model.defaultHeaders | nindent 4 }}
   {{- end }}
   {{ $dot.Values.providers.default }}:
