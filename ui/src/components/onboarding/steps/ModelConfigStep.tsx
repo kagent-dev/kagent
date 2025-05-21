@@ -27,6 +27,7 @@ const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as cons
 const modelConfigSchema = z.object({
     providerName: z.enum(modelProviders, { required_error: "Please select a provider." }),
     configName: z.string().min(1, "Configuration name is required."),
+    configNamespace: z.string().optional(),  //.min(1, "Configuration namespace is required."),
     modelName: z.string().min(1, "Model name is required."),
     apiKey: z.string().optional(),
     azureEndpoint: z.string().optional(),
@@ -46,7 +47,7 @@ const modelConfigSchema = z.object({
 type ModelConfigFormData = z.infer<typeof modelConfigSchema>;
 
 const selectModelSchema = z.object({
-    selectedModelName: z.string().min(1, "Please select a model configuration.")
+    selectedModelName: z.string().min(1, "Please select a model configuration."),
 });
 type SelectModelFormData = z.infer<typeof selectModelSchema>;
 
@@ -54,7 +55,7 @@ interface ModelConfigStepProps {
     existingModels: ModelConfig[] | null;
     loadingExistingModels: boolean;
     errorExistingModels: string | null;
-    onNext: (modelConfigName: string, modelName: string) => void;
+    onNext: (modelConfigName: string, modelConfigNamespace: string, modelName: string) => void;
     onBack: () => void;
 }
 
@@ -129,7 +130,7 @@ export function ModelConfigStep({
     const formStep1Create = useForm<ModelConfigFormData>({
         resolver: zodResolver(modelConfigSchema),
         defaultValues: {
-            providerName: undefined, configName: "", modelName: "",
+            providerName: undefined, configName: "", configNamespace: "", modelName: "",
             apiKey: "", azureEndpoint: "", azureApiVersion: "", modelTag: "",
             ollamaBaseUrl: "",
         },
@@ -177,7 +178,7 @@ export function ModelConfigStep({
         const providerInfo = PROVIDERS_INFO[values.providerName];
         const payload: CreateModelConfigPayload = {
             name: values.configName,
-            namespace: values.configName,
+            namespace: values.configNamespace || '',
             provider: { name: providerInfo.name, type: providerInfo.type },
             model: values.modelName,
             apiKey: values.apiKey || "",
@@ -201,8 +202,9 @@ export function ModelConfigStep({
         try {
             const result = await createModelConfig(payload);
             if (result.success) {
-                toast.success(`Model configuration '${values.configName}' created successfully!`);
-                onNext(values.configName, values.modelName); // Pass data to parent
+                const k8sResponse = result.data as any;
+                toast.success(`Model configuration '${k8sResponse.metadata?.namespace}/${values.configName}' created successfully!`);
+                onNext(values.configName, k8sResponse.metadata?.namespace || '', values.modelName); // Pass data to parent
             } else {
                 throw new Error(result.error || 'Failed to create model configuration.');
             }
@@ -215,9 +217,12 @@ export function ModelConfigStep({
     }
 
     function onSubmitStep1Select(values: SelectModelFormData) {
-        const selectedModel = existingModels?.find(m => m.name === values.selectedModelName);
+        const [namespace, name] = values.selectedModelName.split('/');
+        const selectedModel = existingModels?.find(m =>
+            m.name === name && m.namespace === namespace
+        );
         if (selectedModel) {
-            onNext(selectedModel.name, selectedModel.model); // Pass data to parent
+            onNext(selectedModel.name, selectedModel.namespace, selectedModel.model); // Pass data to parent
         } else {
             toast.error("Selected model configuration not found. Please try again.");
         }
@@ -279,8 +284,8 @@ export function ModelConfigStep({
                                             </FormControl>
                                             <SelectContent>
                                                 {existingModels?.map(model => (
-                                                    <SelectItem key={model.name} value={model.name}>
-                                                        {model.name} ({model.providerName}: {model.model})
+                                                    <SelectItem key={`${model.namespace}/${model.name}`} value={`${model.namespace}/${model.name}`}>
+                                                        {model.namespace}/{model.name} ({model.providerName}: {model.model})
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -300,6 +305,46 @@ export function ModelConfigStep({
                 {configMode === 'create' && (
                     <Form {...formStep1Create}>
                         <form onSubmit={formStep1Create.handleSubmit(onSubmitStep1Create)} className="space-y-6">
+                            <FormField
+                                control={formStep1Create.control}
+                                name="configName"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Configuration Name</FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                placeholder="e.g., My OpenAI Setup"
+                                                {...field}
+                                                onChange={e => {
+                                                    field.onChange(e);
+                                                    if (e.target.value !== lastAutoGenName) { }
+                                                }}
+                                            />
+                                        </FormControl>
+                                        <FormDescription>We picked a unique name, but feel free to change it!</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            <FormField
+                                control={formStep1Create.control}
+                                name="configNamespace"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Configuration Namespace</FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                placeholder="Leave blank for the KAgent`s default namespace"
+                                                {...field}
+                                            />
+                                        </FormControl>
+                                        <FormDescription>The namespace for this configuration</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
                             {/* Provider & Model Combobox */}
                             <FormField
                                 control={formStep1Create.control}
@@ -345,7 +390,8 @@ export function ModelConfigStep({
                                             </p>
                                         )}
                                     </FormItem>
-                                )} />
+                                )}
+                            />
 
                             {/* Add the Ollama Base URL field after the Model Tag field for Ollama */}
                             {isOllama && (
@@ -412,28 +458,6 @@ export function ModelConfigStep({
                                     />
                                 </>
                             )}
-
-                            <FormField
-                                control={formStep1Create.control}
-                                name="configName"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Configuration Name</FormLabel>
-                                        <FormControl>
-                                            <Input
-                                                placeholder="e.g., My OpenAI Setup"
-                                                {...field}
-                                                onChange={e => {
-                                                    field.onChange(e);
-                                                    if (e.target.value !== lastAutoGenName) { }
-                                                }}
-                                            />
-                                        </FormControl>
-                                        <FormDescription>We picked a unique name, but feel free to change it!</FormDescription>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
 
                             {isAzure && (
                                 <>

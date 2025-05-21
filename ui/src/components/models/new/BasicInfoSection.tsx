@@ -91,7 +91,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             value={namespace}
             onChange={(e) => onNamespaceChange(e.target.value)}
             className={errors.namespace ? "border-destructive" : ""}
-            placeholder="The namespace to create MemoryConfig in"
+            placeholder="Leave blank for the KAgent`s default namespace"
             disabled={isSubmitting || isLoading || isEditMode}
           />
           {errors.namespace && <p className="text-destructive text-sm mt-1">{errors.namespace}</p>}

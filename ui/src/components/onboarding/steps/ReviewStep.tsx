@@ -12,9 +12,11 @@ import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
 
 interface OnboardingDataForReview {
     agentName?: string;
+    agentNamespace?: string;
     agentDescription?: string;
     agentInstructions?: string;
     modelConfigName?: string;
+    modelConfigNamespace?: string;
     modelName?: string;
     selectedTools?: Tool[];
 }
@@ -40,6 +42,10 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                         <dt className="text-muted-foreground font-medium col-span-1">Name:</dt>
                         <dd className="col-span-2">{onboardingData.agentName || "(Not set)"}</dd>
 
+                        <dt className="text-muted-foreground font-medium col-span-1">Namespace:</dt>
+                        <dd className={`col-span-2 ${!onboardingData.agentNamespace ? "text-amber-500 font-medium" : ""}`}>
+                            {onboardingData.agentNamespace || "(Not set - Defaults to the controller namespace)"}
+                        </dd>
                         <dt className="text-muted-foreground font-medium col-span-1">Description:</dt>
                         <dd className="col-span-2">{onboardingData.agentDescription || <span className="italic text-muted-foreground">(None provided)</span>}</dd>
                     </div>
@@ -52,6 +58,9 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                     <div className="grid grid-cols-3 gap-x-4 gap-y-2 text-sm">
                         <dt className="text-muted-foreground font-medium col-span-1">Config Name:</dt>
                         <dd className="col-span-2">{onboardingData.modelConfigName || "(Not set)"}</dd>
+
+                        <dt className="text-muted-foreground font-medium col-span-1">Config Namespace:</dt>
+                        <dd className="col-span-2">{onboardingData.modelConfigNamespace || "(Not set)"}</dd>
 
                         <dt className="text-muted-foreground font-medium col-span-1">Model:</dt>
                         <dd className="col-span-2">{onboardingData.modelName || "(Not set)"}</dd> {/* Display model name */}
