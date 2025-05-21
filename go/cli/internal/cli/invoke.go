@@ -62,7 +62,6 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 					return
 				}
 				// If the session is not found, create it
-				fmt.Printf("Creating session, agent: %s, user: %s\n", cfg.Agent, cfg.Config.UserID)
 				team, err := client.GetTeam(cfg.Agent, cfg.Config.UserID)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error getting team: %v\n", err)

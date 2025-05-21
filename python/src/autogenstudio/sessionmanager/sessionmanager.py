@@ -200,9 +200,9 @@ class SessionManager:
                 config=self._convert_images_in_dict(message.model_dump()),
                 user_id=user_id,
             )
-            response = self.db_manager.upsert(db_message)
+            response = self.db_manager.upsert(db_message, return_json=False)
             if response.status and response.data:
-                return response.data[0].id
+                return response.data.id
             return None
 
     async def _update_run(

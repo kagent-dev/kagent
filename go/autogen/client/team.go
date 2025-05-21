@@ -32,7 +32,7 @@ func (c *Client) GetTeam(teamLabel string, userID string) (*Team, error) {
 		}
 	}
 
-	return nil, NotFoundError
+	return nil, nil
 }
 
 func (c *Client) DeleteTeam(teamID int, userID string) error {
