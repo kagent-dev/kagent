@@ -24,7 +24,7 @@ require (
 	k8s.io/apimachinery v0.32.3
 	k8s.io/client-go v0.32.3
 	sigs.k8s.io/controller-runtime v0.20.3
-	trpc.group/trpc-go/trpc-a2a-go v0.0.2
+	trpc.group/trpc-go/trpc-a2a-go v0.0.3
 )
 
 replace github.com/google/cel-go => github.com/google/cel-go v0.22.0

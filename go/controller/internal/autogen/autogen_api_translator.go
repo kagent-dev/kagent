@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,8 +20,6 @@ import (
 )
 
 const (
-	GlobalUserID = "admin@kagent.dev"
-
 	// suffix applied to all system prompts:
 	defaultSystemMessageSuffix = `
 # Instructions
@@ -75,7 +74,7 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 	}
 
 	return &autogen_client.ToolServer{
-		UserID: GlobalUserID,
+		UserID: common.GetGlobalUserID(),
 		Component: api.Component{
 			Provider:      provider,
 			ComponentType: "tool_server",
@@ -377,7 +376,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	return &autogen_client.Team{
 		Component: teamConfig,
 		BaseObject: autogen_client.BaseObject{
-			UserID: GlobalUserID, // always use global id
+			UserID: common.GetGlobalUserID(), // always use global id
 		},
 	}, nil
 }
