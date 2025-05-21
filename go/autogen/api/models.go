@@ -123,7 +123,6 @@ type OllamaClientConfiguration struct {
 	ModelCapabilities interface{}       `json:"model_capabilities,omitempty"`
 	ModelInfo         *ModelInfo        `json:"model_info"`
 	Options           map[string]string `json:"options"`
-	BaseClientConfig
 	OllamaCreateArguments
 }
 
