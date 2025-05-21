@@ -51,7 +51,6 @@ export function MemorySelectionSection({
 
   return (
     <div className="space-y-2">
-      <label className="text-sm mb-2 block">Select Memories</label>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -120,9 +119,6 @@ export function MemorySelectionSection({
         </PopoverContent>
       </Popover>
       {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
-       <p className="text-xs text-muted-foreground">
-        Select memories for the agent to use.
-      </p>
     </div>
   );
 } 
