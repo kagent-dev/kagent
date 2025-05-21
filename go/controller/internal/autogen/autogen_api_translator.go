@@ -20,20 +20,6 @@ import (
 
 const (
 	GlobalUserID = "admin@kagent.dev"
-
-	// suffix applied to all system prompts:
-	defaultSystemMessageSuffix = `
-# Instructions
-    - If user question is unclear, ask for clarification before running any tools
-    - Always be helpful and friendly
-    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
-    - Do not delete the original Deployment until the user explicitly confirms that the Rollout is ready to take over production traffic.
-
-
-# Response format:
-    - ALWAYS format your response as Markdown
-    - Your response will include a summary of actions you took and an explanation of the result
-    - If you created any artifacts such as files or resources, you will include those in your response as well`
 )
 
 var (
@@ -87,12 +73,24 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 	}, nil
 }
 
+var aliasMap = map[string]string{
+	"npx": "bunx",
+	"npm": "bun",
+}
+
+func commandAlias(command string) string {
+	if alias, ok := aliasMap[command]; ok {
+		return alias
+	}
+	return command
+}
+
 func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.ToolServerConfig, error) {
 	switch {
 	case config.Stdio != nil:
 		return "kagent.tool_servers.StdioMcpToolServer", &api.ToolServerConfig{
 			StdioMcpServerConfig: &api.StdioMcpServerConfig{
-				Command: config.Stdio.Command,
+				Command: commandAlias(config.Stdio.Command),
 				Args:    config.Stdio.Args,
 				Env:     config.Stdio.Env,
 			},
@@ -501,10 +499,7 @@ func (a *apiTranslator) translateAssistantAgent(
 		}
 	}
 
-	sysMsg := agent.Spec.SystemMessage + "\n" + defaultSystemMessageSuffix
-	if agent.Spec.SystemMessage == "" {
-		sysMsg = ""
-	}
+	sysMsg := agent.Spec.SystemMessage
 
 	cfg := &api.AssistantAgentConfig{
 		Name:         convertToPythonIdentifier(agent.Name),
