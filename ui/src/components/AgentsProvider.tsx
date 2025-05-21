@@ -157,7 +157,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
 
       const teams = teamsResult.data;
-
+      
       // Find the team/agent with the matching ID
       const agent = teams.find((team) => String(team.id) === id);
 

@@ -4,7 +4,7 @@ export const isAgentTool = (tool: unknown): tool is { type: "Agent"; agent: Agen
   if (!tool || typeof tool !== "object") return false;
 
   const possibleTool = tool as Partial<Tool>;
-  return (possibleTool.type === "Agent" && !!possibleTool.agent && typeof possibleTool.agent === "object" && typeof possibleTool.agent.ref === "string");
+  return possibleTool.type === "Agent" && !!possibleTool.agent && typeof possibleTool.agent === "object" && typeof possibleTool.agent.ref === "string";
 };
 
 export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer: McpServerTool } => {
@@ -26,7 +26,7 @@ export const isBuiltinTool = (tool: unknown): tool is { type: "Builtin"; builtin
 
   const possibleTool = tool as Partial<Tool>;
 
-  return (possibleTool.type === "Builtin" && !!possibleTool.builtin && typeof possibleTool.builtin === "object" && typeof possibleTool.builtin.name === "string");
+  return possibleTool.type === "Builtin" && !!possibleTool.builtin && typeof possibleTool.builtin === "object" && typeof possibleTool.builtin.name === "string";
 };
 
 export const getToolDisplayName = (tool?: Tool | Component<ToolConfig>): string => {
@@ -62,7 +62,7 @@ export const getToolDescription = (tool?: Tool | Component<ToolConfig>): string 
   if (!tool) return "No description";
 
   if (typeof tool === "object" && "provider" in tool) {
-    const component = tool as Component<ToolConfig>;
+    const component = tool as Component<ToolConfig>; 
     if (isMcpProvider(component.provider)) {
       const desc = (component.config as MCPToolConfig)?.tool?.description;
       return typeof desc === 'string' && desc ? desc : "No description";
@@ -74,15 +74,15 @@ export const getToolDescription = (tool?: Tool | Component<ToolConfig>): string 
       }
       // Fallback if config.description is missing
       if (typeof component.description === 'string' && component.description) {
-        // Use top-level description as fallback for Components
-        return component.description;
+          // Use top-level description as fallback for Components
+          return component.description;
       }
       return "No description";
     }
   }
 
   if (isBuiltinTool(tool) && tool.builtin) {
-    return tool.builtin.description || "No description";
+    return tool.builtin.description || "No description"; 
   } else if (isMcpTool(tool)) {
     return "MCP Server Tool";
   } else if (isAgentTool(tool) && tool.agent) {
@@ -135,7 +135,7 @@ export const getToolProvider = (tool?: Tool | Component<ToolConfig>): string => 
   if (typeof tool === "object" && "provider" in tool) {
     return tool.provider;
   }
-
+  
   // Handle AgentTool types
   if (isBuiltinTool(tool) && tool.builtin) {
     return tool.builtin.name;
@@ -161,17 +161,16 @@ export const componentToAgentTool = (component: Component<ToolConfig>): Tool => 
       type: "McpServer",
       mcpServer: {
         toolServer: component.label || mcpConfig.tool.name || "unknown",
-        toolNames: [mcpConfig.tool.name || "unknown"],
-      },
+        toolNames: [mcpConfig.tool.name || "unknown"]
+      }
     };
   } else {
     // Built-in component
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const configDesc = (component.config as any)?.description;
-    const descriptionToStore =
-      typeof configDesc === "string" && configDesc
-        ? configDesc
-        : (typeof component.description === "string" && component.description ? component.description : undefined);
+    const descriptionToStore = (typeof configDesc === 'string' && configDesc)
+        ? configDesc 
+        : (typeof component.description === 'string' && component.description ? component.description : undefined);
 
     return {
       type: "Builtin",
@@ -179,7 +178,7 @@ export const componentToAgentTool = (component: Component<ToolConfig>): Tool => 
         name: component.provider,
         label: component.label || undefined,
         description: descriptionToStore,
-        config: component.config || undefined,
+        config: component.config || undefined
       }
     };
   }

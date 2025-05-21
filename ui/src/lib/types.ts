@@ -68,7 +68,7 @@ export interface AnthropicConfigPayload {
 }
 
 export interface AzureOpenAIConfigPayload {
-    azureEndpoint: string;
+    azureEndpoint: string
     apiVersion: string;
     azureDeployment?: string;
     azureAdToken?: string;

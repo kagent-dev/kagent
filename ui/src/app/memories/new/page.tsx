@@ -127,7 +127,7 @@ export default function NewMemoryPage() {
         const response = await getSupportedMemoryProviders()
         if (response.success && response.data) {
           setProviders(response.data)
-
+          
           // If in edit mode, load the memory details after providers are loaded
           if (editMode && memoryNameToEdit && memoryNamespaceToEdit) {
             await loadMemoryForEditing(memoryNamespaceToEdit, memoryNameToEdit, response.data)
@@ -158,7 +158,7 @@ export default function NewMemoryPage() {
         form.setValue('providerType', provider.type)
         // We don't need to set API key in edit mode as the field will be hidden
         form.setValue('apiKey', '')
-
+        
         // Set provider params
         if (memory.memoryParams) {
           Object.entries(memory.memoryParams).forEach(([key, value]) => {
@@ -180,9 +180,9 @@ export default function NewMemoryPage() {
     toast.info(editMode ? 'Updating memory...' : 'Creating memory...')
 
     if (!selectedProvider) {
-      toast.error('Selected provider not found. Please refresh.')
-      setIsLoading(false)
-      return
+        toast.error('Selected provider not found. Please refresh.')
+        setIsLoading(false)
+        return
     }
 
     // Base data for the request
@@ -222,13 +222,13 @@ export default function NewMemoryPage() {
       }
 
       // Handle optional scoreThreshold (expecting string in payload type)
-      if (params.scoreThreshold !== undefined && params.scoreThreshold !== '') {
-        const thresholdNum = Number(params.scoreThreshold);
-        if (!isNaN(thresholdNum)) {
-          // Assuming the type PineconeConfigPayload expects a string here, convert back
-          pineconePayload.scoreThreshold = thresholdNum.toString();
-        }
-      }
+       if (params.scoreThreshold !== undefined && params.scoreThreshold !== '') {
+         const thresholdNum = Number(params.scoreThreshold);
+         if (!isNaN(thresholdNum)) {
+            // Assuming the type PineconeConfigPayload expects a string here, convert back
+           pineconePayload.scoreThreshold = thresholdNum.toString();
+         }
+       }
 
       memoryData.pinecone = pineconePayload;
     }
@@ -250,11 +250,11 @@ export default function NewMemoryPage() {
   }
 
   const handleProviderChange = (value: string) => {
-    const provider = providers.find(p => p.type === value)
-    setSelectedProvider(provider || null)
-    form.setValue('providerType', value)
-    form.setValue('providerParams', {});
-    form.trigger();
+     const provider = providers.find(p => p.type === value)
+     setSelectedProvider(provider || null)
+     form.setValue('providerType', value)
+     form.setValue('providerParams', {});
+     form.trigger();
   }
 
   const getAllParams = () => {
@@ -282,8 +282,8 @@ export default function NewMemoryPage() {
                       <Input placeholder="e.g., my-pinecone-memory" {...field} disabled={editMode} />
                     </FormControl>
                     <FormDescription>
-                      {editMode
-                        ? "Memory name cannot be changed when editing."
+                      {editMode 
+                        ? "Memory name cannot be changed when editing." 
                         : "A unique name for this memory configuration."}
                     </FormDescription>
                     <FormMessage />
@@ -319,7 +319,7 @@ export default function NewMemoryPage() {
                     {editMode ? (
                       <>
                         <FormControl>
-                          <Input
+                          <Input 
                             value={selectedProvider?.name ? `${selectedProvider.name} (${selectedProvider.type})` : 'Loading...'}
                             disabled={true}
                           />
@@ -399,12 +399,12 @@ export default function NewMemoryPage() {
                         </FormLabel>
                         <FormControl>
                           <Input
-                            type={inputType}
-                            placeholder={`Enter ${paramLabels[paramName] || paramName}`}
-                            {...field}
-                            value={field.value ?? ''}
-                            {...inputProps}
-                          />
+                             type={inputType}
+                             placeholder={`Enter ${paramLabels[paramName] || paramName}`}
+                             {...field}
+                             value={field.value ?? ''}
+                             {...inputProps}
+                           />
                         </FormControl>
                         <FormDescription>
                           {paramDescriptions[paramName] || `Configuration parameter for ${selectedProvider.name}`}

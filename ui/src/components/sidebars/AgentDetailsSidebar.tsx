@@ -123,7 +123,7 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
                   const foundToolDefinition = allToolDefinitions.find(def => def.provider === toolProvider) || null;
 
                   if (foundToolDefinition) {
-                    description = foundToolDefinition.description || "Description not found";
+                      description = foundToolDefinition.description || "Description not found";
                   }
 
                 }

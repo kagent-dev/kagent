@@ -46,6 +46,7 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                         <dd className={`col-span-2 ${!onboardingData.agentNamespace ? "text-amber-500 font-medium" : ""}`}>
                             {onboardingData.agentNamespace || "(Not set - Defaults to the controller namespace)"}
                         </dd>
+
                         <dt className="text-muted-foreground font-medium col-span-1">Description:</dt>
                         <dd className="col-span-2">{onboardingData.agentDescription || <span className="italic text-muted-foreground">(None provided)</span>}</dd>
                     </div>

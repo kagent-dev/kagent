@@ -86,10 +86,14 @@ export async function createModelConfig(config: CreateModelConfigPayload): Promi
  * @param config The updated configuration data
  * @returns A promise with the updated model
  */
-export async function updateModelConfig(namespace: string, configName: string, config: UpdateModelConfigPayload): Promise<BaseResponse<ModelConfig>> {
+export async function updateModelConfig(
+  namespace: string,
+  configName: string,
+  config: UpdateModelConfigPayload
+): Promise<BaseResponse<ModelConfig>> {
   try {
     const response = await fetchApi<ModelConfig>(`/modelconfigs/${namespace}/${configName}`, {
-      method: "PUT",
+      method: "PUT", // Or PATCH depending on backend implementation
       body: JSON.stringify(config),
       headers: {
         "Content-Type": "application/json",
@@ -99,7 +103,7 @@ export async function updateModelConfig(namespace: string, configName: string, c
     if (!response) {
       throw new Error("Failed to update model config");
     }
-
+    
     revalidatePath("/models"); // Revalidate list page
     revalidatePath(`/models/new?edit=true&namespace=${namespace}&name=${configName}`); // Revalidate edit page if needed
 
@@ -126,7 +130,7 @@ export async function deleteModelConfig(namespace: string, configName: string): 
         "Content-Type": "application/json",
       },
     });
-
+    
     revalidatePath("/models");
     return { success: true };
   } catch (error) {

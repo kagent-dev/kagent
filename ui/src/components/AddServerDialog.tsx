@@ -473,10 +473,10 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <Input
-                id="server-name"
-                placeholder="e.g., my-tool-server"
-                value={serverName}
+              <Input 
+                id="server-name" 
+                placeholder="e.g., my-tool-server" 
+                value={serverName} 
                 onChange={handleServerNameChange}
                 className={!isResourceNameValid(serverName) && serverName ? "border-red-300" : ""}
               />

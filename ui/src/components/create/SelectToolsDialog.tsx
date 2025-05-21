@@ -195,11 +195,11 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         return aFullName.localeCompare(bFullName);
       });
     }
-
+    
     // Sort categories alphabetically
     return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
            .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
-
+           
   }, [filteredAvailableItems]);
 
   const isItemSelected = (item: Component<ToolConfig> | AgentResponse): boolean => {

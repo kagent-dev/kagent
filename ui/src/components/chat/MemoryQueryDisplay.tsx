@@ -16,6 +16,7 @@ const MemoryQueryDisplay = ({ currentMessage }: MemoryQueryDisplayProps) => {
       <div onClick={toggleExpand} className="cursor-pointer flex items-center hover:underline">
         <div className="text-xs font-bold">Memory retrieval</div>
         <ChevronDown className={`ml-2 h-4 w-4 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+        
       </div>
 
       {isExpanded && (

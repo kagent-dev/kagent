@@ -7,13 +7,13 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getModelConfig, createModelConfig, updateModelConfig } from "@/app/actions/modelConfigs";
 import {
-  CreateModelConfigPayload,
-  UpdateModelConfigPayload,
-  Provider,
-  OpenAIConfigPayload,
-  AzureOpenAIConfigPayload,
-  AnthropicConfigPayload,
-  OllamaConfigPayload
+    CreateModelConfigPayload,
+    UpdateModelConfigPayload,
+    Provider,
+    OpenAIConfigPayload,
+    AzureOpenAIConfigPayload,
+    AnthropicConfigPayload,
+    OllamaConfigPayload
 } from "@/lib/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
@@ -228,8 +228,8 @@ function ModelPageContent() {
               return { id: `fetched-opt-${index}`, key, value: displayValue };
             });
 
-          setRequiredParams(initialRequired);
-          setOptionalParams(initialOptional);
+            setRequiredParams(initialRequired);
+            setOptionalParams(initialOptional);
 
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : "Failed to fetch model";
@@ -381,7 +381,7 @@ function ModelPageContent() {
 
   const handleSubmit = async () => {
     if (!selectedCombinedModel) {
-      setErrors(prev => ({ ...prev, selectedCombinedModel: "Provider and Model selection is required" }));
+      setErrors(prev => ({...prev, selectedCombinedModel: "Provider and Model selection is required"}));
       toast.error("Please select a Provider and Model.");
       return;
     }

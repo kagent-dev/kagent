@@ -40,9 +40,9 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
     });
     const description = foundAgent?.agent.spec.description;
 
-    let formattedRef = agentRef;
+    let agentFullName = agentRef;
     if (foundAgent && !agentRef.includes("/")) {
-      formattedRef = `${foundAgent.agent.metadata.namespace}/${foundAgent.agent.metadata.name}`;
+      agentFullName = `${foundAgent.agent.metadata.namespace}/${foundAgent.agent.metadata.name}`;
     }
 
     return {
@@ -50,9 +50,9 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
       type: "Agent",
       agent: {
         ...typedTool.agent,
-        ref: formattedRef,
-        description: description,
-      },
+        ref: agentFullName,
+        description: description
+      }
     } as Tool;
   }
 
@@ -91,7 +91,7 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
  */
 function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[]): Tool[] {
   if (data.agent?.spec?.tools) {
-    return data.agent.spec.tools.map((tool) => convertToolRepresentation(tool, allAgents));
+    return data.agent.spec.tools.map(tool => convertToolRepresentation(tool, allAgents));
   }
   return [];
 }
@@ -184,7 +184,7 @@ export async function getTeam(teamLabel: string | number): Promise<BaseResponse<
     // Fetch all teams to get descriptions for agent tools
     // We use fetchApi directly to avoid circular dependency/logic issues with calling getTeams() here
     const allTeamsData = await fetchApi<AgentResponse[]>(`/teams`);
-
+    
     // Extract and augment tools using the list of all teams
     const tools = extractToolsFromResponse(teamData, allTeamsData);
 
@@ -292,12 +292,12 @@ export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
 
       return {
         ...team,
-        agent: {
+        agent: { 
           ...team.agent,
-          spec: {
+          spec: { 
             ...team.agent.spec,
-            tools: augmentedTools,
-          },
+            tools: augmentedTools
+          }
         },
       };
     });

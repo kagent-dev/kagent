@@ -182,6 +182,7 @@ export default function ModelsPage() {
                     </div>
                 )}
 
+
                 <Dialog open={modelToDelete !== null} onOpenChange={(open) => !open && setModelToDelete(null)}>
                     <DialogContent>
                         <DialogHeader>
@@ -209,4 +210,4 @@ export default function ModelsPage() {
             </div>
         </div>
     );
-}
+} 

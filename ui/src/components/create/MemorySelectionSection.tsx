@@ -47,7 +47,7 @@ export function MemorySelectionSection({
   };
 
   const handleRemove = (memoryFullName: string) => {
-    const newSelection = selectedMemories.filter((id) => id !== memoryFullName);
+    const newSelection = selectedMemories.filter((name) => name !== memoryFullName);
     onSelectionChange(newSelection);
   };
 
@@ -93,7 +93,7 @@ export function MemorySelectionSection({
           <Command>
             <CommandInput placeholder="Search memories..." disabled={disabled} />
             <CommandList>
-              <CommandEmpty>No memory found.</CommandEmpty>
+               <CommandEmpty>No memory found.</CommandEmpty>
               <CommandGroup>
                 {availableMemories.map((memory) => {
                   const memoryFullName = getMemoryFullName(memory)
@@ -126,4 +126,4 @@ export function MemorySelectionSection({
       {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
     </div>
   );
-}
+} 

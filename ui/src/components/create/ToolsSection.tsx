@@ -89,7 +89,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
         if (getToolIdentifier(tool) === parentToolIdentifier && isMcpTool(tool) && tool.mcpServer) {
           const newToolNames = tool.mcpServer.toolNames.filter(name => name !== mcpToolNameToRemove);
           if (newToolNames.length === 0) {
-            return null;
+            return null; 
           }
           return {
             ...tool,
@@ -133,7 +133,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
           },
         };
       }
-
+      
       return prevTool;
     });
   };

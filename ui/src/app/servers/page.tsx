@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
-import { ToolServer, ToolServerWithTools } from "@/types/datamodel";
+import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
@@ -164,7 +164,7 @@ export default function ServersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem
+                          <DropdownMenuItem 
                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
                             onSelect={(e) => {
                               e.preventDefault();
@@ -230,9 +230,9 @@ export default function ServersPage() {
       )}
 
       {/* Add server dialog */}
-      <AddServerDialog
-        open={showAddServer}
-        onOpenChange={setShowAddServer}
+      <AddServerDialog 
+        open={showAddServer} 
+        onOpenChange={setShowAddServer} 
         onAddServer={handleAddServer}
       />
 
@@ -250,9 +250,7 @@ export default function ServersPage() {
             ? `Are you sure you want to delete server "${showConfirmDelete.namespace}/${showConfirmDelete.name}"? This will also delete all associated tools and cannot be undone.`
             : "Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
         }
-        onConfirm={() => showConfirmDelete !== null &&
-          handleDeleteServer(showConfirmDelete.namespace, showConfirmDelete.name)
-        }
+        onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete.namespace, showConfirmDelete.name)}
       />
     </div>
   );

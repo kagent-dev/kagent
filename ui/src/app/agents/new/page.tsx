@@ -124,7 +124,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 name: agent.spec.modelConfig,
                 namespace: finalNamespace
               });
-
+              
               // Set selected memories if they exist
               if (agent.spec.memory && Array.isArray(agent.spec.memory)) {
                 setSelectedMemories(agent.spec.memory);
@@ -312,23 +312,23 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
                 </div>
 
-                <SystemPromptSection
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
+                <SystemPromptSection 
+                  value={systemPrompt} 
+                  onChange={(e) => setSystemPrompt(e.target.value)} 
                   onBlur={() => validateField('systemPrompt', systemPrompt)}
-                  error={errors.systemPrompt}
-                  disabled={isSubmitting || isLoading}
+                  error={errors.systemPrompt} 
+                  disabled={isSubmitting || isLoading} 
                 />
 
-                <ModelSelectionSection
-                  allModels={models}
-                  selectedModel={selectedModel}
+                <ModelSelectionSection 
+                  allModels={models} 
+                  selectedModel={selectedModel} 
                   setSelectedModel={(model) => {
                     setSelectedModel(model as Pick<ModelConfig, 'name' | 'namespace' | 'model'>);
                     validateField('model', model);
-                  }}
-                  error={errors.model}
-                  isSubmitting={isSubmitting || isLoading}
+                  }} 
+                  error={errors.model} 
+                  isSubmitting={isSubmitting || isLoading} 
                   onBlur={() => validateField('model', selectedModel)}
                 />
               </CardContent>
@@ -360,11 +360,11 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ToolsSection
-                  allTools={tools}
-                  selectedTools={selectedTools}
-                  setSelectedTools={setSelectedTools}
-                  isSubmitting={isSubmitting || isLoading}
+                <ToolsSection 
+                  allTools={tools} 
+                  selectedTools={selectedTools} 
+                  setSelectedTools={setSelectedTools} 
+                  isSubmitting={isSubmitting || isLoading} 
                   onBlur={() => validateField('tools', selectedTools)}
                 />
               </CardContent>
@@ -403,10 +403,10 @@ export default function AgentPage() {
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get("edit") === "true";
   const agentId = searchParams.get("id");
-
+  
   // Create a key based on the edit mode and agent ID
   const formKey = isEditMode ? `edit-${agentId}` : 'create';
-
+  
   return (
     <Suspense fallback={<LoadingState />}>
       <AgentPageContent key={formKey} isEditMode={isEditMode} agentId={agentId} />

@@ -22,7 +22,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   const url = `${getBackendUrl()}${cleanPath}`;
   const urlWithUser = url.includes("?") ? `${url}&user_id=${userId}` : `${url}?user_id=${userId}`;
-
+  
   try {
     const response = await fetch(urlWithUser, {
       ...options,
@@ -92,7 +92,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
  * @param defaultMessage Default error message if the error doesn't have a message
  * @returns A BaseResponse object with error information
  */
-export function createErrorResponse<T>(error: unknown,defaultMessage: string): { success: false; error: string; data?: T } {
+export function createErrorResponse<T>(error: unknown, defaultMessage: string): { success: false; error: string; data?: T } {
   const errorMessage = error instanceof Error ? error.message : defaultMessage;
   console.error(defaultMessage, error);
   return { success: false, error: errorMessage };

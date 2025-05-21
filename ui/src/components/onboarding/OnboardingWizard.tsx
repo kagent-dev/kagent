@@ -70,7 +70,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       setCurrentStep(1);
   };
 
-    const handleNextFromModelConfig = (modelConfigName: string, modelConfigNamespace: string, modelName: string) => {
+  const handleNextFromModelConfig = (modelConfigName: string, modelConfigNamespace: string, modelName: string) => {
       setOnboardingData(prev => ({
           ...prev,
           modelConfigName: modelConfigName,

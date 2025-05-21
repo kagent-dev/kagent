@@ -27,7 +27,7 @@ const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as cons
 const modelConfigSchema = z.object({
     providerName: z.enum(modelProviders, { required_error: "Please select a provider." }),
     configName: z.string().min(1, "Configuration name is required."),
-    configNamespace: z.string().optional(),  //.min(1, "Configuration namespace is required."),
+    configNamespace: z.string().optional(),
     modelName: z.string().min(1, "Model name is required."),
     apiKey: z.string().optional(),
     azureEndpoint: z.string().optional(),
@@ -47,7 +47,7 @@ const modelConfigSchema = z.object({
 type ModelConfigFormData = z.infer<typeof modelConfigSchema>;
 
 const selectModelSchema = z.object({
-    selectedModelName: z.string().min(1, "Please select a model configuration."),
+    selectedModelName: z.string().min(1, "Please select a model configuration.")
 });
 type SelectModelFormData = z.infer<typeof selectModelSchema>;
 
@@ -196,7 +196,7 @@ export function ModelConfigStep({
                 payload.ollama = {
                     host: values.ollamaBaseUrl || "",
                 };
-                break;
+            break;
         }
 
         try {
@@ -204,7 +204,7 @@ export function ModelConfigStep({
             if (result.success) {
                 const k8sResponse = result.data as any;
                 toast.success(`Model configuration '${k8sResponse.metadata?.namespace}/${values.configName}' created successfully!`);
-                onNext(values.configName, k8sResponse.metadata?.namespace || '', values.modelName); // Pass data to parent
+                onNext(values.configName, k8sResponse.metadata?.namespace, values.modelName); // Pass data to parent
             } else {
                 throw new Error(result.error || 'Failed to create model configuration.');
             }
@@ -390,8 +390,7 @@ export function ModelConfigStep({
                                             </p>
                                         )}
                                     </FormItem>
-                                )}
-                            />
+                                )}/>
 
                             {/* Add the Ollama Base URL field after the Model Tag field for Ollama */}
                             {isOllama && (
@@ -465,35 +464,35 @@ export function ModelConfigStep({
                                         control={formStep1Create.control}
                                         name="azureEndpoint"
                                         render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Azure Endpoint</FormLabel>
-                                                <FormControl>
-                                                    <Input type="url" placeholder="https://your-resource.openai.azure.com/" {...field} />
-                                                </FormControl>
-                                                <FormDescription>
-                                                    Your Azure OpenAI resource endpoint URL.
-                                                    {PROVIDERS_INFO['azure-openai']?.apiKeyLink && (
-                                                        <> (<a href={PROVIDERS_INFO['azure-openai'].apiKeyLink} target="_blank" rel="noopener noreferrer" className="underline">Find it here</a>)</>
-                                                    )}
-                                                </FormDescription>
-                                                <FormMessage />
-                                            </FormItem>
+                                        <FormItem>
+                                            <FormLabel>Azure Endpoint</FormLabel>
+                                            <FormControl>
+                                            <Input type="url" placeholder="https://your-resource.openai.azure.com/" {...field} />
+                                            </FormControl>
+                                            <FormDescription>
+                                            Your Azure OpenAI resource endpoint URL.
+                                            {PROVIDERS_INFO['azure-openai']?.apiKeyLink && (
+                                                <> (<a href={PROVIDERS_INFO['azure-openai'].apiKeyLink} target="_blank" rel="noopener noreferrer" className="underline">Find it here</a>)</>
+                                            )}
+                                            </FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
                                         )}
                                     />
                                     <FormField
                                         control={formStep1Create.control}
                                         name="azureApiVersion"
                                         render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Azure API Version</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="e.g., 2024-02-01" {...field} />
-                                                </FormControl>
-                                                <FormDescription>
-                                                    The API version for your Azure OpenAI deployment (e.g., 2024-02-01).
-                                                </FormDescription>
-                                                <FormMessage />
-                                            </FormItem>
+                                        <FormItem>
+                                            <FormLabel>Azure API Version</FormLabel>
+                                            <FormControl>
+                                            <Input placeholder="e.g., 2024-02-01" {...field} />
+                                            </FormControl>
+                                            <FormDescription>
+                                            The API version for your Azure OpenAI deployment (e.g., 2024-02-01).
+                                            </FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
                                         )}
                                     />
                                 </>

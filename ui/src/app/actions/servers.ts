@@ -1,4 +1,4 @@
-"use server";
+'use server'
 import { ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse } from "@/lib/types";
