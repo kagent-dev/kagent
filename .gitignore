@@ -198,3 +198,4 @@ go/bin/
 
 ## Helm
 *.tgz
+/tmp/

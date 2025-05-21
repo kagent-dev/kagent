@@ -178,6 +178,18 @@ retag-docker-images: build
 	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
 	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
 
+.PHONY: helm-cleanup
+helm-cleanup:
+	rm -f *.tgz
+
+.PHONY: helm-test
+helm-test: helm-version
+	mkdir -p tmp
+	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=ollama																	| tee tmp/ollama.yaml 		| grep ^kind: | wc -l)
+	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key 			| tee tmp/openAI.yaml 		| grep ^kind: | wc -l)
+	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key 	| tee tmp/anthropic.yaml 	| grep ^kind: | wc -l)
+	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key		| tee tmp/azureOpenAI.yaml	| grep ^kind: | wc -l)
+
 .PHONY: helm-agents
 helm-agents:
 	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
@@ -197,7 +209,7 @@ helm-agents:
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-crd/Chart-template.yaml > helm/agents/cilium-crd/Chart.yaml
 	helm package helm/agents/cilium-crd
 
-.PHONY: helm-version
+.PHONY: helm-cleanup helm-version
 helm-version: helm-agents
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
