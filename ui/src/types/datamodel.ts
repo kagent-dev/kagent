@@ -70,6 +70,15 @@ export interface TextMessageConfig extends BaseMessageConfig {
   content: string;
 }
 
+export interface ErrorMessageConfig extends BaseMessageConfig {
+  data: {
+    task_result: TaskResult;
+    usage: string;
+    duration: number;
+  };
+  type: "error";
+}
+
 export interface MultiModalMessageConfig extends BaseMessageConfig {
   content: (string | ImageContent)[];
 }

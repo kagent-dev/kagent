@@ -167,10 +167,14 @@ class SessionManager:
                 logger.error(f"Stream error for run {run_id}: {e}")
                 traceback.print_exc()
 
+                # The messages[0].content isn't properly being serialized, so it
+                # doesn't even get sent back to the client. (That's why we're seeing undefined in the UI)
+                # I am using the stop_reason to send the error message back and specifically checking 
+                # for the message type (error).
                 error_result = TeamResult(
                     task_result=TaskResult(
                         messages=[TextMessage(source="system", content=str(e))],
-                        stop_reason="An error occurred while processing this run",
+                        stop_reason=str(e),
                     ),
                     usage="",
                     duration=0,
