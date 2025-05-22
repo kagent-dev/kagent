@@ -8,86 +8,66 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abiosoft/ishell/v2"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/controller/utils/a2autils"
-	"github.com/spf13/pflag"
 	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
-func A2ACmd(ctx context.Context) *ishell.Cmd {
-	a2aCmd := &ishell.Cmd{
-		Name: "a2a",
-		Help: "Interact with an Agent over the A2A protocol.",
+type A2ACfg struct {
+	SessionID string
+	AgentName string
+	Task      string
+	Timeout   time.Duration
+	Config    *config.Config
+}
+
+func A2ARun(ctx context.Context, cfg *A2ACfg) {
+
+	cancel := startPortForward(ctx)
+	defer cancel()
+
+	var sessionID *string
+	if cfg.SessionID != "" {
+		sessionID = &cfg.SessionID
 	}
-	a2aCmd.AddCmd(&ishell.Cmd{
-		Name: "run",
-		Help: "Run a task with an agent using the A2A protocol.",
-		LongHelp: `Run a task with an agent using the A2A protocol.
-The task is sent to the agent, and the result is printed to the console.
 
-Example:
-a2a run [--namespace <agent-namespace>] <agent-name> <task>
-`,
-		Func: func(c *ishell.Context) {
-			if len(c.RawArgs) < 4 {
-				c.Println("Usage: a2a run [--namespace <agent-namespace>] <agent-name> <task>")
-				return
-			}
-			flagSet := pflag.NewFlagSet(c.RawArgs[0], pflag.ContinueOnError)
-			agentNamespace := flagSet.String("namespace", "kagent", "Agent namespace")
-			timeout := flagSet.Duration("timeout", 300*time.Second, "Timeout for the task")
-			if err := flagSet.Parse(c.Args); err != nil {
-				c.Printf("Failed to parse flags: %v\n", err)
-				return
-			}
-			agentName := flagSet.Arg(0)
-			prompt := flagSet.Arg(1)
+	result, err := runTask(ctx, cfg.Config.Namespace, cfg.AgentName, cfg.Task, sessionID, cfg.Timeout, cfg.Config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error running task: %v\n", err)
+		return
+	}
 
-			cancel := startPortForward(ctx)
-			defer cancel()
-
-			result, err := runTask(ctx, *agentNamespace, agentName, prompt, *timeout)
-			if err != nil {
-				c.Err(err)
-				return
-			}
-
-			switch result.Status.State {
-			case protocol.TaskStateUnknown:
-				c.Println("Task state is unknown.")
-				if result.Status.Message != nil {
-					c.Println("Message:", a2autils.ExtractText(*result.Status.Message))
-				} else {
-					c.Println("No message provided.")
-				}
-			case protocol.TaskStateCanceled:
-				c.Println("Task was canceled.")
-			case protocol.TaskStateFailed:
-				c.Println("Task failed.")
-				if result.Status.Message != nil {
-					c.Println("Error:", a2autils.ExtractText(*result.Status.Message))
-				} else {
-					c.Println("No error message provided.")
-				}
-			case protocol.TaskStateCompleted:
-				c.Println("Task completed successfully:")
-				for _, artifact := range result.Artifacts {
-					var text string
-					for _, part := range artifact.Parts {
-						if textPart, ok := part.(protocol.TextPart); ok {
-							text += textPart.Text
-						}
-					}
-					c.Println(text)
+	switch result.Status.State {
+	case protocol.TaskStateUnknown:
+		fmt.Fprintln(os.Stderr, "Task state is unknown.")
+		if result.Status.Message != nil {
+			fmt.Fprintln(os.Stderr, "Message:", a2autils.ExtractText(*result.Status.Message))
+		} else {
+			fmt.Fprintln(os.Stderr, "No message provided.")
+		}
+	case protocol.TaskStateCanceled:
+		fmt.Fprintln(os.Stderr, "Task was canceled.")
+	case protocol.TaskStateFailed:
+		fmt.Fprintln(os.Stderr, "Task failed.")
+		if result.Status.Message != nil {
+			fmt.Fprintln(os.Stderr, "Error:", a2autils.ExtractText(*result.Status.Message))
+		} else {
+			fmt.Fprintln(os.Stderr, "No error message provided.")
+		}
+	case protocol.TaskStateCompleted:
+		fmt.Fprintln(os.Stderr, "Task completed successfully:")
+		for _, artifact := range result.Artifacts {
+			var text string
+			for _, part := range artifact.Parts {
+				if textPart, ok := part.(protocol.TextPart); ok {
+					text += textPart.Text
 				}
 			}
-		},
-	})
-
-	return a2aCmd
+			fmt.Fprintln(os.Stdout, text)
+		}
+	}
 }
 
 func startPortForward(ctx context.Context) func() {
@@ -118,12 +98,10 @@ func runTask(
 	ctx context.Context,
 	agentNamespace, agentName string,
 	userPrompt string,
+	sessionID *string,
 	timeout time.Duration,
+	cfg *config.Config,
 ) (*protocol.Task, error) {
-	cfg, err := config.Get()
-	if err != nil {
-		return nil, err
-	}
 	a2aURL := fmt.Sprintf("%s/%s/%s", cfg.A2AURL, agentNamespace, agentName)
 	a2a, err := client.NewA2AClient(a2aURL)
 	if err != nil {
@@ -131,7 +109,7 @@ func runTask(
 	}
 	task, err := a2a.SendTasks(ctx, protocol.SendTaskParams{
 		ID:        "kagent-task-" + uuid.NewString(),
-		SessionID: nil,
+		SessionID: sessionID,
 		Message: protocol.Message{
 			Role:  protocol.MessageRoleUser,
 			Parts: []protocol.Part{protocol.NewTextPart(userPrompt)},

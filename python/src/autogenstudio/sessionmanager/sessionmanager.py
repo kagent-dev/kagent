@@ -11,13 +11,13 @@ from autogen_agentchat.messages import (
     ChatMessage,
     HandoffMessage,
     MemoryQueryEvent,
-    ToolCallSummaryMessage,
     ModelClientStreamingChunkEvent,
     MultiModalMessage,
     StopMessage,
     TextMessage,
     ToolCallExecutionEvent,
     ToolCallRequestEvent,
+    ToolCallSummaryMessage,
 )
 from autogen_core import CancellationToken
 from autogen_core import Image as AGImage
@@ -148,9 +148,11 @@ class SessionManager:
                             MemoryQueryEvent,
                         ),
                     ):
+                        message_id = await self._save_message(user_id, run_id, message)
+                        if message_id:
+                            message.metadata["id"] = str(message_id)
                         formatted_message = format_message(message)
                         yield formatted_message
-                        await self._save_message(user_id, run_id, message)
                     elif isinstance(message, ModelClientStreamingChunkEvent):
                         formatted_message = format_message(message)
                         yield formatted_message
@@ -187,7 +189,7 @@ class SessionManager:
 
     async def _save_message(
         self, user_id: str, run_id: int, message: Union[BaseAgentEvent | BaseChatMessage, BaseChatMessage]
-    ) -> None:
+    ) -> Optional[int]:
         """Save a message to the database"""
 
         run = await self._get_run(run_id)
@@ -198,7 +200,10 @@ class SessionManager:
                 config=self._convert_images_in_dict(message.model_dump()),
                 user_id=user_id,
             )
-            self.db_manager.upsert(db_message)
+            response = self.db_manager.upsert(db_message, return_json=False)
+            if response.status and response.data:
+                return response.data.id
+            return None
 
     async def _update_run(
         self, run_id: int, status: RunStatus, team_result: Optional[dict] = None, error: Optional[str] = None

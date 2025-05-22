@@ -50,7 +50,7 @@ func (a *autogenA2ATranslator) TranslateHandlerForAgent(
 		return nil, nil
 	}
 
-	handler, err := a.makeHandlerForTeam(ctx, autogenTeam)
+	handler, err := a.makeHandlerForTeam(autogenTeam)
 	if err != nil {
 		return nil, err
 	}
@@ -93,20 +93,34 @@ func (a *autogenA2ATranslator) translateCardForAgent(
 }
 
 func (a *autogenA2ATranslator) makeHandlerForTeam(
-	ctx context.Context,
 	autogenTeam *autogen_client.Team,
 ) (TaskHandler, error) {
-	return func(ctx context.Context, task string) (string, error) {
-		resp, err := a.autogenClient.InvokeTask(&autogen_client.InvokeTaskRequest{
-			Task:       task,
-			TeamConfig: autogenTeam.Component,
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to invoke task: %w", err)
+	return func(ctx context.Context, task string, sessionID *string) (string, error) {
+		var taskResult *autogen_client.TaskResult
+		if sessionID != nil {
+			session, err := a.autogenClient.GetSession(*sessionID, common.GetGlobalUserID())
+			if err != nil {
+				return "", fmt.Errorf("failed to get session: %w", err)
+			}
+			resp, err := a.autogenClient.InvokeSession(session.ID, common.GetGlobalUserID(), task)
+			if err != nil {
+				return "", fmt.Errorf("failed to invoke task: %w", err)
+			}
+			taskResult = &resp.TaskResult
+		} else {
+
+			resp, err := a.autogenClient.InvokeTask(&autogen_client.InvokeTaskRequest{
+				Task:       task,
+				TeamConfig: autogenTeam.Component,
+			})
+			if err != nil {
+				return "", fmt.Errorf("failed to invoke task: %w", err)
+			}
+			taskResult = &resp.TaskResult
 		}
 
 		var lastMessageContent string
-		for _, msg := range resp.TaskResult.Messages {
+		for _, msg := range taskResult.Messages {
 			switch msg["content"].(type) {
 			case string:
 				lastMessageContent = msg["content"].(string)

@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 
@@ -160,6 +161,10 @@ type SseEvent struct {
 	Event string `json:"event"`
 	Data  []byte `json:"data"`
 }
+
+var (
+	NotFoundError = errors.New("not found")
+)
 
 func streamSseResponse(r io.ReadCloser) chan *SseEvent {
 	scanner := bufio.NewScanner(r)

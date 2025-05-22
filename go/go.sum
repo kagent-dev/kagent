@@ -393,3 +393,5 @@ sigs.k8s.io/yaml v1.4.0 h1:Mk1wCc2gy/F0THH0TAp1QYyJNzRm2KCLy3o5ASXVI5E=
 sigs.k8s.io/yaml v1.4.0/go.mod h1:Ejl7/uTz7PSA4eKMyQCUTnhZYNmLIl+5c2lQPGR2BPY=
 trpc.group/trpc-go/trpc-a2a-go v0.0.2 h1:aauYw0XnSUos5LxYzuCZxBu4rHIfc1lsWlSIV+xA4Lw=
 trpc.group/trpc-go/trpc-a2a-go v0.0.2/go.mod h1:8JkvixyJ0Hd1e5YpxyMBhEhd21kpJ2XeZrA5IKfkFNI=
+trpc.group/trpc-go/trpc-a2a-go v0.0.3 h1:g4BQP2GW6vRQ1Knjo4B1dNNtfsm0UjgvOkowYARFeSg=
+trpc.group/trpc-go/trpc-a2a-go v0.0.3/go.mod h1:kjZZAL9GdXBUY2+UTjE3iuqpOsLQJCsq3FMcv5+wd50=

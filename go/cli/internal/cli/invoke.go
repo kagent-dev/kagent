@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -55,8 +56,30 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 	if cfg.Session != "" {
 		session, err := client.GetSession(cfg.Session, cfg.Config.UserID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting session: %v\n", err)
-			return
+			if errors.Is(err, autogen_client.NotFoundError) {
+				if cfg.Agent == "" {
+					fmt.Fprintln(os.Stderr, "Agent is required when creating a new session")
+					return
+				}
+				// If the session is not found, create it
+				team, err := client.GetTeam(cfg.Agent, cfg.Config.UserID)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error getting team: %v\n", err)
+					return
+				}
+				session, err = client.CreateSession(&autogen_client.CreateSession{
+					Name:   cfg.Session,
+					UserID: cfg.Config.UserID,
+					TeamID: team.Id,
+				})
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error creating session: %v\n", err)
+					return
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "Error getting session: %v\n", err)
+				return
+			}
 		}
 
 		if cfg.Stream {
