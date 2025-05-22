@@ -70,24 +70,12 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 	}, nil
 }
 
-var aliasMap = map[string]string{
-	"npx": "bunx",
-	"npm": "bun",
-}
-
-func commandAlias(command string) string {
-	if alias, ok := aliasMap[command]; ok {
-		return alias
-	}
-	return command
-}
-
 func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.ToolServerConfig, error) {
 	switch {
 	case config.Stdio != nil:
 		return "kagent.tool_servers.StdioMcpToolServer", &api.ToolServerConfig{
 			StdioMcpServerConfig: &api.StdioMcpServerConfig{
-				Command: commandAlias(config.Stdio.Command),
+				Command: config.Stdio.Command,
 				Args:    config.Stdio.Args,
 				Env:     config.Stdio.Env,
 			},
