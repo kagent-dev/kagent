@@ -34,7 +34,7 @@ func (c *Client) GetSession(sessionLabel string, userID string) (*Session, error
 		}
 	}
 
-	return nil, fmt.Errorf("session not found: %s", sessionLabel)
+	return nil, NotFoundError
 }
 
 func (c *Client) InvokeSession(sessionID int, userID string, task string) (*TeamResult, error) {

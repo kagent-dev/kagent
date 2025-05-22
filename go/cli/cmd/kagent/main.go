@@ -6,12 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/abiosoft/ishell/v2"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func main() {
@@ -108,6 +110,24 @@ func main() {
 			cli.DashboardCmd(ctx, cfg)
 		},
 	}
+
+	a2aCfg := &cli.A2ACfg{
+		Config: cfg,
+	}
+
+	a2aCmd := &cobra.Command{
+		Use:   "a2a",
+		Short: "Interact with an Agent over the A2A protocol",
+		Long:  `Interact with an Agent over the A2A protocol`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cli.A2ARun(ctx, a2aCfg)
+		},
+	}
+
+	a2aCmd.Flags().StringVarP(&a2aCfg.SessionID, "session-id", "s", "", "Session ID")
+	a2aCmd.Flags().StringVarP(&a2aCfg.AgentName, "agent-name", "a", "", "Agent Name")
+	a2aCmd.Flags().StringVarP(&a2aCfg.Task, "task", "t", "", "Task")
+	a2aCmd.Flags().DurationVarP(&a2aCfg.Timeout, "timeout", "T", 300*time.Second, "Timeout")
 
 	getCmd := &cobra.Command{
 		Use:   "get",
@@ -248,6 +268,43 @@ Examples:
 	})
 
 	shell.AddCmd(runCmd)
+
+	a2aCmd := &ishell.Cmd{
+		Name: "a2a",
+		Help: "Interact with an Agent over the A2A protocol.",
+	}
+	a2aCmd.AddCmd(&ishell.Cmd{
+		Name: "run",
+		Help: "Run a task with an agent using the A2A protocol.",
+		LongHelp: `Run a task with an agent using the A2A protocol.
+The task is sent to the agent, and the result is printed to the console.
+
+Example:
+a2a run [--namespace <agent-namespace>] <agent-name> <task>
+`,
+		Func: func(c *ishell.Context) {
+			if len(c.RawArgs) < 4 {
+				c.Println("Usage: a2a run [--namespace <agent-namespace>] <agent-name> <task>")
+				return
+			}
+			flagSet := pflag.NewFlagSet(c.RawArgs[0], pflag.ContinueOnError)
+			timeout := flagSet.Duration("timeout", 300*time.Second, "Timeout for the task")
+			if err := flagSet.Parse(c.Args); err != nil {
+				c.Printf("Failed to parse flags: %v\n", err)
+				return
+			}
+			agentName := flagSet.Arg(0)
+			prompt := flagSet.Arg(1)
+			cli.A2ARun(ctx, &cli.A2ACfg{
+				Config:    cfg,
+				AgentName: agentName,
+				Task:      prompt,
+				Timeout:   *timeout,
+			})
+		},
+	})
+
+	shell.AddCmd(a2aCmd)
 
 	getCmd := &ishell.Cmd{
 		Name:    "get",
@@ -458,8 +515,6 @@ Example:
 			cli.DashboardCmd(ctx, cfg)
 		},
 	})
-
-	shell.AddCmd(cli.A2ACmd(ctx))
 
 	shell.Run()
 }

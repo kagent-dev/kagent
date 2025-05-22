@@ -3,6 +3,7 @@ package a2a
 import (
 	"context"
 	"fmt"
+
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"github.com/kagent-dev/kagent/go/controller/utils/a2autils"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -14,7 +15,7 @@ var (
 	processorLog = ctrl.Log.WithName("a2a_task_processor")
 )
 
-type TaskHandler func(ctx context.Context, task string) (string, error)
+type TaskHandler func(ctx context.Context, task string, sessionID *string) (string, error)
 
 type a2aTaskProcessor struct {
 	// handleTask is a function that processes the input text.
@@ -50,7 +51,8 @@ func (a *a2aTaskProcessor) Process(
 	processorLog.Info("Processing task", "taskID", taskID, "text", text)
 
 	// Process the input text (in this simple example, we'll just reverse it).
-	result, err := a.handleTask(ctx, text)
+	sessionID := handle.GetSessionID()
+	result, err := a.handleTask(ctx, text, sessionID)
 	if err != nil {
 		a.handleErr(taskID, err, handle)
 		return err
