@@ -65,7 +65,7 @@ class Message(BaseDBModel, table=True):
     run_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("run.id", ondelete="CASCADE")))
 
     message_meta: Optional[Union[MessageMeta, dict]] = Field(default={}, sa_column=Column(JSON))
-    feedbacks: List["Feedback"] = Relationship(back_populates="message")
+    feedback: List["Feedback"] = Relationship(back_populates="message")
 
 
 class Feedback(BaseDBModel, table=True):
@@ -83,7 +83,7 @@ class Feedback(BaseDBModel, table=True):
         default=None, sa_column=Column(Integer, ForeignKey("message.id", ondelete="CASCADE"))
     )
 
-    message: Optional["Message"] = Relationship(back_populates="feedbacks")
+    message: Optional["Message"] = Relationship(back_populates="feedback")
 
 
 class Session(BaseDBModel, table=True):

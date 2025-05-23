@@ -211,14 +211,13 @@ type FeedbackSubmission struct {
 	Version string `json:"version,omitempty"`
 
 	// UserID is the identifier for the user submitting the feedback.
-	// Optional for request, present in responses.
-	UserID *string `json:"user_id,omitempty"`
+	UserID string `json:"user_id,omitempty"`
 	// IsPositive indicates if the feedback is positive. Required for request.
 	IsPositive bool `json:"is_positive"`
 	// FeedbackText is the textual content of the feedback. Required for request.
 	FeedbackText string `json:"feedback_text"`
 	// IssueType categorizes the feedback if it's negative. Optional.
-	IssueType *string `json:"issue_type,omitempty"`
-	// MessageID is the ID of the message this feedback pertains to. Optional for request.
-	MessageID *int `json:"message_id,omitempty"`
+	IssueType *FeedbackIssueType `json:"issue_type,omitempty"`
+	// MessageID is the ID of the message this feedback pertains to.
+	MessageID int `json:"message_id,omitempty"`
 }

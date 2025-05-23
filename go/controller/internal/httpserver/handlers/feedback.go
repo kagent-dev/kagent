@@ -49,15 +49,6 @@ func (h *FeedbackHandler) HandleCreateFeedback(w ErrorResponseWriter, r *http.Re
 		return
 	}
 
-	// Get user ID
-	userID, err := GetUserID(r)
-	if err != nil {
-		log.Error(err, "Failed to get user ID")
-		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
-		return
-	}
-	log = log.WithValues("userID", userID)
-
 	err = h.AutogenClient.CreateFeedback(&feedbackReq)
 	if err != nil {
 		log.Error(err, "Failed to create feedback")

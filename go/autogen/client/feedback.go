@@ -18,8 +18,5 @@ func (c *Client) ListFeedback(userID string) ([]*FeedbackSubmission, error) {
 		return nil, err
 	}
 
-	fmt.Println("Listing feedback for user ID:", userID)
-	fmt.Println("Response:", response)
-
 	return response, nil
 }
