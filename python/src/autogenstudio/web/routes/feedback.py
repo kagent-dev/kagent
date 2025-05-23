@@ -43,9 +43,11 @@ async def create_feedback(
         response = await _create_feedback(db, request)
     except Exception as e:
         logger.error(f"Unexpected error creating feedback: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred while processing your feedback.") from e
+        raise HTTPException(
+            status_code=500, detail="An unexpected error occurred while processing your feedback."
+        ) from e
 
-    if not response.status: 
+    if not response.status:
         raise HTTPException(status_code=500, detail=response.message or "Failed to create feedback.")
 
     return response
@@ -69,7 +71,7 @@ async def list_feedback(
     try:
         result = db.get(Feedback, filters={"user_id": user_id})
         if result.status:
-            return { "status": True, "data": result.data }
+            return {"status": True, "data": result.data}
         else:
             logger.error(f"Error listing feedback from DB: {result.message}")
             raise HTTPException(status_code=500, detail=result.message or "Failed to retrieve feedback.")
@@ -78,6 +80,7 @@ async def list_feedback(
     except Exception as e:
         logger.error(f"Error listing feedback for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred while listing feedback.") from e
+
 
 async def _create_feedback(db: DatabaseManager, feedback_data: FeedbackSubmissionRequest) -> Response:
     """
@@ -94,7 +97,7 @@ async def _create_feedback(db: DatabaseManager, feedback_data: FeedbackSubmissio
             feedback_text=feedback_data.feedback_text,
             issue_type=feedback_data.issue_type,
             user_id=feedback_data.user_id,
-            message_id=feedback_data.message_id
+            message_id=feedback_data.message_id,
         )
         return db.upsert(feedback)
 

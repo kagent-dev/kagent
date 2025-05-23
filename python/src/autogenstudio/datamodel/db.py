@@ -52,6 +52,7 @@ class Team(BaseDBModel, table=True):
     __table_args__ = {"sqlite_autoincrement": True}
     component: Union[ComponentModel, dict] = Field(sa_column=Column(JSON))
 
+
 class Message(BaseDBModel, table=True):
     __table_args__ = {"sqlite_autoincrement": True}
 
@@ -71,13 +72,16 @@ class Feedback(BaseDBModel, table=True):
     """
     Database model for storing user feedback on agent responses.
     """
+
     __table_args__ = {"sqlite_autoincrement": True}
 
     is_positive: bool = Field(default=False, description="Whether the feedback is positive or negative")
     feedback_text: str = Field(description="The feedback text provided by the user")
     issue_type: Optional[str] = Field(default=None, description="Category of issue for negative feedback")
 
-    message_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("message.id", ondelete="CASCADE")))
+    message_id: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, ForeignKey("message.id", ondelete="CASCADE"))
+    )
 
     message: Optional["Message"] = Relationship(back_populates="feedbacks")
 
