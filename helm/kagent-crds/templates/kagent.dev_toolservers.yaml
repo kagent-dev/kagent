@@ -47,6 +47,51 @@ spec:
                     properties:
                       headers:
                         x-kubernetes-preserve-unknown-fields: true
+                      headersFrom:
+                        items:
+                          description: Header represents an HTTP header
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              x-kubernetes-preserve-unknown-fields: true
+                            valueFrom:
+                              description: HeaderSource represents a source for a
+                                header value
+                              properties:
+                                configMapKeyRef:
+                                  description: ValueSource defines a source for configuration
+                                    values from a Secret or ConfigMap
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    namespace:
+                                      type: string
+                                  required:
+                                  - key
+                                  - name
+                                  type: object
+                                secretKeyRef:
+                                  description: ValueSource defines a source for configuration
+                                    values from a Secret or ConfigMap
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    namespace:
+                                      type: string
+                                  required:
+                                  - key
+                                  - name
+                                  type: object
+                              type: object
+                          required:
+                          - name
+                          type: object
+                        type: array
                       sse_read_timeout:
                         type: string
                       timeout:
@@ -68,6 +113,51 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
+                      envFrom:
+                        items:
+                          description: EnvVar represents an environment variable
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              description: EnvVarSource represents a source for an
+                                environment variable value
+                              properties:
+                                configMapKeyRef:
+                                  description: ValueSource defines a source for configuration
+                                    values from a Secret or ConfigMap
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    namespace:
+                                      type: string
+                                  required:
+                                  - key
+                                  - name
+                                  type: object
+                                secretKeyRef:
+                                  description: ValueSource defines a source for configuration
+                                    values from a Secret or ConfigMap
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    namespace:
+                                      type: string
+                                  required:
+                                  - key
+                                  - name
+                                  type: object
+                              type: object
+                          required:
+                          - name
+                          type: object
+                        type: array
                     required:
                     - command
                     type: object

@@ -47,6 +47,38 @@ spec:
                     properties:
                       headers:
                         x-kubernetes-preserve-unknown-fields: true
+                      headersFrom:
+                        items:
+                          description: Header represents an HTTP header
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              description: |-
+                                ValueSource defines a source for configuration values from a Secret or ConfigMap
+                                The Name is in the format "name/namespace", if namespace is not provided, the default namespace is used
+                              properties:
+                                key:
+                                  type: string
+                                name:
+                                  type: string
+                                type:
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              - type
+                              type: object
+                          required:
+                          - name
+                          type: object
+                          x-kubernetes-validations:
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
+                        type: array
                       sse_read_timeout:
                         type: string
                       timeout:
@@ -68,6 +100,38 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
+                      envFrom:
+                        items:
+                          description: EnvVar represents an environment variable
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              description: |-
+                                ValueSource defines a source for configuration values from a Secret or ConfigMap
+                                The Name is in the format "name/namespace", if namespace is not provided, the default namespace is used
+                              properties:
+                                key:
+                                  type: string
+                                name:
+                                  type: string
+                                type:
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              - type
+                              type: object
+                          required:
+                          - name
+                          type: object
+                          x-kubernetes-validations:
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
+                        type: array
                     required:
                     - command
                     type: object

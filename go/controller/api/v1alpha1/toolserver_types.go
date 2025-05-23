@@ -31,10 +31,42 @@ type ToolServerConfig struct {
 	Sse   *SseMcpServerConfig   `json:"sse,omitempty"`
 }
 
+type ValueSourceType string
+
+const (
+	ConfigMapValueSource ValueSourceType = "ConfigMap"
+	SecretValueSource    ValueSourceType = "Secret"
+)
+
+// ValueSource defines a source for configuration values from a Secret or ConfigMap
+// The Name is in the format "name/namespace", if namespace is not provided, the default namespace is used
+type ValueSource struct {
+	Type ValueSourceType `json:"type"`
+	Name string          `json:"name"`
+	Key  string          `json:"key"`
+}
+
+// EnvVar represents an environment variable
+// +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
+type EnvVar struct {
+	Name      string       `json:"name"`
+	Value     string       `json:"value,omitempty"`
+	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
+}
+
 type StdioMcpServerConfig struct {
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	EnvFrom []EnvVar          `json:"envFrom,omitempty"`
+}
+
+// Header represents an HTTP header
+// +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
+type Header struct {
+	Name      string       `json:"name"`
+	Value     string       `json:"value,omitempty"`
+	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
 }
 
 type SseMcpServerConfig struct {
@@ -42,6 +74,7 @@ type SseMcpServerConfig struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
 	Headers        map[string]AnyType `json:"headers,omitempty"`
+	HeadersFrom    []Header           `json:"headersFrom,omitempty"`
 	Timeout        string             `json:"timeout,omitempty"`
 	SseReadTimeout string             `json:"sse_read_timeout,omitempty"`
 }
