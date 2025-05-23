@@ -198,3 +198,6 @@ go/bin/
 
 ## Helm
 *.tgz
+
+# asdf node manager
+.tool-versions

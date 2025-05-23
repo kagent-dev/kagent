@@ -7,6 +7,7 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -18,6 +19,16 @@ type ToolServersHandler struct {
 // NewToolServersHandler creates a new ToolServersHandler
 func NewToolServersHandler(base *Base) *ToolServersHandler {
 	return &ToolServersHandler{Base: base}
+}
+
+// getErrorFromConditions extracts error information from conditions
+func getErrorFromConditions(conditions []metav1.Condition) *string {
+	for _, condition := range conditions {
+		if condition.Status == metav1.ConditionFalse {
+			return &condition.Message
+		}
+	}
+	return nil
 }
 
 // HandleListToolServers handles GET /api/toolservers requests
@@ -35,10 +46,23 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 	for _, toolServer := range toolServerList.Items {
 		log.V(1).Info("Processing tool server", "toolServerName", toolServer.Name)
 
-		toolServerWithTools = append(toolServerWithTools, map[string]interface{}{
+		errorMsg := getErrorFromConditions(toolServer.Status.Conditions)
+		if errorMsg != nil {
+			log.Info("Tool server has error condition", "toolServerName", toolServer.Name, "error", *errorMsg)
+		}
+
+		discoveredTools := toolServer.Status.DiscoveredTools
+		if discoveredTools == nil {
+			discoveredTools = []*v1alpha1.MCPTool{}
+		}
+		toolServerWithTools = append(toolServerWithTools, map[string]interface{}{ 
 			"name":            toolServer.Name,
 			"config":          toolServer.Spec.Config,
-			"discoveredTools": toolServer.Status.DiscoveredTools,
+			"discoveredTools": discoveredTools,
+			"status": map[string]interface{}{
+				"conditions": toolServer.Status.Conditions,
+				"error":     errorMsg,
+			},
 		})
 	}
 

@@ -50,7 +50,7 @@ export interface BaseMessageConfig {
   metadata?: Record<string, string>;
 }
 
-export interface BaseAgentEvent extends BaseMessageConfig {}
+export interface BaseAgentEvent extends BaseMessageConfig { }
 
 export interface MemoryQueryEventContent {
   content: string;
@@ -93,7 +93,7 @@ export interface ToolCallSummaryMessage extends BaseMessageConfig {
   type: "ToolCallSummaryMessage";
 }
 
-export interface ModelClientStreamingChunkEvent extends BaseAgentEvent { 
+export interface ModelClientStreamingChunkEvent extends BaseAgentEvent {
   content: string;
   type: "ModelClientStreamingChunkEvent";
 }
@@ -426,6 +426,9 @@ export interface ToolComponent {
 
 export interface ToolServerWithTools {
   name: string;
-  config: ToolServerConfiguration;
-  discoveredTools: ToolComponent[];
+  config: any;
+  discoveredTools: any[];
+  status: {
+    error?: string;
+  };
 }
