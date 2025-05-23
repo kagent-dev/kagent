@@ -5,13 +5,23 @@ import LLMCallModal from "@/components/chat/LLMCallModal";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import MemoryQueryDisplay from "./MemoryQueryDisplay";
 import KagentLogo from "../kagent-logo";
+import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { useState } from "react";
+import { FeedbackDialog } from "./FeedbackDialog";
+import { toast } from "sonner";
 
 interface ChatMessageProps {
-  message: AgentMessageConfig;
+  message: AgentMessageConfig & { id?: number };
   allMessages: AgentMessageConfig[];
 }
 
 export default function ChatMessage({ message, allMessages }: ChatMessageProps) {
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+  const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
+  // We try to get the message ID from the message object, if it exists (this is for stored messages/existing sessions)
+  // If it doesn't exist, we use ID from the metadata (this is for new messages/in-progress chats)
+  const messageId = message.id || message.metadata?.id;
+
   if (!message) {
     return null;
   }
@@ -33,7 +43,6 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
   }
 
   // Filter out system messages
-  // TODO: Decide whether we want to filter out som agent
   if (source === "system" || source === "user_proxy" || (typeof source === "string" && source.endsWith("society_of_mind_agent"))) {
     return null;
   }
@@ -47,8 +56,17 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
     return <LLMCallModal content={String(message)} />;
   }
 
+  const handleFeedback = (isPositive: boolean) => {
+    if (messageId === undefined) {
+      console.error("Message ID is undefined (from message.id), cannot submit feedback.");
+      toast.error("Cannot submit feedback: Message ID not found.");
+      return;
+    }
+    setIsPositiveFeedback(isPositive);
+    setFeedbackDialogOpen(true);
+  };
+  
   const messageBorderColor = isErrorMessage ? "border-l-red-500" : source === "user" ? "border-l-blue-500" : "border-l-violet-500";
-
   return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${messageBorderColor}`}>
     <div className="flex flex-col gap-1 w-full">
       {source !== "user" ? <div className="flex items-center gap-1">
@@ -56,7 +74,34 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
         <div className="text-xs font-bold">{source}</div>
       </div> : <div className="text-xs font-bold">{source}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
+      
+      {source !== "user" && messageId !== undefined && (
+        <div className="flex mt-2 justify-end gap-2">
+          <button 
+            onClick={() => handleFeedback(true)}
+            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Thumbs up"
+          >
+            <ThumbsUp className="w-4 h-4" />
+          </button>
+          <button 
+            onClick={() => handleFeedback(false)}
+            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Thumbs down"
+          >
+            <ThumbsDown className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
-  </div>
 
+    {messageId !== undefined && (
+      <FeedbackDialog 
+        isOpen={feedbackDialogOpen}
+        onClose={() => setFeedbackDialogOpen(false)}
+        isPositive={isPositiveFeedback}
+        messageId={Number(messageId)}
+      />
+    )}
+  </div>
 }

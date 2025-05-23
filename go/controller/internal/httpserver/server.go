@@ -29,6 +29,7 @@ const (
 	APIPathModels      = "/api/models"
 	APIPathMemories    = "/api/memories"
 	APIPathA2A         = "/api/a2a"
+	APIPathFeedback    = "/api/feedback"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -164,6 +165,10 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathMemories+"/{memoryName}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
+
+	// Feedback
+	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleListFeedback)).Methods(http.MethodGet)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A).Handler(s.config.A2AHandler)

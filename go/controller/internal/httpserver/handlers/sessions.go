@@ -200,11 +200,16 @@ func (h *SessionsHandler) HandleListSessionMessages(w ErrorResponseWriter, r *ht
 	configs := []autogen_client.TaskMessageMap{}
 	for _, run := range runs {
 		for _, message := range run.Messages {
-			configs = append(configs, message.Config)
+			item := make(autogen_client.TaskMessageMap)
+			if message.Config != nil {
+				for k, v := range message.Config {
+					item[k] = v
+				}
+			}
+			item["id"] = message.ID
+			configs = append(configs, item)
 		}
 	}
-
-	log.Info("Successfully listed session runs", "count", len(runs))
 	RespondWithJSON(w, http.StatusOK, configs)
 }
 

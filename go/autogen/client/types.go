@@ -187,3 +187,37 @@ func streamSseResponse(r io.ReadCloser) chan *SseEvent {
 	}()
 	return ch
 }
+
+// FeedbackIssueType represents the category of feedback issue
+type FeedbackIssueType string
+
+const (
+	FeedbackIssueTypeInstructions FeedbackIssueType = "instructions" // Did not follow instructions
+	FeedbackIssueTypeFactual      FeedbackIssueType = "factual"      // Not factually correct
+	FeedbackIssueTypeIncomplete   FeedbackIssueType = "incomplete"   // Incomplete response
+	FeedbackIssueTypeTool         FeedbackIssueType = "tool"         // Should have run the tool
+)
+
+// FeedbackSubmission defines the request payload for submitting feedback
+// and also serves as the response object when listing feedback.
+type FeedbackSubmission struct {
+	// ID is the unique identifier for the feedback, present in responses.
+	ID int `json:"id,omitempty"`
+	// CreatedAt is the timestamp of feedback creation, present in responses.
+	CreatedAt string `json:"created_at,omitempty"`
+	// UpdatedAt is the timestamp of the last update, present in responses.
+	UpdatedAt string `json:"updated_at,omitempty"`
+	// Version of the feedback object, present in responses.
+	Version string `json:"version,omitempty"`
+
+	// UserID is the identifier for the user submitting the feedback.
+	UserID string `json:"user_id,omitempty"`
+	// IsPositive indicates if the feedback is positive. Required for request.
+	IsPositive bool `json:"is_positive"`
+	// FeedbackText is the textual content of the feedback. Required for request.
+	FeedbackText string `json:"feedback_text"`
+	// IssueType categorizes the feedback if it's negative. Optional.
+	IssueType *FeedbackIssueType `json:"issue_type,omitempty"`
+	// MessageID is the ID of the message this feedback pertains to.
+	MessageID int `json:"message_id,omitempty"`
+}

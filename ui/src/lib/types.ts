@@ -131,3 +131,31 @@ export interface UpdateMemoryRequest {
   name: string;
   pinecone?: PineconeConfigPayload;
 }
+
+/**
+ * Feedback issue types
+ */
+export enum FeedbackIssueType {
+  INSTRUCTIONS = "instructions", // Did not follow instructions
+  FACTUAL = "factual", // Not factually correct
+  INCOMPLETE = "incomplete", // Incomplete response
+  TOOL = "tool", // Should have run the tool
+  OTHER = "other", // Other
+}
+
+/**
+* Feedback data structure that will be sent to the API
+*/
+export interface FeedbackData {
+  // Whether the feedback is positive
+  isPositive: boolean;
+
+  // The feedback text provided by the user
+  feedbackText: string;
+
+  // The type of issue for negative feedback
+  issueType?: FeedbackIssueType;
+
+  // ID of the message this feedback pertains to
+  messageId: number;
+}
