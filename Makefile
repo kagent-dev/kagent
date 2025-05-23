@@ -209,8 +209,8 @@ helm-agents:
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-crd/Chart-template.yaml > helm/agents/cilium-crd/Chart.yaml
 	helm package helm/agents/cilium-crd
 
-.PHONY: helm-cleanup helm-version
-helm-version: helm-agents
+.PHONY: helm-version
+helm-version: helm-cleanup helm-agents
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
