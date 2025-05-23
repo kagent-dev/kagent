@@ -156,21 +156,6 @@ export interface FeedbackData {
   // The type of issue for negative feedback
   issueType?: FeedbackIssueType;
 
-  // Content of the message that received feedback
-  messageContent: string;
-
-  // Source of the message (agent name)
-  messageSource: string;
-
-  // Contents of messages preceding the feedback
-  precedingMessagesContents: string[];
-
-  // Timestamp of the feedback submission
-  timestamp: string;
-
-  // User ID
-  userID?: string;
-
-  // Session ID
-  sessionID?: string;
+  // ID of the message this feedback pertains to
+  messageId: number;
 }

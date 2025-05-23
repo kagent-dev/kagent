@@ -3,7 +3,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AgentMessageConfig } from "@/types/datamodel";
 import { submitPositiveFeedback, submitNegativeFeedback } from "@/app/actions/feedback";
 import { toast } from "sonner";
 
@@ -11,12 +10,10 @@ interface FeedbackDialogProps {
   isOpen: boolean;
   onClose: () => void;
   isPositive: boolean;
-  message: AgentMessageConfig;
-  precedingMessages: AgentMessageConfig[];
-  sessionID?: string;
+  messageId: number;
 }
 
-export function FeedbackDialog({ isOpen, onClose, isPositive, message, precedingMessages, sessionID  }: FeedbackDialogProps) {
+export function FeedbackDialog({ isOpen, onClose, isPositive, messageId }: FeedbackDialogProps) {
   const [feedbackText, setFeedbackText] = useState("");
   const [issueType, setIssueType] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,9 +23,9 @@ export function FeedbackDialog({ isOpen, onClose, isPositive, message, preceding
 
     try {
       if (isPositive) {
-        await submitPositiveFeedback(message, precedingMessages, feedbackText, sessionID);
+        await submitPositiveFeedback(messageId, feedbackText);
       } else {
-        await submitNegativeFeedback(message, precedingMessages, feedbackText, issueType, sessionID);
+        await submitNegativeFeedback(messageId, feedbackText, issueType);
       }
       toast.success("Thank you for your feedback!");
       setFeedbackText("");

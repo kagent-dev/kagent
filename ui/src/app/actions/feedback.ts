@@ -1,6 +1,5 @@
 'use server'
 
-import { AgentMessageConfig } from "@/types/datamodel";
 import { FeedbackData, FeedbackIssueType } from "@/lib/types";
 import { fetchApi, getCurrentUserId } from "./utils";
 
@@ -9,7 +8,13 @@ import { fetchApi, getCurrentUserId } from "./utils";
  */
 async function submitFeedback(feedbackData: FeedbackData): Promise<any> {
     const userID = await getCurrentUserId();
-    const body = { ...feedbackData, userID };
+    const body = { 
+        is_positive: feedbackData.isPositive,
+        feedback_text: feedbackData.feedbackText,
+        issue_type: feedbackData.issueType,
+        message_id: feedbackData.messageId,
+        user_id: userID
+    };
     return await fetchApi('/feedback', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -20,22 +25,14 @@ async function submitFeedback(feedbackData: FeedbackData): Promise<any> {
  * Submit positive feedback for an agent response
  */
 export async function submitPositiveFeedback(
-    message: AgentMessageConfig,
-    precedingMessages: AgentMessageConfig[],
-    feedbackText: string,
-    sessionID?: string
+    message_id: number,
+    feedback_text: string,
 ) {
     // Create feedback data object
     const feedbackData: FeedbackData = {
-        messageContent: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
-        messageSource: message.source,
         isPositive: true,
-        feedbackText,
-        precedingMessagesContents: precedingMessages.map(m => {
-            return typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        }),
-        timestamp: new Date().toISOString(),
-        sessionID: sessionID,
+        feedbackText: feedback_text,
+        messageId: message_id,
     };
     return await submitFeedback(feedbackData);
 }
@@ -44,24 +41,16 @@ export async function submitPositiveFeedback(
  * Submit negative feedback for an agent response
  */
 export async function submitNegativeFeedback(
-    message: AgentMessageConfig,
-    precedingMessages: AgentMessageConfig[],
-    feedbackText: string,
-    issueType?: string,
-    sessionID?: string
+    message_id: number,
+    feedback_text: string,
+    issue_type?: string,
 ) {
     // Create feedback data object
     const feedbackData: FeedbackData = {
-        messageContent: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
-        messageSource: message.source,
         isPositive: false,
-        feedbackText,
-        issueType: issueType as FeedbackIssueType,
-        precedingMessagesContents: precedingMessages.map(m => {
-            return typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        }),
-        timestamp: new Date().toISOString(),
-        sessionID: sessionID,
+        feedbackText: feedback_text,
+        issueType: issue_type as FeedbackIssueType,
+        messageId: message_id,
     };
 
     return await submitFeedback(feedbackData);

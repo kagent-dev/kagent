@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 from autogen_core import ComponentModel
 from pydantic import ConfigDict, SecretStr, field_validator
 from sqlalchemy import ForeignKey, Integer
-from sqlmodel import JSON, Column, DateTime, Field, SQLModel, func
+from sqlmodel import JSON, Column, DateTime, Field, Relationship, SQLModel, func
 
 from .eval import EvalJudgeCriteria, EvalRunResult, EvalRunStatus, EvalScore, EvalTask
 from .types import (
@@ -52,7 +52,6 @@ class Team(BaseDBModel, table=True):
     __table_args__ = {"sqlite_autoincrement": True}
     component: Union[ComponentModel, dict] = Field(sa_column=Column(JSON))
 
-
 class Message(BaseDBModel, table=True):
     __table_args__ = {"sqlite_autoincrement": True}
 
@@ -65,6 +64,7 @@ class Message(BaseDBModel, table=True):
     run_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("run.id", ondelete="CASCADE")))
 
     message_meta: Optional[Union[MessageMeta, dict]] = Field(default={}, sa_column=Column(JSON))
+    feedbacks: List["Feedback"] = Relationship(back_populates="message")
 
 
 class Feedback(BaseDBModel, table=True):
@@ -77,18 +77,9 @@ class Feedback(BaseDBModel, table=True):
     feedback_text: str = Field(description="The feedback text provided by the user")
     issue_type: Optional[str] = Field(default=None, description="Category of issue for negative feedback")
 
-    message_content: str = Field(description="Content of the message that received feedback")
-    message_source: str = Field(description="Source of the message (agent name)")
+    message_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("message.id", ondelete="CASCADE")))
 
-    preceding_messages: Optional[List[str]] = Field(default=[], sa_column=Column(JSON),
-                                                  description="Contents of messages preceding the feedback")
-
-    session_id: Optional[int] = Field(
-        default=None, sa_column=Column(Integer, ForeignKey("session.id", ondelete="SET NULL"))
-    )
-
-    extra_metadata: Optional[Dict[str, Any]] = Field(default={}, sa_column=Column(JSON),
-                                              description="Additional metadata about the feedback")
+    message: Optional["Message"] = Relationship(back_populates="feedbacks")
 
 
 class Session(BaseDBModel, table=True):

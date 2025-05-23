@@ -199,31 +199,26 @@ const (
 )
 
 // FeedbackSubmission defines the request payload for submitting feedback
+// and also serves as the response object when listing feedback.
 type FeedbackSubmission struct {
-	// User ID
-	UserID string `json:"userID"`
-
-	// Whether the feedback is positive
-	IsPositive bool `json:"is_positive"`
-
-	// The feedback text provided by the user
-	FeedbackText string `json:"feedback_text"`
-
-	// The type of issue for negative feedback
-	IssueType string `json:"issue_type,omitempty"`
-
-	// Content of the message that received feedback
-	MessageContent string `json:"message_content"`
-
-	// Source of the message (agent name)
-	MessageSource string `json:"message_source"`
-
-	// Contents of messages preceding the feedback
-	PrecedingMessagesContents []string `json:"preceding_messages,omitempty"`
-
-	// Session ID
-	SessionID int `json:"session_id"`
-
-	// Timestamp of the feedback submission
+	// ID is the unique identifier for the feedback, present in responses.
+	ID int `json:"id,omitempty"`
+	// CreatedAt is the timestamp of feedback creation, present in responses.
 	CreatedAt string `json:"created_at,omitempty"`
+	// UpdatedAt is the timestamp of the last update, present in responses.
+	UpdatedAt string `json:"updated_at,omitempty"`
+	// Version of the feedback object, present in responses.
+	Version string `json:"version,omitempty"`
+
+	// UserID is the identifier for the user submitting the feedback.
+	// Optional for request, present in responses.
+	UserID *string `json:"user_id,omitempty"`
+	// IsPositive indicates if the feedback is positive. Required for request.
+	IsPositive bool `json:"is_positive"`
+	// FeedbackText is the textual content of the feedback. Required for request.
+	FeedbackText string `json:"feedback_text"`
+	// IssueType categorizes the feedback if it's negative. Optional.
+	IssueType *string `json:"issue_type,omitempty"`
+	// MessageID is the ID of the message this feedback pertains to. Optional for request.
+	MessageID *int `json:"message_id,omitempty"`
 }

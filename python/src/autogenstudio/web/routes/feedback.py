@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -15,43 +15,38 @@ router = APIRouter()
 class FeedbackSubmissionRequest(BaseModel):
     """Model for feedback submission requests"""
 
-    isPositive: bool = Field(description="Whether the feedback is positive")
-    feedbackText: str = Field(description="The feedback text provided by the user")
-    issueType: str = Field(None, description="The type of issue for negative feedback")
-    messageContent: str = Field(description="Content of the message that received feedback")
-    messageSource: str = Field(description="Source of the message (agent name)")
-    precedingMessagesContents: list[str] = Field([], description="Contents of messages preceding the feedback")
-    timestamp: str = Field(None, description="Timestamp of the feedback submission")
-    sessionID: int = Field(None, description="Session ID")
-    userID: str = Field(None, description="User ID")
+    is_positive: bool = Field(description="Whether the feedback is positive")
+    feedback_text: str = Field(description="The feedback text provided by the user")
+    issue_type: Optional[str] = Field(None, description="The type of issue for negative feedback")
+    user_id: Optional[str] = Field(None, description="User ID of the submitter")
+    message_id: Optional[int] = Field(None, description="ID of the message this feedback pertains to")
 
 
 @router.post("/", response_model=Response)
 async def create_feedback(
     request: FeedbackSubmissionRequest,
-    db=Depends(get_db),
+    db: DatabaseManager = Depends(get_db),
 ) -> Response:
     """
     Create a new feedback entry from user feedback on agent responses
 
     Args:
         request: The feedback data from the client
-        user_id: The ID of the user submitting the feedback
-        db_manager: Database manager instance
+        db: Database manager instance
 
     Returns:
         Response: Result of the operation with status and message
     """
 
-    # Convert to dict for DB manager
-    feedback_dict = request.model_dump()
+    response = None
+    try:
+        response = await _create_feedback(db, request)
+    except Exception as e:
+        logger.error(f"Unexpected error creating feedback: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while processing your feedback.") from e
 
-    # Create feedback in database
-    response = await _create_feedback(db, feedback_dict)
-
-    if not response.status:
-        logger.error(f"Failed to create feedback: {response.message}")
-        raise HTTPException(status_code=500, detail=response.message)
+    if not response.status: 
+        raise HTTPException(status_code=500, detail=response.message or "Failed to create feedback.")
 
     return response
 
@@ -59,7 +54,7 @@ async def create_feedback(
 @router.get("/", response_model=dict)
 async def list_feedback(
     user_id: str,
-    db=Depends(get_db),
+    db: DatabaseManager = Depends(get_db),
 ):
     """
     List all feedback entries for a given user
@@ -69,44 +64,38 @@ async def list_feedback(
         db: The database manager instance
 
     Returns:
-        Response: Result of the operation with status and message
+        dict: A dictionary containing the status and feedback data, or an error message.
     """
     try:
         result = db.get(Feedback, filters={"user_id": user_id})
-        return { "status": True, "data": result.data }
+        if result.status:
+            return { "status": True, "data": result.data }
+        else:
+            logger.error(f"Error listing feedback from DB: {result.message}")
+            raise HTTPException(status_code=500, detail=result.message or "Failed to retrieve feedback.")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error listing feedback: {str(e)}")
-        return { "status": False, "message": str(e) }
+        logger.error(f"Error listing feedback for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred while listing feedback.") from e
 
-async def _create_feedback(db: DatabaseManager, feedback_data: dict) -> Response:
+async def _create_feedback(db: DatabaseManager, feedback_data: FeedbackSubmissionRequest) -> Response:
     """
     Create a new feedback entry in the database
 
     Args:
         feedback_data (dict): The feedback data from the client
-
     Returns:
         Response: Result of the operation
     """
     try:
-        # Create a new Feedback object
         feedback = Feedback(
-            is_positive=feedback_data.get("isPositive", False),
-            feedback_text=feedback_data.get("feedbackText", ""),
-            issue_type=feedback_data.get("issueType"),
-            message_content=feedback_data.get("messageContent", ""),
-            message_source=feedback_data.get("messageSource", ""),
-            preceding_messages=feedback_data.get("precedingMessagesContents", []),
-            user_id=feedback_data.get("userID"),
-            session_id=feedback_data.get("sessionID"),
+            is_positive=feedback_data.is_positive,
+            feedback_text=feedback_data.feedback_text,
+            issue_type=feedback_data.issue_type,
+            user_id=feedback_data.user_id,
+            message_id=feedback_data.message_id
         )
-
-        # Try to get session ID if available
-        session_info = feedback_data.get("sessionInfo")
-        if session_info and isinstance(session_info, str) and session_info.isdigit():
-            feedback.session_id = int(session_info)
-
-        # Save to database
         return db.upsert(feedback)
 
     except Exception as e:
