@@ -74,15 +74,12 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 ### STAGE 4: final
 FROM python-os AS final
 
-ENV BUN_INSTALL_CACHE_DIR=/cache/bun
-ENV BUN_INSTALL=/usr/local/bun
-ENV PATH=$BUN_INSTALL/bin:$PATH
+RUN apk update && apk add nodejs npm
 
 COPY --from=python-builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 COPY --from=python-builder /usr/local/bin/istioctl /usr/local/bin/istioctl
 COPY --from=python-builder /usr/local/bin/helm /usr/local/bin/helm
 COPY --from=python-builder /usr/local/bin/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
-COPY --from=python-builder $BUN_INSTALL $BUN_INSTALL
 
 COPY pyproject.toml .
 COPY .python-version .
