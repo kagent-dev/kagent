@@ -167,6 +167,9 @@ type ModelConfigSpec struct {
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey"`
 
+	// +optional
+	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
+
 	// ModelInfo contains information about the model.
 	// This field is required if the model is not one of the
 	// pre-defined autogen models. That list can be found here:

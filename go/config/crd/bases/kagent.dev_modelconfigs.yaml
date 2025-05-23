@@ -104,6 +104,10 @@ spec:
                 - apiVersion
                 - azureEndpoint
                 type: object
+              defaultHeaders:
+                additionalProperties:
+                  type: string
+                type: object
               model:
                 type: string
               modelInfo:

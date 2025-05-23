@@ -26,7 +26,13 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
+type BaseClientConfig struct {
+	// Base OpenAI fields
+	DefaultHeaders map[string]string `json:"default_headers,omitempty"`
+}
+
 type BaseOpenAIClientConfig struct {
+	BaseClientConfig
 	// Base OpenAI fields
 	Model             string         `json:"model"`
 	APIKey            string         `json:"api_key,omitempty"`
@@ -82,14 +88,14 @@ type AnthropicCreateArguments struct {
 }
 
 type BaseAnthropicClientConfiguration struct {
-	APIKey            string            `json:"api_key,omitempty"`
-	BaseURL           string            `json:"base_url,omitempty"`
-	Model             string            `json:"model"`
-	ModelCapabilities *ModelInfo        `json:"model_capabilities,omitempty"`
-	ModelInfo         *ModelInfo        `json:"model_info,omitempty"`
-	Timeout           float64           `json:"timeout,omitempty"`
-	MaxRetries        int               `json:"max_retries,omitempty"`
-	DefaultHeaders    map[string]string `json:"default_headers,omitempty"`
+	APIKey            string     `json:"api_key,omitempty"`
+	BaseURL           string     `json:"base_url,omitempty"`
+	Model             string     `json:"model"`
+	ModelCapabilities *ModelInfo `json:"model_capabilities,omitempty"`
+	ModelInfo         *ModelInfo `json:"model_info,omitempty"`
+	Timeout           float64    `json:"timeout,omitempty"`
+	MaxRetries        int        `json:"max_retries,omitempty"`
+	BaseClientConfig
 	AnthropicCreateArguments
 }
 
