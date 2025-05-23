@@ -5,15 +5,15 @@ metadata:
 spec:
   description: PVC Not Bound (No Matching PV)
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 I see an error message telling about issues in the 'backend-v3' service.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`. And you have my permission to keep trying out things until you fix the environment and all tests pass.
   steps:
     - run: |
-        kubectl --context ${CLUSTER1} scale --replicas=0 deploy/mysql-v1
-        kubectl --context ${CLUSTER1} scale --replicas=0 deploy/backend-v3
-        kubectl --context ${CLUSTER1} delete pvc mysql-pvc
-        kubectl --context ${CLUSTER1} apply -f - <<EOF
+        kubectl --context ${CLUSTER_CTX} scale --replicas=0 deploy/mysql-v1
+        kubectl --context ${CLUSTER_CTX} scale --replicas=0 deploy/backend-v3
+        kubectl --context ${CLUSTER_CTX} delete pvc mysql-pvc
+        kubectl --context ${CLUSTER_CTX} apply -f - <<EOF
         apiVersion: v1
         kind: PersistentVolumeClaim
         metadata:
@@ -27,5 +27,5 @@ spec:
               storage: 1Gi
           storageClassName: non-existent-storage-class
         EOF
-        kubectl --context ${CLUSTER1} scale --replicas=1 deploy/mysql-v1
-        kubectl --context ${CLUSTER1} scale --replicas=1 deploy/backend-v3
+        kubectl --context ${CLUSTER_CTX} scale --replicas=1 deploy/mysql-v1
+        kubectl --context ${CLUSTER_CTX} scale --replicas=1 deploy/backend-v3

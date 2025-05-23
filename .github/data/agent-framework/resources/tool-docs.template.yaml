@@ -1,0 +1,22 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: search-documentation
+  namespace: kagent
+spec:
+  config:
+    stdio:
+      args:
+      - qdrant-search-mcp-server
+      - --collections="istio,gloo-mesh-enterprise,ambient,argo-rollouts,cilium,gateway-api,github-istio,github-solo-reference-architectures,gloo-edge,gloo-mesh-core,helm,kgateway,kubernetes,mcp,otel,prometheus,gloo-gateway"
+      - --name=searchDocs
+      - '--description="Search documentation for the following products: Istio, Gloo
+        Mesh Enterprise, Ambient, Argo Rollouts, Cilium, Gateway API, GitHub Istio
+        Issues, GitHub Solo Reference Architectures, Gloo Edge, Gloo Mesh Core, Helm,
+        KGateway, Kubernetes, MCP, OpenTelemetry, Prometheus, Gloo Gateway"'
+      command: npx
+      env:
+        OPENAI_API_KEY: ${OPENAI_API_KEY}
+        QDRANT_API_KEY: ${QDRANT_API_KEY}
+        QDRANT_URL: https://qdrant.is.solo.io
+  description: Search products for Solo.io Products

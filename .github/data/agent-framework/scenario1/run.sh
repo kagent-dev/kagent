@@ -1,43 +1,8 @@
-
-<!--bash
-source ./scripts/assert.sh
--->
-
-
-
-# <center>Golden environment 1</center>
-
-
-
-
-## Introduction <a name="introduction"></a>
-
-# <center>Golden environment 1</center>
-
-
-
-
-##  1 - Deploy Kind cluster <a name="-1---deploy-kind-cluster-"></a>
-
-```bash
-kind create cluster --name kind1
-kubectl config rename-context kind-kind1 cluster1
-export CLUSTER_CTX=cluster1
-
-```
-
-
-
-##  2 - Deploy MySQL <a name="-2---deploy-mysql-"></a>
-
-
-Let's deploy the application mysql, version v1 to the clusters.
-
-To do so, run the following command:
-```bash
+export CLUSTER_CTX=kind-kagent
 docker pull mysql:9.2.0 || true
-kind load docker-image mysql:9.2.0 --name kind1 || true
-kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
+kind load docker-image mysql:9.2.0 --name kagent || true
+
+kubectl apply --context "${CLUSTER_CTX}" -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -114,22 +79,11 @@ spec:
         persistentVolumeClaim:
           claimName: mysql-pvc
 EOF
-```
 
-
-
-
-
-##  3 - Deploy Neo4j <a name="-3---deploy-neo4j-"></a>
-
-
-Let's deploy the application neo4j-db, version v1 to the clusters.
-
-To do so, run the following command:
-```bash
 docker pull bitnami/neo4j:5.26.1 || true
-kind load docker-image bitnami/neo4j:5.26.1 --name kind1 || true
-kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
+kind load docker-image bitnami/neo4j:5.26.1 --name kagent || true
+
+kubectl apply --context "${CLUSTER_CTX}" -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -184,22 +138,10 @@ spec:
         - name: "NEO4J_PASSWORD"
           value: "password"
 EOF
-```
 
-
-
-
-
-##  4 - Deploy app with no dependencies <a name="-4---deploy-app-with-no-dependencies-"></a>
-
-
-Let's deploy the application backend, version v1 to the clusters.
-
-To do so, run the following command:
-```bash
 docker pull nicholasjackson/fake-service:v0.26.2 || true
-kind load docker-image nicholasjackson/fake-service:v0.26.2 --name kind1 || true
-kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
+kind load docker-image nicholasjackson/fake-service:v0.26.2 --name kagent || true
+kubectl apply --context "${CLUSTER_CTX}" -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -258,20 +200,8 @@ spec:
         - name: "MESSAGE"
           value: "Hello From backend (v1)!"
 EOF
-```
 
-
-
-
-
-##  5 - Deploy app using Neo4j DB <a name="-5---deploy-app-using-neo4j-db-"></a>
-
-
-Let's deploy the application backend, version v2 to the clusters.
-
-To do so, run the following command:
-```bash
-kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
+kubectl apply --context "${CLUSTER_CTX}" -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -332,22 +262,11 @@ spec:
         - name: "UPSTREAM_URIS"
           value: "http://neo4j-db-v1:7474"
 EOF
-```
 
-
-
-
-
-##  6 - Deploy app using MySQL DB <a name="-6---deploy-app-using-mysql-db-"></a>
-
-
-Let's deploy the application backend, version v3 to the clusters.
-
-To do so, run the following command:
-```bash
 docker pull node:23-alpine || true
-kind load docker-image node:23-alpine --name kind1 || true
-kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
+kind load docker-image node:23-alpine --name kagent || true
+
+kubectl apply --context "${CLUSTER_CTX}" -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -496,20 +415,8 @@ spec:
         configMap:
           name: backend-v3-code
 EOF
-```
 
-
-
-
-
-##  7 - Deploy frontend app <a name="-7---deploy-frontend-app-"></a>
-
-
-Let's deploy the application frontend, version v1 to the clusters.
-
-To do so, run the following command:
-```bash
-kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
+kubectl apply --context "${CLUSTER_CTX}" -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -570,17 +477,4 @@ spec:
         - name: "UPSTREAM_URIS"
           value: "backend-v1:8080,http://backend-v2:8080,http://backend-v3:8080"
 EOF
-```
-
-
-
-
-
-##  8 - Wait until all pods are running <a name="-8---wait-until-all-pods-are-running-"></a>
-
-```bash
 kubectl --context ${CLUSTER_CTX} rollout status deployment
-```
-
-
-

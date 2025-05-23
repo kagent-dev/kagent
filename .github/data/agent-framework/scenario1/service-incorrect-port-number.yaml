@@ -5,12 +5,12 @@ metadata:
 spec:
   description: Service port number is incorrect, service is not reachable on expected port
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 I see errors reaching backend-v1.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`. And you have my permission to keep trying out things until you fix the environment and all tests pass.
   steps:
     - run: |
-        kubectl patch service/backend-v1 --context ${CLUSTER1} -p "
+        kubectl patch service/backend-v1 --context ${CLUSTER_CTX} -p "
         spec:
           ports:
             - port: 8080

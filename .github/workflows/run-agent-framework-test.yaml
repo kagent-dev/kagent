@@ -1,9 +1,11 @@
-name: Run PE Test
+name: Run Kubernetes Agent Benchmark
 
 on:
   workflow_dispatch:
 env:
-  CLUSTER1: cluster1
+  CLUSTER_CTX: kind-kagent
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
 
 jobs:
   solve-challenge:
@@ -61,90 +63,59 @@ jobs:
         - { name: scn1_ch22, scenario: scenario1, challenge: service-incorrect-port-number.yaml}
         - { name: scn1_ch23, scenario: scenario1, challenge: missing-service-selector.yaml}
         - { name: scn1_ch24, scenario: scenario1, challenge: pod-security-context-issue.yaml}
-    runs-on: ['ubuntu-24.04-4core-amd64']
+    runs-on: ['ubuntu-latest']
 
     steps:
     - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: 'Build Images'
+      env:
+        DOCKER_BUILD_ARGS: "--load --platform linux/amd64"
+        DOCKER_BUILDER: "docker buildx"
+        BUILD_ARGS: "--platform linux/amd64"
+      run: |
+        bash .github/data/agent-framework/0.setup.sh
+        kagent version
 
     - name: Gather challenge information
       working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
       run: |
         cat ${{ matrix.challenges.challenge }} | yq .spec.prompt
 
-    - name: npm dependencies
+    - name: Gather challenge information
       working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
-      continue-on-error: true
+      run: |
+        cat ${{ matrix.challenges.challenge }} | yq .spec.prompt
+
+    - name: Setup scenario
+      working-directory: .github/data/agent-framework
       timeout-minutes: 3
-      run: |
-        mkdir -p "/opt/npm-cache"
-        sudo chown -R 1001:1001 "/opt/npm-cache"
-        wget -qO- https://get.pnpm.io/install.sh | env PNPM_VERSION=10.0.0 sh -
-        sudo ln -s $HOME/.local/share/pnpm/pnpm -t /usr/local/sbin
-        npm install mocha -g
-        pnpm install
-        pnpm install chai @jsdevtools/chai-exec
-
-    - name: Run challenge
-      working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
-      timeout-minutes: 5
-      run: |
-        kind delete clusters --all || true
-        kubectl config delete-context mgmt || true
-        kubectl config delete-context cluster1 || true
-        cat README.md |./scripts/md-to-bash.sh | bash -x
-        echo "Waiting for pods to be stable..."
-        while kubectl --context ${CLUSTER1} get pods -A | grep ContainerCreating; do sleep 5; done
-        while kubectl --context ${CLUSTER1} get pods -A | grep Terminating; do sleep 5; done
-
-    - name: Test baseline
-      working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
-      timeout-minutes: 3
-      run: |
-        timeout --signal=INT 3m mocha ./test.js --timeout 10000 --retries 5
-
-    - name: Break environment
-      working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
-      continue-on-error: true
-      timeout-minutes: 3
-      run: |
-        STEPS_COUNT=$(yq '.spec.steps | length' ${{ matrix.challenges.challenge }})
-        for ((i=0; i<$STEPS_COUNT; i++)); do
-          yq ".spec.steps[$i].run" ${{ matrix.challenges.challenge }} | while IFS= read -r cmd; do
-            echo "$cmd" >> ${{ matrix.challenges.challenge }}.$i.sh
-          done
-          sh ${{ matrix.challenges.challenge }}.$i.sh
-        done
-        echo "Waiting for pods to be stable..."
-        while kubectl --context ${CLUSTER1} get pods -A | grep ContainerCreating; do sleep 5; done
-        while kubectl --context ${CLUSTER1} get pods -A | grep Terminating; do sleep 5; done
-        kubectl --context ${CLUSTER1} get pods -A
-
-    - name: Test again after breaking
-      working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
-      continue-on-error: true
-      timeout-minutes: 1
-      run: |
-        mocha ./test.js --timeout 10000 || true
-
-    - name: Fix it with Agent Framework
-      working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
-      timeout-minutes: 5
       env:
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        CLUSTER_CTX: kind-kagent
       run: |
-        USER_PROMPT=$(cat ${{ matrix.challenges.challenge }} | yq .spec.prompt)
-        echo "User prompt: $USER_PROMPT"
-        ###########################
-        # Call agent framework here
-        ###########################
+        bash "./${{ matrix.challenges.scenario }}/run.sh"
+        npm i || pnpm i
+        npm install -g mocha
 
-    - name: Test final state
+    - name: Run Test
+      working-directory: .github/data/agent-framework
+      timeout-minutes: 6
+      env:
+        CLUSTER_CTX: kind-kagent
+      run: |
+        ./run-challenge.sh "${{ matrix.challenges.scenario }}" "${{ matrix.challenges.challenge }}"
+
+    - name: Validate cluster fixed
       working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
       timeout-minutes: 1
+      env:
+        CLUSTER_CTX: kind-kagent
       run: |
-        kubectl --context ${CLUSTER1} get pods -A
-        mocha ./test.js --timeout 10000
+        kubectl --context ${CLUSTER_CTX} get pods -A
+        timeout --signal=INT 3m mocha ./test.js --timeout 10000 --retries 5
 
     - name: Save result
       working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
@@ -155,6 +126,22 @@ jobs:
         DESCRIPTION=$(cat ${{ matrix.challenges.challenge }} | yq .spec.description)
         job_outcome=$(echo '{}' | jq '. + {status: "${{ job.status }}"}' | jq --arg name "$NAME" '. + {name: $name}' | jq --arg description "$DESCRIPTION" '. + {description: $description}' | jq tostring)
         echo "${{ matrix.challenges.name }}=${job_outcome}" >> "$GITHUB_OUTPUT"
+
+    - name: Show Kagent output
+      working-directory: .github/data/agent-framework/${{ matrix.challenges.scenario }}
+      id: print_kagent_output
+      if: always()
+      run: |
+        cat results/*
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ${{ matrix.challenges.scenario }}-${{ matrix.challenges.name }}-results
+        path: .github/data/agent-framework/${{ matrix.challenges.scenario }}/results
+        retention-days: 3
+        if-no-files-found: warn
 
   summarize-results:
     needs: [solve-challenge]
