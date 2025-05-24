@@ -47,6 +47,10 @@ class Config(BaseModel):
         default=None,
         description="API key for OpenAI services. If empty, the environment variable 'OPENAI_API_KEY' will be used.",
     )
+    min_similarity: Optional[float] = Field(
+        default=0.7,
+        description="Minimum similarity threshold (0-1) for filtering search results. Results with similarity below this threshold will be excluded.",
+    )
 
 
 class QueryResult:
@@ -228,7 +232,9 @@ class QueryTool(BaseTool, Component[Config]):
                 filter["version"] = version
 
             results = self.query_collection(query_embedding, filter, limit, db_path)
-            return [{"distance": qr.distance, "content": qr.content} for qr in results]
+            # Filter results based on min_similarity threshold
+            filtered_results = [qr for qr in results if qr.distance <= (1 - self.config.min_similarity)]
+            return [{"distance": qr.distance, "content": qr.content} for qr in filtered_results]
 
         except Exception as e:
             logging.error("An error occurred: %s", e)
