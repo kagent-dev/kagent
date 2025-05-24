@@ -134,7 +134,20 @@ export default function ServersPage() {
                 {/* Server Header */}
                 <div className="bg-secondary/10 p-4">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 cursor-pointer">
+                    <div
+                      className="flex items-center gap-3 cursor-pointer"
+                      onClick={() => {
+                        setExpandedServers(prev => {
+                          const newSet = new Set(prev);
+                          if (newSet.has(serverName)) {
+                            newSet.delete(serverName);
+                          } else {
+                            newSet.add(serverName);
+                          }
+                          return newSet;
+                        });
+                      }}
+                    >
                       {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                       <div className="flex items-center gap-2">
                         <Globe className="h-5 w-5 text-green-500" />
@@ -150,7 +163,7 @@ export default function ServersPage() {
                     <div className="flex items-center gap-2">
                       <DropdownMenu 
                         open={openDropdownMenu === serverName} 
-                        onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? serverName : null)}
+                        onOpenChange={(isOpen: boolean) => setOpenDropdownMenu(isOpen ? serverName : null)}
                       >
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -160,7 +173,7 @@ export default function ServersPage() {
                         <DropdownMenuContent align="end">
                            <DropdownMenuItem 
                              className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                             onSelect={(e) => {
+                             onSelect={(e: React.SyntheticEvent) => {
                                e.preventDefault();
                                setOpenDropdownMenu(null);
                                 setShowConfirmDelete(serverName);
