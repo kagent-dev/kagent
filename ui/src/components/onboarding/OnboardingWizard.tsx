@@ -198,7 +198,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
       <Card className="w-full max-w-2xl relative">
         {renderCurrentStep()}
-        <div className="absolute bottom-4 right-4">
+        <div className="flex justify-between items-center px-6 pb-4 pt-2 w-full">
           <button
             onClick={onSkip}
             className="text-sm text-muted-foreground hover:text-primary underline cursor-pointer"
