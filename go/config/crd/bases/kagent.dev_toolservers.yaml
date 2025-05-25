@@ -49,26 +49,31 @@ spec:
                         x-kubernetes-preserve-unknown-fields: true
                       headersFrom:
                         items:
-                          description: Header represents an HTTP header
+                          description: ValueRef represents a configuration value
                           properties:
                             name:
                               type: string
                             value:
                               type: string
                             valueFrom:
-                              description: |-
-                                ValueSource defines a source for configuration values from a Secret or ConfigMap
-                                The Name is in the format "name/namespace", if namespace is not provided, the default namespace is used
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
                               properties:
                                 key:
                                   type: string
-                                name:
-                                  type: string
                                 type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                                valueRef:
+                                  description: |-
+                                    The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+                                    or a reference to a resource in a different namespace in the form "namespace/name".
+                                    If namespace is not provided, the default namespace is used.
                                   type: string
                               required:
                               - key
-                              - name
                               - type
                               type: object
                           required:
@@ -102,26 +107,31 @@ spec:
                         type: object
                       envFrom:
                         items:
-                          description: EnvVar represents an environment variable
+                          description: ValueRef represents a configuration value
                           properties:
                             name:
                               type: string
                             value:
                               type: string
                             valueFrom:
-                              description: |-
-                                ValueSource defines a source for configuration values from a Secret or ConfigMap
-                                The Name is in the format "name/namespace", if namespace is not provided, the default namespace is used
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
                               properties:
                                 key:
                                   type: string
-                                name:
-                                  type: string
                                 type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                                valueRef:
+                                  description: |-
+                                    The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+                                    or a reference to a resource in a different namespace in the form "namespace/name".
+                                    If namespace is not provided, the default namespace is used.
                                   type: string
                               required:
                               - key
-                              - name
                               - type
                               type: object
                           required:

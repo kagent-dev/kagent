@@ -49,48 +49,40 @@ spec:
                         x-kubernetes-preserve-unknown-fields: true
                       headersFrom:
                         items:
-                          description: Header represents an HTTP header
+                          description: ValueRef represents a configuration value
                           properties:
                             name:
                               type: string
                             value:
-                              x-kubernetes-preserve-unknown-fields: true
+                              type: string
                             valueFrom:
-                              description: HeaderSource represents a source for a
-                                header value
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
                               properties:
-                                configMapKeyRef:
-                                  description: ValueSource defines a source for configuration
-                                    values from a Secret or ConfigMap
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    namespace:
-                                      type: string
-                                  required:
-                                  - key
-                                  - name
-                                  type: object
-                                secretKeyRef:
-                                  description: ValueSource defines a source for configuration
-                                    values from a Secret or ConfigMap
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    namespace:
-                                      type: string
-                                  required:
-                                  - key
-                                  - name
-                                  type: object
+                                key:
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                                valueRef:
+                                  description: |-
+                                    The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+                                    or a reference to a resource in a different namespace in the form "namespace/name".
+                                    If namespace is not provided, the default namespace is used.
+                                  type: string
+                              required:
+                              - key
+                              - type
                               type: object
                           required:
                           - name
                           type: object
+                          x-kubernetes-validations:
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
                         type: array
                       sse_read_timeout:
                         type: string
@@ -115,48 +107,40 @@ spec:
                         type: object
                       envFrom:
                         items:
-                          description: EnvVar represents an environment variable
+                          description: ValueRef represents a configuration value
                           properties:
                             name:
                               type: string
                             value:
                               type: string
                             valueFrom:
-                              description: EnvVarSource represents a source for an
-                                environment variable value
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
                               properties:
-                                configMapKeyRef:
-                                  description: ValueSource defines a source for configuration
-                                    values from a Secret or ConfigMap
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    namespace:
-                                      type: string
-                                  required:
-                                  - key
-                                  - name
-                                  type: object
-                                secretKeyRef:
-                                  description: ValueSource defines a source for configuration
-                                    values from a Secret or ConfigMap
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    namespace:
-                                      type: string
-                                  required:
-                                  - key
-                                  - name
-                                  type: object
+                                key:
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                                valueRef:
+                                  description: |-
+                                    The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+                                    or a reference to a resource in a different namespace in the form "namespace/name".
+                                    If namespace is not provided, the default namespace is used.
+                                  type: string
+                              required:
+                              - key
+                              - type
                               type: object
                           required:
                           - name
                           type: object
+                          x-kubernetes-validations:
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
                         type: array
                     required:
                     - command

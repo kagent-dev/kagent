@@ -71,76 +71,68 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 	}, nil
 }
 
-// parseNamespacedName parses a string in the format "name/namespace" or just "name"
-// and returns the name and namespace separately.
-func parseNamespacedName(namespacedName string, defaultNamespace string) (name string, namespace string) {
-	parts := strings.Split(namespacedName, "/")
-	if len(parts) > 1 {
-		return parts[0], parts[1]
-	}
-	return namespacedName, defaultNamespace
-}
-
 // resolveValueSource resolves a value from a ValueSource
-func (a *apiTranslator) resolveValueSource(ctx context.Context, source *v1alpha1.ValueSource, defaultNamespace string) (string, error) {
+func (a *apiTranslator) resolveValueSource(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
 	if source == nil {
 		return "", fmt.Errorf("source cannot be nil")
 	}
 
 	switch source.Type {
 	case v1alpha1.ConfigMapValueSource:
-		return a.getConfigMapValue(ctx, source, defaultNamespace)
+		return a.getConfigMapValue(ctx, source, namespace)
 	case v1alpha1.SecretValueSource:
-		return a.getSecretValue(ctx, source, defaultNamespace)
+		return a.getSecretValue(ctx, source, namespace)
 	default:
 		return "", fmt.Errorf("unknown value source type: %s", source.Type)
 	}
 }
 
 // getConfigMapValue fetches a value from a ConfigMap
-func (a *apiTranslator) getConfigMapValue(ctx context.Context, source *v1alpha1.ValueSource, defaultNamespace string) (string, error) {
+func (a *apiTranslator) getConfigMapValue(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
 	if source == nil {
 		return "", fmt.Errorf("source cannot be nil")
 	}
 
-	// Parse the name and namespace from the source.Name field
-	// Format: "name/namespace" or just "name" (using defaultNamespace)
-	name, namespace := parseNamespacedName(source.Name, defaultNamespace)
-
-	nn := types.NamespacedName{Name: name, Namespace: namespace}
 	configMap := &corev1.ConfigMap{}
-	err := a.kube.Get(ctx, nn, configMap)
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		configMap,
+		source.ValueRef,
+		namespace,
+	)
 	if err != nil {
-		return "", fmt.Errorf("failed to find ConfigMap %s/%s: %v", nn.Namespace, nn.Name, err)
+		return "", fmt.Errorf("failed to find ConfigMap for %s: %v", source.ValueRef, err)
 	}
 
 	value, exists := configMap.Data[source.Key]
 	if !exists {
-		return "", fmt.Errorf("key %s not found in ConfigMap %s/%s", source.Key, nn.Namespace, nn.Name)
+		return "", fmt.Errorf("key %s not found in ConfigMap %s/%s", source.Key, configMap.Namespace, configMap.Name)
 	}
 	return value, nil
 }
 
 // getSecretValue fetches a value from a Secret
-func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.ValueSource, defaultNamespace string) (string, error) {
+func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
 	if source == nil {
 		return "", fmt.Errorf("source cannot be nil")
 	}
 
-	// Parse the name and namespace from the source.Name field
-	// Format: "name/namespace" or just "name" (using defaultNamespace)
-	name, namespace := parseNamespacedName(source.Name, defaultNamespace)
-
-	nn := types.NamespacedName{Name: name, Namespace: namespace}
 	secret := &corev1.Secret{}
-	err := a.kube.Get(ctx, nn, secret)
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		secret,
+		source.ValueRef,
+		namespace,
+	)
 	if err != nil {
-		return "", fmt.Errorf("failed to find Secret %s/%s: %v", nn.Namespace, nn.Name, err)
+		return "", fmt.Errorf("failed to find Secret for %s: %v", source.ValueRef, err)
 	}
 
 	value, exists := secret.Data[source.Key]
 	if !exists {
-		return "", fmt.Errorf("key %s not found in Secret %s/%s", source.Key, nn.Namespace, nn.Name)
+		return "", fmt.Errorf("key %s not found in Secret %s/%s", source.Key, secret.Namespace, secret.Name)
 	}
 	return string(value), nil
 }

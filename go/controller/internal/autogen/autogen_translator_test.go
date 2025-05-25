@@ -74,12 +74,12 @@ var _ = Describe("ConfigMap and Secret Value Resolution", func() {
 					Stdio: &v1alpha1.StdioMcpServerConfig{
 						Command: "echo",
 						Args:    []string{"hello"},
-						EnvFrom: []v1alpha1.EnvVar{
+						EnvFrom: []v1alpha1.ValueRef{
 							{
 								Name: "TEST_ENV",
 								ValueFrom: &v1alpha1.ValueSource{
 									Type: v1alpha1.ConfigMapValueSource,
-									Name: "test-config",
+									ValueRef: "test-config",
 									Key:  "test-key",
 								},
 							},
@@ -124,12 +124,12 @@ var _ = Describe("ConfigMap and Secret Value Resolution", func() {
 					Stdio: &v1alpha1.StdioMcpServerConfig{
 						Command: "echo",
 						Args:    []string{"hello"},
-						EnvFrom: []v1alpha1.EnvVar{
+						EnvFrom: []v1alpha1.ValueRef{
 							{
 								Name: "TEST_ENV",
 								ValueFrom: &v1alpha1.ValueSource{
 									Type: v1alpha1.SecretValueSource,
-									Name: "test-secret",
+									ValueRef: "test-secret",
 									Key:  "test-key",
 								},
 							},
@@ -164,12 +164,12 @@ var _ = Describe("ConfigMap and Secret Value Resolution", func() {
 					Stdio: &v1alpha1.StdioMcpServerConfig{
 						Command: "echo",
 						Args:    []string{"hello"},
-						EnvFrom: []v1alpha1.EnvVar{
+						EnvFrom: []v1alpha1.ValueRef{
 							{
 								Name: "TEST_ENV",
 								ValueFrom: &v1alpha1.ValueSource{
 									Type: v1alpha1.ConfigMapValueSource,
-									Name: "nonexistent-config",
+									ValueRef: "nonexistent-config",
 									Key:  "test-key",
 								},
 							},
