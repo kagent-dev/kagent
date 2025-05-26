@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { getTeams, createAgent } from "@/app/actions/teams";
 import { Component, ToolConfig, Agent, Tool, AgentResponse } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
@@ -18,6 +18,16 @@ interface ValidationErrors {
   memory?: string;
 }
 
+type AgentSkill = {
+  id: string;
+  name: string;
+  description?: string;
+  examples?: string[];
+  inputModes?: string[];
+  outputModes?: string[];
+  tags?: string[];
+};
+
 export interface AgentFormData {
   name: string;
   description: string;
@@ -25,6 +35,13 @@ export interface AgentFormData {
   model: Partial<ModelConfig>;
   tools: Tool[];
   memory?: string[];
+  a2aEnabled?: boolean;
+  a2aSkills?: AgentSkill[];
+  a2aAuth?: {
+    type: 'jwt' | 'apiKey' | 'none';
+    audience?: string;
+    issuer?: string;
+  };
 }
 
 interface AgentsContextType {
@@ -61,7 +78,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const [tools, setTools] = useState<Component<ToolConfig>[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
 
-  const fetchTeams = async () => {
+  const fetchTeams = useCallback(async () => {
     try {
       setLoading(true);
       const teamsResult = await getTeams();
@@ -77,9 +94,9 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     try {
       setLoading(true);
       const response = await getModelConfigs();
@@ -95,9 +112,9 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [error]);
 
-  const fetchTools = async () => {
+  const fetchTools = useCallback(async () => {
     try {
       setLoading(true);
       const response = await getTools();
@@ -111,7 +128,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [error]);
 
   // Validation logic moved from the component
   const validateAgentData = (data: Partial<AgentFormData>): ValidationErrors => {
@@ -172,6 +189,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
   // Agent creation logic moved from the component
   const createNewAgent = async (agentData: AgentFormData) => {
+    console.log("[createNewAgent] agentData:", agentData);
     try {
       const errors = validateAgentData(agentData);
       if (Object.keys(errors).length > 0) {
@@ -197,6 +215,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
   // Update existing agent
   const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
+    console.log("[updateAgent] agentData:", agentData);
     try {
       const errors = validateAgentData(agentData);
 
@@ -228,7 +247,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     fetchTeams();
     fetchTools();
     fetchModels();
-  }, []);
+  }, [fetchTeams, fetchTools, fetchModels]);
 
   const value = {
     agents,

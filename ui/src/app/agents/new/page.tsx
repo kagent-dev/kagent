@@ -19,15 +19,47 @@ import { AgentFormData } from "@/components/AgentsProvider";
 import { Tool } from "@/types/datamodel";
 import { toast } from "sonner";
 import { listMemories } from "@/app/actions/memories";
+import { A2AAuthSection } from "@/components/create/A2AAuthSection";
 
 interface ValidationErrors {
   name?: string;
   description?: string;
   systemPrompt?: string;
   model?: string;
-  knowledgeSources?: string;
   tools?: string;
   memory?: string;
+  a2aAuth?: string;
+  [key: string]: string | undefined;
+}
+
+interface AgentSkill {
+  id: string;
+  name: string;
+  description?: string;
+  examples?: string[];
+  inputModes?: string[];
+  outputModes?: string[];
+  tags?: string[];
+}
+
+interface A2AConfig {
+  enabled: boolean;
+  auth?: {
+    type: 'jwt' | 'apiKey' | 'none';
+    audience?: string;
+    issuer?: string;
+  };
+  skills: AgentSkill[];
+}
+
+interface A2AAuthState {
+  enabled: boolean;
+  auth: {
+    type: 'jwt' | 'apiKey' | 'none';
+    audience?: string;
+    issuer?: string;
+  };
+  skills: AgentSkill[];
 }
 
 interface AgentPageContentProps {
@@ -66,6 +98,17 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   // Memory state
   const [availableMemories, setAvailableMemories] = useState<MemoryResponse[]>([]);
   const [selectedMemories, setSelectedMemories] = useState<string[]>([]);
+
+  // A2A auth state
+  const [a2aAuth, setA2aAuth] = useState<A2AAuthState>({
+    enabled: false,
+    auth: {
+      type: 'none',
+      audience: '',
+      issuer: ''
+    },
+    skills: []
+  });
 
   // Overall form state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -108,6 +151,19 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
               if (agent.spec.memory && Array.isArray(agent.spec.memory)) {
                 setSelectedMemories(agent.spec.memory);
               }
+
+              // Set A2A auth if it exists
+              if (agent.spec.a2aConfig) {
+                setA2aAuth({
+                  enabled: agent.spec.a2aConfig.enabled || false,
+                  auth: {
+                    type: agent.spec.a2aConfig.auth?.type || 'none',
+                    audience: agent.spec.a2aConfig.auth?.audience || '',
+                    issuer: agent.spec.a2aConfig.auth?.issuer || ''
+                  },
+                  skills: agent.spec.a2aConfig.skills || []
+                });
+              }
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
               toast.error("Failed to extract agent data from team structure");
@@ -149,27 +205,27 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
       tools: selectedTools,
     };
 
-    const newErrors = validateAgentData(formData);
+    const newErrors = validateAgentData(formData) as ValidationErrors;
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   // Add field-level validation functions
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const validateField = (fieldName: keyof ValidationErrors, value: any) => {
+  const validateField = (fieldName: keyof ValidationErrors, value: unknown) => {
     const formData: Partial<AgentFormData> = {};
 
     // Set only the field being validated
     switch (fieldName) {
-      case 'name': formData.name = value; break;
-      case 'description': formData.description = value; break;
-      case 'systemPrompt': formData.systemPrompt = value; break;
-      case 'model': formData.model = value; break;
-      case 'tools': formData.tools = value; break;
-      case 'memory': formData.memory = value; break;
+      case 'name': formData.name = value as string; break;
+      case 'description': formData.description = value as string; break;
+      case 'systemPrompt': formData.systemPrompt = value as string; break;
+      case 'model': formData.model = value as ModelConfig; break;
+      case 'tools': formData.tools = value as Tool[]; break;
+      case 'memory': formData.memory = value as string[]; break;
+      case 'a2aAuth': formData.a2aConfig = value as A2AConfig; break;
     }
 
-    const fieldErrors = validateAgentData(formData);
+    const fieldErrors = validateAgentData(formData) as ValidationErrors;
 
     // Update only the specific field error
     setErrors(prev => ({
@@ -180,6 +236,13 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 
   const handleSaveAgent = async () => {
     if (!validateForm()) {
+      return;
+    }
+
+    // Validate A2A skills
+    if (a2aAuth.enabled && (!a2aAuth.skills || a2aAuth.skills.length === 0)) {
+      toast.error("At least one skill is required when A2A is enabled.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -196,8 +259,17 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
         model: selectedModel,
         tools: selectedTools,
         memory: selectedMemories,
+        a2aEnabled: a2aAuth.enabled,
+        a2aSkills: a2aAuth.enabled ? a2aAuth.skills : undefined,
+        a2aAuth: a2aAuth.enabled && a2aAuth.auth.type !== 'none' ? {
+          enabled: true,
+          type: a2aAuth.auth.type,
+          audience: a2aAuth.auth.audience,
+          issuer: a2aAuth.auth.issuer
+        } : undefined
       };
 
+      console.log("Submitting agentData:", agentData);
       let result;
 
       if (isEditMode && agentId) {
@@ -207,6 +279,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
         // Create new agent
         result = await createNewAgent(agentData);
       }
+      console.log("Update/Create result:", result);
 
       if (!result.success) {
         throw new Error(result.error || `Failed to ${isEditMode ? "update" : "create"} agent`);
@@ -220,6 +293,10 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleA2AAuthChange = (newValue: A2AAuthState) => {
+    setA2aAuth(newValue);
   };
 
   const renderPageContent = () => {
@@ -260,14 +337,14 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 <div>
                   <label className="text-base mb-2 block font-bold">Description</label>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    This is a description of the agent. It's for your reference only and it's not going to be used by the agent.
+                    This is a description of the agent. It&apos;s for your reference only and it&apos;s not going to be used by the agent.
                   </p>
                   <Textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     onBlur={() => validateField('description', description)}
                     className={`min-h-[100px] ${errors.description ? "border-red-500" : ""}`}
-                    placeholder="Describe your agent. This is for your reference only and it's not going to be used by the agent."
+                    placeholder="Describe your agent. This is for your reference only and it&apos;s not going to be used by the agent."
                     disabled={isSubmitting || isLoading}
                   />
                   {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
@@ -301,7 +378,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   Memory
                 </CardTitle>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    The memories that the agent will use to answer the user's questions.
+                    The memories that the agent will use to answer the user&apos;s questions.
                   </p>
               </CardHeader>
               <CardContent>
@@ -330,6 +407,12 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 />
               </CardContent>
             </Card>
+            <A2AAuthSection
+              value={a2aAuth}
+              onChange={handleA2AAuthChange}
+              error={errors.a2aAuth}
+              disabled={isSubmitting || isLoading}
+            />
             <div className="flex justify-end">
               <Button className="bg-violet-500 hover:bg-violet-600" onClick={handleSaveAgent} disabled={isSubmitting || isLoading}>
                 {isSubmitting ? (
@@ -362,8 +445,8 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 export default function AgentPage() {
   // Determine if in edit mode
   const searchParams = useSearchParams();
-  const isEditMode = searchParams.get("edit") === "true";
-  const agentId = searchParams.get("id");
+  const isEditMode = searchParams?.get("edit") === "true";
+  const agentId = searchParams?.get("id") ?? null;
   
   // Create a key based on the edit mode and agent ID
   const formKey = isEditMode ? `edit-${agentId}` : 'create';

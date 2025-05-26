@@ -209,3 +209,60 @@ export const messageUtils = {
     return source === "user";
   },
 };
+
+export async function makeA2ARequest(
+  url: string,
+  method: string,
+  body: any,
+  agentName: string
+): Promise<Response> {
+  // First check if this agent has authentication disabled
+  const authCheckResponse = await fetch('/api/generate-a2a-token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      agentName,
+      audience: 'kagent-a2a',
+      issuer: 'kagent',
+    }),
+  });
+
+  const authCheck = await authCheckResponse.json();
+
+  // If authentication is disabled, make the request without a token
+  if (authCheck.authDisabled) {
+    return fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  // Otherwise, get a token and include it in the request
+  const tokenResponse = await fetch('/api/generate-a2a-token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      agentName,
+      audience: 'kagent-a2a',
+      issuer: 'kagent',
+    }),
+  });
+
+  const { token } = await tokenResponse.json();
+
+  return fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+}

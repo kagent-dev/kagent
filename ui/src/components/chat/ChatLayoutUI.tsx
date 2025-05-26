@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import { AgentResponse, Session, Component, ToolConfig } from "@/types/datamodel";
@@ -25,7 +25,7 @@ export default function ChatLayoutUI({
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
 
-  const refreshSessions = async () => {
+  const refreshSessions = useCallback(async () => {
     setIsLoadingSessions(true);
     try {
       const sessionsResponse = await getSessions(agentId);
@@ -41,11 +41,11 @@ export default function ChatLayoutUI({
     } finally {
       setIsLoadingSessions(false);
     }
-  };
+  }, [agentId]);
 
   useEffect(() => {
     refreshSessions();
-  }, [agentId]);
+  }, [agentId, refreshSessions]);
 
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

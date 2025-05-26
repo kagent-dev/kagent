@@ -8,11 +8,19 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const agentSetupSchema = z.object({
     agentName: z.string().min(1, "Agent name is required."),
     agentDescription: z.string().optional(),
     agentInstructions: z.string().min(10, "Instructions should be at least 10 characters long."),
+    a2aAuth: z.object({
+        enabled: z.boolean().default(false),
+        type: z.enum(["jwt", "apiKey", "none"]).default("none"),
+        audience: z.string().optional(),
+        issuer: z.string().optional(),
+    }).default({ enabled: false, type: "none" })
 });
 export type AgentSetupFormData = z.infer<typeof agentSetupSchema>;
 
@@ -52,10 +60,10 @@ export function AgentSetupStep({ initialData, onNext, onBack }: AgentSetupStepPr
                 <CardHeader className="pt-8 pb-4 border-b">
                     <CardTitle className="text-2xl">Step 2: Set Up The AI Agent</CardTitle>
                     <CardDescription className="text-md">
-                        Configure the name, description, and instructions for our Kubernetes assistant.
+                        Configure the name, description, instructions, and authentication for your Kubernetes assistant.
                     </CardDescription>
                 </CardHeader>
-                <CardContent className="px-8 pt-6 pb-6 space-y-4"> {/* Add spacing here */}
+                <CardContent className="px-8 pt-6 pb-6 space-y-4">
                     <FormField
                         control={form.control}
                         name="agentName"
@@ -103,6 +111,75 @@ export function AgentSetupStep({ initialData, onNext, onBack }: AgentSetupStepPr
                             </FormItem>
                         )}
                     />
+                    <FormField
+                        control={form.control}
+                        name="a2aAuth.enabled"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Enable A2A Auth</FormLabel>
+                                <FormControl>
+                                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                                </FormControl>
+                                <FormDescription>Enable authentication for this agent&apos;s A2A server.</FormDescription>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="a2aAuth.type"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Auth Type</FormLabel>
+                                <Select value={field.value} onValueChange={field.onChange}>
+                                    <FormControl>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select auth type" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="jwt">JWT</SelectItem>
+                                        <SelectItem value="apiKey">API Key</SelectItem>
+                                        <SelectItem value="none">None</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <FormDescription>Select the authentication type for this agent.</FormDescription>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    {form.watch('a2aAuth.type') === 'jwt' && (
+                        <>
+                            <FormField
+                                control={form.control}
+                                name="a2aAuth.audience"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>JWT Audience</FormLabel>
+                                        <FormControl>
+                                            <Input {...field} />
+                                        </FormControl>
+                                        <FormDescription>Expected audience for JWT tokens.</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="a2aAuth.issuer"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>JWT Issuer</FormLabel>
+                                        <FormControl>
+                                            <Input {...field} />
+                                        </FormControl>
+                                        <FormDescription>Expected issuer for JWT tokens.</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        </>
+                    )}
                 </CardContent>
                 <CardFooter className="flex justify-between items-center pb-8 pt-2">
                     <Button variant="outline" type="button" onClick={onBack}>Back</Button>

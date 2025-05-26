@@ -68,8 +68,8 @@ const createRefinedSchema = (selectedProvider: Provider | null, isEditing: boole
 export default function NewMemoryPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const editMode = searchParams.has('edit')
-  const memoryNameToEdit = searchParams.get('edit')
+  const editMode = searchParams?.has('edit') ?? false
+  const memoryNameToEdit = searchParams?.get('edit') ?? null
   
   const [providers, setProviders] = useState<Provider[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -111,11 +111,11 @@ export default function NewMemoryPage() {
         scoreThreshold: 0.10,
       },
     },
-  })
+  });
 
   useEffect(() => {
     form.reset(form.getValues());
-  }, [currentSchema, form.reset, form.getValues]);
+  }, [currentSchema, form]);
 
   useEffect(() => {
     async function loadProviders() {
@@ -126,6 +126,37 @@ export default function NewMemoryPage() {
           
           // If in edit mode, load the memory details after providers are loaded
           if (editMode && memoryNameToEdit) {
+            const loadMemoryForEditing = async (memoryName: string, availableProviders: Provider[]) => {
+              try {
+                setIsLoading(true)
+                const memory = await getMemory(memoryName)
+                
+                // Find the correct provider
+                const provider = availableProviders.find(p => p.type === memory.providerName)
+                if (provider) {
+                  setSelectedProvider(provider)
+                  
+                  // Set form values
+                  form.setValue('name', memory.name)
+                  form.setValue('providerType', provider.type)
+                  // We don't need to set API key in edit mode as the field will be hidden
+                  form.setValue('apiKey', '')
+                  
+                  // Set provider params
+                  if (memory.memoryParams) {
+                    Object.entries(memory.memoryParams).forEach(([key, value]) => {
+                      if (value !== null && value !== undefined) {
+                        form.setValue(`providerParams.${key}`, value)
+                      }
+                    })
+                  }
+                }
+              } catch (error) {
+                toast.error(`Error loading memory: ${error instanceof Error ? error.message : String(error)}`)
+              } finally {
+                setIsLoading(false)
+              }
+            }
             await loadMemoryForEditing(memoryNameToEdit, response.data)
           }
         } else {
@@ -136,39 +167,7 @@ export default function NewMemoryPage() {
       }
     }
     loadProviders()
-  }, [editMode, memoryNameToEdit])
-
-  const loadMemoryForEditing = async (memoryName: string, availableProviders: Provider[]) => {
-    try {
-      setIsLoading(true)
-      const memory = await getMemory(memoryName)
-      
-      // Find the correct provider
-      const provider = availableProviders.find(p => p.type === memory.providerName)
-      if (provider) {
-        setSelectedProvider(provider)
-        
-        // Set form values
-        form.setValue('name', memory.name)
-        form.setValue('providerType', provider.type)
-        // We don't need to set API key in edit mode as the field will be hidden
-        form.setValue('apiKey', '')
-        
-        // Set provider params
-        if (memory.memoryParams) {
-          Object.entries(memory.memoryParams).forEach(([key, value]) => {
-            if (value !== null && value !== undefined) {
-              form.setValue(`providerParams.${key}`, value)
-            }
-          })
-        }
-      }
-    } catch (error) {
-      toast.error(`Error loading memory: ${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  }, [editMode, memoryNameToEdit, form]);
 
   const onSubmit = async (values: MemoryFormValues) => {
     setIsLoading(true)
