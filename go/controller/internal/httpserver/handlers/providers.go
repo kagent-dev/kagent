@@ -27,6 +27,9 @@ func getRequiredKeysForModelProvider(providerType v1alpha1.ModelProvider) []stri
 	case v1alpha1.OpenAI, v1alpha1.Anthropic, v1alpha1.Ollama:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
+	case v1alpha1.Gemini: // --- ADDED: Gemini case ---
+		// Currently, no fields within GeminiConfig are marked as +required in v1alpha1.types.go
+		return []string{}
 	default:
 		// Unknown provider, return empty
 		return []string{}
@@ -95,6 +98,7 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 		{v1alpha1.Anthropic, reflect.TypeOf(v1alpha1.AnthropicConfig{})},
 		{v1alpha1.AzureOpenAI, reflect.TypeOf(v1alpha1.AzureOpenAIConfig{})},
 		{v1alpha1.Ollama, reflect.TypeOf(v1alpha1.OllamaConfig{})},
+		{v1alpha1.Gemini, reflect.TypeOf(v1alpha1.GeminiConfig{})}, // --- ADDED: Gemini to providersData ---
 	}
 
 	providersResponse := []map[string]interface{}{}

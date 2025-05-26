@@ -189,6 +189,7 @@ helm-test: helm-version
 	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key 			| tee tmp/openAI.yaml 		| grep ^kind: | wc -l)
 	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key 	| tee tmp/anthropic.yaml 	| grep ^kind: | wc -l)
 	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key		| tee tmp/azureOpenAI.yaml	| grep ^kind: | wc -l)
+	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=gemini       --set providers.azureOpenAI.apiKey=your-gemini-key		    | tee tmp/gemini.yaml	    | grep ^kind: | wc -l)
 
 .PHONY: helm-agents
 helm-agents:
@@ -239,6 +240,7 @@ helm-install-provider: helm-version check-openai-key
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
+		--set providers.anthropic.apiKey=$(GEMINI_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
 		$(HELM_EXTRA_ARGS)
 

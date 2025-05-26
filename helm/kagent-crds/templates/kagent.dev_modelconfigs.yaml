@@ -108,6 +108,33 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              gemini:
+                description: Gemini-specific configuration
+                properties:
+                  baseUrl:
+                    description: Base URL for the Gemini API (overrides default)
+                    type: string
+                  candidateCount:
+                    description: Number of generated responses to return
+                    type: integer
+                  maxOutputTokens:
+                    description: Maximum tokens to generate in the output
+                    type: integer
+                  stopSequences:
+                    description: Stop sequences for generation
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
               model:
                 type: string
               modelInfo:
@@ -183,6 +210,7 @@ spec:
                 - OpenAI
                 - AzureOpenAI
                 - Ollama
+                - Gemini
                 type: string
             required:
             - model
@@ -197,6 +225,8 @@ spec:
               rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
             - message: provider.ollama must be nil if the provider is not Ollama
               rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
+            - message: provider.gemini must be nil if the provider is not Gemini
+              rule: '!(has(self.gemini) && self.provider != ''Gemini'')'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

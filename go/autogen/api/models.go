@@ -103,6 +103,37 @@ type AnthropicClientConfiguration struct {
 	BaseAnthropicClientConfiguration
 }
 
+// GeminiCreateArguments holds the arguments specific to Gemini's chat completion requests.
+type GeminiCreateArguments struct {
+	CandidateCount  int      `json:"candidate_count,omitempty"`
+	Temperature     float64  `json:"temperature,omitempty"`
+	MaxOutputTokens int      `json:"max_output_tokens,omitempty"`
+	TopP            float64  `json:"top_p,omitempty"`
+	TopK            int      `json:"top_k,omitempty"`
+	StopSequences   []string `json:"stop_sequences,omitempty"`
+	// Add other Gemini-specific parameters here as needed, e.g., SafetySettings
+}
+
+// BaseGeminiClientConfig defines common configuration for Gemini clients.
+type BaseGeminiClientConfig struct {
+	BaseClientConfig // Embeds DefaultHeaders
+
+	APIKey            string     `json:"api_key,omitempty"`
+	Model             string     `json:"model"`              // e.g., "gemini-pro", "gemini-1.5-flash-latest"
+	BaseURL           string     `json:"base_url,omitempty"` // Optional, if using a custom endpoint
+	Timeout           int        `json:"timeout,omitempty"`
+	MaxRetries        int        `json:"max_retries,omitempty"`
+	ModelCapabilities *ModelInfo `json:"model_capabilities,omitempty"` // Describes what the model supports (vision, function calling, etc.)
+	ModelInfo         *ModelInfo `json:"model_info,omitempty"`         // Detailed info about the model
+	GeminiCreateArguments
+}
+
+// GeminiClientConfig is the main configuration struct for the Gemini LLM provider.
+type GeminiClientConfig struct {
+	BaseGeminiClientConfig
+	// No additional fields specific to GeminiClientConfig currently, but can be added if needed.
+}
+
 func (c *AnthropicClientConfiguration) ToConfig() (map[string]interface{}, error) {
 	return toConfig(c)
 }
@@ -131,5 +162,15 @@ func (c *OllamaClientConfiguration) ToConfig() (map[string]interface{}, error) {
 }
 
 func (c *OllamaClientConfiguration) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
+
+// ToConfig converts the GeminiClientConfig to a generic map.
+func (c *GeminiClientConfig) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+// FromConfig populates the GeminiClientConfig from a generic map.
+func (c *GeminiClientConfig) FromConfig(config map[string]interface{}) error {
 	return fromConfig(c, config)
 }

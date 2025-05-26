@@ -35,6 +35,22 @@ providers:
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
+  # --- ADDED: Gemini Provider Configuration ---
+  gemini:
+    provider: Gemini
+    model: "gemini-pro" # Or "gemini-1.5-flash-latest", "gemini-1.5-pro-latest", etc.
+    apiKeySecretRef: kagent-gemini # Name of the Kubernetes Secret holding the API key
+    apiKeySecretKey: GEMINI_API_KEY # Key within the Secret that contains the API key
+    apiKey: "" # You can set the API key directly here for testing, but typically use a secret
+    config: # Gemini-specific parameters
+      baseUrl: "" # Optional: Override the default Gemini API base URL
+      candidateCount: 1 # Optional: Number of generated responses (default is 1)
+      temperature: 0.7 # Optional: Controls randomness, usually between 0.0 and 1.0
+      maxOutputTokens: 2048 # Optional: Maximum tokens to generate
+      topP: 0.9 # Optional: Top-p sampling parameter
+      topK: 40 # Optional: Top-k sampling parameter
+      # Add other Gemini-specific config parameters as needed, e.g., stopSequences, safetySettings
+  # -------------------------------------------
 
 controller:
   loglevel: "info"
@@ -73,95 +89,3 @@ app:
     limits:
       cpu: 1000m
       memory: 1Gi
-  env: [] # Additional environment variables for the app can be added here
-
-ui:
-  image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/ui
-    tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-  env: [] # Additional environment variables for the ui can be added here
-
-service:
-  type: ClusterIP
-  ports:
-    ui:
-      port: 80
-      targetPort: 80
-    app:
-      port: 8081
-      targetPort: 8081
-    controller:
-      port: 8083
-      targetPort: 8083
-
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
-
-# -- Override the namespace
-# @default -- `.Release.Namespace`
-namespaceOverride: ""
-
-podAnnotations: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
-
-otel:
-  tracing:
-    enabled: false
-    exporter:
-      otlp:
-        endpoint: http://host.docker.internal:4317
-        timeout: 10
-        insecure: true
-
-k8s-agent:
-  enabled: true
-
-kgateway-agent:
-  enabled: true
-
-istio-agent:
-  enabled: true
-
-promql-agent:
-  enabled: true
-
-observability-agent:
-  enabled: true
-  prometheus:
-    url: ""
-    username: ""
-    password: ""
-  grafana:
-    url: ""
-    username: ""
-    password: ""
-    apiKey: ""
-
-argo-rollouts-agent:
-  enabled: true
-
-helm-agent:
-  enabled: true
-
-cilium-crd-agent:
-  enabled: true

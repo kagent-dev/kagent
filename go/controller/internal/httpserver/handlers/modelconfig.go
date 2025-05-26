@@ -65,6 +65,10 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		if config.Spec.Ollama != nil {
 			FlattenStructToMap(config.Spec.Ollama, modelParams)
 		}
+		// --- ADDED: Handle Gemini parameters for listing ---
+		if config.Spec.Gemini != nil {
+			FlattenStructToMap(config.Spec.Gemini, modelParams)
+		}
 
 		responseItem := ModelConfigResponse{
 			Name:            config.Name,
@@ -123,6 +127,10 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	if modelConfig.Spec.Ollama != nil {
 		FlattenStructToMap(modelConfig.Spec.Ollama, modelParams)
 	}
+	// --- ADDED: Handle Gemini parameters for getting a single config ---
+	if modelConfig.Spec.Gemini != nil {
+		FlattenStructToMap(modelConfig.Spec.Gemini, modelParams)
+	}
 
 	responseItem := ModelConfigResponse{
 		Name:            modelConfig.Name,
@@ -164,6 +172,8 @@ type CreateModelConfigRequest struct {
 	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
 	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
+	// --- ADDED: GeminiParams for CreateModelConfigRequest ---
+	GeminiParams *v1alpha1.GeminiConfig `json:"gemini,omitempty"`
 }
 
 type Provider struct {
@@ -207,8 +217,9 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 	secret := &corev1.Secret{}
 
-	// If the provider is Ollama, we don't need to create a secret.
-	if providerTypeEnum == v1alpha1.Ollama || req.APIKey == "" {
+	// If the provider is Ollama or Gemini, we don't necessarily need to create a secret for API key if not provided.
+	// However, Gemini generally requires an API Key, so ensure it's handled.
+	if providerTypeEnum == v1alpha1.Ollama || req.APIKey == "" { // Changed condition to explicitly check APIKey existence
 		log.V(1).Info("Ollama provider or empty API key, skipping secret creation")
 	} else {
 		apiKey := req.APIKey
@@ -269,6 +280,14 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No Ollama params provided in create.")
 		}
+	// --- ADDED: Handle Gemini parameters for creation ---
+	case v1alpha1.Gemini:
+		if req.GeminiParams != nil {
+			modelConfig.Spec.Gemini = req.GeminiParams
+			log.V(1).Info("Assigned Gemini params to spec")
+		} else {
+			log.V(1).Info("No Gemini params provided in create.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
 	}
@@ -277,7 +296,8 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		log.Error(providerConfigErr, "Failed to assign provider config")
 		// Clean up the created secret if config assignment fails
 		log.V(1).Info("Attempting to clean up secret due to config assignment failure")
-		if providerTypeEnum != v1alpha1.Ollama {
+		// Only delete secret if it was actually created
+		if providerTypeEnum != v1alpha1.Ollama && req.APIKey != "" { // Check if secret was potentially created
 			if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
 				log.Error(cleanupErr, "Failed to cleanup secret after config assignment failure")
 			}
@@ -290,7 +310,8 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		log.Error(err, "Failed to create ModelConfig resource")
 		// If we fail to create the ModelConfig, we should clean up the secret
 		log.V(1).Info("Attempting to clean up secret after ModelConfig creation failure")
-		if providerTypeEnum != v1alpha1.Ollama {
+		// Only delete secret if it was actually created
+		if providerTypeEnum != v1alpha1.Ollama && req.APIKey != "" { // Check if secret was potentially created
 			if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
 				log.Error(cleanupErr, "Failed to cleanup secret after ModelConfig creation failure")
 			}
@@ -313,6 +334,8 @@ type UpdateModelConfigRequest struct {
 	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
 	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
+	// --- ADDED: GeminiParams for UpdateModelConfigRequest ---
+	GeminiParams *v1alpha1.GeminiConfig `json:"gemini,omitempty"`
 }
 
 func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *http.Request) {
@@ -351,6 +374,8 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
+	// Reset all provider-specific fields before assigning the new one
+	// This ensures that if the provider changes, old params are cleared.
 	modelConfig.Spec = v1alpha1.ModelConfigSpec{
 		Model:       req.Model,
 		Provider:    v1alpha1.ModelProvider(req.Provider.Type),
@@ -358,10 +383,14 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		Anthropic:   nil,
 		AzureOpenAI: nil,
 		Ollama:      nil,
+		Gemini:      nil, // --- ADDED: Clear Gemini parameters on update ---
 	}
 
 	// --- Update Secret if API Key is provided (and not Ollama or using AI API Gateway) ---
-	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.Ollama
+	// If APIKey is provided (and not nil or empty), and it's not Ollama
+	// or if the provider is Gemini and APIKey is provided
+	shouldUpdateSecret := (req.APIKey != nil && *req.APIKey != "") && (modelConfig.Spec.Provider != v1alpha1.Ollama)
+
 	if shouldUpdateSecret {
 		secretName := configName
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
@@ -440,6 +469,14 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No Ollama params provided in update.")
 		}
+	// --- ADDED: Handle Gemini parameters for update ---
+	case v1alpha1.Gemini:
+		if req.GeminiParams != nil {
+			modelConfig.Spec.Gemini = req.GeminiParams
+			log.V(1).Info("Assigned updated Gemini params to spec")
+		} else {
+			log.V(1).Info("No Gemini params provided in update.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)
 	}
@@ -466,6 +503,8 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		FlattenStructToMap(modelConfig.Spec.AzureOpenAI, updatedParams)
 	} else if modelConfig.Spec.Ollama != nil {
 		FlattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
+	} else if modelConfig.Spec.Gemini != nil { // --- ADDED: Flatten Gemini params for response ---
+		FlattenStructToMap(modelConfig.Spec.Gemini, updatedParams)
 	}
 
 	responseItem := ModelConfigResponse{

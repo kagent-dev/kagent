@@ -81,6 +81,17 @@ export interface OllamaConfigPayload {
     options?: Record<string, string>;
 }
 
+// --- ADDED: GeminiConfigPayload ---
+export interface GeminiConfigPayload {
+    baseUrl?: string;
+    candidateCount?: number;
+    temperature?: string;
+    maxOutputTokens?: number;
+    topP?: string;
+    topK?: number;
+    stopSequences?: string[];
+}
+
 export interface CreateModelConfigPayload {
   name: string;
   provider: Pick<Provider, "name" | "type">;
@@ -90,6 +101,7 @@ export interface CreateModelConfigPayload {
   anthropic?: AnthropicConfigPayload;
   azureOpenAI?: AzureOpenAIConfigPayload;
   ollama?: OllamaConfigPayload;
+  gemini?: GeminiConfigPayload; // ADDED: Gemini
 }
 
 export interface UpdateModelConfigPayload {
@@ -100,6 +112,7 @@ export interface UpdateModelConfigPayload {
     anthropic?: AnthropicConfigPayload;
     azureOpenAI?: AzureOpenAIConfigPayload;
     ollama?: OllamaConfigPayload;
+    gemini?: GeminiConfigPayload; // ADDED: Gemini
 }
 
 export interface MemoryResponse {

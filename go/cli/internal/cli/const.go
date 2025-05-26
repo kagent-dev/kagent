@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"os"
 	"strings"
+
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
 const (
@@ -15,6 +16,7 @@ const (
 	OPENAI_API_KEY      = "OPENAI_API_KEY"
 	ANTHROPIC_API_KEY   = "ANTHROPIC_API_KEY"
 	AZUREOPENAI_API_KEY = "AZUREOPENAI_API_KEY"
+	GEMINI_API_KEY      = "GEMINI_API_KEY"
 
 	// kagent env variables
 	KAGENT_DEFAULT_MODEL_PROVIDER = "KAGENT_DEFAULT_MODEL_PROVIDER"
@@ -38,6 +40,8 @@ func GetModelProvider() v1alpha1.ModelProvider {
 		return v1alpha1.Anthropic
 	case GetModelProviderHelmValuesKey(v1alpha1.AzureOpenAI):
 		return v1alpha1.AzureOpenAI
+	case GetModelProviderHelmValuesKey(v1alpha1.Gemini):
+		return v1alpha1.Gemini
 	default:
 		return v1alpha1.OpenAI
 	}
@@ -61,6 +65,8 @@ func GetProviderAPIKey(provider v1alpha1.ModelProvider) string {
 		return ANTHROPIC_API_KEY
 	case v1alpha1.AzureOpenAI:
 		return AZUREOPENAI_API_KEY
+	case v1alpha1.Gemini:
+		return GEMINI_API_KEY
 	default:
 		return ""
 	}

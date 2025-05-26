@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"os"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
 func TestGetModelProvider(t *testing.T) {
@@ -39,7 +40,7 @@ func TestGetModelProvider(t *testing.T) {
 			name:            "Anthropic provider",
 			envVarValue:     string(v1alpha1.Anthropic),
 			expectedResult:  v1alpha1.Anthropic,
-			expectedAPIKey:  "ANTHROPIC_API_KEY",
+			expectedAPIKey:  ANTHROPIC_API_KEY, // Changed from literal string for consistency
 			expectedHelmKey: "anthropic",
 		},
 		{
@@ -48,6 +49,13 @@ func TestGetModelProvider(t *testing.T) {
 			expectedResult:  v1alpha1.Ollama,
 			expectedAPIKey:  "",
 			expectedHelmKey: "ollama",
+		},
+		{
+			name:            "Gemini provider", // Add this test case
+			envVarValue:     string(v1alpha1.Gemini),
+			expectedResult:  v1alpha1.Gemini,
+			expectedAPIKey:  GEMINI_API_KEY,
+			expectedHelmKey: "gemini",
 		},
 		{
 			name:            "Invalid provider",
@@ -60,26 +68,27 @@ func TestGetModelProvider(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.envVarValue == "" {
-				os.Unsetenv(KAGENT_DEFAULT_MODEL_PROVIDER)
-			} else {
-				os.Setenv(KAGENT_DEFAULT_MODEL_PROVIDER, tc.expectedHelmKey)
+			// Set the environment variable if a value is provided, otherwise unset
+			if tc.envVarValue != "" {
+				os.Setenv(KAGENT_DEFAULT_MODEL_PROVIDER, tc.envVarValue) // Use tc.envVarValue directly as it represents the ModelProvider string
 				defer os.Unsetenv(KAGENT_DEFAULT_MODEL_PROVIDER)
+			} else {
+				os.Unsetenv(KAGENT_DEFAULT_MODEL_PROVIDER)
 			}
 
 			result := GetModelProvider()
 			if result != tc.expectedResult {
-				t.Errorf("expected %v, got %v", tc.expectedResult, result)
+				t.Errorf("expected GetModelProvider() to return %v, got %v", tc.expectedResult, result)
 			}
 
 			apiKey := GetProviderAPIKey(tc.expectedResult)
 			if apiKey != tc.expectedAPIKey {
-				t.Errorf("expected API key %v, got %v", tc.expectedAPIKey, apiKey)
+				t.Errorf("expected GetProviderAPIKey(%v) to return %v, got %v", tc.expectedResult, tc.expectedAPIKey, apiKey)
 			}
 
 			helmKey := GetModelProviderHelmValuesKey(tc.expectedResult)
 			if helmKey != tc.expectedHelmKey {
-				t.Errorf("expected helm key %v, got %v", tc.expectedHelmKey, helmKey)
+				t.Errorf("expected GetModelProviderHelmValuesKey(%v) to return %v, got %v", tc.expectedResult, tc.expectedHelmKey, helmKey)
 			}
 		})
 	}

@@ -14,12 +14,14 @@ describe('isValidProviderInfoKey', () => {
         expect(isValidProviderInfoKey('azure-openai')).toBe(true);
         expect(isValidProviderInfoKey('anthropic')).toBe(true);
         expect(isValidProviderInfoKey('ollama')).toBe(true);
+        expect(isValidProviderInfoKey('gemini')).toBe(true); // ADDED: Gemini
     });
 
     it('should return false for invalid provider keys', () => {
         expect(isValidProviderInfoKey('google')).toBe(false);
         expect(isValidProviderInfoKey('')).toBe(false);
         expect(isValidProviderInfoKey('OpenAI')).toBe(false); // Case sensitive
+        expect(isValidProviderInfoKey('Gemini')).toBe(false); // Case sensitive
     });
 });
 
@@ -29,6 +31,7 @@ describe('getApiKeyForProviderFormKey', () => {
         expect(getApiKeyForProviderFormKey('azure-openai')).toBe('azureOpenAI');
         expect(getApiKeyForProviderFormKey('anthropic')).toBe('anthropic');
         expect(getApiKeyForProviderFormKey('ollama')).toBe('ollama');
+        expect(getApiKeyForProviderFormKey('gemini')).toBe('gemini'); // ADDED: Gemini
     });
 
     // Although the type system should prevent invalid keys, we test the default case
@@ -44,6 +47,7 @@ describe('getProviderDisplayName', () => {
         expect(getProviderDisplayName('AzureOpenAI')).toBe('Azure OpenAI');
         expect(getProviderDisplayName('Anthropic')).toBe('Anthropic');
         expect(getProviderDisplayName('Ollama')).toBe('Ollama');
+        expect(getProviderDisplayName('Gemini')).toBe('Google Gemini'); // ADDED: Gemini (using a display name)
     });
 
     it('should return the input type if no matching provider is found', () => {
@@ -57,6 +61,7 @@ describe('getProviderFormKey', () => {
         expect(getProviderFormKey('AzureOpenAI')).toBe('azure-openai');
         expect(getProviderFormKey('Anthropic')).toBe('anthropic');
         expect(getProviderFormKey('Ollama')).toBe('ollama');
+        expect(getProviderFormKey('Gemini')).toBe('gemini'); // ADDED: Gemini
     });
 
     it('should return undefined if no matching provider type is found', () => {
@@ -76,4 +81,4 @@ describe('Provider Data Consistency', () => {
         const uniqueTypes = new Set(types);
         expect(types.length).toBe(uniqueTypes.size);
     });
-}); 
+});
