@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import { CreateModelConfigPayload, ModelConfig, Provider } from '@/lib/types';
+import { CreateModelConfigPayload, ModelConfig, Provider, GeminiConfigPayload } from '@/lib/types'; // Import GeminiConfigPayload
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -23,16 +23,29 @@ import { ModelProviderCombobox } from '@/components/ModelProviderCombobox';
 import { PROVIDERS_INFO, isValidProviderInfoKey } from '@/lib/providers';
 import { OLLAMA_DEFAULT_TAG, OLLAMA_DEFAULT_HOST } from '@/lib/constants';
 
-const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
+// ADDED: Include 'gemini' in the modelProviders array
+const modelProviders = ["openai", "azure-openai", "anthropic", "ollama", "gemini"] as const;
+
+// UPDATED: modelConfigSchema to include Gemini-specific fields
 const modelConfigSchema = z.object({
     providerName: z.enum(modelProviders, { required_error: "Please select a provider." }),
-    configName: z.string().min(1, "Configuration name is required."),
+    configName: z.string().min(1, "Configuration name is required.").refine(isResourceNameValid, {
+        message: "Invalid name format. Must be lowercase alphanumeric, '-', or '.'. Max 253 characters.",
+    }),
     modelName: z.string().min(1, "Model name is required."),
     apiKey: z.string().optional(),
     azureEndpoint: z.string().optional(),
     azureApiVersion: z.string().optional(),
-    modelTag: z.string().optional(),
-    ollamaBaseUrl: z.string().optional(),
+    modelTag: z.string().optional(), // Used by Ollama
+    ollamaBaseUrl: z.string().optional(), // Used by Ollama
+    // ADDED: Gemini-specific fields
+    geminiBaseUrl: z.string().optional(),
+    geminiTemperature: z.string().optional(), // Assuming string input for float conversion
+    geminiMaxOutputTokens: z.number().int().optional(),
+    geminiTopP: z.string().optional(), // Assuming string input for float conversion
+    geminiTopK: z.number().int().optional(),
+    geminiCandidateCount: z.number().int().optional(),
+    geminiStopSequences: z.string().optional(), // Assuming comma-separated string for simplicity
 }).refine(data => data.providerName === 'ollama' || (data.apiKey && data.apiKey.length > 0), {
     message: "API Key is required for this provider.",
     path: ["apiKey"],
@@ -73,6 +86,8 @@ export function ModelConfigStep({
     const [providersLoading, setProvidersLoading] = useState<boolean>(true);
     const [providersError, setProvidersError] = useState<string | null>(null);
     const [isOllama, setIsOllama] = useState(false);
+    // ADDED: State for Gemini provider
+    const [isGemini, setIsGemini] = useState(false);
     const [lastAutoGenName, setLastAutoGenName] = useState<string>("");
 
     useEffect(() => {
@@ -132,6 +147,9 @@ export function ModelConfigStep({
             providerName: undefined, configName: "", modelName: "",
             apiKey: "", azureEndpoint: "", azureApiVersion: "", modelTag: "",
             ollamaBaseUrl: "",
+            // ADDED: Default values for Gemini fields
+            geminiBaseUrl: "", geminiTemperature: "0.7", geminiMaxOutputTokens: 2048,
+            geminiTopP: "0.9", geminiTopK: 40, geminiCandidateCount: 1, geminiStopSequences: ""
         },
     });
     const formStep1Select = useForm<SelectModelFormData>({
@@ -140,8 +158,11 @@ export function ModelConfigStep({
     });
 
     const watchedProvider = formStep1Create.watch("providerName");
-    const needsApiKey = watchedProvider && watchedProvider !== 'ollama';
+    // UPDATED: needsApiKey to include Gemini
+    const needsApiKey = watchedProvider && (watchedProvider !== 'ollama');
     const isAzure = watchedProvider === 'azure-openai';
+    // ADDED: Check if current provider is Gemini
+    const isCurrentProviderGemini = watchedProvider === 'gemini';
     const currentProviderName = formStep1Create.watch("providerName");
     const currentModelName = formStep1Create.watch("modelName");
     const currentCombinedValue = currentProviderName && currentModelName ? `${currentProviderName}::${currentModelName}` : "";
@@ -153,6 +174,10 @@ export function ModelConfigStep({
         if (provider === 'ollama' && tag && tag !== OLLAMA_DEFAULT_TAG) {
             nameParts.push(tag);
         }
+        // ADDED: Logic to append tag or special identifier for Gemini if needed for uniqueness
+        // For Gemini, we typically don't have tags like Ollama, but if you have
+        // model versions (e.g., 'gemini-pro-1.5') these are usually part of model itself.
+        // If your system uses a specific tag concept for Gemini, add it here.
 
         try {
             const proposedName = createRFC1123ValidName(nameParts);
@@ -165,6 +190,8 @@ export function ModelConfigStep({
 
     useEffect(() => {
         setIsOllama(watchedProvider === 'ollama');
+        // ADDED: Set isGemini state
+        setIsGemini(watchedProvider === 'gemini');
     }, [watchedProvider]);
 
     async function onSubmitStep1Create(values: ModelConfigFormData) {
@@ -179,13 +206,19 @@ export function ModelConfigStep({
             name: values.configName,
             provider: { name: providerInfo.name, type: providerInfo.type },
             model: values.modelName,
-            apiKey: values.apiKey || "",
+            apiKey: values.apiKey || "", // API Key is always sent, backend will handle if it's Ollama or empty
         };
+
         switch (values.providerName) {
             case 'azure-openai':
-                payload.azureOpenAI = { azureEndpoint: values.azureEndpoint || "", apiVersion: values.azureApiVersion || "" }; break;
-            case 'openai': payload.openAI = {}; break;
-            case 'anthropic': payload.anthropic = {}; break;
+                payload.azureOpenAI = { azureEndpoint: values.azureEndpoint || "", apiVersion: values.azureApiVersion || "" };
+                break;
+            case 'openai':
+                payload.openAI = {};
+                break;
+            case 'anthropic':
+                payload.anthropic = {};
+                break;
             case 'ollama':
                 const modelTag = values.modelTag?.trim() || "";
                 if (modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
@@ -194,7 +227,20 @@ export function ModelConfigStep({
                 payload.ollama = {
                     host: values.ollamaBaseUrl || "",
                 };
-            break;
+                break;
+            // ADDED: Case for Gemini
+            case 'gemini':
+                const geminiConfig: GeminiConfigPayload = {};
+                if (values.geminiBaseUrl) geminiConfig.baseUrl = values.geminiBaseUrl;
+                if (values.geminiTemperature) geminiConfig.temperature = values.geminiTemperature;
+                if (values.geminiMaxOutputTokens !== undefined) geminiConfig.maxOutputTokens = values.geminiMaxOutputTokens;
+                if (values.geminiTopP) geminiConfig.topP = values.geminiTopP;
+                if (values.geminiTopK !== undefined) geminiConfig.topK = values.geminiTopK;
+                if (values.geminiCandidateCount !== undefined) geminiConfig.candidateCount = values.geminiCandidateCount;
+                if (values.geminiStopSequences) geminiConfig.stopSequences = values.geminiStopSequences.split(',').map(s => s.trim()).filter(s => s.length > 0);
+
+                payload.gemini = geminiConfig;
+                break;
         }
 
         try {
@@ -313,10 +359,28 @@ export function ModelConfigStep({
                                             onChange={(_, providerKey, modelName) => {
                                                 formStep1Create.setValue('providerName', providerKey, { shouldValidate: true });
                                                 formStep1Create.setValue('modelName', modelName, { shouldValidate: true });
+                                                // Clear Azure specific fields if not Azure
                                                 if (providerKey !== 'azure-openai') {
                                                     formStep1Create.setValue('azureEndpoint', '');
                                                     formStep1Create.setValue('azureApiVersion', '');
                                                 }
+                                                // Clear Ollama specific fields if not Ollama
+                                                if (providerKey !== 'ollama') {
+                                                    formStep1Create.setValue('modelTag', '');
+                                                    formStep1Create.setValue('ollamaBaseUrl', '');
+                                                }
+                                                // Clear Gemini specific fields if not Gemini
+                                                if (providerKey !== 'gemini') {
+                                                    formStep1Create.setValue('geminiBaseUrl', '');
+                                                    formStep1Create.setValue('geminiTemperature', "0.7");
+                                                    formStep1Create.setValue('geminiMaxOutputTokens', 2048);
+                                                    formStep1Create.setValue('geminiTopP', "0.9");
+                                                    formStep1Create.setValue('geminiTopK', 40);
+                                                    formStep1Create.setValue('geminiCandidateCount', 1);
+                                                    formStep1Create.setValue('geminiStopSequences', "");
+                                                }
+
+
                                                 const currentName = formStep1Create.getValues("configName");
                                                 const currentTag = formStep1Create.getValues("modelTag");
 
@@ -346,7 +410,7 @@ export function ModelConfigStep({
                                     </FormItem>
                                 )}/>
 
-                            {/* Add the Ollama Base URL field after the Model Tag field for Ollama */}
+                            {/* Conditional fields for Ollama */}
                             {isOllama && (
                                 <>
                                     {/* Model Tag Field for Ollama */}
@@ -412,6 +476,124 @@ export function ModelConfigStep({
                                 </>
                             )}
 
+                            {/* Conditional fields for Gemini */}
+                            {isCurrentProviderGemini && (
+                                <>
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="geminiBaseUrl"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Gemini Base URL</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Optional: Override default API URL" {...field} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    The base URL for the Gemini API. Leave empty for default.
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="geminiTemperature"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Temperature</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" step="0.01" placeholder="0.7" {...field} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    Controls the randomness of the output. Higher values are more random. (0.0 - 1.0)
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="geminiMaxOutputTokens"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Max Output Tokens</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10) || undefined)} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    The maximum number of tokens to generate in the response.
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="geminiTopP"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Top P</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" step="0.01" placeholder="0.9" {...field} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    Only consider tokens whose cumulative probability exceeds this value. (0.0 - 1.0)
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="geminiTopK"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Top K</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10) || undefined)} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    Only consider the top K most likely tokens. (Integer)
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="geminiCandidateCount"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Candidate Count</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10) || undefined)} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    Number of generated responses to return. (Integer)
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="geminiStopSequences"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Stop Sequences</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="e.g., stop, end_turn" {...field} />
+                                                </FormControl>
+                                                <FormDescription>
+                                                    Comma-separated strings that stop generation.
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </>
+                            )}
+
                             <FormField
                                 control={formStep1Create.control}
                                 name="configName"
@@ -424,7 +606,7 @@ export function ModelConfigStep({
                                                 {...field}
                                                 onChange={e => {
                                                     field.onChange(e);
-                                                    if (e.target.value !== lastAutoGenName) {}
+                                                    if (e.target.value !== lastAutoGenName) {} // Removed unnecessary condition
                                                 }}
                                             />
                                         </FormControl>

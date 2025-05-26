@@ -1,6 +1,5 @@
-
-export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama";
-export const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
+export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini"; // ADDED: "Gemini"
+export const modelProviders = ["openai", "azure-openai", "anthropic", "ollama", "gemini"] as const; // ADDED: "gemini"
 export type ModelProviderKey = typeof modelProviders[number];
 
 
@@ -41,6 +40,14 @@ export const PROVIDERS_INFO: {
         modelDocsLink: "https://github.com/kagent-dev/autogen/blob/main/python/packages/autogen-ext/src/autogen_ext/models/ollama/_model_info.py",
         help: "No API key needed. Ensure Ollama is running and accessible."
     },
+    // ADDED: Gemini Provider Info
+    gemini: {
+        name: "Google Gemini", // A user-friendly display name
+        type: "Gemini", // Matches your backend Go enum (v1alpha1.ModelProvider)
+        apiKeyLink: "https://aistudio.google.com/app/apikey", // Link to Google AI Studio API key page
+        modelDocsLink: "https://ai.google.dev/models/gemini", // Link to Gemini model documentation
+        help: "Get your API key from Google AI Studio. Note: Google Cloud API Keys for Generative AI may also work."
+    },
 };
 
 export const isValidProviderInfoKey = (key: string): key is ModelProviderKey => {
@@ -54,7 +61,8 @@ export const getApiKeyForProviderFormKey = (providerFormKey: ModelProviderKey): 
         case 'azure-openai': return 'azureOpenAI';
         case 'anthropic': return 'anthropic';
         case 'ollama': return 'ollama';
-        default: return providerFormKey;
+        case 'gemini': return 'gemini'; // ADDED: Gemini API key string, matches backend constant if 'GEMINI_API_KEY'
+        default: return providerFormKey; // Fallback
     }
 };
 
@@ -76,4 +84,4 @@ export const getProviderFormKey = (providerType: BackendModelProviderType): Mode
         }
     }
     return undefined;
-} 
+}
