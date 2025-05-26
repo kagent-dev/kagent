@@ -3,15 +3,22 @@ package a2a
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
+	"time"
+
+	"trpc.group/trpc-go/trpc-a2a-go/auth"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
 )
 
 type A2AHandlerParams struct {
-	AgentCard  server.AgentCard
-	HandleTask TaskHandler
+	AgentCard   server.AgentCard
+	HandleTask  TaskHandler
+	DisableAuth bool   // If true, authentication will be disabled for this agent
+	Audience    string // JWT audience from agent's A2A configuration
+	Issuer      string // JWT issuer from agent's A2A configuration
 }
 
 // A2AHandlerMux is an interface that defines methods for adding, getting, and removing agentic task handlers.
@@ -55,7 +62,42 @@ func (a *handlerMux) SetAgentHandler(
 	if err != nil {
 		return fmt.Errorf("failed to create task manager: %w", err)
 	}
-	srv, err := server.NewA2AServer(params.AgentCard, taskManager)
+
+	var srv *server.A2AServer
+	if params.DisableAuth {
+		// Create server without auth provider
+		srv, err = server.NewA2AServer(
+			params.AgentCard,
+			taskManager,
+		)
+	} else {
+		// JWT Auth setup using environment variables for secret and agent config for audience/issuer
+		jwtSecret := []byte(os.Getenv("A2A_JWT_SECRET"))
+		audience := params.Audience
+		issuer := params.Issuer
+
+		// Token lifetime configurable via env, default to 24h
+		tokenLifetimeStr := os.Getenv("A2A_JWT_TOKEN_LIFETIME")
+		jwtTokenLifetime := 24 * time.Hour
+		if tokenLifetimeStr != "" {
+			if d, err := time.ParseDuration(tokenLifetimeStr); err == nil {
+				jwtTokenLifetime = d
+			}
+		}
+
+		jwtProvider := auth.NewJWTAuthProvider(
+			jwtSecret,
+			audience,
+			issuer,
+			jwtTokenLifetime,
+		)
+
+		srv, err = server.NewA2AServer(
+			params.AgentCard,
+			taskManager,
+			server.WithAuthProvider(jwtProvider),
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create A2A server: %w", err)
 	}
@@ -85,7 +127,6 @@ func (a *handlerMux) getHandler(name string) (http.Handler, bool) {
 }
 
 func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
 	// get the handler name from the first path segment
 	path := strings.TrimPrefix(r.URL.Path, a.basePathPrefix)
 	agentNamespace, remainingPath := popPath(path)
@@ -112,9 +153,16 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// update the request URL to the remaining path
-	r.URL.Path = "/" + remainingPath
+	// Check if this is a .well-known/agent.json request
+	if strings.HasSuffix(remainingPath, ".well-known/agent.json") {
+		// Allow access to agent.json without auth
+		r.URL.Path = "/" + remainingPath
+		handlerHandler.ServeHTTP(w, r)
+		return
+	}
 
+	// For all other requests, let the A2A server handle auth
+	r.URL.Path = "/" + remainingPath
 	handlerHandler.ServeHTTP(w, r)
 }
 

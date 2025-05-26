@@ -55,9 +55,23 @@ func (a *autogenA2ATranslator) TranslateHandlerForAgent(
 		return nil, err
 	}
 
+	// Set DisableAuth based on A2A configuration
+	disableAuth := true
+	var audience, issuer string
+	if agent.Spec.A2AConfig != nil {
+		if agent.Spec.A2AConfig.Auth != nil {
+			disableAuth = !agent.Spec.A2AConfig.Auth.Enabled
+			audience = agent.Spec.A2AConfig.Auth.Audience
+			issuer = agent.Spec.A2AConfig.Auth.Issuer
+		}
+	}
+
 	return &A2AHandlerParams{
-		AgentCard:  *card,
-		HandleTask: handler,
+		AgentCard:   *card,
+		HandleTask:  handler,
+		DisableAuth: disableAuth,
+		Audience:    audience,
+		Issuer:      issuer,
 	}, nil
 }
 
