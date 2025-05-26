@@ -57,6 +57,19 @@ spec:
                   <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
                   Read more about the A2A protocol here: https://github.com/google/A2A
                 properties:
+                  auth:
+                    properties:
+                      audience:
+                        type: string
+                      enabled:
+                        type: boolean
+                      issuer:
+                        type: string
+                      type:
+                        type: string
+                    type: object
+                  enabled:
+                    type: boolean
                   skills:
                     items:
                       description: AgentSkill describes a specific capability or function
@@ -96,7 +109,6 @@ spec:
                       - id
                       - name
                       type: object
-                    minItems: 1
                     type: array
                 type: object
               description:
