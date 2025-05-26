@@ -47,9 +47,9 @@ controller:
   #  - watch-ns-2
 
   image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/controller
-    tag: "" # Will default to global, then Chart version
+    registry: ghcr.io
+    repository: den-vasyliev/kagent
+    tag: "0.3.10-a2a-auth" # Will default to global, then Chart version
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -63,8 +63,8 @@ controller:
 app:
   image:
     registry: cr.kagent.dev
-    repository: kagent-dev/kagent/app
-    tag: "" # Will default to global, then Chart version
+    repository: kagent-dev/kagent/app 
+    tag: "0.3.10" # Will default to global, then Chart version
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -77,9 +77,9 @@ app:
 
 ui:
   image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/ui
-    tag: "" # Will default to global, then Chart version
+    registry: ghcr.io
+    repository: den-vasyliev/kagent-ui
+    tag: "0.3.10-a2a-auth@sha256:31195e9706d508875ef8a70b0f942cb961e8e3c723ffc895cab0c6ddf3955604" # Will default to global, then Chart version
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -165,3 +165,13 @@ helm-agent:
 
 cilium-crd-agent:
   enabled: true
+
+a2a:
+  enabled: true
+  jwtSecret: ""  # Will be auto-generated if not provided
+  audience: "kagent-a2a"
+  issuer: "kagent"
+  tokenLifetime: "24h"
+  auth:
+    enabled: true
+    type: "jwt"
