@@ -124,3 +124,8 @@ type TeamList struct {
 func init() {
 	SchemeBuilder.Register(&Team{}, &TeamList{})
 }
+
+
+func (t *Team) GetModelConfigName() string {
+	return t.Spec.ModelConfig
+}
