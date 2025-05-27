@@ -9,11 +9,6 @@ logger = logging.getLogger(__name__)
 # Global configuration instance
 _binary_paths = BinaryPathsConfig()
 
-def set_binary_paths(config: BinaryPathsConfig) -> None:
-    """Set the global binary paths configuration."""
-    global _binary_paths
-    _binary_paths = config
-
 def run_command(command: str, args: List[str]) -> str:
     """
     Run a shell command and return its output.
