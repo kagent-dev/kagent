@@ -2,14 +2,21 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+type ToolServerResponse struct {
+	ToolServerRef   string                    `json:"toolServerRef"`
+	Config          v1alpha1.ToolServerConfig `json:"config"`
+	DiscoveredTools []*v1alpha1.MCPTool       `json:"discoveredTools"`
+}
 
 // ToolServersHandler handles ToolServer-related requests
 type ToolServersHandler struct {
@@ -32,23 +39,23 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 		return
 	}
 
-	toolServerWithTools := make([]map[string]interface{}, 0)
-	for _, toolServer := range toolServerList.Items {
-		log.V(1).Info("Processing ToolServer",
-			"namespace", toolServer.Namespace,
-			"toolServerName", toolServer.Name,
-		)
-
-		toolServerWithTools = append(toolServerWithTools, map[string]interface{}{
-			"name":            toolServer.Name,
-			"namespace":       toolServer.Namespace,
-			"config":          toolServer.Spec.Config,
-			"discoveredTools": toolServer.Status.DiscoveredTools,
-		})
+	toolServerWithTools := make([]ToolServerResponse, len(toolServerList.Items))
+	for i, toolServer := range toolServerList.Items {
+		toolServerWithTools[i] = ToolServerResponse{
+			ToolServerRef:   common.ResourceRefString(toolServer.Namespace, toolServer.Name),
+			Config:          toolServer.Spec.Config,
+			DiscoveredTools: toolServer.Status.DiscoveredTools,
+		}
 	}
 
 	log.Info("Successfully listed ToolServers", "count", len(toolServerWithTools))
 	RespondWithJSON(w, http.StatusOK, toolServerWithTools)
+}
+
+type CreateToolServerRequest struct {
+	ToolServerRef string                    `json:"toolServerRef"`
+	Description   string                    `json:"description"`
+	Config        v1alpha1.ToolServerConfig `json:"config"`
 }
 
 // HandleCreateToolServer handles POST /api/toolservers requests
@@ -56,38 +63,49 @@ func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *ht
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "create")
 	log.Info("Received request to create ToolServer")
 
-	var toolServerRequest *v1alpha1.ToolServer
-
+	var toolServerRequest *CreateToolServerRequest
 	if err := DecodeJSONBody(r, &toolServerRequest); err != nil {
 		log.Error(err, "Failed to decode request body")
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
-	if toolServerRequest.Namespace == "" {
-		toolServerRequest.Namespace = common.GetResourceNamespace()
-		log.V(1).Info("Namespace not provided in request. Creating in", toolServerRequest.Namespace, "namespace")
+	toolServerRef, err := common.ParseRefString(toolServerRequest.ToolServerRef, common.GetResourceNamespace())
+	if err != nil {
+		log.Error(err, "Failed to parse ToolServerRef")
+		w.RespondWithError(errors.NewBadRequestError("Invalid TooServerRef", err))
+		return
 	}
-
-	log.Info("Received request to create ToolServer")
-
-	if toolServerRequest.Namespace == "" {
-		toolServerRequest.Namespace = common.GetResourceNamespace()
-		log.V(1).Info("Namespace not provided in request. Creating in", toolServerRequest.Namespace)
+	if !strings.Contains(toolServerRequest.ToolServerRef, "/") {
+		log.V(4).Info("No namespace provided in ModelConfigRef, using default namespace",
+			"defaultNamespace", toolServerRef.Namespace)
 	}
 
 	log = log.WithValues(
-		"namespace", toolServerRequest.Namespace,
-		"toolServerName", toolServerRequest.Name,
+		"toolServerNamespace", toolServerRef.Namespace,
+		"toolServerName", toolServerRef.Name,
 	)
 
-	if err := h.KubeClient.Create(r.Context(), toolServerRequest); err != nil {
+	toolServerSpec := v1alpha1.ToolServerSpec{
+		Description: toolServerRequest.Description,
+		Config:      toolServerRequest.Config,
+	}
+
+	toolServer := &v1alpha1.ToolServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      toolServerRef.Name,
+			Namespace: toolServerRef.Namespace,
+		},
+		Spec: toolServerSpec,
+	}
+
+	if err := h.KubeClient.Create(r.Context(), toolServer); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create ToolServer in Kubernetes", err))
 		return
 	}
 
 	log.Info("Successfully created ToolServer")
-	RespondWithJSON(w, http.StatusCreated, toolServerRequest)
+	RespondWithJSON(w, http.StatusCreated, toolServer)
 }
 
 // HandleDeleteToolServer handles DELETE /api/toolservers/{namespace}/{toolServerName} requests
@@ -109,16 +127,20 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 	}
 
 	log = log.WithValues(
-		"namespace", namespace,
+		"toolServerNamespace", namespace,
 		"toolServerName", toolServerName,
 	)
 
 	log.V(1).Info("Checking if ToolServer exists")
 	toolServer := &v1alpha1.ToolServer{}
-	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      toolServerName,
-		Namespace: namespace,
-	}, toolServer); err != nil {
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		toolServer,
+		toolServerName,
+		namespace,
+	)
+	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			log.Info("ToolServer not found")
 			w.RespondWithError(errors.NewNotFoundError("ToolServer not found", nil))

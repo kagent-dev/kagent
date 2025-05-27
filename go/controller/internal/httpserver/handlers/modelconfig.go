@@ -13,14 +13,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // ModelConfigResponse defines the structure for the ModelConfig API response.
 type ModelConfigResponse struct {
-	Name            string                 `json:"name"`
-	Namespace       string                 `json:"namespace"`
+	ModelConfigRef  string                 `json:"modelConfigRef"`
 	ProviderName    string                 `json:"providerName"`
 	Model           string                 `json:"model"`
 	APIKeySecretRef string                 `json:"apiKeySecretRef"`
@@ -51,12 +49,6 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 
 	configs := make([]ModelConfigResponse, 0)
 	for _, config := range modelConfigs.Items {
-		log.V(1).Info(
-			"Processing ModelConfig",
-			"namespace", config.Namespace,
-			"name", config.Name,
-			"model", config.Spec.Model,
-		)
 		modelParams := make(map[string]interface{})
 
 		if config.Spec.OpenAI != nil {
@@ -73,8 +65,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		}
 
 		responseItem := ModelConfigResponse{
-			Name:            config.Name,
-			Namespace:       config.Namespace,
+			ModelConfigRef:  common.GetObjectRef(&config),
 			ProviderName:    string(config.Spec.Provider),
 			Model:           config.Spec.Model,
 			APIKeySecretRef: config.Spec.APIKeySecretRef,
@@ -108,16 +99,19 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	}
 
 	log = log.WithValues(
-		"namespace", namespace,
+		"configNamespace", namespace,
 		"configName", configName,
 	)
 
 	log.V(1).Info("Checking if ModelConfig exists")
 	modelConfig := &v1alpha1.ModelConfig{}
-	err = h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      configName,
-		Namespace: namespace,
-	}, modelConfig)
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		modelConfig,
+		configName,
+		namespace,
+	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
@@ -145,8 +139,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	}
 
 	responseItem := ModelConfigResponse{
-		Name:            modelConfig.Name,
-		Namespace:       modelConfig.Namespace,
+		ModelConfigRef:  common.GetObjectRef(modelConfig),
 		ProviderName:    string(modelConfig.Spec.Provider),
 		Model:           modelConfig.Spec.Model,
 		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
@@ -176,8 +169,7 @@ func getStructJSONKeys(structType reflect.Type) []string {
 }
 
 type CreateModelConfigRequest struct {
-	Name            string                      `json:"name"`
-	Namespace       string                      `json:"namespace,omitempty"`
+	ModelConfigRef  string                      `json:"modelConfigRef"`
 	Provider        Provider                    `json:"provider"`
 	Model           string                      `json:"model"`
 	APIKey          string                      `json:"apiKey"`
@@ -198,31 +190,39 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	log.Info("Received request to create ModelConfig")
 
 	var req CreateModelConfigRequest
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error(err, "Failed to decode request body")
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
-	if req.Namespace == "" {
-		req.Namespace = common.GetResourceNamespace()
-		log.V(1).Info("Namespace not provided in request. Creating in", req.Namespace, "namespace")
+	modelConfigRef, err := common.ParseRefString(req.ModelConfigRef, common.GetResourceNamespace())
+	if err != nil {
+		log.Error(err, "Failed to parse ModelConfigRef")
+		w.RespondWithError(errors.NewBadRequestError("Invalid ModelConfigRef", err))
+		return
+	}
+	if !strings.Contains(req.ModelConfigRef, "/") {
+		log.V(4).Info("No namespace provided in ModelConfigRef, using default namespace",
+			"defaultNamespace", modelConfigRef.Namespace)
 	}
 
 	log = log.WithValues(
-		"namespace", req.Namespace,
-		"configName", req.Name,
+		"configNamespace", modelConfigRef.Namespace,
+		"configName", modelConfigRef.Name,
 		"provider", req.Provider.Type,
 		"model", req.Model,
 	)
 
 	log.V(1).Info("Checking if ModelConfig already exists")
 	existingConfig := &v1alpha1.ModelConfig{}
-	err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      req.Name,
-		Namespace: req.Namespace,
-	}, existingConfig)
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		existingConfig,
+		modelConfigRef.Name,
+		modelConfigRef.Namespace,
+	)
 	if err == nil {
 		log.Info("ModelConfig already exists")
 		w.RespondWithError(errors.NewConflictError("ModelConfig already exists", nil))
@@ -247,24 +247,25 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	} else {
 		// TODO(sbx0r): should handle situation where the secret already exist
 		apiKey := req.APIKey
-		secretName := req.Name
+		secretName := modelConfigRef.Name
+		secretNamespace := modelConfigRef.Namespace
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-		log.V(1).Info("Creating API key secret", "secretName", secretName, "secretKey", secretKey)
-		secret, err = CreateSecret(h.KubeClient, secretName, req.Namespace, map[string]string{secretKey: apiKey})
+		log.V(1).Info("Creating API key secret", "secretName", secretName, "secretNamespace", secretNamespace, "secretKey", secretKey)
+		secret, err = CreateSecret(h.KubeClient, secretName, secretNamespace, map[string]string{secretKey: apiKey})
 		if err != nil {
 			log.Error(err, "Failed to create API key secret")
 			w.RespondWithError(errors.NewInternalServerError("Failed to create API key secret", err))
 			return
 		}
 		log.V(1).Info("Successfully created API key secret")
-		modelConfigSpec.APIKeySecretRef = secretName
+		modelConfigSpec.APIKeySecretRef = common.GetObjectRef(secret)
 		modelConfigSpec.APIKeySecretKey = secretKey
 	}
 
 	modelConfig := &v1alpha1.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      req.Name,
-			Namespace: req.Namespace,
+			Name:      modelConfigRef.Name,
+			Namespace: modelConfigRef.Namespace,
 		},
 		Spec: modelConfigSpec,
 	}
@@ -334,10 +335,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	log.Info("Successfully created ModelConfig",
-		"namespace", req.Namespace,
-		"name", req.Name,
-	)
+	log.Info("Successfully created ModelConfig")
 	RespondWithJSON(w, http.StatusCreated, modelConfig)
 }
 
@@ -381,7 +379,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	log = log.WithValues(
-		"namespace", namespace,
+		"configNamespace", namespace,
 		"configName", configName,
 		"provider", req.Provider.Type,
 		"model", req.Model,
@@ -389,10 +387,13 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 
 	log.V(1).Info("Getting existing ModelConfig")
 	modelConfig := &v1alpha1.ModelConfig{}
-	err = h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      configName,
-		Namespace: namespace,
-	}, modelConfig)
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		modelConfig,
+		configName,
+		namespace,
+	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
@@ -425,14 +426,18 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 			"secretKey", secretKey,
 		)
 		existingSecret := &corev1.Secret{}
-		err = h.KubeClient.Get(r.Context(), types.NamespacedName{Name: secretName, Namespace: secretNamespace}, existingSecret)
-
+		err = common.GetObject(
+			r.Context(),
+			h.KubeClient,
+			existingSecret,
+			secretName,
+			secretNamespace,
+		)
 		if err != nil && !k8serrors.IsNotFound(err) {
 			log.Error(err, "Failed to get existing secret for update")
 			w.RespondWithError(errors.NewInternalServerError("Failed to get API key secret", err))
 			return
 		}
-
 		if k8serrors.IsNotFound(err) {
 			// Secret doesn't exist, create it (edge case, should normally exist)
 			log.Info("Secret not found for update, creating new one",
@@ -461,7 +466,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 			}
 		}
 		log.V(1).Info("Successfully updated API key secret")
-		modelConfig.Spec.APIKeySecretRef = secretNamespace + "/" + secretName
+		modelConfig.Spec.APIKeySecretRef = common.ResourceRefString(secretNamespace, secretName)
 		modelConfig.Spec.APIKeySecretKey = secretKey
 	}
 
@@ -529,20 +534,23 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		FlattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
 	}
 
+	apiKeySecretRef, err := common.ParseRefString(modelConfig.Spec.APIKeySecretRef, modelConfig.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to parse APIKeySecretRef")
+		w.RespondWithError(errors.NewBadRequestError("Failed to parse APIKeySecretRef", err))
+		return
+	}
+
 	responseItem := ModelConfigResponse{
-		Name:            modelConfig.Name,
-		Namespace:       modelConfig.Namespace,
+		ModelConfigRef:  common.GetObjectRef(modelConfig),
 		ProviderName:    string(modelConfig.Spec.Provider),
-		Model:           modelConfig.Spec.Model,
-		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
+		APIKeySecretRef: apiKeySecretRef.String(),
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
+		Model:           modelConfig.Spec.Model,
 		ModelParams:     updatedParams,
 	}
 
-	log.V(1).Info("Successfully updated ModelConfig",
-		"namespace", namespace,
-		"name", configName,
-	)
+	log.V(1).Info("Successfully updated ModelConfig")
 	RespondWithJSON(w, http.StatusOK, responseItem)
 }
 
@@ -566,16 +574,19 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	log = log.WithValues(
-		"namespace", namespace,
+		"configNamespace", namespace,
 		"configName", configName,
 	)
 
 	log.V(1).Info("Checking if ModelConfig exists")
 	existingConfig := &v1alpha1.ModelConfig{}
-	err = h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      configName,
-		Namespace: namespace,
-	}, existingConfig)
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		existingConfig,
+		configName,
+		namespace,
+	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
@@ -594,9 +605,6 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	log.V(1).Info("Successfully deleted ModelConfig",
-		"namespace", namespace,
-		"name", configName,
-	)
+	log.V(1).Info("Successfully deleted ModelConfig")
 	RespondWithJSON(w, http.StatusOK, nil)
 }

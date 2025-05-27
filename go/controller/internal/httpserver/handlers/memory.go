@@ -6,19 +6,17 @@ import (
 	"net/http"
 	"strings"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type MemoryResponse struct {
-	Name            string                 `json:"name"`
-	Namespace       string                 `json:"namespace"`
+	MemoryRef       string                 `json:"memoryRef"`
 	ProviderName    string                 `json:"providerName"`
 	APIKeySecretRef string                 `json:"apiKeySecretRef"`
 	APIKeySecretKey string                 `json:"apiKeySecretKey"`
@@ -48,13 +46,16 @@ func (h *MemoryHandler) HandleListMemories(w ErrorResponseWriter, r *http.Reques
 
 	memoryResponses := make([]MemoryResponse, len(memoryList.Items))
 	for i, memory := range memoryList.Items {
+		memoryRef := common.GetObjectRef(&memory)
+		log.V(1).Info("Processing Memory", "memoryRef", memoryRef)
+
 		memoryParams := make(map[string]interface{})
 		if memory.Spec.Pinecone != nil {
 			FlattenStructToMap(memory.Spec.Pinecone, memoryParams)
 		}
+
 		memoryResponses[i] = MemoryResponse{
-			Name:            memory.Name,
-			Namespace:       memory.Namespace,
+			MemoryRef:       memoryRef,
 			ProviderName:    string(memory.Spec.Provider),
 			APIKeySecretRef: memory.Spec.APIKeySecretRef,
 			APIKeySecretKey: memory.Spec.APIKeySecretKey,
@@ -67,8 +68,7 @@ func (h *MemoryHandler) HandleListMemories(w ErrorResponseWriter, r *http.Reques
 }
 
 type CreateMemoryRequest struct {
-	Name           string                   `json:"name"`
-	Namespace      string                   `json:"namespace"`
+	MemoryRef      string                   `json:"memoryRef"`
 	Provider       Provider                 `json:"provider"`
 	APIKey         string                   `json:"apiKey"`
 	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
@@ -86,23 +86,32 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	if req.Namespace == "" {
-		req.Namespace = common.GetResourceNamespace()
-		log.V(1).Info("Namespace not provided in request. Creating in", req.Namespace, "namespace")
+	memoryRef, err := common.ParseRefString(req.MemoryRef, common.GetResourceNamespace())
+	if err != nil {
+		log.Error(err, "Failed to parse MemoryRef")
+		w.RespondWithError(errors.NewBadRequestError("Invalid MemoryRef", err))
+		return
+	}
+	if !strings.Contains(req.MemoryRef, "/") {
+		log.V(4).Info("No namespace provided in ModelConfigRef, using default namespace",
+			"defaultNamespace", memoryRef.Namespace)
 	}
 
 	log = log.WithValues(
-		"namespace", req.Namespace,
-		"memoryName", req.Name,
+		"memoryNamespace", memoryRef.Namespace,
+		"memoryName", memoryRef.Name,
 		"provider", req.Provider.Type,
 	)
 
 	log.V(1).Info("Checking if Memory already exists")
 	existingMemory := &v1alpha1.Memory{}
-	err := h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      req.Name,
-		Namespace: req.Namespace,
-	}, existingMemory)
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		existingMemory,
+		memoryRef.Name,
+		memoryRef.Namespace,
+	)
 	if err == nil {
 		log.Info("Memory already exists")
 		w.RespondWithError(errors.NewConflictError("Memory already exists", nil))
@@ -113,12 +122,10 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	// TODO(sbx0r): Handle situation where the secret already exist
-
 	providerTypeEnum := v1alpha1.MemoryProvider(req.Provider.Type)
 	memorySpec := v1alpha1.MemorySpec{
 		Provider:        providerTypeEnum,
-		APIKeySecretRef: req.Namespace + "/" + req.Name,
+		APIKeySecretRef: memoryRef.String(),
 		APIKeySecretKey: fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type)),
 	}
 
@@ -129,21 +136,21 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 	apiKey := req.APIKey
 	_, err = CreateSecret(
 		h.KubeClient,
-		req.Name,
-		req.Namespace,
+		memoryRef.Name,
+		memoryRef.Namespace,
 		map[string]string{memorySpec.APIKeySecretKey: apiKey},
 	)
 	if err != nil {
 		log.Error(err, "Failed to create Memory API key secret")
-		log.Error(err, "namespace", req.Namespace, "name", req.Name)
 		w.RespondWithError(errors.NewInternalServerError("Failed to create Memory API key secret", err))
 		return
 	}
 	log.V(1).Info("Successfully created Memory API key secret")
+
 	memory := &v1alpha1.Memory{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      req.Name,
-			Namespace: req.Namespace,
+			Name:      memoryRef.Name,
+			Namespace: memoryRef.Namespace,
 		},
 		Spec: memorySpec,
 	}
@@ -172,22 +179,25 @@ func (h *MemoryHandler) HandleDeleteMemory(w ErrorResponseWriter, r *http.Reques
 
 	memoryName, err := GetPathParam(r, "memoryName")
 	if err != nil {
-		log.Error(err, "Failed to get config name from path")
+		log.Error(err, "Failed to get memoryName from path")
 		w.RespondWithError(errors.NewBadRequestError("Failed to get memoryName from path", err))
 		return
 	}
 
 	log = log.WithValues(
-		"namespace", namespace,
+		"memoryNamespace", namespace,
 		"memoryName", memoryName,
 	)
 
 	log.V(1).Info("Checking if Memory exists")
 	existingMemory := &v1alpha1.Memory{}
-	err = h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      memoryName,
-		Namespace: namespace,
-	}, existingMemory)
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		existingMemory,
+		memoryName,
+		namespace,
+	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			log.Info("Memory not found")
@@ -230,16 +240,19 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 	}
 
 	log = log.WithValues(
-		"namespace", namespace,
+		"memoryNamespace", namespace,
 		"memoryName", memoryName,
 	)
 
 	log.V(1).Info("Checking if Memory already exists")
 	memory := &v1alpha1.Memory{}
-	err = h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      memoryName,
-		Namespace: namespace,
-	}, memory)
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		memory,
+		memoryName,
+		namespace,
+	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			log.Info("Memory not found")
@@ -255,11 +268,18 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 	if memory.Spec.Pinecone != nil {
 		FlattenStructToMap(memory.Spec.Pinecone, memoryParams)
 	}
+
+	apiKeySecretRef, err := common.ParseRefString(memory.Spec.APIKeySecretRef, memory.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to parse APIKeySecretRef")
+		w.RespondWithError(errors.NewBadRequestError("Failed to parse APIKeySecretRef", err))
+		return
+	}
+
 	memoryResponse := MemoryResponse{
-		Name:            memory.Name,
-		Namespace:       memory.Namespace,
+		MemoryRef:       common.GetObjectRef(memory),
 		ProviderName:    string(memory.Spec.Provider),
-		APIKeySecretRef: memory.Spec.APIKeySecretRef,
+		APIKeySecretRef: apiKeySecretRef.String(),
 		APIKeySecretKey: memory.Spec.APIKeySecretKey,
 		MemoryParams:    memoryParams,
 	}
@@ -269,8 +289,6 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 }
 
 type UpdateMemoryRequest struct {
-	Name           string                   `json:"name"`
-	Namespace      string                   `json:"namespace,omitempty"`
 	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
 }
 
@@ -294,7 +312,7 @@ func (h *MemoryHandler) HandleUpdateMemory(w ErrorResponseWriter, r *http.Reques
 	}
 
 	log = log.WithValues(
-		"namespace", namespace,
+		"memoryNamespace", namespace,
 		"memoryName", memoryName,
 	)
 
@@ -306,10 +324,13 @@ func (h *MemoryHandler) HandleUpdateMemory(w ErrorResponseWriter, r *http.Reques
 	}
 
 	existingMemory := &v1alpha1.Memory{}
-	err = h.KubeClient.Get(r.Context(), types.NamespacedName{
-		Name:      memoryName,
-		Namespace: namespace,
-	}, existingMemory)
+	err = common.GetObject(
+		r.Context(),
+		h.KubeClient,
+		existingMemory,
+		memoryName,
+		namespace,
+	)
 	if err != nil {
 		log.Error(err, "Failed to get Memory")
 		w.RespondWithError(errors.NewInternalServerError("Failed to get Memory", err))
