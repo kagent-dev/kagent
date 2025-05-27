@@ -31,10 +31,40 @@ type ToolServerConfig struct {
 	Sse   *SseMcpServerConfig   `json:"sse,omitempty"`
 }
 
+type ValueSourceType string
+
+const (
+	ConfigMapValueSource ValueSourceType = "ConfigMap"
+	SecretValueSource    ValueSourceType = "Secret"
+)
+
+// ValueSource defines a source for configuration values from a Secret or ConfigMap
+type ValueSource struct {
+	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	Type ValueSourceType `json:"type"`
+	// The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+	// or a reference to a resource in a different namespace in the form "namespace/name".
+	// If namespace is not provided, the default namespace is used.
+	// +optional
+	ValueRef string `json:"valueRef"`
+	Key      string `json:"key"`
+}
+
+// ValueRef represents a configuration value
+// +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
+type ValueRef struct {
+	Name string `json:"name"`
+	// +optional
+	Value string `json:"value,omitempty"`
+	// +optional
+	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
+}
+
 type StdioMcpServerConfig struct {
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	EnvFrom []ValueRef        `json:"envFrom,omitempty"`
 }
 
 type SseMcpServerConfig struct {
@@ -42,6 +72,7 @@ type SseMcpServerConfig struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
 	Headers        map[string]AnyType `json:"headers,omitempty"`
+	HeadersFrom    []ValueRef         `json:"headersFrom,omitempty"`
 	Timeout        string             `json:"timeout,omitempty"`
 	SseReadTimeout string             `json:"sse_read_timeout,omitempty"`
 }
