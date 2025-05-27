@@ -586,7 +586,16 @@ func (a *autogenReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.R
 	var agents []*v1alpha1.Agent
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
-		if common.GetRefFromString(agent.Spec.ModelConfig, agent.Namespace) == req.NamespacedName {
+		agentNamespaced, err := common.ParseRefString(agent.Spec.ModelConfig, agent.Namespace);
+
+		if err != nil {
+			reconcileLog.Error(err, "failed to parse Agent ModelConfig",
+				"errorDetails", err.Error(),
+			)
+			continue
+		}
+
+		if agentNamespaced == req.NamespacedName {
 			agents = append(agents, agent)
 		}
 	}
@@ -599,14 +608,22 @@ func (a *autogenReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req
 	if err := a.kube.List(
 		ctx,
 		&modelsList,
-		client.InNamespace(req.Namespace),
 	); err != nil {
-		return nil, fmt.Errorf("failed to list model configs: %v", err)
+		return nil, fmt.Errorf("failed to list ModelConfigs: %v", err)
 	}
 
 	var models []string
 	for _, model := range modelsList.Items {
-		if common.GetRefFromString(model.Spec.APIKeySecretRef, model.Namespace) == req.NamespacedName {
+		secretNamespaced, err := common.ParseRefString(model.Spec.APIKeySecretRef, model.Namespace)
+
+		if err != nil {
+			reconcileLog.Error(err, "failed to parse ModelConfig APIKeySecretRef",
+				"errorDetails", err.Error(),
+			)
+			continue
+		}
+
+		if secretNamespaced == req.NamespacedName {
 			models = append(models, model.Name)
 		}
 	}
@@ -626,7 +643,7 @@ func (a *autogenReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req
 		}
 
 		for _, agent := range agentsUsingModel {
-			key := fmt.Sprintf("%s/%s", agent.Namespace, agent.Name)
+			key := common.GetObjectRef(agent)
 			if !uniqueAgents[key] {
 				uniqueAgents[key] = true
 				agents = append(agents, agent)
@@ -650,7 +667,16 @@ func (a *autogenReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
 		for _, memory := range agent.Spec.Memory {
-			if common.GetRefFromString(memory, agent.Namespace) == req.NamespacedName {
+			memoryNamespaced, err := common.ParseRefString(memory, agent.Namespace);
+
+			if err != nil {
+				reconcileLog.Error(err, "failed to parse Agent Memory",
+					"errorDetails", err.Error(),
+				)
+				continue
+			}
+
+			if memoryNamespaced == req.NamespacedName {
 				agents = append(agents, agent)
 				break
 			}
@@ -673,7 +699,16 @@ func (a *autogenReconciler) findTeamsUsingAgent(ctx context.Context, req ctrl.Re
 	for i := range teamsList.Items {
 		team := &teamsList.Items[i]
 		for _, participant := range team.Spec.Participants {
-			if common.GetRefFromString(participant, team.Namespace) == req.NamespacedName {
+			participantNamespaced, err := common.ParseRefString(participant, team.Namespace);
+
+			if err != nil {
+				reconcileLog.Error(err, "failed to parse Team participant",
+					"errorDetails", err.Error(),
+				)
+				continue
+			}
+
+			if participantNamespaced == req.NamespacedName {
 				teams = append(teams, team)
 				break
 			}
@@ -689,13 +724,22 @@ func (a *autogenReconciler) findTeamsUsingModel(ctx context.Context, req ctrl.Re
 		ctx,
 		&teamsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list teams: %v", err)
+		return nil, fmt.Errorf("failed to list Teams: %v", err)
 	}
 
 	var teams []*v1alpha1.Team
 	for i := range teamsList.Items {
 		team := &teamsList.Items[i]
-		if common.GetRefFromString(team.Spec.ModelConfig, team.Namespace) == req.NamespacedName {
+		modelNamespaced, err := common.ParseRefString(team.Spec.ModelConfig, team.Namespace)
+
+		if err != nil {
+			reconcileLog.Error(err, "failed to parse Team ModelConfig",
+				"errorDetails", err.Error(),
+			)
+			continue
+		}
+
+		if modelNamespaced == req.NamespacedName {
 			teams = append(teams, team)
 		}
 	}
@@ -708,14 +752,22 @@ func (a *autogenReconciler) findTeamsUsingApiKeySecret(ctx context.Context, req 
 	if err := a.kube.List(
 		ctx,
 		&modelsList,
-		client.InNamespace(req.Namespace),
 	); err != nil {
-		return nil, fmt.Errorf("failed to list model configs: %v", err)
+		return nil, fmt.Errorf("failed to list ModelConfigs: %v", err)
 	}
 
 	var models []string
 	for _, model := range modelsList.Items {
-		if common.GetRefFromString(model.Spec.APIKeySecretRef, model.Namespace) == req.NamespacedName {
+		secretNamespaced, err := common.ParseRefString(model.Spec.APIKeySecretRef, model.Namespace)
+
+		if err != nil {
+			reconcileLog.Error(err, "failed to parse ModelConfig APIKeySecretRef",
+				"errorDetails", err.Error(),
+			)
+			continue
+		}
+
+		if secretNamespaced == req.NamespacedName {
 			models = append(models, model.Name)
 		}
 	}
@@ -735,7 +787,7 @@ func (a *autogenReconciler) findTeamsUsingApiKeySecret(ctx context.Context, req 
 		}
 
 		for _, team := range teamsUsingModel {
-			key := fmt.Sprintf("%s/%s", team.Namespace, team.Name)
+			key := common.GetObjectRef(team)
 			if !uniqueTeams[key] {
 				uniqueTeams[key] = true
 				teams = append(teams, team)
@@ -758,7 +810,19 @@ func (a *autogenReconciler) findAgentsUsingToolServer(ctx context.Context, req c
 	var agents []*v1alpha1.Agent
 	appendAgentIfUsesToolServer := func(agent *v1alpha1.Agent) {
 		for _, tool := range agent.Spec.Tools {
-			if tool.McpServer != nil && common.GetRefFromString(tool.McpServer.ToolServer, agent.Namespace) == req.NamespacedName {
+			if tool.McpServer == nil {
+				return
+			}
+
+			toolServerNamespaced, err := common.ParseRefString(tool.McpServer.ToolServer, agent.Namespace)
+			if err != nil {
+				reconcileLog.Error(err, "failed to parse Agent ToolServer",
+					"errorDetails", err.Error(),
+				)
+				continue
+			}
+
+			if toolServerNamespaced == req.NamespacedName {
 				agents = append(agents, agent)
 				return
 			}

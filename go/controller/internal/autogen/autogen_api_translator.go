@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var (
@@ -31,6 +31,8 @@ var (
 	toolsProvidersRequiringOpenaiApiKey = []string{
 		"kagent.tools.docs.QueryTool",
 	}
+
+	log = ctrllog.Log.WithName("autogen")
 )
 
 type ApiTranslator interface {
@@ -66,7 +68,7 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 			ComponentType: "tool_server",
 			Version:       1,
 			Description:   toolServer.Spec.Description,
-			Label:         toolServer.Namespace + "/" + toolServer.Name,
+			Label:         common.GetObjectRef(toolServer),
 			Config:        api.MustToConfig(toolServerConfig),
 		},
 	}, nil
@@ -244,6 +246,7 @@ func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v
 	}
 	opts := defaultTeamOptions()
 	opts.stream = stream
+
 	return a.translateGroupChatForAgent(ctx, agent, opts, &tState{})
 }
 
@@ -291,11 +294,11 @@ func (a *apiTranslator) translateGroupChatForAgent(
 	opts *teamOptions,
 	state *tState,
 ) (*autogen_client.Team, error) {
-
-	simpleTeam, err := a.simpleRoundRobinTeam(ctx, agent, agent.Name, agent.Namespace)
+	simpleTeam, err := a.simpleRoundRobinTeam(ctx, agent)
 	if err != nil {
 		return nil, err
 	}
+
 	return a.translateGroupChatForTeam(ctx, simpleTeam, opts, state)
 }
 
@@ -311,26 +314,14 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	magenticOneTeamConfig := team.Spec.MagenticOneTeamConfig
 	swarmTeamConfig := team.Spec.SwarmTeamConfig
 
-	modelConfigRef := a.defaultModelConfig
-	if team.Spec.ModelConfig != "" {
-		// If ModelConfig contains only the name of the ModelConfig, use the namespace of the team.
-		modelConfigRef = common.GetRefFromString(team.Spec.ModelConfig, team.Namespace)
-	} else {
-		log.Printf("translateGroupChatForTeam: team %s/%s using default ModelConfig: namespace='%s', name='%s'",
-			team.Namespace, team.Name, modelConfigRef.Namespace, modelConfigRef.Name)
-	}
-
-	modelConfigObj := &v1alpha1.ModelConfig{}
-	err := common.FetchObjKube(
+	modelConfigObj, err := common.GetModelConfig(
 		ctx,
 		a.kube,
-		modelConfigObj,
-		modelConfigRef.Name,
-		modelConfigRef.Namespace,
+		team,
+		a.defaultModelConfig,
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to fetch ModelConfig %s: %w", modelConfigRef.String(), err)
+		return nil, err
 	}
 
 	modelClientWithStreaming, err := a.createModelClientForProvider(ctx, modelConfigObj, true)
@@ -356,7 +347,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 
 	for _, agentRef := range team.Spec.Participants {
 		agentObj := &v1alpha1.Agent{}
-		if err := common.FetchObjKube(
+		if err := common.GetObject(
 			ctx,
 			a.kube,
 			agentObj,
@@ -464,29 +455,23 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	}, nil
 }
 
-func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha1.Agent, name, namespace string) (*v1alpha1.Team, error) {
-
-	modelConfig := a.defaultModelConfig
-
-	if agent.Spec.ModelConfig != "" {
-		// If ModelConfig contains only the name of the ModelConfig, use the namespace of the agent.
-		modelConfig = common.GetRefFromString(agent.Spec.ModelConfig, agent.Namespace)
-	} else {
-		log.Printf("ModelConfig for Agent %s/%s not defined. Using default ModelConfig: namespace='%s', name='%s'",
-			agent.Namespace, agent.Name, modelConfig.Namespace, modelConfig.Name)
-	}
-	if err := a.kube.Get(ctx, modelConfig, &v1alpha1.ModelConfig{}); err != nil {
+func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha1.Agent) (*v1alpha1.Team, error) {
+	modelConfigObj, err := common.GetModelConfig(
+		ctx,
+		a.kube,
+		agent,
+		a.defaultModelConfig,
+	)
+	if err != nil {
 		return nil, err
 	}
+	modelConfigRef := common.GetObjectRef(modelConfigObj)
 
 	// generate an internal round robin "team" for the society of mind agent
 	meta := agent.ObjectMeta.DeepCopy()
-	// This is important so we don't output this message in the CLI/UI
-	meta.Name = name
-	meta.Namespace = namespace
-
-	// For the naming consistency
-	agentFullName := fmt.Sprintf("%s/%s", agent.Namespace, agent.Name)
+	meta.Name = agent.GetName()
+	meta.Namespace = agent.GetNamespace()
+	agentRef := common.GetObjectRef(agent)
 
 	team := &v1alpha1.Team{
 		ObjectMeta: *meta,
@@ -495,17 +480,18 @@ func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha
 			APIVersion: "kagent.dev/v1alpha1",
 		},
 		Spec: v1alpha1.TeamSpec{
-			Participants:         []string{agentFullName}, // For the naming consistency
+			Participants:         []string{agentRef},
 			Description:          agent.Spec.Description,
-			ModelConfig:          agent.Spec.ModelConfig,
+			ModelConfig:          modelConfigRef,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
 				FinalTextMessageTermination: &v1alpha1.FinalTextMessageTermination{
-					Source: common.ConvertToPythonIdentifier(agentFullName), // For the naming consistency
+					Source: common.ConvertToPythonIdentifier(agentRef),
 				},
 			},
 		},
 	}
+
 	return team, nil
 }
 
@@ -549,36 +535,42 @@ func (a *apiTranslator) translateAssistantAgent(
 				tools = append(tools, autogenTool)
 			}
 		case tool.Agent != nil:
-			toolRefFullName := common.GetRefFromString(tool.Agent.Ref, agent.Namespace).String()
-			agentFullName := fmt.Sprintf("%s/%s", agent.Namespace, agent.Name)
-
-			if toolRefFullName == agentFullName {
-				return nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentFullName)
+			toolRef := ""
+			if toolNamespacedName, err := common.ParseRefString(tool.Agent.Ref, agent.Namespace); err != nil {
+				return nil, err
+			} else {
+				toolRef = toolNamespacedName.String()
 			}
 
-			if state.isVisited(toolRefFullName) {
-				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentFullName, toolRefFullName)
+			agentRef := common.GetObjectRef(agent)
+
+			if toolRef == agentRef {
+				return nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+			}
+
+			if state.isVisited(toolRef) {
+				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentRef, toolRef)
 			}
 
 			if state.depth > MAX_DEPTH {
-				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentFullName, toolRefFullName)
+				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentRef, toolRef)
 			}
 
 			// Translate a nested tool
-			toolAgent := v1alpha1.Agent{}
+			toolAgent := &v1alpha1.Agent{}
 
-			err := common.FetchObjKube(
+			err := common.GetObject(
 				ctx,
 				a.kube,
-				&toolAgent,
-				toolRefFullName,
+				toolAgent,
+				toolRef,
 				agent.Namespace, // redundant
 			)
 			if err != nil {
 				return nil, err
 			}
 
-			team, err := a.simpleRoundRobinTeam(ctx, &toolAgent, toolAgent.Name, toolAgent.Namespace)
+			team, err := a.simpleRoundRobinTeam(ctx, toolAgent)
 			if err != nil {
 				return nil, err
 			}
@@ -587,13 +579,13 @@ func (a *apiTranslator) translateAssistantAgent(
 				return nil, err
 			}
 
-			toolAgentFullName := fmt.Sprintf("%s/%s", toolAgent.Namespace, toolAgent.Name)
+			toolAgentRef := common.GetObjectRef(toolAgent)
 			tool := &api.Component{
 				Provider:      "autogen_agentchat.tools.TeamTool",
 				ComponentType: "tool",
 				Version:       1,
 				Config: api.MustToConfig(&api.TeamToolConfig{
-					Name:        toolAgentFullName,
+					Name:        toolAgentRef,
 					Description: toolAgent.Spec.Description,
 					Team:        autogenTool.Component,
 				}),
@@ -608,11 +600,10 @@ func (a *apiTranslator) translateAssistantAgent(
 
 	sysMsg := agent.Spec.SystemMessage
 
-	// For the naming consistency
-	agentFullName := fmt.Sprintf("%s/%s", agent.Namespace, agent.Name)
+	agentRef := common.GetObjectRef(agent)
 
 	cfg := &api.AssistantAgentConfig{
-		Name:         common.ConvertToPythonIdentifier(agentFullName),
+		Name:         common.ConvertToPythonIdentifier(agentRef),
 		Tools:        tools,
 		ModelContext: modelContext,
 		Description:  agent.Spec.Description,
@@ -652,7 +643,7 @@ func (a *apiTranslator) translateAssistantAgent(
 
 func (a *apiTranslator) translateMemory(ctx context.Context, memoryRef string, defaultNamespace string) (*api.Component, error) {
 	memoryObj := &v1alpha1.Memory{}
-	if err := common.FetchObjKube(ctx, a.kube, memoryObj, memoryRef, defaultNamespace); err != nil {
+	if err := common.GetObject(ctx, a.kube, memoryObj, memoryRef, defaultNamespace); err != nil {
 		return nil, err
 	}
 
@@ -737,7 +728,7 @@ func translateToolServerTool(
 	defaultNamespace string,
 ) (*api.Component, error) {
 	toolServerObj := &v1alpha1.ToolServer{}
-	err := common.FetchObjKube(
+	err := common.GetObject(
 		ctx,
 		kube,
 		toolServerObj,
@@ -1286,7 +1277,7 @@ func translateModelInfo(modelInfo *v1alpha1.ModelInfo) *api.ModelInfo {
 
 func (a *apiTranslator) getSecretKey(ctx context.Context, secretRef string, secretKey string, namespace string) ([]byte, error) {
 	secret := &corev1.Secret{}
-	if err := common.FetchObjKube(
+	if err := common.GetObject(
 		ctx,
 		a.kube,
 		secret,
