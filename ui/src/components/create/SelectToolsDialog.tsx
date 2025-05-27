@@ -321,7 +321,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Select Tools</DialogTitle>
+          <DialogTitle>Select Tools and Agents</DialogTitle>
           <DialogDescription>
             You can use tools and agents to create your agent. The tools are grouped by category. You can select a tool by clicking on it. To add your own tools, you can 
             use the <Link href="/tools" className="text-violet-600 hover:text-violet-700">Tools</Link> page.
