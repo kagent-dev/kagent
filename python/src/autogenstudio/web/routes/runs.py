@@ -5,8 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...datamodel import Message, Run, RunStatus, Session
-from ..deps import get_db, get_session_manager
-from ...sessionmanager import SessionManager
+from ..deps import get_db
 
 router = APIRouter()
 
