@@ -6,7 +6,39 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-
+/* Responsive header navigation tweaks */
+@media (max-width: 768px) {
+  nav {
+    /* Ensure nav takes full width and stacks content */
+    width: 100%;
+  }
+  .mobile-menu {
+    width: 100%;
+    background: var(--background);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    border-radius: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem 0;
+  }
+  .mobile-menu .dropdown-menu-content,
+  .mobile-menu .dropdown-menu-content.w-56,
+  .mobile-menu .dropdown-menu-content.w-48 {
+    width: 100% !important;
+    min-width: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    border-radius: 0.5rem;
+  }
+  .mobile-menu .button,
+  .mobile-menu button,
+  .mobile-menu a {
+    width: 100%;
+    text-align: left;
+    justify-content: flex-start;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
 
 @layer base {
   :root {

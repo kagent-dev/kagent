@@ -148,7 +148,7 @@ export function Header() {
         
         {/* Mobile menu */}
         {isMenuOpen && (
-          <div className="md:hidden pt-4 pb-2 animate-in fade-in slide-in-from-top duration-300">
+          <div className="mobile-menu md:hidden pt-4 pb-2 animate-in fade-in slide-in-from-top duration-300">
             <div className="flex flex-col space-y-1">
               {/* Mobile Home Link */}
               <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-2" asChild>
