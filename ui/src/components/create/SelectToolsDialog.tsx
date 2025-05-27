@@ -234,7 +234,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
             if (existingToolIndex !== -1) {
                 // Add the new tool name to the existing MCP server entry
                 const existingTool = localSelectedComponents[existingToolIndex].toolInstance;
-                if (isMcpTool(existingTool) && existingTool.mcpServer && toolToAdd.mcpServer) {
+                if (isMcpTool(existingTool) && existingTool.mcpServer) {
                     const updatedTool = {
                         ...existingTool,
                         mcpServer: {
