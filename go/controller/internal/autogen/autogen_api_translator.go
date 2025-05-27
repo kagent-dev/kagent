@@ -907,6 +907,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			config.APIVersion = azureConfig.APIVersion
 			config.AzureDeployment = azureConfig.DeploymentName
 			config.AzureADToken = azureConfig.AzureADToken
+			config.UseDefaultAzureCredential = azureConfig.UseDefaultAzureCredential
 
 			if azureConfig.Temperature != "" {
 				temp, err := strconv.ParseFloat(azureConfig.Temperature, 64)
