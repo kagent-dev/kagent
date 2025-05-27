@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
-import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, isMcpServerUsedByAgents } from "@/lib/toolUtils";
+import { ToolServer, ToolServerWithTools, AgentResponse } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
+import { getTeams } from "../actions/teams";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
@@ -15,6 +16,7 @@ import { toast } from "sonner";
 export default function ServersPage() {
   // State for servers and tools
   const [servers, setServers] = useState<ToolServerWithTools[]>([]);
+  const [agents, setAgents] = useState<AgentResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
 
@@ -25,11 +27,11 @@ export default function ServersPage() {
 
   // Fetch data on component mount
   useEffect(() => {
-    fetchServers();
+    fetchData();
   }, []);
 
-  // Fetch servers
-  const fetchServers = async () => {
+  // Fetch servers and agents
+  const fetchData = async () => {
     try {
       setIsLoading(true);
 
@@ -40,15 +42,23 @@ export default function ServersPage() {
 
         // Initially expand all servers
         const serverNames = serversResponse.data.map((server) => server.name).filter((name): name is string => name !== undefined);
-
         setExpandedServers(new Set(serverNames));
       } else {
         console.error("Failed to fetch servers:", serversResponse);
         toast.error(serversResponse.error || "Failed to fetch servers data.");
       }
+
+      // Fetch agents
+      const agentsResponse = await getTeams();
+      if (agentsResponse.success && agentsResponse.data) {
+        setAgents(agentsResponse.data);
+      } else {
+        console.error("Failed to fetch agents:", agentsResponse);
+        toast.error(agentsResponse.error || "Failed to fetch agents data.");
+      }
     } catch (error) {
-      console.error("Error fetching servers:", error);
-      toast.error("An error occurred while fetching servers.");
+      console.error("Error fetching data:", error);
+      toast.error("An error occurred while fetching data.");
     } finally {
       setIsLoading(false);
     }
@@ -63,7 +73,7 @@ export default function ServersPage() {
 
       if (response.success) {
         toast.success("Server deleted successfully");
-        fetchServers();
+        fetchData();
       } else {
         toast.error(response.error || "Failed to delete server");
       }
@@ -73,6 +83,17 @@ export default function ServersPage() {
     } finally {
       setIsLoading(false);
       setShowConfirmDelete(null);
+    }
+  };
+
+  // Handle server deletion request
+  const handleDeleteRequest = (serverName: string) => {
+    if (isMcpServerUsedByAgents(serverName, agents)) {
+      // Show warning dialog
+      setShowConfirmDelete(serverName);
+    } else {
+      // Delete directly if not used by any agents
+      handleDeleteServer(serverName);
     }
   };
 
@@ -89,7 +110,7 @@ export default function ServersPage() {
 
       toast.success("Server added successfully");
       setShowAddServer(false);
-      fetchServers();
+      fetchData();
     } catch (error) {
       console.error("Error adding server:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -163,7 +184,7 @@ export default function ServersPage() {
                              onSelect={(e) => {
                                e.preventDefault();
                                setOpenDropdownMenu(null);
-                                setShowConfirmDelete(serverName);
+                               handleDeleteRequest(serverName);
                              }}
                            >
                              <Trash2 className="h-4 w-4 mr-2" />
@@ -236,7 +257,11 @@ export default function ServersPage() {
           }
         }}
         title="Delete Server"
-        description="Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
+        description={
+          showConfirmDelete && isMcpServerUsedByAgents(showConfirmDelete, agents)
+            ? "Warning: This server is being used by one or more agents. Deleting it will remove the tools from those agents. Are you sure you want to proceed?"
+            : "Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
+        }
         onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete)}
       />
     </div>

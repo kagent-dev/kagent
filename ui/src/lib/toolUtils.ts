@@ -1,4 +1,4 @@
-import { Tool, Component, MCPToolConfig, ToolConfig, McpServerTool, BuiltinTool, AgentTool } from "@/types/datamodel";
+import { Tool, Component, MCPToolConfig, ToolConfig, McpServerTool, BuiltinTool, AgentTool, AgentResponse } from "@/types/datamodel";
 
 export const isAgentTool = (tool: unknown): tool is { type: "Agent"; agent: AgentTool } => {
   if (!tool || typeof tool !== "object") return false;
@@ -218,4 +218,12 @@ export const getToolCategory = (tool: Component<ToolConfig>) => {
     return parts[1]; // e.g., kagent.builtin -> builtin
   }
   return "other"; // Default category
+};
+
+export const isMcpServerUsedByAgents = (toolServerName: string, agents: AgentResponse[]): boolean => {
+  return agents.some(agent => {
+    return agent.agent.spec.tools?.some((tool: Tool) => 
+      tool.type === "McpServer" && tool.mcpServer?.toolServer === toolServerName
+    );
+  });
 };
