@@ -285,3 +285,29 @@ open-dev-container:
 	@echo "Opening dev container..."
 	devcontainer build .
 	@devcontainer open .
+
+##@ Development
+
+.PHONY: manifests
+manifests: controller-gen generate ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+
+.PHONY: generate
+generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+	$(CONTROLLER_GEN) object:headerFile="controller/hack/boilerplate.go.txt" paths="./..."
+
+.PHONY: fmt
+fmt: ## Run go fmt against code.
+	go fmt ./...
+
+.PHONY: vet
+vet: ## Run go vet against code.
+	go vet ./...
+
+.PHONY: license-lint
+license-lint: ## Run license-lint to check for restricted licenses
+	cd go && $(MAKE) license-lint
+
+.PHONY: lint
+lint: golangci-lint license-lint ## Run all linters
+	$(GOLANGCI_LINT) run
