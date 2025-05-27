@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 from autogen_core import ComponentModel
 from pydantic import ConfigDict, SecretStr, field_validator
 from sqlalchemy import ForeignKey, Integer
-from sqlmodel import JSON, Column, DateTime, Field, SQLModel, func
+from sqlmodel import JSON, Column, DateTime, Field, Relationship, SQLModel, func
 
 from .eval import EvalJudgeCriteria, EvalRunResult, EvalRunStatus, EvalScore, EvalTask
 from .types import (
@@ -65,6 +65,25 @@ class Message(BaseDBModel, table=True):
     run_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("run.id", ondelete="CASCADE")))
 
     message_meta: Optional[Union[MessageMeta, dict]] = Field(default={}, sa_column=Column(JSON))
+    feedback: List["Feedback"] = Relationship(back_populates="message")
+
+
+class Feedback(BaseDBModel, table=True):
+    """
+    Database model for storing user feedback on agent responses.
+    """
+
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    is_positive: bool = Field(default=False, description="Whether the feedback is positive or negative")
+    feedback_text: str = Field(description="The feedback text provided by the user")
+    issue_type: Optional[str] = Field(default=None, description="Category of issue for negative feedback")
+
+    message_id: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, ForeignKey("message.id", ondelete="CASCADE"))
+    )
+
+    message: Optional["Message"] = Relationship(back_populates="feedback")
 
 
 class Session(BaseDBModel, table=True):
