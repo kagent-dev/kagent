@@ -169,7 +169,7 @@ class SessionManager:
 
                 # The messages[0].content isn't properly being serialized, so it
                 # doesn't even get sent back to the client. (That's why we're seeing undefined in the UI)
-                # I am using the stop_reason to send the error message back and specifically checking 
+                # I am using the stop_reason to send the error message back and specifically checking
                 # for the message type (error).
                 error_result = TeamResult(
                     task_result=TaskResult(
