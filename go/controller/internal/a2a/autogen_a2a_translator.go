@@ -105,6 +105,7 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 					session, err = a.autogenClient.CreateSession(&autogen_client.CreateSession{
 						Name:   *sessionID,
 						UserID: common.GetGlobalUserID(),
+						TeamID: autogenTeam.Id,
 					})
 					if err != nil {
 						return "", fmt.Errorf("failed to create session: %w", err)
