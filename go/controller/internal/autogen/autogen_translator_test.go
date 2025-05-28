@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -26,6 +27,163 @@ var (
 const (
 	apikeySecretKey = "api-key"
 )
+
+var _ = Describe("ConfigMap and Secret Value Resolution", func() {
+	var (
+		ctx        context.Context
+		kubeClient client.Client
+		translator autogen.ApiTranslator
+		namespace  string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme := scheme.Scheme
+		err := v1alpha1.AddToScheme(scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		kubeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+		translator = autogen.NewAutogenApiTranslator(kubeClient, types.NamespacedName{
+			Namespace: "default",
+			Name:      "default-model",
+		})
+		namespace = "test-namespace"
+	})
+
+	It("should retrieve value from ConfigMap", func() {
+		configMap := &v1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-config",
+				Namespace: namespace,
+			},
+			Data: map[string]string{
+				"test-key": "test-value",
+			},
+		}
+		err := kubeClient.Create(ctx, configMap)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Create a ToolServerConfig with ConfigMapKeyRef
+		toolServer := &v1alpha1.ToolServer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-tool-server",
+				Namespace: namespace,
+			},
+			Spec: v1alpha1.ToolServerSpec{
+				Config: v1alpha1.ToolServerConfig{
+					Stdio: &v1alpha1.StdioMcpServerConfig{
+						Command: "echo",
+						Args:    []string{"hello"},
+						EnvFrom: []v1alpha1.ValueRef{
+							{
+								Name: "TEST_ENV",
+								ValueFrom: &v1alpha1.ValueSource{
+									Type: v1alpha1.ConfigMapValueSource,
+									ValueRef: "test-config",
+									Key:  "test-key",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, err := translator.TranslateToolServer(ctx, toolServer)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Component.Provider).To(Equal("kagent.tool_servers.StdioMcpToolServer"))
+
+		config := result.Component.Config
+		Expect(config).To(HaveKey("env"))
+		env := config["env"].(map[string]interface{})
+		Expect(env).To(HaveKey("TEST_ENV"))
+		Expect(env["TEST_ENV"]).To(Equal("test-value"))
+	})
+
+	It("should retrieve value from Secret", func() {
+		secret := &v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-secret",
+				Namespace: namespace,
+			},
+			Data: map[string][]byte{
+				"test-key": []byte("secret-value"),
+			},
+		}
+		err := kubeClient.Create(ctx, secret)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Create a ToolServerConfig with SecretKeyRef
+		toolServer := &v1alpha1.ToolServer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-tool-server",
+				Namespace: namespace,
+			},
+			Spec: v1alpha1.ToolServerSpec{
+				Config: v1alpha1.ToolServerConfig{
+					Stdio: &v1alpha1.StdioMcpServerConfig{
+						Command: "echo",
+						Args:    []string{"hello"},
+						EnvFrom: []v1alpha1.ValueRef{
+							{
+								Name: "TEST_ENV",
+								ValueFrom: &v1alpha1.ValueSource{
+									Type: v1alpha1.SecretValueSource,
+									ValueRef: "test-secret",
+									Key:  "test-key",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, err := translator.TranslateToolServer(ctx, toolServer)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Component.Provider).To(Equal("kagent.tool_servers.StdioMcpToolServer"))
+
+		config := result.Component.Config
+		Expect(config).To(HaveKey("env"))
+		env := config["env"].(map[string]interface{})
+		Expect(env).To(HaveKey("TEST_ENV"))
+		Expect(env["TEST_ENV"]).To(Equal("secret-value"))
+	})
+
+	It("should fail if both ConfigMap and Secret don't exist", func() {
+		// No ConfigMap or Secret created
+
+		// Create a ToolServerConfig with both ConfigMapKeyRef and SecretKeyRef pointing to non-existent resources
+		toolServer := &v1alpha1.ToolServer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-tool-server",
+				Namespace: namespace,
+			},
+			Spec: v1alpha1.ToolServerSpec{
+				Config: v1alpha1.ToolServerConfig{
+					Stdio: &v1alpha1.StdioMcpServerConfig{
+						Command: "echo",
+						Args:    []string{"hello"},
+						EnvFrom: []v1alpha1.ValueRef{
+							{
+								Name: "TEST_ENV",
+								ValueFrom: &v1alpha1.ValueSource{
+									Type: v1alpha1.ConfigMapValueSource,
+									ValueRef: "nonexistent-config",
+									Key:  "test-key",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		_, err := translator.TranslateToolServer(ctx, toolServer)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("failed to resolve environment variable TEST_ENV"))
+	})
+})
 
 var _ = Describe("AutogenClient", func() {
 	It("should interact with autogen server", func() {
