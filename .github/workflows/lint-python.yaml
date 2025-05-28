@@ -6,7 +6,6 @@ on:
       - '**/*.py'  # Only trigger on changes to Python files
       - 'python/pyproject.toml'
       - 'python/uv.lock'
-  workflow_dispatch:
 
 jobs:
   lint:
