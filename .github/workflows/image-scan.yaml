@@ -8,6 +8,13 @@ on:
   # Trigger the workflow on push to the main branch
   push:
     branches: [ main ]
+    paths:
+      - 'go/**'
+      - 'python/**'
+      - 'ui/**'
+      - 'Makefile'
+      - 'Dockerfile*'
+      - '.github/workflows/**'
 
   workflow_dispatch:
 
