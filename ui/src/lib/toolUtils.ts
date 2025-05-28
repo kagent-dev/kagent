@@ -220,8 +220,8 @@ export const getToolCategory = (tool: Component<ToolConfig>) => {
   return "other"; // Default category
 };
 
-export const isMcpServerUsedByAgents = (toolServerName: string, agents: AgentResponse[]): AgentResponse[] => {
-  return agents.filter(agent => {
+export const isMcpServerUsedByAgents = (toolServerName: string, agents: AgentResponse[]): boolean => {
+  return agents.some(agent => {
     return agent.agent.spec.tools?.some((tool: Tool) => 
       tool.type === "McpServer" && tool.mcpServer?.toolServer === toolServerName
     );

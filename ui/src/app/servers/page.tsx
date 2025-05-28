@@ -88,7 +88,13 @@ export default function ServersPage() {
 
   // Handle server deletion request
   const handleDeleteRequest = (serverName: string) => {
-    setShowConfirmDelete(serverName);
+    if (isMcpServerUsedByAgents(serverName, agents)) {
+      // Show warning dialog
+      setShowConfirmDelete(serverName);
+    } else {
+      // Delete directly if not used by any agents
+      handleDeleteServer(serverName);
+    }
   };
 
   // Handle adding a new server
@@ -245,30 +251,18 @@ export default function ServersPage() {
       {/* Confirm delete dialog */}
       <ConfirmDialog
         open={showConfirmDelete !== null}
-        onOpenChange={(open) => !open && setShowConfirmDelete(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowConfirmDelete(null);
+          }
+        }}
         title="Delete Server"
         description={
-          showConfirmDelete ? (
-            <div className="space-y-2">
-              <p>Are you sure you want to delete the server &apos;{showConfirmDelete}&apos;? This action cannot be undone.</p>
-              {isMcpServerUsedByAgents(showConfirmDelete, agents).length > 0 && (
-                <div className="mt-4">
-                  <p className="font-medium text-amber-600">Warning: This server is currently being used by the following agents:</p>
-                  <ul className="list-disc list-inside mt-2 space-y-1">
-                    {isMcpServerUsedByAgents(showConfirmDelete, agents).map((agent) => (
-                      <li key={agent.agent.metadata.name} className="text-sm">
-                        {agent.agent.metadata.name}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="mt-2 text-sm text-muted-foreground">Deleting this server will remove the tools from these agents and may affect their functionality.</p>
-                </div>
-              )}
-            </div>
-          ) : null
+          showConfirmDelete && isMcpServerUsedByAgents(showConfirmDelete, agents)
+            ? "Warning: This server is being used by one or more agents. Deleting it will remove the tools from those agents. Are you sure you want to proceed?"
+            : "Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
         }
-        confirmLabel="Delete"
-        onConfirm={() => showConfirmDelete && handleDeleteServer(showConfirmDelete)}
+        onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete)}
       />
     </div>
   );
