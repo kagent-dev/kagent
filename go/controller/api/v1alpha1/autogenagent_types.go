@@ -109,9 +109,17 @@ type AnyType struct {
 	json.RawMessage `json:",inline"`
 }
 
+type AuthConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Audience string `json:"audience,omitempty"`
+	Issuer   string `json:"issuer,omitempty"`
+}
+
 type A2AConfig struct {
-	// +kubebuilder:validation:MinItems=1
-	Skills []AgentSkill `json:"skills,omitempty"`
+	Enabled bool         `json:"enabled,omitempty"`
+	Skills  []AgentSkill `json:"skills,omitempty"`
+	Auth    *AuthConfig  `json:"auth,omitempty"`
 }
 
 type AgentSkill server.AgentSkill

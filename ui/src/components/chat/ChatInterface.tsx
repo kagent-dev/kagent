@@ -17,6 +17,7 @@ import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers } from "@/lib/messageHandlers";
+import { makeA2ARequest } from "@/lib/utils";
 
 export type ChatStatus = "ready" | "thinking" | "error";
 
@@ -198,87 +199,53 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
       abortControllerRef.current = new AbortController();
 
       try {
-        const response = await fetch(
-          `/stream/${currentSessionId}`,
+        const response = await makeA2ARequest(
+          `/api/a2a/kagent/${selectedAgentId}/tasks/send`,
+          'POST',
           {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'text/plain',
-            },
-            body: userMessageText,
-            signal: abortControllerRef.current.signal,
-          }
+            message: userMessageText,
+            session_id: currentSessionId,
+          },
+          selectedAgentId.toString()
         );
 
         if (!response.ok) {
-          let errorText = `HTTP error! status: ${response.status}`;
-          try {
-            const resText = await response.text();
-            if (resText) errorText = `${errorText} - ${resText}`;
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          } catch (e) { /* ignore */ }
-          toast.error(errorText);
-          throw new Error(errorText);
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        if (!response.body) {
-          toast.error("Response body is null");
-          throw new Error("Response body is null");
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No reader available');
         }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        let buffer = "";
 
         while (true) {
-          const { value, done } = await reader.read();
+          const { done, value } = await reader.read();
+          if (done) break;
 
-          if (done) {
-            break;
-          }
-
-          if (!value) {
-            continue;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-
-          let eventData = '';
-          // Process all complete lines in buffer
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep the last incomplete line in buffer
+          const chunk = new TextDecoder().decode(value);
+          const lines = chunk.split('\n');
 
           for (const line of lines) {
-            if (line.trim() === '') continue;
-
-            if (line.includes('data:')) {
-              eventData = line.substring(line.indexOf('data:') + 5).trim();
-
-              if (eventData) {
-                try {
-                  const eventDataJson = JSON.parse(eventData) as AgentMessageConfig;
-                  handleMessageEvent(eventDataJson);
-                } catch (error) {
-                  toast.error("Error parsing event data");
-                  console.error("Error parsing event data:", error, eventData);
-                }
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              try {
+                const message = JSON.parse(data);
+                handleMessageEvent(message);
+              } catch (e) {
+                console.error('Error parsing message:', e);
               }
             }
           }
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (error: any) {
-        if (error.name === "AbortError") {
-          toast.error("Fetch aborted");
-        } else {
-          toast.error("Streaming failed");
-          setChatStatus("error");
-          setCurrentInputMessage(userMessageText);
-        }
-      } finally {
+
         setChatStatus("ready");
+      } catch (error) {
+        console.error("Error sending message:", error);
+        toast.error("Error sending message");
+        setChatStatus("error");
+      } finally {
         abortControllerRef.current = null;
+        isCreatingSessionRef.current = false;
       }
     } catch (error) {
       console.error("Error sending message or creating session:", error);

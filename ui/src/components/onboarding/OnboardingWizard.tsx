@@ -24,6 +24,7 @@ interface OnboardingStateData {
     agentDescription?: string;
     agentInstructions?: string;
     selectedTools?: Tool[];
+    a2aAuth?: string;
 }
 
 export const K8S_AGENT_DEFAULTS = {
@@ -82,6 +83,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
           agentName: data.agentName,
           agentDescription: data.agentDescription,
           agentInstructions: data.agentInstructions,
+          a2aAuth: data.a2aAuth,
       }));
       setCurrentStep(3);
   };
@@ -111,6 +113,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
               systemPrompt: onboardingData.agentInstructions,
               model: { name: onboardingData.modelConfigName },
               tools: onboardingData.selectedTools || [],
+              a2aAuth: onboardingData.a2aAuth,
           };
           const result = await createNewAgent(agentPayload);
           if (result.success) {

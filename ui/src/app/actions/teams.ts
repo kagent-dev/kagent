@@ -98,10 +98,8 @@ function processConfigObject(config: Record<string, unknown>): Record<string, st
  * @returns An Agent object
  */
 function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
-  return {
-    metadata: {
-      name: agentFormData.name,
-    },
+  const agent = {
+    metadata: { name: agentFormData.name },
     spec: {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
@@ -143,8 +141,20 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         console.warn("Unknown tool type:", tool);
         return tool;
       }),
+      a2aConfig: agentFormData.a2aEnabled ? {
+        enabled: true,
+        skills: agentFormData.a2aSkills,
+        auth: agentFormData.a2aAuth ? {
+          enabled: agentFormData.a2aAuth.type !== 'none',
+          type: agentFormData.a2aAuth.type,
+          audience: agentFormData.a2aAuth.audience,
+          issuer: agentFormData.a2aAuth.issuer,
+        } : null
+      } : undefined
     },
   };
+  console.log("[fromAgentFormDataToAgent] Agent spec:", agent);
+  return agent;
 }
 
 /**

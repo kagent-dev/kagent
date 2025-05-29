@@ -6,6 +6,8 @@ import KagentLogo from "@/components/kagent-logo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
+import { Shield } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface AgentCardProps {
   agentResponse: AgentResponse;
@@ -14,6 +16,7 @@ interface AgentCardProps {
 
 export function AgentCard({ id, agentResponse: { agent, model, provider } }: AgentCardProps) {
   const router = useRouter();
+  const isA2AEnabled = agent?.spec?.a2aConfig?.auth?.enabled;
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -42,6 +45,14 @@ export function AgentCard({ id, agentResponse: { agent, model, provider } }: Age
             <span>
               {provider} ({model})
             </span>
+          </div>
+          <div className="card-footer flex items-center justify-between">
+            {isA2AEnabled && (
+              <Badge variant="outline" className="ml-auto flex items-center gap-1">
+                <Shield size={14} />
+                A2A
+              </Badge>
+            )}
           </div>
         </CardContent>
       </Card>

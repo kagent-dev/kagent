@@ -48,6 +48,19 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
+            - name: A2A_AUTH_ENABLE
+              value: {{ .Values.a2a.auth.enabled | quote }}
+            - name: A2A_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: a2a-jwt-secret
+                  key: secret
+            - name: A2A_JWT_AUDIENCE
+              value: {{ .Values.a2a.audience | quote }}
+            - name: A2A_JWT_ISSUER
+              value: {{ .Values.a2a.issuer | quote }}
+            - name: A2A_JWT_TOKEN_LIFETIME
+              value: {{ .Values.a2a.tokenLifetime | quote }}
           {{- with .Values.controller.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -69,6 +82,19 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+            - name: A2A_AUTH_ENABLE
+              value: {{ .Values.a2a.auth.enabled | quote }}
+            - name: A2A_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: a2a-jwt-secret
+                  key: secret
+            - name: A2A_JWT_AUDIENCE
+              value: {{ .Values.a2a.audience | quote }}
+            - name: A2A_JWT_ISSUER
+              value: {{ .Values.a2a.issuer | quote }}
+            - name: A2A_JWT_TOKEN_LIFETIME
+              value: {{ .Values.a2a.tokenLifetime | quote }}
           {{- with .Values.app.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -92,6 +118,19 @@ spec:
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
               value: "http://{{ include "kagent.fullname" . }}.{{ include "kagent.namespace" . }}.svc.cluster.local/api"
+            - name: A2A_AUTH_ENABLE
+              value: {{ .Values.a2a.auth.enabled | quote }}
+            - name: A2A_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: a2a-jwt-secret
+                  key: secret
+            - name: A2A_JWT_AUDIENCE
+              value: {{ .Values.a2a.audience | quote }}
+            - name: A2A_JWT_ISSUER
+              value: {{ .Values.a2a.issuer | quote }}
+            - name: A2A_JWT_TOKEN_LIFETIME
+              value: {{ .Values.a2a.tokenLifetime | quote }}
           {{- with .Values.ui.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}

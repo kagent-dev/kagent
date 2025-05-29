@@ -51,8 +51,8 @@ func (a *a2aTaskProcessor) Process(
 	processorLog.Info("Processing task", "taskID", taskID, "text", text)
 
 	// Process the input text (in this simple example, we'll just reverse it).
-	sessionID := handle.GetSessionID()
-	result, err := a.handleTask(ctx, text, sessionID)
+	// In v0.0.2, session ID is not available through TaskHandle
+	result, err := a.handleTask(ctx, text, nil)
 	if err != nil {
 		a.handleErr(taskID, err, handle)
 		return err

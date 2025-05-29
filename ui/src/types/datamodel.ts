@@ -399,6 +399,22 @@ export interface AgentResourceSpec {
   // Name of the model config resource
   modelConfig: string;
   memory?: string[];
+  a2aEnabled?: boolean;
+  a2aSkills?: {
+    id: string;
+    name: string;
+    description?: string;
+    examples?: string[];
+    inputModes?: string[];
+    outputModes?: string[];
+    tags?: string[];
+  }[];
+  a2aAuth?: {
+    enabled: boolean;
+    type: 'jwt' | 'apiKey' | 'none';
+    audience?: string;
+    issuer?: string;
+  };
 }
 export interface Agent {
   metadata: ResourceMetadata;

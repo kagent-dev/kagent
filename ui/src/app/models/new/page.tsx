@@ -98,8 +98,8 @@ function ModelPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const isEditMode = searchParams.get("edit") === "true";
-  const modelId = searchParams.get("id");
+  const isEditMode = searchParams?.get("edit") === "true";
+  const modelId = searchParams?.get("id");
 
   const [name, setName] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
@@ -163,7 +163,7 @@ function ModelPageContent() {
     };
     fetchData();
     return () => { isMounted = false; };
-  }, []);
+  }, [isEditMode]);
 
   useEffect(() => {
     let isMounted = true;
@@ -243,7 +243,7 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelId, providers, providerModelsData]);
+  }, [isEditMode, modelId, providers, providerModelsData, isLoading]);
 
   useEffect(() => {
     if (selectedProvider) {
@@ -273,7 +273,7 @@ function ModelPageContent() {
       setRequiredParams([]);
       setOptionalParams([]);
     }
-  }, [selectedProvider, isEditMode]);
+  }, [selectedProvider, isEditMode, setRequiredParams, setOptionalParams, setErrors]);
 
   useEffect(() => {
     if (!isEditMode && !isEditingName && selectedCombinedModel) {
@@ -294,7 +294,7 @@ function ModelPageContent() {
         }
       }
     }
-  }, [selectedCombinedModel, isEditMode, isEditingName, modelTag]);
+  }, [selectedCombinedModel, isEditMode, isEditingName, modelTag, selectedProvider?.type, setName]);
 
   useEffect(() => {
     if (!isApiKeyNeeded) {
@@ -303,7 +303,7 @@ function ModelPageContent() {
         setErrors(prev => ({ ...prev, apiKey: undefined }));
       }
     }
-  }, [isApiKeyNeeded]);
+  }, [isApiKeyNeeded, setApiKey, errors.apiKey, setErrors]);
 
   const validateForm = () => {
     const newErrors: ValidationErrors = { requiredParams: {} };
