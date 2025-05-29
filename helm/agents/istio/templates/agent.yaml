@@ -1,4 +1,3 @@
-
 apiVersion: kagent.dev/v1alpha1
 kind: Agent
 metadata:
@@ -253,3 +252,79 @@ spec:
         name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+  a2aConfig:
+    skills:
+      - id: istio-service-mesh-configuration
+        name: Istio Service Mesh Configuration
+        description: Manages Istio service mesh components, installation, upgrades, and core configurations like ZTunnel, Waypoints, and proxy settings. Analyzes cluster compatibility for Istio.
+        tags:
+          - istio
+          - service-mesh
+          - configuration
+          - install
+          - upgrade
+          - ztunnel
+          - waypoint
+          - proxy
+          - manifest
+          - analyze
+        examples:
+          - "Install Istio version 1.20 in my cluster."
+          - "Analyze my cluster configuration for Istio compatibility."
+          - "Generate an Istio manifest for a minimal default installation."
+          - "List all waypoints in the 'default' namespace."
+          - "What's the status of the Istio proxies in my 'production' namespace?"
+          - "Configure ZTunnel to use DNS over HTTPS."
+      - id: istio-traffic-management
+        name: Istio Traffic Management
+        description: Configures and manages Istio traffic routing rules, including virtual services, destination rules, gateways, and canary deployments.
+        tags:
+          - istio
+          - traffic
+          - routing
+          - virtualservice
+          - destinationrule
+          - gateway
+          - canary
+          - multi-cluster
+        examples:
+          - "Create a VirtualService to route 10% of traffic for 'my-app' to version 'v2'."
+          - "Generate a Gateway configuration for 'ingress.example.com'."
+          - "How do I set up a canary deployment for the 'frontend' service?"
+          - "Manage remote clusters in my Istio multi-cluster setup."
+          - "Show me the destination rules for the 'backend-service'."
+      - id: istio-security-policies
+        name: Istio Security Policies
+        description: Implements and manages Istio security features, including mTLS, authorization policies, and request authentication.
+        tags:
+          - istio
+          - security
+          - mtls
+          - authorization
+          - authentication
+          - policy
+          - rbac
+        examples:
+          - "Enforce strict mTLS for all services in the 'secure-ns' namespace."
+          - "Create an AuthorizationPolicy to allow 'service-a' to call 'service-b' on GET requests."
+          - "How do I configure JWT request authentication for my API gateway?"
+          - "Generate an Istio PeerAuthentication policy to enable mTLS in 'default' namespace."
+      - id: istio-observability-troubleshooting
+        name: Istio Observability & Troubleshooting
+        description: Diagnoses issues within the Istio service mesh, inspects telemetry, checks resource status (including Kubernetes resources relevant to Istio), and queries documentation for solutions.
+        tags:
+          - istio
+          - observability
+          - troubleshooting
+          - telemetry
+          - metrics
+          - logs
+          - debug
+          - diagnose
+          - k8s
+        examples:
+          - "My requests to 'service-x' are failing with 503 errors, can you help troubleshoot?"
+          - "How can I view the Istio telemetry for the 'payment-service'?"
+          - "The sidecar injection is not working for pods in 'app-ns'. What should I check?"
+          - "Query documentation for best practices on Istio performance tuning."
+          - "Describe the Istio ingress gateway pods in 'istio-system' namespace."

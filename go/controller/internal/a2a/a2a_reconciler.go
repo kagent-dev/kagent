@@ -17,6 +17,11 @@ type A2AReconciler interface {
 		agent *v1alpha1.Agent,
 		autogenTeam *autogen_client.Team,
 	) error
+
+	ReconcileAutogenAgentDeletion(
+		agentNamespace string,
+		agentName string,
+	)
 }
 
 type a2aReconciler struct {
@@ -54,5 +59,14 @@ func (a *a2aReconciler) ReconcileAutogenAgent(
 	return a.a2aHandler.SetAgentHandler(
 		agent.Namespace, agent.Name,
 		params,
+	)
+}
+
+func (a *a2aReconciler) ReconcileAutogenAgentDeletion(
+	agentNamespace string,
+	agentName string,
+) {
+	a.a2aHandler.RemoveAgentHandler(
+		agentNamespace, agentName,
 	)
 }
