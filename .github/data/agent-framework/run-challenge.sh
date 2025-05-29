@@ -63,7 +63,7 @@ log "Trying to fix the kagent broken environment using Kagent..."
 touch "${scenario_dir}/$NAME.thought.log"
 mkdir -p "${scenario_dir}/results"
 
-timeout --signal=INT 3m bash -c 'echo "$1" | kagent invoke --agent "k8s-agent" --task -' -- "$USER_PROMPT" > "${scenario_dir}/$NAME.thought.log" 2>&1
+timeout --signal=INT 3m bash -c 'echo "$1" | kagent invoke -v --agent "k8s-agent" -S --task -' -- "$USER_PROMPT" > "${scenario_dir}/results/$NAME.thought.log" 2>&1
 
 TIMEOUT_STATUS=$?
 if [ $TIMEOUT_STATUS -eq 124 ]; then
