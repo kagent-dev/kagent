@@ -132,4 +132,40 @@ spec:
     - type: Builtin
       builtin:
         name: kagent.tools.k8s.DescribeResource
-    
+  a2aConfig:
+    skills:
+      - id: deployment-to-rollout-conversion
+        name: Deployment to Rollout Conversion
+        description: The ability to convert Kubernetes Deployments to Argo Rollouts for progressive delivery.
+        tags:
+          - argo-rollouts
+          - deployment
+          - conversion
+          - progressive-delivery
+        examples:
+          - "Convert my Kubernetes deployment to an Argo Rollout"
+          - "Migrate from regular deployments to Argo Rollouts"
+          - "Set up canary deployments with Argo Rollouts"
+      - id: progressive-delivery-strategy
+        name: Progressive Delivery Strategy
+        description: The ability to implement and configure progressive delivery strategies like blue-green and canary deployments.
+        tags:
+          - argo-rollouts
+          - canary
+          - blue-green
+          - strategy
+        examples:
+          - "Configure a canary deployment strategy"
+          - "Set up blue-green deployment with Argo Rollouts"
+          - "Define rollout steps and traffic splitting"
+      - id: rollout-verification
+        name: Rollout Verification
+        description: The ability to verify Argo Rollouts controller installation and rollout status.
+        tags:
+          - argo-rollouts
+          - verification
+          - status
+        examples:
+          - "Check if Argo Rollouts controller is installed"
+          - "Verify my rollout configuration"
+          - "Monitor rollout progress and status"

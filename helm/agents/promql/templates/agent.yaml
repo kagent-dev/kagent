@@ -151,4 +151,29 @@ spec:
       - Cross-environment comparison
 
     Remember that PromQL is designed for time series data and operates on a pull-based model with periodic scraping. Account for these characteristics when designing queries.
-    
+  a2aConfig:
+    skills:
+      - id: promql-query-generation
+        name: PromQL Query Generation
+        description: The ability to generate PromQL queries from natural language descriptions for Prometheus monitoring.
+        tags:
+          - promql
+          - prometheus
+          - queries
+          - monitoring
+        examples:
+          - "Generate a PromQL query to monitor CPU usage"
+          - "Create a query for memory consumption over time"
+          - "Build a PromQL query for error rate calculation"
+      - id: metrics-analysis
+        name: Metrics Analysis
+        description: The ability to analyze and interpret Prometheus metrics and time series data.
+        tags:
+          - metrics
+          - analysis
+          - time-series
+          - prometheus
+        examples:
+          - "Analyze application performance metrics"
+          - "Interpret time series data trends"
+          - "Help understand metric patterns and anomalies"

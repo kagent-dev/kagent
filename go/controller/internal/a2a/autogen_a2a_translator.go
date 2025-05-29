@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
@@ -99,11 +99,15 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 	return func(ctx context.Context, task string, sessionID *string) (string, error) {
 		var taskResult *autogen_client.TaskResult
 		if sessionID != nil && *sessionID != "" {
-			session, err := a.autogenClient.GetSession(*sessionID, common.GetGlobalUserID())
+			sessionName := fmt.Sprintf("%v-%s-%s", autogenTeam.CreatedAt, autogenTeam.UserID, *sessionID)
+			log.FromContext(ctx).Info("Using session for task", "sessionName", sessionName)
+			session, err := a.autogenClient.GetSession(sessionName, common.GetGlobalUserID())
 			if err != nil {
 				if errors.Is(err, autogen_client.NotFoundError) {
+					// If session does not exist, create a new one
+					log.FromContext(ctx).Info("Creating new session for task", "sessionName", sessionName)
 					session, err = a.autogenClient.CreateSession(&autogen_client.CreateSession{
-						Name:   *sessionID,
+						Name:   sessionName,
 						UserID: common.GetGlobalUserID(),
 						TeamID: autogenTeam.Id,
 					})
@@ -113,6 +117,8 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 				} else {
 					return "", fmt.Errorf("failed to get session: %w", err)
 				}
+			} else {
+				log.FromContext(ctx).Info("Using existing session for task", "sessionName", sessionName)
 			}
 			resp, err := a.autogenClient.InvokeSession(session.ID, common.GetGlobalUserID(), task)
 			if err != nil {

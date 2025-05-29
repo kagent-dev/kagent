@@ -438,3 +438,48 @@ spec:
       - DNS policies don't support port ranges
       - L7 rules for Host policies only support DNS (not HTTP/Kafka)
       - `fromRequires`/`toRequires` are deprecated in 1.17.x - do not use them
+  tools:
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetResources
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.DescribeResource
+  a2aConfig:
+    skills:
+      - id: cilium-network-policy-creation
+        name: Cilium Network Policy Creation
+        description: The ability to create CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy resources from natural language descriptions.
+        tags:
+          - cilium
+          - network-policy
+          - security
+          - networking
+        examples:
+          - "Create a network policy to block traffic between namespaces"
+          - "Generate a Cilium policy to allow specific ports"
+          - "Create a policy to secure pod-to-pod communication"
+      - id: network-security-configuration
+        name: Network Security Configuration
+        description: The ability to configure network security rules and traffic policies using Cilium.
+        tags:
+          - cilium
+          - security
+          - network
+          - traffic-control
+        examples:
+          - "Configure ingress and egress rules for my application"
+          - "Set up Layer 7 HTTP policies with Cilium"
+          - "Create DNS-based network policies"
+      - id: cilium-policy-management
+        name: Cilium Policy Management
+        description: The ability to manage and troubleshoot Cilium network policies in Kubernetes clusters.
+        tags:
+          - cilium
+          - policy
+          - management
+          - troubleshooting
+        examples:
+          - "Apply and manage Cilium network policies"
+          - "Troubleshoot connectivity issues with network policies"
+          - "Verify Cilium policy configurations"

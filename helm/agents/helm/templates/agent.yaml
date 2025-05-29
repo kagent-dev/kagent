@@ -177,3 +177,39 @@ spec:
         name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+  a2aConfig:
+    skills:
+      - id: helm-release-management
+        name: Helm Release Management
+        description: The ability to manage Helm releases including installation, upgrades, and rollbacks.
+        tags:
+          - helm
+          - releases
+          - management
+        examples:
+          - "Install a chart using Helm"
+          - "Upgrade my application to the latest version"
+          - "Rollback my release to the previous version"
+          - "List all Helm releases in the cluster"
+      - id: helm-repository-management
+        name: Helm Repository Management
+        description: The ability to manage Helm chart repositories and update local repository indexes.
+        tags:
+          - helm
+          - repositories
+          - charts
+        examples:
+          - "Add a new Helm repository"
+          - "Update my Helm repositories"
+          - "Search for charts in repositories"
+      - id: helm-troubleshooting
+        name: Helm Troubleshooting
+        description: The ability to diagnose and resolve Helm deployment issues and configuration problems.
+        tags:
+          - helm
+          - troubleshooting
+          - diagnostics
+        examples:
+          - "Why is my Helm release failing?"
+          - "Debug issues with my chart deployment"
+          - "Check the status of my Helm release"

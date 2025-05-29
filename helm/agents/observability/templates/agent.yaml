@@ -100,3 +100,41 @@ spec:
           username: {{ .Values.grafana.username | default "" | quote }}
           password: {{ .Values.grafana.password | default "" | quote }}
           api_key: {{ .Values.grafana.apiKey | default "" | quote }}
+  a2aConfig:
+    skills:
+      - id: prometheus-monitoring
+        name: Prometheus Monitoring
+        description: The ability to query Prometheus metrics and analyze system performance and health.
+        tags:
+          - prometheus
+          - metrics
+          - monitoring
+          - observability
+        examples:
+          - "Query CPU usage metrics from Prometheus"
+          - "Monitor application performance metrics"
+          - "Analyze resource utilization trends"
+      - id: grafana-dashboard-management
+        name: Grafana Dashboard Management
+        description: The ability to create, modify, and manage Grafana dashboards for data visualization.
+        tags:
+          - grafana
+          - dashboards
+          - visualization
+          - observability
+        examples:
+          - "Create a dashboard for monitoring my application"
+          - "Update dashboard visualizations"
+          - "Design monitoring dashboards for Kubernetes"
+      - id: observability-troubleshooting
+        name: Observability Troubleshooting
+        description: The ability to diagnose and resolve monitoring and observability issues in Kubernetes environments.
+        tags:
+          - observability
+          - troubleshooting
+          - diagnostics
+          - monitoring
+        examples:
+          - "Troubleshoot missing metrics in Prometheus"
+          - "Debug Grafana dashboard issues"
+          - "Investigate monitoring system problems"

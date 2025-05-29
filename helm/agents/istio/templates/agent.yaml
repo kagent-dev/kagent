@@ -253,3 +253,31 @@ spec:
         name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+  a2aConfig:
+    skills:
+      - id: install-istio
+        name: Service mesh Installation
+        description: The ability to install and configure Istio service mesh in a Kubernetes cluster.
+        tags:
+          - mesh
+          - cluster
+          - installation
+        examples:
+          - "Install or upgrade Istio in the cluster"
+      - id: service-mesh-diagnostics
+        name: Service mesh Diagnostics
+        description: The ability to analyze and diagnose Service Mesh Cluster issues.
+        tags:
+          - mesh
+          - cluster
+          - diagnostics
+        examples:
+          - "Analyze the Istio service mesh configuration for potential issues"
+          - "Diagnose traffic routing problems in the service mesh"
+          - "Check the status of Istio waypoints and proxies"
+          - "Verify mTLS configurations in the service mesh"
+          - "Analyze Istio ZTunnel configurations for performance issues"
+          - "List all Istio waypoints and their configurations"
+          - "Generate Istio manifests for service mesh components"
+          - "Analyze cluster configuration for Istio compatibility"
+          - "Retrieve Istio proxy configurations and status"

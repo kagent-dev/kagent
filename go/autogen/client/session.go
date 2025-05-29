@@ -22,14 +22,14 @@ func (c *Client) GetSessionById(sessionID int, userID string) (*Session, error) 
 	return &session, err
 }
 
-func (c *Client) GetSession(sessionLabel string, userID string) (*Session, error) {
+func (c *Client) GetSession(sessionName string, userID string) (*Session, error) {
 	allSessions, err := c.ListSessions(userID)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, session := range allSessions {
-		if session.Name == sessionLabel {
+		if session.Name == sessionName {
 			return session, nil
 		}
 	}

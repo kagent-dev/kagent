@@ -252,3 +252,41 @@ spec:
     - type: Builtin
       builtin:
         name: kagent.tools.helm.RepoUpdate
+  a2aConfig:
+    skills:
+      - id: kgateway-installation
+        name: kgateway Installation
+        description: The ability to install and configure kgateway API gateway in Kubernetes environments using Helm.
+        tags:
+          - kgateway
+          - installation
+          - api-gateway
+          - kubernetes
+        examples:
+          - "Install kgateway in my Kubernetes cluster"
+          - "Deploy kgateway with Helm"
+          - "Set up Kubernetes Gateway API with kgateway"
+      - id: gateway-api-configuration
+        name: Gateway API Configuration
+        description: The ability to configure Gateway API resources like Gateway and HTTPRoute for traffic routing.
+        tags:
+          - gateway-api
+          - configuration
+          - routing
+          - traffic-management
+        examples:
+          - "Create a Gateway resource for HTTP traffic"
+          - "Configure HTTPRoute for my application"
+          - "Set up traffic routing rules with Gateway API"
+      - id: api-gateway-troubleshooting
+        name: API Gateway Troubleshooting
+        description: The ability to diagnose and resolve issues with kgateway and Gateway API configurations.
+        tags:
+          - kgateway
+          - troubleshooting
+          - api-gateway
+          - diagnostics
+        examples:
+          - "Troubleshoot kgateway connectivity issues"
+          - "Debug Gateway API routing problems"
+          - "Investigate API gateway performance issues"
