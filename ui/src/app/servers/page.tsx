@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
 import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { createServer, deleteServer, getServers } from "../actions/servers";
+import { createServer, deleteServer, getServers, updateServer } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
@@ -22,6 +22,8 @@ export default function ServersPage() {
   const [showAddServer, setShowAddServer] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
   const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
+  const [showEditServer, setShowEditServer] = useState(false);
+  const [editServerData, setEditServerData] = useState<ToolServer | null>(null);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -100,6 +102,28 @@ export default function ServersPage() {
     }
   };
 
+  // Handle editing a server
+  const handleEditServer = async (server: ToolServer) => {
+    if (!editServerData) return;
+    try {
+      setIsLoading(true);
+      const response = await updateServer(editServerData.metadata.name, server);
+      if (!response.success) {
+        throw new Error(response.error || "Failed to update server");
+      }
+      toast.success("Server updated successfully");
+      setShowEditServer(false);
+      setEditServerData(null);
+      fetchServers();
+    } catch (error) {
+      console.error("Error updating server:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Failed to update server: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="mt-12 mx-auto max-w-6xl px-6">
       <div className="flex justify-between items-center mb-6">
@@ -158,16 +182,32 @@ export default function ServersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                           <DropdownMenuItem 
-                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                             onSelect={(e) => {
-                               e.preventDefault();
-                               setOpenDropdownMenu(null);
-                                setShowConfirmDelete(serverName);
-                             }}
-                           >
-                             <Trash2 className="h-4 w-4 mr-2" />
-                             Remove Server
+                          <DropdownMenuItem
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setOpenDropdownMenu(null);
+                              setEditServerData({
+                                metadata: { name: server.name },
+                                spec: {
+                                  description: "",
+                                  config: server.config,
+                                },
+                              });
+                              setShowEditServer(true);
+                            }}
+                          >
+                            Edit Server
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setOpenDropdownMenu(null);
+                              setShowConfirmDelete(serverName);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Remove Server
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -225,6 +265,18 @@ export default function ServersPage() {
         open={showAddServer} 
         onOpenChange={setShowAddServer} 
         onAddServer={handleAddServer}
+      />
+
+      {/* Edit server dialog */}
+      <AddServerDialog
+        open={showEditServer}
+        onOpenChange={(open) => {
+          setShowEditServer(open);
+          if (!open) setEditServerData(null);
+        }}
+        mode="edit"
+        initialServer={editServerData ?? undefined}
+        onEditServer={handleEditServer}
       />
 
       {/* Confirm delete dialog */}

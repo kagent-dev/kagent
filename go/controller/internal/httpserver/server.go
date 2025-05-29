@@ -139,6 +139,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathToolServers+"/{toolServerName}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathToolServers+"/{toolServerName}", adaptHandler(s.handlers.ToolServers.HandleUpdateToolServer)).Methods(http.MethodPut)
 
 	// Teams
 	s.router.HandleFunc(APIPathTeams, adaptHandler(s.handlers.Teams.HandleListTeams)).Methods(http.MethodGet)

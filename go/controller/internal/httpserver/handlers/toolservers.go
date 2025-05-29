@@ -96,3 +96,42 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 	log.Info("Successfully deleted tool server from Kubernetes")
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// HandleUpdateToolServer handles PUT /api/toolservers/{toolServerName} requests
+func (h *ToolServersHandler) HandleUpdateToolServer(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "update")
+
+	toolServerName, err := GetPathParam(r, "toolServerName")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get tool server name from path", err))
+		return
+	}
+	log = log.WithValues("toolServerName", toolServerName)
+
+	var toolServerRequest v1alpha1.ToolServer
+	if err := DecodeJSONBody(r, &toolServerRequest); err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+
+	// Fetch the existing ToolServer
+	existing := &v1alpha1.ToolServer{}
+	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
+		Name:      toolServerName,
+		Namespace: common.GetResourceNamespace(),
+	}, existing); err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Tool server not found in Kubernetes", err))
+		return
+	}
+
+	// Update the spec
+	existing.Spec = toolServerRequest.Spec
+
+	if err := h.KubeClient.Update(r.Context(), existing); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to update tool server in Kubernetes", err))
+		return
+	}
+
+	log.Info("Successfully updated tool server")
+	RespondWithJSON(w, http.StatusOK, existing)
+}
