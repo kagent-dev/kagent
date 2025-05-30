@@ -386,7 +386,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                           </div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             {itemsSelectedInCategory > 0 && (
-                               <Badge variant="outline">{itemsSelectedInCategory} selected</Badge>
+                              <Badge variant="outline">{itemsSelectedInCategory} selected</Badge>
                             )}
                           </div>
                         </div>
