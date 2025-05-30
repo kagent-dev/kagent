@@ -18,9 +18,10 @@ package controller
 
 import (
 	"context"
+	"testing"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,8 +32,8 @@ import (
 	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
-var _ = Describe("AutogenTeam Controller", func() {
-	Context("When reconciling a resource", func() {
+func TestAutogenTeamController(t *testing.T) {
+	t.Run("When reconciling a resource", func(t *testing.T) {
 		const resourceName = "test-resource"
 
 		ctx := context.Background()
@@ -43,32 +44,32 @@ var _ = Describe("AutogenTeam Controller", func() {
 		}
 		autogenteam := &agentv1alpha1.Team{}
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind AutogenTeam")
-			err := k8sClient.Get(ctx, typeNamespacedName, autogenteam)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &agentv1alpha1.Team{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+		// Setup - creating the custom resource for the Kind AutogenTeam
+		err := k8sClient.Get(ctx, typeNamespacedName, autogenteam)
+		if err != nil && errors.IsNotFound(err) {
+			resource := &agentv1alpha1.Team{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				// TODO(user): Specify other spec details if needed.
 			}
-		})
+			require.NoError(t, k8sClient.Create(ctx, resource))
+		}
 
-		AfterEach(func() {
+		// Cleanup function
+		t.Cleanup(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
 			resource := &agentv1alpha1.Team{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+			require.NoError(t, err)
 
-			By("Cleanup the specific resource instance AutogenTeam")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			// Cleanup the specific resource instance AutogenTeam
+			require.NoError(t, k8sClient.Delete(ctx, resource))
 		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
+
+		t.Run("should successfully reconcile the resource", func(t *testing.T) {
+			// Reconciling the created resource
 			controllerReconciler := &AutogenTeamReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
@@ -77,9 +78,9 @@ var _ = Describe("AutogenTeam Controller", func() {
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
-			Expect(err).NotTo(HaveOccurred())
+			assert.NoError(t, err)
 			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 			// Example: If you expect a certain status condition after reconciliation, verify it here.
 		})
 	})
-})
+}

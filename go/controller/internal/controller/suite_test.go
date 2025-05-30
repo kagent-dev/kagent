@@ -22,9 +22,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,9 +33,7 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
-
+// Global test environment variables used by controller tests
 var (
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -47,24 +42,31 @@ var (
 	k8sClient client.Client
 )
 
-func TestControllers(t *testing.T) {
-	RegisterFailHandler(Fail)
+func TestMain(m *testing.M) {
+	setupTestEnv()
 
-	RunSpecs(t, "Controller Suite")
+	// Run tests
+	code := m.Run()
+
+	teardownTestEnv()
+
+	os.Exit(code)
 }
 
-var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+func setupTestEnv() {
+	logf.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
 	err = agentv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		panic(err)
+	}
 
 	// +kubebuilder:scaffold:scheme
 
-	By("bootstrapping test environment")
+	// Bootstrap test environment
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
@@ -77,20 +79,30 @@ var _ = BeforeSuite(func() {
 
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
+	if err != nil {
+		panic(err)
+	}
+	if cfg == nil {
+		panic("config should not be nil")
+	}
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
-})
+	if err != nil {
+		panic(err)
+	}
+	if k8sClient == nil {
+		panic("k8sClient should not be nil")
+	}
+}
 
-var _ = AfterSuite(func() {
-	By("tearing down the test environment")
+func teardownTestEnv() {
+	// Tearing down the test environment
 	cancel()
 	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
-})
+	if err != nil {
+		logf.Log.Error(err, "Failed to stop test environment")
+	}
+}
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
 // ENVTEST-based tests depend on specific binaries, usually located in paths set by

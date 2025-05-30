@@ -11,30 +11,22 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// AutogenClient defines operations for interacting with the autogen backend.
-type AutogenClient interface {
-	CreateSession(*autogen_client.CreateSession) (*autogen_client.Session, error)
-	CreateRun(*autogen_client.CreateRunRequest) (*autogen_client.CreateRunResult, error)
-}
-
 // InvokeHandler processes agent invocation API requests.
 type InvokeHandler struct {
 	*Base
-	client AutogenClient
 }
 
 // NewInvokeHandler creates a handler with the given base dependencies.
 func NewInvokeHandler(base *Base) *InvokeHandler {
 	return &InvokeHandler{
-		Base:   base,
-		client: base.AutogenClient,
+		Base: base,
 	}
 }
 
 // WithClient sets a client and returns the handler for chaining.
 // Used primarily for testing to inject mock clients.
-func (h *InvokeHandler) WithClient(client AutogenClient) *InvokeHandler {
-	h.client = client
+func (h *InvokeHandler) WithClient(client autogen_client.Client) *InvokeHandler {
+	h.AutogenClient = client
 	return h
 }
 

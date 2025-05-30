@@ -25,12 +25,12 @@ type Handlers struct {
 // Base holds common dependencies for all handlers
 type Base struct {
 	KubeClient         client.Client
-	AutogenClient      *autogen_client.Client
+	AutogenClient      autogen_client.Client
 	DefaultModelConfig types.NamespacedName
 }
 
 // NewHandlers creates a new Handlers instance with all handler components
-func NewHandlers(kubeClient client.Client, autogenClient *autogen_client.Client, defaultModelConfig types.NamespacedName) *Handlers {
+func NewHandlers(kubeClient client.Client, autogenClient autogen_client.Client, defaultModelConfig types.NamespacedName) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		AutogenClient:      autogenClient,
