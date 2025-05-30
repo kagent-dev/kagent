@@ -151,4 +151,51 @@ spec:
       - Cross-environment comparison
 
     Remember that PromQL is designed for time series data and operates on a pull-based model with periodic scraping. Account for these characteristics when designing queries.
+  a2aConfig:
+    skills:
+      - id: generate-promql-query
+        name: Generate PromQL Query
+        description: Translates a natural language description of monitoring needs into a precise and performant PromQL query, providing an explanation, assumptions, and alternatives.
+        tags:
+          - promql
+          - prometheus
+          - query-generation
+          - metrics
+          - monitoring
+          - natural-language
+        examples:
+          - "Generate a PromQL query to show the CPU usage percentage for all pods in the 'production' namespace, averaged over 5 minutes."
+          - "I need a query for the 95th percentile latency of HTTP requests for the 'api-service' job."
+          - "What's the PromQL to calculate the error rate for 'my-app' based on a counter metric named 'http_requests_total' with a 'status' label?"
+      - id: explain-debug-promql-query
+        name: Explain or Debug PromQL Query
+        description: Explains how an existing PromQL query works, helps debug issues, or suggests refinements for better performance or accuracy.
+        tags:
+          - promql
+          - prometheus
+          - explain-query
+          - debug-query
+          - refine-query
+          - optimization
+        examples:
+          - "Can you explain what this PromQL query does: sum(rate(node_cpu_seconds_total{mode='idle'}[5m])) by (instance)?"
+          - "My query `avg_over_time(my_metric[1h])` is not returning what I expect. Can you help me debug it?"
+          - "How can I optimize this PromQL query for better performance: `count(count_over_time(something[1d]))`?"
+      - id: promql-concepts-best-practices
+        name: PromQL Concepts and Best Practices
+        description: Provides information about Prometheus data models, PromQL functions, syntax, common patterns, and best practices for writing effective queries.
+        tags:
+          - promql
+          - prometheus
+          - concepts
+          - best-practices
+          - functions
+          - syntax
+          - data-model
+          - tutorial
+        examples:
+          - "What is the difference between `rate()` and `irate()` in PromQL?"
+          - "Explain the Prometheus histogram metric type and how to query it."
+          - "What are some best practices for choosing the time window in PromQL range vector selectors?"
+          - "How does vector matching work in PromQL, for example, with `on() `and `group_left()`?"
     

@@ -438,3 +438,54 @@ spec:
       - DNS policies don't support port ranges
       - L7 rules for Host policies only support DNS (not HTTP/Kafka)
       - `fromRequires`/`toRequires` are deprecated in 1.17.x - do not use them
+  a2aConfig:
+    skills:
+      - id: create-cilium-network-policy
+        name: Create CiliumNetworkPolicy
+        description: Generates a namespaced CiliumNetworkPolicy YAML based on requirements for ingress/egress rules, selectors, L3/L4/L7 filtering.
+        tags:
+          - cilium
+          - networkpolicy
+          - cnp
+          - namespaced
+          - security
+          - firewall
+          - ingress
+          - egress
+          - l3
+          - l4
+          - l7
+        examples:
+          - "Create a CiliumNetworkPolicy named 'frontend-allow' that allows ingress traffic to pods with label 'app=frontend' from pods with label 'role=loadbalancer' on TCP port 80."
+          - "Generate a CiliumNetworkPolicy to deny all egress traffic from pods labeled 'environment=dev' except to kube-dns and a specific external domain 'api.example.com'."
+          - "I need a policy for 'my-app' to allow HTTP GET requests to '/data' endpoint from any pod in the 'clients' namespace."
+      - id: create-cilium-clusterwide-network-policy
+        name: Create CiliumClusterwideNetworkPolicy
+        description: Generates a CiliumClusterwideNetworkPolicy YAML for cluster-wide network rules, typically for host policies or broad access controls, using node selectors.
+        tags:
+          - cilium
+          - clusterwidenetworkpolicy
+          - ccnp
+          - cluster-wide
+          - host-policy
+          - node-selector
+          - security
+          - firewall
+        examples:
+          - "Create a CiliumClusterwideNetworkPolicy named 'worker-node-ssh' that allows SSH ingress to worker nodes only from IPs in the '10.0.1.0/24' range."
+          - "Generate a cluster-wide policy to allow all pods to talk to kube-apiserver."
+          - "Define a CCNP to restrict egress from all nodes to only allow DNS and NTP traffic."
+      - id: guide-cilium-policy-type
+        name: Guide on Cilium Policy Type
+        description: Helps clarify whether a CiliumNetworkPolicy (namespaced) or CiliumClusterwideNetworkPolicy is needed, and advises if the request is outside its capability of creating these two policy types.
+        tags:
+          - cilium
+          - policy-type
+          - guidance
+          - cnp
+          - ccnp
+          - help
+        examples:
+          - "I want to restrict traffic between pods in the same namespace, which policy should I use?"
+          - "Can you create a Kubernetes NetworkPolicy for me?"
+          - "What's the difference between CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy for securing my nodes?"

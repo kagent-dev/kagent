@@ -104,7 +104,7 @@ spec:
 
     Interaction Guidelines:
       Always provide complete, precise YAML examples with accurate syntax.
-      First gather contextual info: user’s Kubernetes version, kgateway version, existing install state.
+      First gather contextual info: user's Kubernetes version, kgateway version, existing install state.
       Offer alternatives when applicable; explain pros and cons.
       Recommend backups before modifying production environments.
       Educate users with explanations behind recommendations.
@@ -188,7 +188,7 @@ spec:
 
     Protocol Support: In addition to HTTP and HTTPS, kgateway supports gRPC, TCPRoutes (from Kubernetes Gateway experimental CRDs), and WebSockets, enabling a broader set of use cases.
 
-    Envoy Proxy Features: As kgateway uses Envoy as the data plane proxy, it inherits Envoy’s rich capabilities such as dynamic configuration, telemetry, load balancing strategies, and plugin extensibility.
+    Envoy Proxy Features: As kgateway uses Envoy as the data plane proxy, it inherits Envoy's rich capabilities such as dynamic configuration, telemetry, load balancing strategies, and plugin extensibility.
 
     Custom GatewayClass and Controller: kgateway provides a specialized GatewayClass controller that manages lifecycle and control plane functions specific to its implementation, allowing for enhanced operational control.
 
@@ -252,3 +252,80 @@ spec:
     - type: Builtin
       builtin:
         name: kagent.tools.helm.RepoUpdate
+  a2aConfig:
+    skills:
+      - id: kgateway-installation-management
+        name: Kgateway Installation and Management
+        description: Assists with installing, upgrading, and managing kgateway and its CRDs using Helm, and verifying the installation status.
+        tags:
+          - kgateway
+          - install
+          - setup
+          - helm
+          - upgrade
+          - crds
+          - release-management
+          - verification
+        examples:
+          - "How do I install the Kubernetes Gateway API CRDs required by kgateway?"
+          - "Install kgateway version v2.0.1 into the 'kgateway-system' namespace using Helm."
+          - "Upgrade my current kgateway installation to the latest stable version."
+          - "List all Helm releases for kgateway in my cluster."
+          - "Verify that the kgateway controller pods are running correctly."
+      - id: kgateway-gateway-api-configuration
+        name: Kgateway Gateway API Configuration
+        description: Helps define, apply, and manage Kubernetes Gateway API resources like Gateway and HTTPRoute tailored for kgateway.
+        tags:
+          - kgateway
+          - gateway-api
+          - configuration
+          - yaml
+          - httproute
+          - gateway
+          - traffic-routing
+          - apply-manifest
+          - get-yaml
+          - create-resource
+        examples:
+          - "Create a Gateway resource named 'prod-http-gateway' in 'kgateway-system' that listens on port 80 for 'api.prod.com'."
+          - "Generate the YAML for an HTTPRoute to direct traffic from 'api.prod.com/users' to the 'user-service' on port 8080."
+          - "Show me the current YAML configuration for the Gateway named 'internal-gateway'."
+          - "Apply this HTTPRoute manifest to expose my backend service."
+      - id: kgateway-troubleshooting-diagnostics
+        name: Kgateway Troubleshooting and Diagnostics
+        description: Helps diagnose and resolve issues with kgateway deployments by inspecting logs, resource statuses, and configurations.
+        tags:
+          - kgateway
+          - troubleshooting
+          - diagnostics
+          - logs
+          - status
+          - errors
+          - pod-logs
+          - get-resources
+          - describe-resource
+        examples:
+          - "My HTTPRoute for 'billing-service' isn't routing traffic. What could be wrong?"
+          - "Fetch the logs from the kgateway deployment pods."
+          - "What are the status conditions for the 'edge-gateway' Gateway resource?"
+          - "I'm encountering an error when kgateway tries to reconcile an HTTPRoute. How can I debug this?"
+      - id: kgateway-feature-guidance-documentation
+        name: Kgateway Feature Guidance and Documentation
+        description: Explains kgateway features (AI Gateway, TCPRoute, security policies), discusses integrations, and retrieves information from official documentation.
+        tags:
+          - kgateway
+          - features
+          - documentation
+          - ai-gateway
+          - tcproute
+          - security
+          - envoy
+          - argo-cd
+          - query-tool
+          - best-practices
+        examples:
+          - "Explain the AI Gateway capabilities of kgateway for protecting LLMs."
+          - "How can I configure a TCPRoute with kgateway for a non-HTTP service?"
+          - "Find the official documentation on kgateway security best practices."
+          - "What are the steps to integrate kgateway with Argo CD for GitOps management?"
+          - "Tell me more about configuring advanced traffic routing rules like weighted load balancing with kgateway."
