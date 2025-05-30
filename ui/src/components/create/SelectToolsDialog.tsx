@@ -527,7 +527,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                   })}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-[200px] text-center p-4 text-muted-foreground">
+                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
                   <PlusCircle className="h-10 w-10 mb-3 opacity-50" />
                   <p className="font-medium">No tools selected</p>
                   <p className="text-sm">Select tools or agents from the left panel.</p>
