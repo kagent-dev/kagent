@@ -162,7 +162,7 @@ license-lint: $(LICENSE_LINT) ## Run license-lint to check for restricted licens
 	$(LICENSE_LINT) --config .license-lint.yaml
 
 .PHONY: license-lint-install
-license-lint: $(LICENSE_LINT) ## Download license-lint locally if necessary.
+license-lint-install: $(LICENSE_LINT) ## Download license-lint locally if necessary.
 $(LICENSE_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(LICENSE_LINT),istio.io/tools/cmd/license-lint,$(LICENSE_LINT_VERSION))
 
