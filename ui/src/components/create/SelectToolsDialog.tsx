@@ -257,13 +257,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     }
 
     // If we get here, either it's not an MCP tool or we need to add a new entry
-    setLocalSelectedComponents(prev => [
-        ...prev,
-        {
-            originalItemIdentifier: originalItemInfo.identifier,
-            toolInstance: toolToAdd
-        }
-    ]);
+    if (actualSelectedCount + numEffectiveToolsInThisItem <= MAX_TOOLS_LIMIT) {
+        setLocalSelectedComponents(prev => [
+            ...prev,
+            {
+                originalItemIdentifier: originalItemInfo.identifier,
+                toolInstance: toolToAdd
+            }
+        ]);
+    } else {
+        console.warn(`Cannot add tool. Limit reached or will be exceeded. Current: ${actualSelectedCount}, Adding: ${numEffectiveToolsInThisItem}, Limit: ${MAX_TOOLS_LIMIT}`);
+    }
   };
 
   const handleRemoveToolById = (toolInstanceIdentifier: string) => {
