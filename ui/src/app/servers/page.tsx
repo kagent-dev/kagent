@@ -19,11 +19,17 @@ export default function ServersPage() {
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
 
   // Dialog states
-  const [showAddServer, setShowAddServer] = useState(false);
+  const [dialogState, setDialogState] = useState<{
+    isOpen: boolean;
+    mode: 'add' | 'edit';
+    serverData: ToolServer | null;
+  }>({
+    isOpen: false,
+    mode: 'add',
+    serverData: null
+  });
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
   const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
-  const [showEditServer, setShowEditServer] = useState(false);
-  const [editServerData, setEditServerData] = useState<ToolServer | null>(null);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -90,7 +96,7 @@ export default function ServersPage() {
       }
 
       toast.success("Server added successfully");
-      setShowAddServer(false);
+      setDialogState({ isOpen: false, mode: 'add', serverData: null });
       fetchServers();
     } catch (error) {
       console.error("Error adding server:", error);
@@ -111,21 +117,23 @@ export default function ServersPage() {
         config: server.config
       }
     };
-    setEditServerData(serverToEdit);
-    setShowEditServer(true);
+    setDialogState({
+      isOpen: true,
+      mode: 'edit',
+      serverData: serverToEdit
+    });
   };
 
   const handleEditServer = async (server: ToolServer) => {
-    if (!editServerData) return;
+    if (!dialogState.serverData) return;
     try {
       setIsLoading(true);
-      const response = await updateServer(editServerData.metadata.name, server);
+      const response = await updateServer(dialogState.serverData.metadata.name, server);
       if (!response.success) {
         throw new Error(response.error || "Failed to update server");
       }
       toast.success("Server updated successfully");
-      setShowEditServer(false);
-      setEditServerData(null);
+      setDialogState({ isOpen: false, mode: 'add', serverData: null });
       fetchServers();
     } catch (error) {
       console.error("Error updating server:", error);
@@ -147,7 +155,7 @@ export default function ServersPage() {
           </Link>
         </div>
         {servers.length > 0 && (
-          <Button onClick={() => setShowAddServer(true)} variant="default">
+          <Button onClick={() => setDialogState({ isOpen: true, mode: 'add', serverData: null })} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add Server
           </Button>
@@ -259,27 +267,25 @@ export default function ServersPage() {
           <Server className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
           <h3 className="font-medium text-lg">No servers connected</h3>
           <p className="text-muted-foreground mt-1 mb-4">Add a tool server to discover and use tools.</p>
-          <Button onClick={() => setShowAddServer(true)} variant="default">
+          <Button onClick={() => setDialogState({ isOpen: true, mode: 'add', serverData: null })} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add Server
           </Button>
         </div>
       )}
 
-      {/* Add server dialog */}
+      {/* Server dialog for both add and edit */}
       <AddServerDialog 
-        open={showAddServer} 
-        onOpenChange={setShowAddServer} 
+        open={dialogState.isOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDialogState({ isOpen: false, mode: 'add', serverData: null });
+          }
+        }}
         onAddServer={handleAddServer}
-      />
-
-      {/* Edit server dialog */}
-      <AddServerDialog
-        open={showEditServer}
-        onOpenChange={setShowEditServer}
         onEditServer={handleEditServer}
-        mode="edit"
-        initialServer={editServerData || undefined}
+        mode={dialogState.mode}
+        initialServer={dialogState.serverData || undefined}
       />
 
       {/* Confirm delete dialog */}
