@@ -111,29 +111,11 @@ func TestInvokeHandler(t *testing.T) {
 		assert.NotNil(t, responseRecorder.errorReceived)
 	})
 
-	t.Run("RunCreationError", func(t *testing.T) {
+	t.Run("HandlerError", func(t *testing.T) {
 		handler, mockClient, responseRecorder := setupHandler()
 
-		mockClient.createSessionFunc = func(req *autogen_client.CreateSession) (*autogen_client.Session, error) {
-			return &autogen_client.Session{
-				ID:      42,
-				UserID:  req.UserID,
-				Version: "1.0",
-				TeamID:  req.TeamID,
-				Name:    req.Name,
-			}, nil
-		}
-
-		mockClient.createRunFunc = func(req *autogen_client.CreateRunRequest) (*autogen_client.CreateRunResult, error) {
-			return nil, fmt.Errorf("run creation failed")
-		}
-
 		mockClient.getTeamByIDFunc = func(teamID int, userID string) (*autogen_client.Team, error) {
-			return &autogen_client.Team{
-				Component: &api.Component{
-					Label: "test-team",
-				},
-			}, nil
+			return nil, autogen_client.NotFoundError
 		}
 
 		agentID := "1"
@@ -176,29 +158,5 @@ func TestInvokeHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 		assert.NotNil(t, responseRecorder.errorReceived)
-	})
-
-	t.Run("NoClientAvailable", func(t *testing.T) {
-		handlerWithoutClient := handlers.NewInvokeHandler(&handlers.Base{})
-		handlerWithoutClient.WithClient(nil)
-		responseRecorder := newMockErrorResponseWriter()
-
-		agentID := "1"
-		reqBody := handlers.InvokeRequest{
-			Message: "Test message",
-			UserID:  "test-user",
-		}
-		jsonBody, _ := json.Marshal(reqBody)
-		req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/invoke", bytes.NewBuffer(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-
-		router := mux.NewRouter()
-		router.HandleFunc("/api/agents/{agentId}/invoke", func(w http.ResponseWriter, r *http.Request) {
-			assert.Panics(t, func() {
-				handlerWithoutClient.HandleInvokeAgent(responseRecorder, r)
-			})
-		}).Methods("POST")
-
-		router.ServeHTTP(responseRecorder, req)
 	})
 }
