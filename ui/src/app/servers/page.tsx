@@ -39,7 +39,7 @@ export default function ServersPage() {
         setServers(serversResponse.data);
 
         // Initially expand all servers
-        const serverNames = serversResponse.data.map((server) => server.name).filter((name): name is string => name !== undefined);
+const serverNames = serversResponse.data.map((server) => server.name).filter((name): name is string => name !== undefined);
 
         setExpandedServers(new Set(serverNames));
       } else {
@@ -173,10 +173,10 @@ export default function ServersPage() {
                         <DropdownMenuContent align="end">
                            <DropdownMenuItem 
                              className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                             onSelect={(e: React.SyntheticEvent) => {
-                               e.preventDefault();
+                             onSelect={(event) => {
+                               event.preventDefault();
                                setOpenDropdownMenu(null);
-                                setShowConfirmDelete(serverName);
+                               setShowConfirmDelete(serverName);
                              }}
                            >
                              <Trash2 className="h-4 w-4 mr-2" />
