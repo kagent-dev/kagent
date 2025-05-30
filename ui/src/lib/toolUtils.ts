@@ -157,10 +157,17 @@ export const isSameTool = (toolA?: Tool, toolB?: Tool): boolean => {
 export const componentToAgentTool = (component: Component<ToolConfig>): Tool => {
   if (isMcpProvider(component.provider)) {
     const mcpConfig = component.config as MCPToolConfig;
+    let toolServer = component.label || "unknown";
+    
+    // Try to get the server URL from SSE config if available
+    if (mcpConfig.server_params && 'url' in mcpConfig.server_params) {
+      toolServer = mcpConfig.server_params.url;
+    }
+    
     return {
       type: "McpServer",
       mcpServer: {
-        toolServer: component.label || mcpConfig.tool.name || "unknown",
+        toolServer,
         toolNames: [mcpConfig.tool.name || "unknown"]
       }
     };

@@ -254,22 +254,16 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                 }
             }
         }
-        
-        if (toolToAdd.mcpServer?.toolNames && toolToAdd.mcpServer.toolNames.length > 0) {
-            numEffectiveToolsInThisItem = toolToAdd.mcpServer.toolNames.length;
-        } else {
-            numEffectiveToolsInThisItem = 1; 
-        }
     }
 
-    if (actualSelectedCount + numEffectiveToolsInThisItem <= MAX_TOOLS_LIMIT) {
-        setLocalSelectedComponents((prev) => [
-            ...prev,
-            { originalItemIdentifier: originalItemInfo.identifier, toolInstance: toolToAdd }
-        ]);
-    } else {
-        console.warn(`Cannot add tool. Limit reached or will be exceeded. Current: ${actualSelectedCount}, Adding: ${numEffectiveToolsInThisItem}, Limit: ${MAX_TOOLS_LIMIT}`);
-    }
+    // If we get here, either it's not an MCP tool or we need to add a new entry
+    setLocalSelectedComponents(prev => [
+        ...prev,
+        {
+            originalItemIdentifier: originalItemInfo.identifier,
+            toolInstance: toolToAdd
+        }
+    ]);
   };
 
   const handleRemoveToolById = (toolInstanceIdentifier: string) => {
@@ -318,172 +312,222 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Select Tools and Agents</DialogTitle>
-          <DialogDescription>
-            You can use tools and agents to create your agent. The tools are grouped by category. You can select a tool by clicking on it. To add your own tools, you can 
-            use the <Link href="/tools" className="text-violet-600 hover:text-violet-700">Tools</Link> page.
+    <Dialog open={open} onOpenChange={handleCancel}>
+      <DialogContent className="max-w-6xl max-h-[90vh] h-[85vh] flex flex-col p-0">
+        <DialogHeader className="p-6 pb-4 border-b">
+          <DialogTitle className="text-xl">Select Tools and Agents</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            You can use tools and agents to create your agent. The tools are grouped by category. You can select a tool by clicking on it. To add your own tools, you can use the <Link href="/tools" className="text-violet-600 hover:text-violet-700">Tools</Link> page.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-1 gap-4 overflow-hidden">
-          {/* Left panel - Available tools */}
-          <div className="w-1/2 flex flex-col">
-            <div className="flex items-center gap-2 mb-4">
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Panel: Available Tools */}
+          <div className="w-1/2 border-r flex flex-col p-4 space-y-4">
+            {/* Search and Filter Area */}
+            <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search tools..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8"
-                />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Search tools..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 h-10" />
               </div>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setShowFilters(!showFilters)}
-                className={showFilters ? "bg-muted" : ""}
-              >
-                <Filter className="h-4 w-4" />
+              {categories.size > 1 && (
+                 <Button variant="outline" size="icon" onClick={() => setShowFilters(!showFilters)} className={showFilters ? "bg-secondary" : ""}>
+                   <Filter className="h-4 w-4" />
+                 </Button>
+               )}
+            </div>
+
+            {showFilters && categories.size > 1 && (
+              <ProviderFilter
+                providers={categories}
+                selectedProviders={selectedCategories}
+                onToggleProvider={handleToggleCategoryFilter}
+                onSelectAll={selectAllCategories}
+                onSelectNone={clearCategories}
+              />
+            )}
+
+            {/* Available Tools List */}
+            <ScrollArea className="flex-1 -mr-4 pr-4">
+              {loadingAgents && (
+                <div className="flex items-center justify-center h-full">
+                  <p>Loading Agents...</p>
+                </div>
+              )}
+              {!loadingAgents && Object.keys(groupedAvailableItems).length > 0 ? (
+                <div className="space-y-3">
+                  {Object.entries(groupedAvailableItems).map(([category, items]) => {
+                    const itemsSelectedInCategory = items.reduce((count, availableItemInLoop) => {
+                        const { identifier: availableItemInCatIdentifier } = getItemDisplayInfo(availableItemInLoop);
+                        const selectedEntry = localSelectedComponents.find(
+                            (entry) => entry.originalItemIdentifier === availableItemInCatIdentifier
+                        );
+
+                        if (selectedEntry) {
+                            const tool = selectedEntry.toolInstance;
+                            if (tool.mcpServer && 
+                                tool.mcpServer.toolNames && 
+                                tool.mcpServer.toolNames.length > 0) {
+                                return count + tool.mcpServer.toolNames.length;
+                            }
+                            return count + 1;
+                        }
+                        return count;
+                    }, 0);
+
+                    return (
+                      <div key={category} className="border rounded-lg overflow-hidden bg-card">
+                        <div
+                          className="flex items-center justify-between p-3 bg-secondary/50 cursor-pointer hover:bg-secondary/70"
+                          onClick={() => toggleCategory(category)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {expandedCategories[category] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            <h3 className="font-semibold capitalize text-sm">{highlightMatch(category, searchTerm)}</h3>
+                            <Badge variant="secondary" className="font-mono text-xs">{items.length}</Badge>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            {itemsSelectedInCategory > 0 && (
+                               <Badge variant="outline">{itemsSelectedInCategory} selected</Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        {expandedCategories[category] && (
+                          <div className="divide-y border-t">
+                            {items.map((item) => {
+                              const { displayName, description, identifier, providerText } = getItemDisplayInfo(item);
+                              const isSelected = isItemSelected(item);
+                              const isDisabled = !isSelected && isLimitReached;
+
+                              return (
+                                <div
+                                  key={identifier}
+                                  className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-muted/50'}`}
+                                  onClick={() => !isDisabled && handleAddItem(item)}
+                                >
+                                  <div className="flex-1 overflow-hidden pr-2">
+                                    <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(displayName, searchTerm)}</p>
+                                    {description && <p className="text-xs text-muted-foreground">{highlightMatch(description, searchTerm)}</p>}
+                                    {providerText && <p className="text-xs text-muted-foreground/80 font-mono mt-1">{highlightMatch(providerText, searchTerm)}</p>}
+                                  </div>
+                                  {!isSelected && !isDisabled && (
+                                     <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 text-green-600 hover:text-green-700" >
+                                       <PlusCircle className="h-4 w-4"/>
+                                     </Button>
+                                   )}
+                                  {isSelected && (
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={(e) => {
+                                      e.stopPropagation(); 
+                                      // To remove here, we need the toolInstance's identifier
+                                      // Find the entry, then get its toolInstance's ID
+                                      const entryToRemove = localSelectedComponents.find(entry => entry.originalItemIdentifier === identifier);
+                                      if (entryToRemove) {
+                                        handleRemoveToolById(getItemDisplayInfo(entryToRemove.toolInstance).identifier);
+                                      }
+                                    }}>
+                                       <XCircle className="h-4 w-4"/>
+                                     </Button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-[200px] text-center p-4 text-muted-foreground">
+                  <Search className="h-10 w-10 mb-3 opacity-50" />
+                  <p className="font-medium">No tools found</p>
+                  <p className="text-sm">Try adjusting your search or filters.</p>
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+
+          {/* Right Panel: Selected Tools */}
+          <div className="w-1/2 flex flex-col p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Selected ({actualSelectedCount}/{MAX_TOOLS_LIMIT})</h3>
+              <Button variant="ghost" size="sm" onClick={clearAllSelectedTools} disabled={actualSelectedCount === 0}>
+                Clear All
               </Button>
             </div>
 
-            {showFilters && (
-              <div className="mb-4 p-4 border rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-medium">Categories</h3>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={selectAllCategories}>
-                      All
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={clearCategories}>
-                      None
-                    </Button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {Array.from(categories).sort().map((category) => (
-                    <Button
-                      key={category}
-                      variant={selectedCategories.has(category) ? "default" : "outline"}
-                      size="sm"
-                      className="justify-start"
-                      onClick={() => handleToggleCategoryFilter(category)}
-                    >
-                      {category}
-                    </Button>
-                  ))}
+            {isLimitReached && actualSelectedCount >= MAX_TOOLS_LIMIT && (
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2 text-amber-800 text-sm">
+                <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  Tool limit reached. Deselect a tool to add another.
                 </div>
               </div>
             )}
 
-            <ScrollArea className="flex-1 pr-4">
-              {Object.entries(groupedAvailableItems).map(([category, items]) => (
-                <div key={category} className="mb-4">
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-between px-2 py-1"
-                    onClick={() => toggleCategory(category)}
-                  >
-                    <span className="font-medium">{category}</span>
-                    {expandedCategories[category] ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                  </Button>
-                  {expandedCategories[category] && (
-                    <div className="space-y-1 mt-1">
-                      {items.map((item) => {
-                        const { displayName, description, identifier, providerText, Icon, iconColor, isAgent } = getItemDisplayInfo(item);
-                        const isSelected = isItemSelected(item);
-                        return (
-                          <div
-                            key={identifier}
-                            className={`flex items-center gap-2 p-2 rounded-md cursor-pointer hover:bg-muted ${
-                              isSelected ? "bg-muted" : ""
-                            }`}
-                            onClick={() => isSelected ? handleRemoveToolById(identifier) : handleAddItem(item)}
-                          >
-                            <div className="flex items-center gap-2 flex-1 overflow-hidden">
-                              {isAgent ? (
-                                <KagentLogo className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
-                              ) : (
-                                <Icon className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
-                              )}
-                              <div className="flex-1 overflow-hidden">
-                                <p className="text-sm font-medium truncate">{displayName}</p>
-                                {description && <p className="text-xs text-muted-foreground truncate">{description}</p>}
-                              </div>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 ml-2 flex-shrink-0"
-                              onClick={() => {
-                                handleRemoveToolById(identifier);
-                              }}
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </ScrollArea>
-          </div>
-
-          {/* Right panel - Selected tools */}
-          <div className="w-1/2 flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium">Selected Tools</h3>
-              {localSelectedComponents.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={clearAllSelectedTools}>
-                  Clear All
-                </Button>
-              )}
-            </div>
-
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 -mr-4 pr-4">
               {localSelectedComponents.length > 0 ? (
                 <div className="space-y-2">
-                  {localSelectedComponents.map((entry) => {
-                    const { displayName, description, identifier: toolInstanceIdentifier, providerText, Icon, iconColor, isAgent } = getItemDisplayInfo(entry.toolInstance);
-                    return [
-                      <div key={toolInstanceIdentifier} className="flex items-center gap-2 p-2 rounded-md bg-muted">
-                        <div className="flex items-center gap-2 flex-1 overflow-hidden">
-                          {isAgent ? (
-                            <KagentLogo className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
-                          ) : (
-                            <Icon className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
-                          )}
-                          <div className="flex-1 overflow-hidden">
-                            <p className="text-sm font-medium truncate">{displayName}</p>
-                            {description && <p className="text-xs text-muted-foreground truncate">{description}</p>}
+                  {localSelectedComponents.flatMap((entry) => {
+                    const tool = entry.toolInstance;
+                    if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
+                      const parentToolInfo = getItemDisplayInfo(tool);
+                      return tool.mcpServer.toolNames.map((toolName) => (
+                        <div key={`${parentToolInfo.identifier}-${toolName}`} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
+                          <div className="flex items-center gap-2 flex-1 overflow-hidden">
+                            <parentToolInfo.Icon className={`h-4 w-4 flex-shrink-0 ${parentToolInfo.iconColor}`} />
+                            <div className="flex-1 overflow-hidden">
+                              <p className="text-sm font-medium truncate">{toolName}</p>
+                              {parentToolInfo.description && (
+                                <p className="text-xs text-muted-foreground truncate">{parentToolInfo.description}</p>
+                              )}
+                            </div>
                           </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 ml-2 flex-shrink-0"
+                            onClick={() => {
+                              handleRemoveToolById(parentToolInfo.identifier);
+                            }}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 ml-2 flex-shrink-0"
-                          onClick={() => {
-                            handleRemoveToolById(toolInstanceIdentifier);
-                          }}
-                        >
-                          <XCircle className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ];
+                      ));
+                    } else {
+                      const { displayName, description, identifier: toolInstanceIdentifier, Icon, iconColor, isAgent } = getItemDisplayInfo(tool);
+                      return [( 
+                        <div key={toolInstanceIdentifier} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
+                          <div className="flex items-center gap-2 flex-1 overflow-hidden">
+                            {isAgent ? (
+                              <KagentLogo className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
+                            ) : (
+                              <Icon className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
+                            )}
+                            <div className="flex-1 overflow-hidden">
+                              <p className="text-sm font-medium truncate">{displayName}</p>
+                              {description && <p className="text-xs text-muted-foreground truncate">{description}</p>}
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 ml-2 flex-shrink-0"
+                            onClick={() => {
+                              handleRemoveToolById(toolInstanceIdentifier);
+                            }}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )];
+                    }
                   })}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+                <div className="flex flex-col items-center justify-center h-[200px] text-center p-4 text-muted-foreground">
                   <PlusCircle className="h-10 w-10 mb-3 opacity-50" />
                   <p className="font-medium">No tools selected</p>
                   <p className="text-sm">Select tools or agents from the left panel.</p>

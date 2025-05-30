@@ -234,128 +234,94 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
 
   const renderSelectedTools = () => (
     <div className="space-y-2">
-      {selectedTools.map((agentTool: Tool) => {
+      {selectedTools.flatMap((agentTool: Tool) => {
         const parentToolIdentifier = getToolIdentifier(agentTool);
 
         if (isMcpTool(agentTool) && agentTool.mcpServer && agentTool.mcpServer.toolNames && agentTool.mcpServer.toolNames.length > 0) {
-          // For MCP tools, show all tool names under a single entry
-          const displayName = agentTool.mcpServer.toolServer;
-          const toolNames = agentTool.mcpServer.toolNames;
+          return agentTool.mcpServer.toolNames.map((mcpToolName) => {
+            const toolIdentifierForDisplay = `${parentToolIdentifier}::${mcpToolName}`;
+            const displayName = mcpToolName;
 
-          let displayDescription = "Description not available.";
-          const mcpToolDef = allTools.find(def =>
-            isMcpProvider(def.provider) &&
-            (def.config as ToolConfig & { tool?: { name: string, description?: string } })?.tool?.name === toolNames[0]
-          );
+            let displayDescription = "Description not available.";
+            const mcpToolDef = allTools.find(def =>
+              isMcpProvider(def.provider) &&
+              (def.config as ToolConfig & { tool?: { name: string, description?: string } })?.tool?.name === mcpToolName
+            );
 
-          if (mcpToolDef) {
-            displayDescription = getToolDescription(mcpToolDef);
+            if (mcpToolDef) {
+              const toolConfig = (mcpToolDef.config as ToolConfig & { tool?: { name: string, description?: string } });
+              displayDescription = toolConfig?.tool?.description || displayDescription;
+            }
+
+            const Icon = FunctionSquare;
+            const iconColor = "text-blue-400";
+
+            return (
+              <Card key={toolIdentifierForDisplay}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center text-xs">
+                      <div className="inline-flex space-x-2 items-center">
+                        <Icon className={`h-4 w-4 ${iconColor}`} />
+                        <div className="inline-flex flex-col space-y-1">
+                          <span className="">{displayName}</span>
+                          <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier, mcpToolName)} disabled={isSubmitting}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          });
+        } else {
+          const displayName = getToolDisplayName(agentTool);
+          const displayDescription = getToolDescription(agentTool);
+
+          let CurrentIcon: React.ElementType;
+          let currentIconColor: string;
+
+          if (isAgentTool(agentTool)) {
+            CurrentIcon = KagentLogo;
+            currentIconColor = "text-green-500";
+          } else {
+            CurrentIcon = FunctionSquare;
+            currentIconColor = "text-yellow-500";
           }
 
-          return (
-            <div key={parentToolIdentifier} className="flex items-center justify-between p-3 border rounded-md bg-muted/30">
-              <div className="flex items-center gap-2 flex-1 overflow-hidden">
-                <FunctionSquare className="h-4 w-4 flex-shrink-0 text-blue-400" />
-                <div className="flex-1 overflow-hidden">
-                  <p className="text-sm font-medium truncate">{displayName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{displayDescription}</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {toolNames.map((toolName) => (
-                      <Badge key={toolName} variant="secondary" className="text-xs">
-                        {toolName}
-                      </Badge>
-                    ))}
+          return [( 
+            <Card key={parentToolIdentifier}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center text-xs">
+                    <div className="inline-flex space-x-2 items-center">
+                      <CurrentIcon className={`h-4 w-4 ${currentIconColor}`} />
+                      <div className="inline-flex flex-col space-y-1">
+                        <span className="">{displayName}</span>
+                        <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!isMcpTool(agentTool) && !isAgentTool(agentTool) && (
+                      <Button variant="outline" size="sm" onClick={() => openConfigDialog(agentTool)} disabled={isSubmitting}>
+                        <Settings2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
+                      <X className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => openConfigDialog(agentTool)}
-                >
-                  <Settings2 className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => handleRemoveTool(parentToolIdentifier)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          );
-        } else if (isBuiltinTool(agentTool) && agentTool.builtin) {
-          const displayName = agentTool.builtin.label || agentTool.builtin.name;
-          const displayDescription = agentTool.builtin.description || "No description available.";
-
-          return (
-            <div key={parentToolIdentifier} className="flex items-center justify-between p-3 border rounded-md bg-muted/30">
-              <div className="flex items-center gap-2 flex-1 overflow-hidden">
-                <FunctionSquare className="h-4 w-4 flex-shrink-0 text-yellow-500" />
-                <div className="flex-1 overflow-hidden">
-                  <p className="text-sm font-medium truncate">{displayName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{displayDescription}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => openConfigDialog(agentTool)}
-                >
-                  <Settings2 className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => handleRemoveTool(parentToolIdentifier)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          );
-        } else if (isAgentTool(agentTool) && agentTool.agent) {
-          const displayName = agentTool.agent.ref;
-          const displayDescription = agentTool.agent.description || "No description available.";
-
-          return (
-            <div key={parentToolIdentifier} className="flex items-center justify-between p-3 border rounded-md bg-muted/30">
-              <div className="flex items-center gap-2 flex-1 overflow-hidden">
-                <KagentLogo className="h-4 w-4 flex-shrink-0 text-green-500" />
-                <div className="flex-1 overflow-hidden">
-                  <p className="text-sm font-medium truncate">{displayName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{displayDescription}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => openConfigDialog(agentTool)}
-                >
-                  <Settings2 className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => handleRemoveTool(parentToolIdentifier)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          );
+              </CardContent>
+            </Card>
+          )];
         }
-        return null;
       })}
     </div>
   );
