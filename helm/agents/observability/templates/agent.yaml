@@ -100,3 +100,56 @@ spec:
           username: {{ .Values.grafana.username | default "" | quote }}
           password: {{ .Values.grafana.password | default "" | quote }}
           api_key: {{ .Values.grafana.apiKey | default "" | quote }}
+  a2aConfig:
+    skills:
+      - id: prometheus-monitoring-querying
+        name: Prometheus Monitoring & Querying
+        description: Assists with designing Prometheus monitoring strategies, generating PromQL queries (via promql-agent), executing queries, interpreting metrics, and designing alerts.
+        tags:
+          - prometheus
+          - promql
+          - monitoring
+          - metrics
+          - alerting
+          - query
+          - analysis
+        examples:
+          - "Generate a PromQL query to show the 99th percentile latency for 'my-service'."
+          - "Execute this PromQL query and show me the results: `sum(rate(container_cpu_usage_seconds_total[5m])) by (pod)`"
+          - "Help me design an alert for when the disk space on my nodes is above 80%."
+          - "What are the key metrics I should monitor for a Kafka cluster?"
+
+      - id: grafana-dashboard-management
+        name: Grafana Dashboard Management
+        description: Manages Grafana dashboards, including creating new dashboards from requirements, finding existing ones, updating panels, managing versions, and setting permissions.
+        tags:
+          - grafana
+          - dashboard
+          - visualization
+          - create-dashboard
+          - update-dashboard
+          - search-dashboard
+          - permissions
+        examples:
+          - "Create a Grafana dashboard to visualize CPU and memory usage for pods in the 'prod' namespace."
+          - "Find all Grafana dashboards related to 'nginx'."
+          - "Add a new panel to the 'Kubernetes Overview' dashboard to show network traffic."
+          - "Restore the previous version of the 'API Performance' dashboard."
+          - "Grant read-only access to the 'Web Services' dashboard for the 'dev-team'."
+
+      - id: kubernetes-observability-insights
+        name: Kubernetes Observability Insights
+        description: Provides insights into Kubernetes cluster and application health by correlating Kubernetes resource information with Prometheus metrics and Grafana visualizations. Helps troubleshoot performance bottlenecks and service issues.
+        tags:
+          - kubernetes
+          - observability
+          - insights
+          - troubleshooting
+          - performance
+          - resource-utilization
+          - service-monitoring
+        examples:
+          - "My 'checkout-service' pods are restarting frequently. Can you help me investigate using logs and metrics?"
+          - "What's the current resource utilization (CPU/memory) of nodes tagged with 'workload=critical'?"
+          - "Show me Kubernetes events related to the 'database' StatefulSet along with its key performance metrics."
+          - "Help me identify potential performance bottlenecks in my microservices deployment."

@@ -177,3 +177,59 @@ spec:
         name: kagent.tools.docs.QueryTool
         config:
           docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+  a2aConfig:
+    skills:
+      - id: helm-release-management
+        name: Helm Release Management
+        description: Manages the lifecycle of Helm releases, including listing, inspecting, installing, upgrading, and uninstalling releases, and assisting with rollbacks.
+        tags:
+          - helm
+          - release
+          - lifecycle
+          - install
+          - upgrade
+          - rollback
+          - uninstall
+          - status
+        examples:
+          - "List all Helm releases in the 'default' namespace."
+          - "Show me the current status and deployed version of the 'my-application' release."
+          - "Install a new instance of the 'postgresql' chart from 'bitnami' repository, name it 'my-db'."
+          - "Upgrade the 'monitoring-stack' release to the latest chart version."
+          - "How can I roll back the 'frontend-app' release to its previous working version?"
+          - "Uninstall the 'test-release' and its associated resources."
+      - id: helm-repository-chart-operations
+        name: Helm Repository and Chart Operations
+        description: Manages Helm chart repositories (e.g., adding new ones, updating existing ones) and helps with chart-related information using documentation tools.
+        tags:
+          - helm
+          - chart
+          - repository
+          - repo
+          - add
+          - update
+          - search
+          - info
+          - documentation
+        examples:
+          - "Add the 'jetstack' Helm repository with the URL 'https://charts.jetstack.io'."
+          - "Ensure all my local Helm chart repositories are up to date."
+          - "Find documentation on how to configure persistence for the 'grafana' Helm chart."
+          - "What are some common best practices for structuring a custom Helm chart?"
+      - id: helm-release-troubleshooting
+        name: Helm Release Troubleshooting
+        description: Diagnoses and helps resolve issues with Helm releases by inspecting configurations, Kubernetes resources, release history, and leveraging documentation.
+        tags:
+          - helm
+          - release
+          - troubleshooting
+          - debug
+          - fix
+          - error
+          - diagnose
+          - k8s
+        examples:
+          - "My Helm release 'data-processor' is stuck in a pending state. What could be the cause?"
+          - "The latest upgrade of the 'api-gateway' release failed. Can you help identify the problem?"
+          - "How do I check the rendered Kubernetes manifests for the 'web-server' release without deploying them?"
+          - "The pods managed by the 'message-broker' Helm release are frequently restarting. What should I investigate?"

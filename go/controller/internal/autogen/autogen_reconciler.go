@@ -94,6 +94,9 @@ func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
 	// 	"agents", agents)
 	// }
 
+	// remove a2a handler if it exists
+	a.a2aReconciler.ReconcileAutogenAgentDeletion(req.Namespace, req.Name)
+
 	// TODO(sbx0r): temporary mock on GlobalUserID.
 	//              This block will be removed after resolving previous TODO
 	team, err := a.autogenClient.GetTeam(req.Name, common.GetGlobalUserID())
