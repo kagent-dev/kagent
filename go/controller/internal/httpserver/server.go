@@ -40,7 +40,7 @@ var defaultModelConfig = types.NamespacedName{
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
 	BindAddr      string
-	AutogenClient *autogen_client.Client
+	AutogenClient autogen_client.Client
 	KubeClient    client.Client
 	A2AHandler    a2a.A2AHandlerMux
 }

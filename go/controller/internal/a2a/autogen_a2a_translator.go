@@ -23,14 +23,14 @@ type AutogenA2ATranslator interface {
 
 type autogenA2ATranslator struct {
 	a2aBaseUrl    string
-	autogenClient *autogen_client.Client
+	autogenClient autogen_client.Client
 }
 
 var _ AutogenA2ATranslator = &autogenA2ATranslator{}
 
 func NewAutogenA2ATranslator(
 	a2aBaseUrl string,
-	autogenClient *autogen_client.Client,
+	autogenClient autogen_client.Client,
 ) AutogenA2ATranslator {
 	return &autogenA2ATranslator{
 		a2aBaseUrl:    a2aBaseUrl,
