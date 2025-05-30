@@ -3,6 +3,7 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -97,10 +98,21 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 ) (TaskHandler, error) {
 	return func(ctx context.Context, task string, sessionID *string) (string, error) {
 		var taskResult *autogen_client.TaskResult
-		if sessionID != nil {
+		if sessionID != nil && *sessionID != "" {
 			session, err := a.autogenClient.GetSession(*sessionID, common.GetGlobalUserID())
 			if err != nil {
-				return "", fmt.Errorf("failed to get session: %w", err)
+				if errors.Is(err, autogen_client.NotFoundError) {
+					session, err = a.autogenClient.CreateSession(&autogen_client.CreateSession{
+						Name:   *sessionID,
+						UserID: common.GetGlobalUserID(),
+						TeamID: autogenTeam.Id,
+					})
+					if err != nil {
+						return "", fmt.Errorf("failed to create session: %w", err)
+					}
+				} else {
+					return "", fmt.Errorf("failed to get session: %w", err)
+				}
 			}
 			resp, err := a.autogenClient.InvokeSession(session.ID, common.GetGlobalUserID(), task)
 			if err != nil {
