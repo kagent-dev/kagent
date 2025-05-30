@@ -117,6 +117,10 @@ type AzureOpenAIConfig struct {
 	// +optional
 	AzureADToken string `json:"azureAdToken,omitempty"`
 
+	// Use DefaultAzureCredential for authentication
+	// +optional
+	UseDefaultAzureCredential bool `json:"useDefaultAzureCredential,omitempty"`
+
 	// Azure AD token provider
 	// +optional
 	// TODO (peterj): We need to figure out how to implement this

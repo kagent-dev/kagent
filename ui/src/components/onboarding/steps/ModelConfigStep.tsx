@@ -22,6 +22,7 @@ import { createModelConfig } from '@/app/actions/modelConfigs';
 import { ModelProviderCombobox } from '@/components/ModelProviderCombobox';
 import { PROVIDERS_INFO, isValidProviderInfoKey } from '@/lib/providers';
 import { OLLAMA_DEFAULT_TAG, OLLAMA_DEFAULT_HOST } from '@/lib/constants';
+import { Checkbox } from "@/components/ui/checkbox";
 
 const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
 const modelConfigSchema = z.object({
@@ -31,10 +32,11 @@ const modelConfigSchema = z.object({
     apiKey: z.string().optional(),
     azureEndpoint: z.string().optional(),
     azureApiVersion: z.string().optional(),
+    useDefaultAzureCredential: z.boolean().optional(),
     modelTag: z.string().optional(),
     ollamaBaseUrl: z.string().optional(),
-}).refine(data => data.providerName === 'ollama' || (data.apiKey && data.apiKey.length > 0), {
-    message: "API Key is required for this provider.",
+}).refine(data => data.providerName === 'ollama' || (data.apiKey && data.apiKey.length > 0) || data.useDefaultAzureCredential, {
+    message: "API Key is required for this provider unless using DefaultAzureCredential.",
     path: ["apiKey"],
 }).refine(data => data.providerName !== 'azure-openai' || (data.azureEndpoint && data.azureEndpoint.length > 0), {
     message: "Azure Endpoint is required for Azure OpenAI.",
@@ -130,7 +132,7 @@ export function ModelConfigStep({
         resolver: zodResolver(modelConfigSchema),
         defaultValues: {
             providerName: undefined, configName: "", modelName: "",
-            apiKey: "", azureEndpoint: "", azureApiVersion: "", modelTag: "",
+            apiKey: "", azureEndpoint: "", azureApiVersion: "", useDefaultAzureCredential: false, modelTag: "",
             ollamaBaseUrl: "",
         },
     });
@@ -452,6 +454,28 @@ export function ModelConfigStep({
                                             )}
                                             </FormDescription>
                                             <FormMessage />
+                                        </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={formStep1Create.control}
+                                        name="useDefaultAzureCredential"
+                                        render={({ field }) => (
+                                        <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                                            <FormControl>
+                                                <Checkbox
+                                                    checked={field.value}
+                                                    onCheckedChange={field.onChange}
+                                                />
+                                            </FormControl>
+                                            <div className="space-y-1 leading-none">
+                                                <FormLabel>
+                                                    Use DefaultAzureCredential
+                                                </FormLabel>
+                                                <FormDescription>
+                                                    Use Azure DefaultAzureCredential for authentication. This enables support for managed identities, service principals, and other Azure authentication methods.
+                                                </FormDescription>
+                                            </div>
                                         </FormItem>
                                         )}
                                     />
