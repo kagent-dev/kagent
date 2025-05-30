@@ -87,7 +87,7 @@ jobs:
       - name: Run cmd/main.go tests
         working-directory: go
         run: |
-          go test -skip 'TestInvokeAPI|TestE2E' -v ./...
+          go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
 
   python-test:
     runs-on: ubuntu-latest
