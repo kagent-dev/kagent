@@ -43,7 +43,7 @@ func (a *autogenA2ATranslator) TranslateHandlerForAgent(
 	agent *v1alpha1.Agent,
 	autogenTeam *autogen_client.Team,
 ) (*A2AHandlerParams, error) {
-	card, err := a.translateCardForAgent(ctx, agent)
+	card, err := a.translateCardForAgent(agent)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,6 @@ func (a *autogenA2ATranslator) TranslateHandlerForAgent(
 }
 
 func (a *autogenA2ATranslator) translateCardForAgent(
-	ctx context.Context,
 	agent *v1alpha1.Agent,
 ) (*server.AgentCard, error) {
 	a2AConfig := agent.Spec.A2AConfig

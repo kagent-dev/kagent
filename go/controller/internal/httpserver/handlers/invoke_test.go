@@ -13,12 +13,13 @@ import (
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/autogen/client/fake"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/handlers"
 )
 
 func TestInvokeHandler(t *testing.T) {
-	setupHandler := func() (*handlers.InvokeHandler, *mockAutogenClient, *mockErrorResponseWriter) {
-		mockClient := &mockAutogenClient{}
+	setupHandler := func() (*handlers.InvokeHandler, *fake.MockAutogenClient, *mockErrorResponseWriter) {
+		mockClient := fake.NewMockAutogenClient()
 		base := &handlers.Base{}
 		handler := handlers.NewInvokeHandler(base)
 		handler.WithClient(mockClient)
@@ -29,7 +30,7 @@ func TestInvokeHandler(t *testing.T) {
 	t.Run("StandardInvoke", func(t *testing.T) {
 		handler, mockClient, responseRecorder := setupHandler()
 
-		mockClient.getTeamByIDFunc = func(teamID int, userID string) (*autogen_client.Team, error) {
+		mockClient.GetTeamByIDFunc = func(teamID int, userID string) (*autogen_client.Team, error) {
 			return &autogen_client.Team{
 				Component: &api.Component{
 					Label:    "test-team",
@@ -41,7 +42,7 @@ func TestInvokeHandler(t *testing.T) {
 			}, nil
 		}
 
-		mockClient.invokeTaskFunc = func(req *autogen_client.InvokeTaskRequest) (*autogen_client.InvokeTaskResult, error) {
+		mockClient.InvokeTaskFunc = func(req *autogen_client.InvokeTaskRequest) (*autogen_client.InvokeTaskResult, error) {
 			return &autogen_client.InvokeTaskResult{
 				Duration:   100,
 				TaskResult: autogen_client.TaskResult{},
@@ -79,7 +80,7 @@ func TestInvokeHandler(t *testing.T) {
 	t.Run("HandlerError", func(t *testing.T) {
 		handler, mockClient, responseRecorder := setupHandler()
 
-		mockClient.getTeamByIDFunc = func(teamID int, userID string) (*autogen_client.Team, error) {
+		mockClient.GetTeamByIDFunc = func(teamID int, userID string) (*autogen_client.Team, error) {
 			return nil, autogen_client.NotFoundError
 		}
 
