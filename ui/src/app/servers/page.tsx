@@ -39,7 +39,7 @@ export default function ServersPage() {
         setServers(serversResponse.data);
 
         // Initially expand all servers
-const serverNames = serversResponse.data.map((server) => server.name).filter((name): name is string => name !== undefined);
+        const serverNames = serversResponse.data.map((server) => server.name).filter((name): name is string => name !== undefined);
 
         setExpandedServers(new Set(serverNames));
       } else {
