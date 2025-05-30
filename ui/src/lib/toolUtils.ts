@@ -99,11 +99,10 @@ export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string =
   // Handle Component<ToolConfig> type
   if (typeof tool === "object" && "provider" in tool) {
     if (isMcpProvider(tool.provider)) {
-      // For MCP adapter components, use toolServer (from label) and tool name
+      // For MCP adapter components, use only toolServer for identification
       const mcpConfig = tool.config as MCPToolConfig;
       const toolServer = tool.label || mcpConfig.tool.name || "unknown"; // Prefer label as toolServer
-      const toolName = mcpConfig.tool.name || "unknown";
-      return `mcptool-${toolServer}-${toolName}`;
+      return `mcptool-${toolServer}`;
     }
 
     // For regular component tools (includes Builtin)
@@ -112,11 +111,9 @@ export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string =
 
   // Handle AgentTool types
   if (isMcpTool(tool) && tool.mcpServer) {
-    // For MCP agent tools, use toolServer and first tool name
-    const toolName = tool.mcpServer.toolNames[0] || "unknown";
-    // Ensure mcpServer and toolServer exist before accessing
+    // For MCP agent tools, use only the toolServer for identification
     const toolServer = tool.mcpServer?.toolServer || "unknown";
-    return `mcptool-${toolServer}-${toolName}`;
+    return `mcptool-${toolServer}`;
   } else if (isBuiltinTool(tool) && tool.builtin) {
     // For Builtin agent tools
     return `component-${tool.builtin.name}`;
