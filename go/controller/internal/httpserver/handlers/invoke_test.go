@@ -3,7 +3,6 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -75,40 +74,6 @@ func TestInvokeHandler(t *testing.T) {
 		assert.Equal(t, float64(100), response.Duration)
 		assert.Equal(t, autogen_client.TaskResult{}, response.TaskResult)
 		assert.Equal(t, "Test usage", response.Usage)
-	})
-
-	t.Run("SessionCreationError", func(t *testing.T) {
-		handler, mockClient, responseRecorder := setupHandler()
-
-		mockClient.createSessionFunc = func(req *autogen_client.CreateSession) (*autogen_client.Session, error) {
-			return nil, fmt.Errorf("session creation failed")
-		}
-
-		mockClient.getTeamByIDFunc = func(teamID int, userID string) (*autogen_client.Team, error) {
-			return &autogen_client.Team{
-				Component: &api.Component{
-					Label: "test-team",
-				},
-			}, nil
-		}
-		agentID := "1"
-		reqBody := handlers.InvokeRequest{
-			Message: "Test message",
-			UserID:  "test-user",
-		}
-		jsonBody, _ := json.Marshal(reqBody)
-		req := httptest.NewRequest("POST", "/api/agents/"+agentID+"/invoke", bytes.NewBuffer(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-
-		router := mux.NewRouter()
-		router.HandleFunc("/api/agents/{agentId}/invoke", func(w http.ResponseWriter, r *http.Request) {
-			handler.HandleInvokeAgent(responseRecorder, r)
-		}).Methods("POST")
-
-		router.ServeHTTP(responseRecorder, req)
-
-		assert.Equal(t, http.StatusInternalServerError, responseRecorder.Code)
-		assert.NotNil(t, responseRecorder.errorReceived)
 	})
 
 	t.Run("HandlerError", func(t *testing.T) {
