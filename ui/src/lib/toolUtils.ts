@@ -99,9 +99,15 @@ export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string =
   // Handle Component<ToolConfig> type
   if (typeof tool === "object" && "provider" in tool) {
     if (isMcpProvider(tool.provider)) {
-      // For MCP adapter components, use only toolServer for identification
+      // For MCP adapter components, use the same server identification logic
       const mcpConfig = tool.config as MCPToolConfig;
-      const toolServer = tool.label || mcpConfig.tool.name || "unknown"; // Prefer label as toolServer
+      let toolServer = tool.label || "unknown";
+      
+      // Try to get the server URL from SSE config if available
+      if (mcpConfig.server_params && 'url' in mcpConfig.server_params) {
+        toolServer = mcpConfig.server_params.url;
+      }
+      
       return `mcptool-${toolServer}`;
     }
 
@@ -154,7 +160,7 @@ export const isSameTool = (toolA?: Tool, toolB?: Tool): boolean => {
 export const componentToAgentTool = (component: Component<ToolConfig>): Tool => {
   if (isMcpProvider(component.provider)) {
     const mcpConfig = component.config as MCPToolConfig;
-    let toolServer = component.label || "unknown";
+    let toolServer = component.label || mcpConfig.tool.name || "unknown";
     
     // Try to get the server URL from SSE config if available
     if (mcpConfig.server_params && 'url' in mcpConfig.server_params) {
