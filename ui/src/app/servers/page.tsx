@@ -102,7 +102,19 @@ export default function ServersPage() {
     }
   };
 
-  // Handle editing a server
+  const handleEditClick = (server: ToolServerWithTools) => {
+    // Convert ToolServerWithTools to ToolServer format
+    const serverToEdit: ToolServer = {
+      metadata: { name: server.name },
+      spec: {
+        description: "", // Default empty description since it's not available in ToolServerWithTools
+        config: server.config
+      }
+    };
+    setEditServerData(serverToEdit);
+    setShowEditServer(true);
+  };
+
   const handleEditServer = async (server: ToolServer) => {
     if (!editServerData) return;
     try {
@@ -119,6 +131,7 @@ export default function ServersPage() {
       console.error("Error updating server:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       toast.error(`Failed to update server: ${errorMessage}`);
+      throw error; // Re-throw to be caught by the dialog
     } finally {
       setIsLoading(false);
     }
@@ -186,14 +199,7 @@ export default function ServersPage() {
                             onSelect={(e) => {
                               e.preventDefault();
                               setOpenDropdownMenu(null);
-                              setEditServerData({
-                                metadata: { name: server.name },
-                                spec: {
-                                  description: "",
-                                  config: server.config,
-                                },
-                              });
-                              setShowEditServer(true);
+                              handleEditClick(server);
                             }}
                           >
                             Edit Server
@@ -270,13 +276,10 @@ export default function ServersPage() {
       {/* Edit server dialog */}
       <AddServerDialog
         open={showEditServer}
-        onOpenChange={(open) => {
-          setShowEditServer(open);
-          if (!open) setEditServerData(null);
-        }}
-        mode="edit"
-        initialServer={editServerData ?? undefined}
+        onOpenChange={setShowEditServer}
         onEditServer={handleEditServer}
+        mode="edit"
+        initialServer={editServerData || undefined}
       />
 
       {/* Confirm delete dialog */}
