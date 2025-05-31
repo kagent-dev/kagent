@@ -74,12 +74,6 @@ jobs:
 
   go-unit-tests:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        unit-test-paths:
-          - go/controller/cmd
-          - go/cli/internal/cli
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -91,9 +85,9 @@ jobs:
           cache: true
 
       - name: Run cmd/main.go tests
-        working-directory: ${{ matrix.unit-test-paths }}
+        working-directory: go
         run: |
-          go test -v ./...
+          go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
 
   python-test:
     runs-on: ubuntu-latest

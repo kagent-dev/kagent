@@ -1,0 +1,107 @@
+{
+  "component": {
+    "component_type": "team",
+    "component_version": 0,
+    "config": {
+      "participants": [
+        {
+          "component_type": "agent",
+          "component_version": 0,
+          "config": {
+            "description": "An agent with builtin tools",
+            "model_client": {
+              "component_type": "model",
+              "component_version": 0,
+              "config": {
+                "api_key": "sk-test-api-key",
+                "max_tokens": 2048,
+                "model": "gpt-4o",
+                "stream_options": {
+                  "include_usage": true
+                },
+                "temperature": 0.2
+              },
+              "description": "",
+              "label": "",
+              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
+              "version": 1
+            },
+            "model_client_stream": true,
+            "model_context": {
+              "component_type": "chat_completion_context",
+              "component_version": 0,
+              "config": {},
+              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
+              "label": "UnboundedChatCompletionContext",
+              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
+              "version": 1
+            },
+            "name": "agent_with_tools",
+            "reflect_on_tool_use": false,
+            "system_message": "You are a helpful assistant with access to tools.",
+            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
+            "tools": [
+              {
+                "component_type": "tool",
+                "component_version": 0,
+                "config": {
+                  "model_client": {
+                    "component_type": "model",
+                    "component_version": 0,
+                    "config": {
+                      "api_key": "sk-test-api-key",
+                      "max_tokens": 2048,
+                      "model": "gpt-4o",
+                      "temperature": 0.2
+                    },
+                    "description": "",
+                    "label": "",
+                    "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
+                    "version": 1
+                  },
+                  "timeout": 30
+                },
+                "description": "",
+                "label": "GeneratePromQLTool",
+                "provider": "kagent.tools.prometheus.GeneratePromQLTool",
+                "version": 1
+              },
+              {
+                "component_type": "tool",
+                "component_version": 0,
+                "config": {
+                  "max_results": 5,
+                  "openai_api_key": "sk-test-api-key"
+                },
+                "description": "",
+                "label": "QueryTool",
+                "provider": "kagent.tools.docs.QueryTool",
+                "version": 1
+              }
+            ]
+          },
+          "description": "An agent with builtin tools",
+          "label": "",
+          "provider": "autogen_agentchat.agents.AssistantAgent",
+          "version": 1
+        }
+      ],
+      "termination_condition": {
+        "component_type": "termination",
+        "component_version": 0,
+        "config": {
+          "source": "agent_with_tools"
+        },
+        "description": "",
+        "label": "",
+        "provider": "autogen_agentchat.conditions.TextMessageTermination",
+        "version": 1
+      }
+    },
+    "description": "An agent with builtin tools",
+    "label": "agent-with-tools",
+    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
+    "version": 1
+  },
+  "user_id": "admin@kagent.dev"
+}
