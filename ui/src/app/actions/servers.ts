@@ -69,3 +69,28 @@ export async function createServer(serverData: ToolServer): Promise<BaseResponse
     return createErrorResponse<ToolServer>(error, "Error creating tool server");
   }
 }
+
+/**
+ * Updates an existing server
+ * @param serverName Name of the server to update
+ * @param serverData Updated server data
+ * @returns Promise with update result
+ */
+export async function updateServer(serverName: string, serverData: ToolServer): Promise<BaseResponse<ToolServer>> {
+  try {
+    const response = await fetchApi<ToolServer>(`/toolservers/${serverName}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(serverData),
+    });
+
+    return {
+      success: true,
+      data: response,
+    };
+  } catch (error) {
+    return createErrorResponse<ToolServer>(error, "Error updating tool server");
+  }
+}

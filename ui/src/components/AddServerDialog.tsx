@@ -14,8 +14,11 @@ import { isResourceNameValid } from "@/lib/utils";
 interface AddServerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAddServer: (serverConfig: ToolServer) => void;
+  onAddServer?: (serverConfig: ToolServer) => void;
+  onEditServer?: (serverConfig: ToolServer) => void;
   onError?: (error: string) => void;
+  mode?: "add" | "edit";
+  initialServer?: ToolServer;
 }
 
 interface ArgPair {
@@ -27,7 +30,7 @@ interface EnvPair {
   value: string;
 }
 
-export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
+export function AddServerDialog({ open, onOpenChange, onAddServer, onEditServer, onError, mode = "add", initialServer }: AddServerDialogProps) {
   const [activeTab, setActiveTab] = useState<"command" | "url">("command");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -193,7 +196,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
         preview += " " + packageName.trim();
       }
 
-      // Add all non-empty arguments
+      // Add all non-empty arguments (from argPairs only)
       argPairs.forEach((arg) => {
         if (arg.value.trim()) {
           preview += " " + arg.value.trim();
@@ -241,10 +244,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
       args.push(...commandPrefix.trim().split(/\s+/));
     }
 
-    // Add package name if present
-    if (packageName.trim()) {
-      args.push(packageName.trim());
-    }
+    // Do NOT add package name here anymore
 
     // Add all additional arguments
     argPairs.filter((arg) => arg.value.trim() !== "").forEach((arg) => args.push(arg.value.trim()));
@@ -300,9 +300,12 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     let params: StdioMcpServerConfig | SseMcpServerConfig;
     if (activeTab === "command") {
       // Create StdioServerParameters
+      // The command should be the executor (e.g., npx), and args should be [packageName, ...userArgs]
+      const userArgs = formatArgs();
+      const finalArgs = packageName.trim() ? [packageName.trim(), ...userArgs] : userArgs;
       params = {
         command: commandType,
-        args: formatArgs(),
+        args: finalArgs,
       };
 
       // Add environment variables if any exist
@@ -361,7 +364,11 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     };
 
     try {
-      onAddServer(newServer);
+      if (mode === "edit" && onEditServer) {
+        onEditServer(newServer);
+      } else if (mode === "add" && onAddServer) {
+        onAddServer(newServer);
+      }
       resetForm();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
@@ -422,11 +429,46 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     return errorMsg;
   };
 
+  useEffect(() => {
+    if (mode === "edit" && initialServer) {
+      // Pre-fill form fields from initialServer
+      setServerName(initialServer.metadata.name || "");
+      setUserEditedName(true);
+      setShowAdvanced(false);
+      setShowAdvancedCommand(false);
+      setError(null);
+      // Pre-fill config fields
+      if (initialServer.spec.config.stdio) {
+        setActiveTab("command");
+        setCommandType(initialServer.spec.config.stdio.command || "npx");
+        setCommandPrefix("");
+        setPackageName("");
+        setArgPairs((initialServer.spec.config.stdio.args || []).map((v) => ({ value: v })) || [{ value: "" }]);
+        setEnvPairs(
+          initialServer.spec.config.stdio.env
+            ? Object.entries(initialServer.spec.config.stdio.env).map(([key, value]) => ({ key, value }))
+            : [{ key: "", value: "" }]
+        );
+        setStderr("");
+        setCwd("");
+      } else if (initialServer.spec.config.sse) {
+        setActiveTab("url");
+        setUrl(initialServer.spec.config.sse.url || "");
+        setHeaders(initialServer.spec.config.sse.headers ? JSON.stringify(initialServer.spec.config.sse.headers) : "");
+        setTimeout(initialServer.spec.config.sse.timeout || "5s");
+        setSseReadTimeout(initialServer.spec.config.sse.sseReadTimeout || "300s");
+      }
+    } else if (!open) {
+      // Reset form when dialog closes
+      resetForm();
+    }
+  }, [open, mode, initialServer]);
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add Tool Server</DialogTitle>
+          <DialogTitle>{mode === "edit" ? "Edit Tool Server" : "Add Tool Server"}</DialogTitle>
         </DialogHeader>
 
         <div className="py-4">
@@ -632,11 +674,9 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Adding...
+                {mode === "edit" ? "Saving..." : "Adding..."}
               </>
-            ) : (
-              "Add Server"
-            )}
+            ) : mode === "edit" ? "Save Changes" : "Add Server"}
           </Button>
         </DialogFooter>
       </DialogContent>
