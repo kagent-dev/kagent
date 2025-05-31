@@ -1,6 +1,15 @@
 name: Test
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'go/**'
+      - 'python/**'
+      - 'ui/**'
+      - 'Makefile'
+      - 'Dockerfile*'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:
