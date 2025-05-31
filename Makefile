@@ -72,7 +72,7 @@ print-tools-versions:
 
 # Check if OPENAI_API_KEY is set
 check-openai-key:
-	@if [ -z "$(OPENAI_API_KEY)" ]; then \
+	@if [ -z "$(OPENAI_API_KEY)" ] && [ -z "$(CI)" ]; then \
 		echo "Error: OPENAI_API_KEY environment variable is not set"; \
 		echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
 		exit 1; \
