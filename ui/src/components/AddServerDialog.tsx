@@ -196,7 +196,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onEditServer,
         preview += " " + packageName.trim();
       }
 
-      // Add all non-empty arguments
+      // Add all non-empty arguments (from argPairs only)
       argPairs.forEach((arg) => {
         if (arg.value.trim()) {
           preview += " " + arg.value.trim();
@@ -244,10 +244,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onEditServer,
       args.push(...commandPrefix.trim().split(/\s+/));
     }
 
-    // Add package name if present
-    if (packageName.trim()) {
-      args.push(packageName.trim());
-    }
+    // Do NOT add package name here anymore
 
     // Add all additional arguments
     argPairs.filter((arg) => arg.value.trim() !== "").forEach((arg) => args.push(arg.value.trim()));
@@ -303,9 +300,12 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onEditServer,
     let params: StdioMcpServerConfig | SseMcpServerConfig;
     if (activeTab === "command") {
       // Create StdioServerParameters
+      // The command should be the executor (e.g., npx), and args should be [packageName, ...userArgs]
+      const userArgs = formatArgs();
+      const finalArgs = packageName.trim() ? [packageName.trim(), ...userArgs] : userArgs;
       params = {
         command: commandType,
-        args: formatArgs(),
+        args: finalArgs,
       };
 
       // Add environment variables if any exist
