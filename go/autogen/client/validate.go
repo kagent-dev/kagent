@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+
 	"github.com/kagent-dev/kagent/go/autogen/api"
 )
 
@@ -39,7 +40,7 @@ func (r ValidationResponse) ErrorMsg() string {
 	return msg
 }
 
-func (c *Client) Validate(req *ValidationRequest) (*ValidationResponse, error) {
+func (c *client) Validate(req *ValidationRequest) (*ValidationResponse, error) {
 	var resp ValidationResponse
 	err := c.doRequest("POST", "/validate", req, &resp)
 	return &resp, err

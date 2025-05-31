@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,7 +23,6 @@ import (
 
 const (
 	GlobalUserID = "admin@kagent.dev"
-	WSEndpoint   = "ws://localhost:8081/api/ws"
 	APIEndpoint  = "http://localhost:8081/api"
 	// each individual test should finish within this time
 	// TODO: make this configurable per test
@@ -29,47 +30,39 @@ const (
 	kagentNamespace = "kagent"
 )
 
-var _ = Describe("E2e", func() {
-	// Initialize clients
-	var (
-		agentClient   *autogen_client.Client
-		k8sClient     client.Client
-		testStartTime string
-		ctx           context.Context
-	)
+func TestE2E(t *testing.T) {
 
-	BeforeEach(func() {
-		ctx = context.Background()
+	// Setup
+	ctx := context.Background()
 
-		// Initialize agent client
-		agentClient = autogen_client.New(APIEndpoint)
+	// Initialize agent client
+	agentClient := autogen_client.New(APIEndpoint)
 
-		// Initialize controller-runtime client
-		cfg, err := config.GetConfig()
-		Expect(err).NotTo(HaveOccurred())
+	// Initialize controller-runtime client
+	cfg, err := config.GetConfig()
+	require.NoError(t, err)
 
-		// Register API types
-		scheme := scheme.Scheme
-		err = v1alpha1.AddToScheme(scheme)
-		Expect(err).NotTo(HaveOccurred())
-		k8sClient, err = client.New(cfg, client.Options{Scheme: scheme})
-		Expect(err).NotTo(HaveOccurred())
+	// Register API types
+	scheme := scheme.Scheme
+	err = v1alpha1.AddToScheme(scheme)
+	require.NoError(t, err)
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	require.NoError(t, err)
 
-		// Initalize fresh test start time for unique sessions on each run
-		testStartTime = time.Now().String()
-	})
+	// Initialize fresh test start time for unique sessions on each run
+	testStartTime := time.Now().String()
 
 	createOrFetchAgentSession := func(agentName string) *autogen_client.Session {
 		agentTeam, err := agentClient.GetTeam(agentName, GlobalUserID)
-		Expect(err).NotTo(HaveOccurred())
+		require.NoError(t, err)
 
-		Expect(agentTeam).NotTo(BeNil(), fmt.Sprintf("Agent with label %s not found", agentName))
+		require.NotNil(t, agentTeam, fmt.Sprintf("Agent with label %s not found", agentName))
 
 		apiTestTeam := agentTeam
 
 		// reuse existing sessions if available
 		existingSessions, err := agentClient.ListSessions(GlobalUserID)
-		Expect(err).NotTo(HaveOccurred())
+		require.NoError(t, err)
 		for _, session := range existingSessions {
 			if session.TeamID == apiTestTeam.Id && session.UserID == GlobalUserID {
 				return session
@@ -81,7 +74,7 @@ var _ = Describe("E2e", func() {
 			TeamID: apiTestTeam.Id,
 			Name:   fmt.Sprintf("e2e-test-%s-%s", agentName, testStartTime),
 		})
-		Expect(err).NotTo(HaveOccurred())
+		require.NoError(t, err)
 
 		return sess
 	}
@@ -91,7 +84,7 @@ var _ = Describe("E2e", func() {
 		sess := createOrFetchAgentSession(agentLabel)
 
 		result, err := agentClient.InvokeSession(sess.ID, GlobalUserID, prompt+`\nComplete the task without asking for confirmation, even if the task involves creating or deleting namespaces or other critical resources.`)
-		Expect(err).NotTo(HaveOccurred())
+		require.NoError(t, err)
 
 		return result.TaskResult.Messages[len(result.TaskResult.Messages)-1]["content"].(string)
 	}
@@ -118,17 +111,17 @@ var _ = Describe("E2e", func() {
 				},
 			}
 			err := k8sClient.Delete(ctx, ns)
-			Expect(err).NotTo(HaveOccurred())
+			require.NoError(t, err)
 
 			// Wait for namespace to be actually deleted
-			Eventually(func() bool {
+			require.Eventually(t, func() bool {
 				return !namespaceExists(name)
-			}, 60*time.Second, 1*time.Second).Should(BeTrue())
+			}, 60*time.Second, 1*time.Second, "Namespace should be deleted")
 		}
 	}
 
 	// Kubernetes Agent Test
-	It("performs basic kubernetes operations using the k8s agent", func() {
+	t.Run("performs basic kubernetes operations using the k8s agent", func(t *testing.T) {
 		const namespace = "e2e-test-namespace"
 		const podName = "nginx-test"
 
@@ -140,9 +133,9 @@ var _ = Describe("E2e", func() {
 			`Create a namespace called "e2e-test-namespace"`)
 
 		// Verify namespace exists
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return namespaceExists(namespace)
-		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should exist after creation")
+		}, 30*time.Second, 1*time.Second, "Namespace should exist after creation")
 
 		// Deploy a simple nginx pod
 		runAgentInteraction("k8s-agent",
@@ -150,25 +143,25 @@ var _ = Describe("E2e", func() {
 
 		// Verify pod exists and has correct label
 		pod := &corev1.Pod{}
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			if !resourceExists(namespace, "Pod", podName, pod) {
 				return false
 			}
 			return pod.Labels["app"] == "nginx"
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Pod should exist with correct label")
+		}, 60*time.Second, 1*time.Second, "Pod should exist with correct label")
 
 		// Clean up
 		runAgentInteraction("k8s-agent",
 			`Delete the namespace "e2e-test-namespace" and all its resources`)
 
 		// Verify namespace is deleted
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return !namespaceExists(namespace)
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should be deleted")
+		}, 60*time.Second, 1*time.Second, "Namespace should be deleted")
 	})
 
 	// Helm Agent Test
-	It("manages helm repositories and deployments", func() {
+	t.Run("manages helm repositories and deployments", func(t *testing.T) {
 		const namespace = "helm-test"
 		const deploymentName = "nginx-test"
 
@@ -188,9 +181,9 @@ var _ = Describe("E2e", func() {
 			`Create a namespace called "helm-test".`)
 
 		// Verify namespace exists
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return namespaceExists(namespace)
-		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should exist after creation")
+		}, 30*time.Second, 1*time.Second, "Namespace should exist after creation")
 
 		// Install a simple chart
 		runAgentInteraction("helm-agent",
@@ -198,39 +191,39 @@ var _ = Describe("E2e", func() {
 
 		// Verify the deployment exists
 		deployment := &appsv1.Deployment{}
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return resourceExists(namespace, "Deployment", deploymentName, deployment)
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Deployment should exist after Helm release install")
+		}, 60*time.Second, 1*time.Second, "Deployment should exist after Helm release install")
 
 		// Verify the deployment has the correct replica count
-		Eventually(func() int32 {
+		require.Eventually(t, func() bool {
 			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: deploymentName}, deployment); err != nil {
-				return -1
+				return false
 			}
-			return *deployment.Spec.Replicas
-		}, 60*time.Second, 1*time.Second).Should(Equal(int32(1)), "Deployment should have 1 replica")
+			return *deployment.Spec.Replicas == int32(1)
+		}, 60*time.Second, 1*time.Second, "Deployment should have 1 replica")
 
 		// Clean up
 		runAgentInteraction("helm-agent",
 			`Uninstall the "nginx-test" release`)
 
 		// Verify the deployment is removed
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return !resourceExists(namespace, "Deployment", deploymentName, deployment)
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Deployment should be removed after Helm release uninstall")
+		}, 60*time.Second, 1*time.Second, "Deployment should be removed after Helm release uninstall")
 
 		// Delete namespace
 		runAgentInteraction("k8s-agent",
 			`Delete the namespace "helm-test"`)
 
 		// Verify namespace is deleted
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return !namespaceExists(namespace)
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should be deleted")
+		}, 60*time.Second, 1*time.Second, "Namespace should be deleted")
 	})
 
 	// Istio Agent Test
-	It("installs istio and configures resources", func() {
+	t.Run("installs istio and configures resources", func(t *testing.T) {
 		const namespace = "istio-test"
 		const deploymentName = "nginx-istio-test"
 		const serviceName = "nginx-service"
@@ -244,27 +237,27 @@ var _ = Describe("E2e", func() {
 
 		// Verify namespace exists with correct label
 		ns := &corev1.Namespace{}
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			if !resourceExists("", "Namespace", namespace, ns) {
 				return false
 			}
 			return ns.Labels["istio-injection"] == "enabled"
-		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should exist with istio-injection label")
+		}, 30*time.Second, 1*time.Second, "Namespace should exist with istio-injection label")
 
 		// Install Istio (minimal profile for test purposes)
 		runAgentInteraction("istio-agent",
 			`Install Istio with the minimal profile`)
 
 		// Verify Istio namespace exists
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return namespaceExists("istio-system")
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "istio-system namespace should exist after installation")
+		}, 60*time.Second, 1*time.Second, "istio-system namespace should exist after installation")
 
 		// Verify istiod deployment exists
 		istiod := &appsv1.Deployment{}
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return resourceExists("istio-system", "Deployment", "istiod", istiod)
-		}, 120*time.Second, 1*time.Second).Should(BeTrue(), "istiod deployment should exist")
+		}, 120*time.Second, 1*time.Second, "istiod deployment should exist")
 
 		// Deploy a simple application
 		runAgentInteraction("k8s-agent",
@@ -272,12 +265,12 @@ var _ = Describe("E2e", func() {
 
 		// Verify deployment exists with correct replica count
 		deployment := &appsv1.Deployment{}
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			if !resourceExists(namespace, "Deployment", deploymentName, deployment) {
 				return false
 			}
 			return *deployment.Spec.Replicas == int32(2)
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Deployment should exist with 2 replicas")
+		}, 60*time.Second, 1*time.Second, "Deployment should exist with 2 replicas")
 
 		// Create a service for the application
 		runAgentInteraction("k8s-agent",
@@ -285,12 +278,12 @@ var _ = Describe("E2e", func() {
 
 		// Verify service exists
 		service := &corev1.Service{}
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			if !resourceExists(namespace, "Service", serviceName, service) {
 				return false
 			}
 			return service.Spec.Type == corev1.ServiceTypeClusterIP && len(service.Spec.Ports) > 0 && service.Spec.Ports[0].Port == 80
-		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Service should exist with correct port and type")
+		}, 30*time.Second, 1*time.Second, "Service should exist with correct port and type")
 
 		// Create a simple gateway and virtual service
 		runAgentInteraction("istio-agent",
@@ -307,7 +300,7 @@ var _ = Describe("E2e", func() {
 		gatewayExists := strings.Contains(output, "gateway") || strings.Contains(output, "Gateway")
 		virtualServiceExists := strings.Contains(output, "virtualservice") || strings.Contains(output, "VirtualService")
 
-		Expect(gatewayExists || virtualServiceExists).To(BeTrue(), "Should have created either Gateway or VirtualService resources")
+		assert.True(t, gatewayExists || virtualServiceExists, "Should have created either Gateway or VirtualService resources")
 
 		// We don't cleanup Istio as it may be needed for other tests
 		// But we do cleanup the test namespace
@@ -315,9 +308,8 @@ var _ = Describe("E2e", func() {
 			`Delete the namespace "istio-test" and all its resources`)
 
 		// Verify namespace is deleted
-		Eventually(func() bool {
+		require.Eventually(t, func() bool {
 			return !namespaceExists(namespace)
-		}, 60*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should be deleted")
+		}, 60*time.Second, 1*time.Second, "Namespace should be deleted")
 	})
-
-})
+}

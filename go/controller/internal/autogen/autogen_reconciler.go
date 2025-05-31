@@ -41,7 +41,7 @@ type autogenReconciler struct {
 	a2aReconciler     a2a.A2AReconciler
 
 	kube          client.Client
-	autogenClient *autogen_client.Client
+	autogenClient autogen_client.Client
 
 	defaultModelConfig types.NamespacedName
 	upsertLock         sync.Mutex
@@ -50,7 +50,7 @@ type autogenReconciler struct {
 func NewAutogenReconciler(
 	translator ApiTranslator,
 	kube client.Client,
-	autogenClient *autogen_client.Client,
+	autogenClient autogen_client.Client,
 	defaultModelConfig types.NamespacedName,
 	a2aReconciler a2a.A2AReconciler,
 ) AutogenReconciler {
