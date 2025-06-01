@@ -372,7 +372,7 @@ func main() {
 
 func waitForAutogenReady(
 	log logr.Logger,
-	client *autogen_client.Client,
+	client autogen_client.Client,
 	timeout, interval time.Duration,
 ) error {
 	log.Info("waiting for autogen to become ready")
