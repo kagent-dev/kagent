@@ -136,7 +136,7 @@ export default function MemoriesPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => router.push(`/memories/new?edit=${encodeURIComponent(memory.ref)}`)}
+                        onClick={() => router.push(`/memories/new?edit=true&name=${memoryRef.name}&namespace=${memoryRef.namespace}`)}
                         aria-label="Edit memory"
                         className="mr-1"
                       >

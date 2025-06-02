@@ -70,7 +70,7 @@ const createRefinedSchema = (selectedProvider: Provider | null, isEditing: boole
 export default function NewMemoryPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const editMode = searchParams.has('edit')
+  const editMode = searchParams.get('edit') === "true"; 
   const memoryNameToEdit = searchParams.get('name')
   const memoryNamespaceToEdit = searchParams.get('namespace')
 
@@ -130,7 +130,8 @@ export default function NewMemoryPage() {
           
           // If in edit mode, load the memory details after providers are loaded
           if (editMode && memoryNameToEdit) {
-            await loadMemoryForEditing(memoryNameToEdit, response.data)
+            const memoryRef = k8sRefUtils.toRef(memoryNamespaceToEdit || "", memoryNameToEdit)
+            await loadMemoryForEditing(memoryRef, response.data)
           }
         } else {
           throw new Error(response.error || 'Failed to load providers')
@@ -140,21 +141,21 @@ export default function NewMemoryPage() {
       }
     }
     loadProviders()
-  }, [editMode, memoryNameToEdit])
+  }, [editMode, memoryNameToEdit, memoryNamespaceToEdit])
 
-  const loadMemoryForEditing = async (memoryName: string, availableProviders: Provider[]) => {
+  const loadMemoryForEditing = async (memoryRef: string, availableProviders: Provider[]) => {
     try {
       setIsLoading(true)
-      const memory = await getMemory(memoryName)
-      const memoryRef = k8sRefUtils.fromRef(memory.ref)
+      const memory = await getMemory(memoryRef)
+      const memoryRespRef = k8sRefUtils.fromRef(memory.ref)
       // Find the correct provider
       const provider = availableProviders.find(p => p.type === memory.providerName)
       if (provider) {
         setSelectedProvider(provider)
         
         // Set form values
-        form.setValue('name', memoryRef.name)
-        form.setValue('namespace', memoryRef.namespace)
+        form.setValue('name', memoryRespRef.name)
+        form.setValue('namespace', memoryRespRef.namespace)
         form.setValue('providerType', provider.type)
         // We don't need to set API key in edit mode as the field will be hidden
         form.setValue('apiKey', '')

@@ -190,7 +190,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       groups["Agents"] = filteredAvailableItems.agents.sort((a, b) => {
         const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name)
         const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name)
-        aRef.localeCompare(bRef)
+        return aRef.localeCompare(bRef)
       });
     }
     
