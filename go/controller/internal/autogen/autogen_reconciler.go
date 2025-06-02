@@ -761,9 +761,19 @@ func (a *autogenReconciler) findTeamsUsingApiKeySecret(ctx context.Context, req 
 		secretNamespaced, err := common.ParseRefString(model.Spec.APIKeySecretRef, model.Namespace)
 
 		if err != nil {
-			reconcileLog.Error(err, "failed to parse ModelConfig APIKeySecretRef",
-				"errorDetails", err.Error(),
-			)
+			switch e := err.(type) {
+			case *common.EmptyReferenceError:
+				reconcileLog.V(4).Info("ModelConfig has empty APIKeySecretRef, skipping",
+					"model", model.Name,
+					"namespace", model.Namespace,
+				)
+            default:
+				reconcileLog.Error(err, "failed to parse ModelConfig APIKeySecretRef",
+					"errorDetails", e.Error(),
+					"model", model.Name,
+					"namespace", model.Namespace,
+				)
+			}
 			continue
 		}
 

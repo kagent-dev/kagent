@@ -85,11 +85,16 @@ func validateDNS1123Subdomain(value, fieldName string) error {
 	return nil
 }
 
+type EmptyReferenceError struct{}
+func (e *EmptyReferenceError) Error() string {
+	return "empty reference string"
+}
+
 // ParseRefString parses a string reference (either "namespace/name" or just "name")
 // into a NamespacedName object, using parentNamespace when namespace is not specified.
 func ParseRefString(ref string, parentNamespace string) (types.NamespacedName, error) {
 	if ref == "" {
-		return types.NamespacedName{}, fmt.Errorf("empty reference string")
+		return types.NamespacedName{}, &EmptyReferenceError{}
 	}
 
 	slashCount := strings.Count(ref, "/")
