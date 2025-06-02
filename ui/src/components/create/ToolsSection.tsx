@@ -35,12 +35,8 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
       const response = await getTeams();
       if (response.success && response.data) {
         const filteredAgents = currentAgentName
-          ? response.data.filter((agentResp: AgentResponse) => {
-            const toolAgentFullName = `${agentResp.agent.metadata.namespace}/${agentResp.agent.metadata.name}`;
-            return toolAgentFullName !== currentAgentName;
-          })
+          ? response.data.filter((agentResp: AgentResponse) => agentResp.agent.metadata.name !== currentAgentName)
           : response.data;
-
         setAvailableAgents(filteredAgents);
       } else {
         console.error("Failed to fetch agents:", response.error);
@@ -283,12 +279,8 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
             );
           });
         } else {
-          let displayName = getToolDisplayName(agentTool);
+          const displayName = getToolDisplayName(agentTool);
           const displayDescription = getToolDescription(agentTool);
-
-          if (isAgentTool(agentTool)) {
-            displayName = agentTool.agent.ref;
-          }
 
           let CurrentIcon: React.ElementType;
           let currentIconColor: string;

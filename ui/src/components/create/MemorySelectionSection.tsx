@@ -37,17 +37,15 @@ export function MemorySelectionSection({
   error,
 }: MemorySelectionSectionProps) {
   const [open, setOpen] = React.useState(false);
-  const getMemoryFullName = (memory: MemoryResponse) => `${memory.namespace}/${memory.name}`;
-  const handleSelect = (memory: MemoryResponse) => {
-    const memoryFullName = getMemoryFullName(memory);
-    const newSelection = selectedMemories.includes(memoryFullName)
-      ? selectedMemories.filter((name) => name !== memoryFullName)
-      : [...selectedMemories, memoryFullName];
+  const handleSelect = (memoryRef: string) => {
+    const newSelection = selectedMemories.includes(memoryRef)
+      ? selectedMemories.filter((ref) => ref !== memoryRef)
+      : [...selectedMemories, memoryRef];
     onSelectionChange(newSelection);
   };
 
-  const handleRemove = (memoryFullName: string) => {
-    const newSelection = selectedMemories.filter((name) => name !== memoryFullName);
+  const handleRemove = (memoryRef: string) => {
+    const newSelection = selectedMemories.filter((ref) => ref !== memoryRef);
     onSelectionChange(newSelection);
   };
 
@@ -69,18 +67,18 @@ export function MemorySelectionSection({
               {selectedMemories.length === 0 && (
                 <span className="text-muted-foreground">Select memories...</span>
               )}
-              {selectedMemories.map((memoryFullName) => (
+              {selectedMemories.map((ref) => (
                 <Badge
-                  key={memoryFullName}
+                  key={ref}
                   variant="secondary"
                   className="flex items-center gap-1 whitespace-nowrap"
                 >
-                  {memoryFullName}
+                  {ref}
                   <X
                     className="h-3 w-3 cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleRemove(memoryFullName);
+                      handleRemove(ref);
                     }}
                   />
                 </Badge>
@@ -95,29 +93,26 @@ export function MemorySelectionSection({
             <CommandList>
                <CommandEmpty>No memory found.</CommandEmpty>
               <CommandGroup>
-                {availableMemories.map((memory) => {
-                  const memoryFullName = getMemoryFullName(memory)
-                  return (
-                    <CommandItem
-                      key={memoryFullName}
-                      value={memoryFullName}
-                      onSelect={() => {
-                        handleSelect(memory);
-                      }}
-                      disabled={disabled}
-                    >
-                      <Check
-                        className={cn(
-                          "mr-2 h-4 w-4",
-                          selectedMemories.includes(memoryFullName)
-                            ? "opacity-100"
-                            : "opacity-0"
-                        )}
-                      />
-                      {memoryFullName}
-                    </CommandItem>
-                  )
-                })}
+                {availableMemories.map((memory) => (
+                  <CommandItem
+                    key={memory.ref}
+                    value={memory.ref}
+                    onSelect={() => {
+                       handleSelect(memory.ref);
+                    }}
+                    disabled={disabled}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        selectedMemories.includes(memory.ref)
+                          ? "opacity-100"
+                          : "opacity-0"
+                      )}
+                    />
+                     {memory.ref}
+                  </CommandItem>
+                ))}
               </CommandGroup>
             </CommandList>
           </Command>

@@ -19,10 +19,8 @@ interface OnboardingWizardProps {
 
 interface OnboardingStateData {
     modelConfigName?: string;
-    modelConfigNamespace?: string;
     modelName?: string;
     agentName?: string;
-    agentNamespace?: string;
     agentDescription?: string;
     agentInstructions?: string;
     selectedTools?: Tool[];
@@ -50,7 +48,6 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
   const [isLoading, setIsLoading] = useState(false);
   const [onboardingData, setOnboardingData] = useState<OnboardingStateData>({
       agentName: K8S_AGENT_DEFAULTS.name,
-      agentNamespace: "",
       agentDescription: K8S_AGENT_DEFAULTS.description,
       agentInstructions: K8S_AGENT_DEFAULTS.instructions,
       selectedTools: [],
@@ -70,11 +67,10 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       setCurrentStep(1);
   };
 
-  const handleNextFromModelConfig = (modelConfigName: string, modelConfigNamespace: string, modelName: string) => {
+  const handleNextFromModelConfig = (modelConfigName: string, modelName: string) => {
       setOnboardingData(prev => ({
           ...prev,
           modelConfigName: modelConfigName,
-          modelConfigNamespace: modelConfigNamespace,
           modelName: modelName
       }));
       setCurrentStep(2);
@@ -84,7 +80,6 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       setOnboardingData(prev => ({
           ...prev,
           agentName: data.agentName,
-          agentNamespace: data.agentNamespace,
           agentDescription: data.agentDescription,
           agentInstructions: data.agentInstructions,
       }));
@@ -112,13 +107,9 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       try {
           const agentPayload: AgentFormData = {
               name: onboardingData.agentName,
-              namespace: onboardingData.agentNamespace || "",
               description: onboardingData.agentDescription || "",
               systemPrompt: onboardingData.agentInstructions,
-              model: {
-                  name: onboardingData.modelConfigName,
-                  namespace: onboardingData.modelConfigNamespace,
-              },
+              model: { name: onboardingData.modelConfigName },
               tools: onboardingData.selectedTools || [],
           };
           const result = await createNewAgent(agentPayload);

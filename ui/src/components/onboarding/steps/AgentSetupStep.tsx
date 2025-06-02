@@ -11,7 +11,6 @@ import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
 
 const agentSetupSchema = z.object({
     agentName: z.string().min(1, "Agent name is required."),
-    agentNamespace: z.string().optional(),
     agentDescription: z.string().optional(),
     agentInstructions: z.string().min(10, "Instructions should be at least 10 characters long."),
 });
@@ -20,7 +19,6 @@ export type AgentSetupFormData = z.infer<typeof agentSetupSchema>;
 interface AgentSetupStepProps {
     initialData: {
         agentName?: string;
-        agentNamespace?: string;
         agentDescription?: string;
         agentInstructions?: string;
     };
@@ -39,7 +37,6 @@ export function AgentSetupStep({ initialData, onNext, onBack }: AgentSetupStepPr
         // Ensure form reflects current state if user goes back and forth
         values: {
             agentName: initialData.agentName || K8S_AGENT_DEFAULTS.name,
-            agentNamespace: initialData.agentNamespace || "",
             agentDescription: initialData.agentDescription || K8S_AGENT_DEFAULTS.description,
             agentInstructions: initialData.agentInstructions || K8S_AGENT_DEFAULTS.instructions,
         }
@@ -69,23 +66,6 @@ export function AgentSetupStep({ initialData, onNext, onBack }: AgentSetupStepPr
                                     <Input {...field} />
                                 </FormControl>
                                 <FormDescription>A unique name for your agent.</FormDescription>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="agentNamespace"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Agent Namespace</FormLabel>
-                                <FormControl>
-                                    <Input
-                                        {...field}
-                                        placeholder="Leave blank for the KAgent`s default namespace"
-                                    />
-                                </FormControl>
-                                <FormDescription>The namespace where your agent will be created.</FormDescription>
                                 <FormMessage />
                             </FormItem>
                         )}

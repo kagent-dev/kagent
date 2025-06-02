@@ -27,13 +27,12 @@ export async function getServers(): Promise<BaseResponse<ToolServerWithTools[]>>
 
 /**
  * Deletes a server
- * @param namespace Name of the namespace
  * @param serverName Name of the server to delete
  * @returns Promise with delete result
  */
-export async function deleteServer(namespace: string, serverName: string): Promise<BaseResponse<void>> {
+export async function deleteServer(serverName: string): Promise<BaseResponse<void>> {
   try {
-    await fetchApi(`/toolservers/${namespace}/${serverName}`, {
+    await fetchApi(`/toolservers/${serverName}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",

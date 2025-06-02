@@ -61,16 +61,9 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   const [systemPrompt, setSystemPrompt] = useState(isEditMode ? "" : DEFAULT_SYSTEM_PROMPT);
 
   // Default to the first model
-  type SelectedModelType = Pick<ModelConfig, 'name' | 'namespace' | 'model'>;
-  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(
-    models && models.length > 0
-      ? {
-        name: models[0].name,
-        model: models[0].model,
-        namespace: models[0].namespace || ''
-      }
-      : null
-  );
+  type SelectedModelType = Pick<ModelConfig, 'ref' | 'model'>;
+  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { ref: models[0].ref, model: models[0].model } : null);
+
   // Tools state - now using AgentTool interface correctly
   const [selectedTools, setSelectedTools] = useState<Tool[]>([]);
 
@@ -110,24 +103,15 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
               setNamespace(agent.metadata.namespace || "");
               setDescription(agent.spec.description || "");
               setSystemPrompt(agent.spec.systemMessage || "");
-              setSelectedTools(agent.spec.tools || []);
-
-              // TODO: verify if it's needed. The controller should ensure fullname
-              const modelNamespace = agent.spec.modelConfig.includes('/')
-                ? agent.spec.modelConfig.split('/')[0]
-                : undefined;
-              const agentNamespace = agent.metadata.namespace;
-              const finalNamespace = modelNamespace ?? agentNamespace ?? "";
-
+              setSelectedTools(agentResponse.tools || []);
               setSelectedModel({
                 model: agentResponse.model,
-                name: agent.spec.modelConfig,
-                namespace: finalNamespace
+                ref: agentResponse.modelConfigRef,
               });
-              
+
               // Set selected memories if they exist
-              if (agent.spec.memory && Array.isArray(agent.spec.memory)) {
-                setSelectedMemories(agent.spec.memory);
+              if (agentResponse.memoryRefs && Array.isArray(agentResponse.memoryRefs)) {
+                setSelectedMemories(agentResponse.memoryRefs);
               }
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
@@ -282,17 +266,19 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 </div>
 
                 <div>
-                  <label className="text-sm mb-2 block">Namespace</label>
+                  <label className="text-base mb-2 block font-bold">Agent Namespace</label>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    This is the namespace of the agent that will be displayed in the UI and used to identify the agent.
+                  </p>
                   <Input
                     value={namespace}
                     onChange={(e) => setNamespace(e.target.value)}
                     onBlur={() => validateField('namespace', namespace)}
                     className={`${errors.namespace ? "border-red-500" : ""}`}
-                    placeholder="Leave blank for the KAgent`s default namespace"
-                    disabled={isEditMode || isSubmitting || isLoading}
+                    placeholder="Enter agent namespace..."
+                    disabled={isSubmitting || isLoading || isEditMode}
                   />
                   {errors.namespace && <p className="text-red-500 text-sm mt-1">{errors.namespace}</p>}
-                  {isEditMode && <p className="text-muted-foreground text-xs mt-1">Namespace cannot be changed after creation</p>}
                 </div>
 
                 <div>
@@ -300,7 +286,6 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   <p className="text-xs mb-2 block text-muted-foreground">
                     This is a description of the agent. It's for your reference only and it's not going to be used by the agent.
                   </p>
-// package autogen
                   <Textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -324,7 +309,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   allModels={models} 
                   selectedModel={selectedModel} 
                   setSelectedModel={(model) => {
-                    setSelectedModel(model as Pick<ModelConfig, 'name' | 'namespace' | 'model'>);
+                    setSelectedModel(model as Pick<ModelConfig, 'ref' | 'model'>);
                     validateField('model', model);
                   }} 
                   error={errors.model} 

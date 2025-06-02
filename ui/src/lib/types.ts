@@ -2,7 +2,6 @@ import { Component, ToolConfig } from "@/types/datamodel";
 
 export interface CreateAgentFormData {
   name: string;
-  namespace: string;
   description: string;
   system_prompt: string;
   model: ModelConfig;
@@ -10,8 +9,7 @@ export interface CreateAgentFormData {
 }
 
 export interface ModelConfig {
-  name: string;
-  namespace: string;
+  ref: string;
   providerName: string;
   model: string;
   apiKeySecretRef: string;
@@ -83,8 +81,7 @@ export interface OllamaConfigPayload {
 }
 
 export interface CreateModelConfigPayload {
-  name: string;
-  namespace: string;
+  ref: string;
   provider: Pick<Provider, "name" | "type">;
   model: string;
   apiKey: string;
@@ -105,8 +102,7 @@ export interface UpdateModelConfigPayload {
 }
 
 export interface MemoryResponse {
-  name: string;
-  namespace: string;
+  ref: string;
   providerName: string;
   apiKeySecretRef: string;
   apiKeySecretKey: string;
@@ -123,16 +119,14 @@ export interface PineconeConfigPayload {
 }
 
 export interface CreateMemoryRequest {
-  name: string;
-  namespace?: string;
+  ref: string;
   provider: Pick<Provider, "type">;
   apiKey: string;
   pinecone?: PineconeConfigPayload;
 }
 
 export interface UpdateMemoryRequest {
-  name: string;
-  namespace?: string;
+  ref: string;
   pinecone?: PineconeConfigPayload;
 }
 

@@ -37,12 +37,12 @@ import {
 import { getSupportedMemoryProviders } from '@/app/actions/providers'
 import { createMemory, getMemory, updateMemory } from '@/app/actions/memories'
 import { Provider, CreateMemoryRequest, PineconeConfigPayload } from '@/lib/types'
+import { k8sRefUtils } from '@/lib/k8sUtils'
 
 // Base schema
 const baseFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  // TODO: To make it optional the controller will have to handle it
-  namespace: z.string().min(1, "Namespace is required"),
+  namespace: z.string().optional(),
   providerType: z.string().min(1, "Provider is required"),
   apiKey: z.string().min(1, "API Key is required").or(z.literal('')), // Allow empty API key in edit mode
   // Generic object to hold dynamic provider parameters
@@ -54,7 +54,7 @@ const createRefinedSchema = (selectedProvider: Provider | null, isEditing: boole
   return baseFormSchema.refine((data) => {
     // Skip API key validation in edit mode
     if (isEditing && data.apiKey === '') return true;
-
+    
     if (!selectedProvider || !data.providerParams) return true;
     for (const param of selectedProvider.requiredParams) {
       if (data.providerParams[param] === undefined || data.providerParams[param] === '') {
@@ -70,7 +70,7 @@ const createRefinedSchema = (selectedProvider: Provider | null, isEditing: boole
 export default function NewMemoryPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const editMode = searchParams.get("edit") === "true";
+  const editMode = searchParams.has('edit')
   const memoryNameToEdit = searchParams.get('name')
   const memoryNamespaceToEdit = searchParams.get('namespace')
 
@@ -129,8 +129,8 @@ export default function NewMemoryPage() {
           setProviders(response.data)
           
           // If in edit mode, load the memory details after providers are loaded
-          if (editMode && memoryNameToEdit && memoryNamespaceToEdit) {
-            await loadMemoryForEditing(memoryNamespaceToEdit, memoryNameToEdit, response.data)
+          if (editMode && memoryNameToEdit) {
+            await loadMemoryForEditing(memoryNameToEdit, response.data)
           }
         } else {
           throw new Error(response.error || 'Failed to load providers')
@@ -142,19 +142,19 @@ export default function NewMemoryPage() {
     loadProviders()
   }, [editMode, memoryNameToEdit])
 
-  const loadMemoryForEditing = async (memoryNamespace: string, memoryName: string, availableProviders: Provider[]) => {
+  const loadMemoryForEditing = async (memoryName: string, availableProviders: Provider[]) => {
     try {
       setIsLoading(true)
-      const memory = await getMemory(memoryNamespace, memoryName)
-
+      const memory = await getMemory(memoryName)
+      const memoryRef = k8sRefUtils.fromRef(memory.ref)
       // Find the correct provider
       const provider = availableProviders.find(p => p.type === memory.providerName)
       if (provider) {
         setSelectedProvider(provider)
-
+        
         // Set form values
-        form.setValue('name', memory.name)
-        form.setValue('namespace', memory.namespace)
+        form.setValue('name', memoryRef.name)
+        form.setValue('namespace', memoryRef.namespace)
         form.setValue('providerType', provider.type)
         // We don't need to set API key in edit mode as the field will be hidden
         form.setValue('apiKey', '')
@@ -169,7 +169,7 @@ export default function NewMemoryPage() {
         }
       }
     } catch (error) {
-      toast.error(`Error loading memory ${memoryNamespace}/${memoryName}: ${error instanceof Error ? error.message : String(error)}`)
+      toast.error(`Error loading memory: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setIsLoading(false)
     }
@@ -187,8 +187,7 @@ export default function NewMemoryPage() {
 
     // Base data for the request
     const memoryData: CreateMemoryRequest = {
-      name: values.name,
-      namespace: values.namespace,
+      ref: k8sRefUtils.toRef(values.namespace || "", values.name),
       provider: { type: values.providerType },
       apiKey: values.apiKey,
     }
@@ -226,7 +225,7 @@ export default function NewMemoryPage() {
          const thresholdNum = Number(params.scoreThreshold);
          if (!isNaN(thresholdNum)) {
             // Assuming the type PineconeConfigPayload expects a string here, convert back
-           pineconePayload.scoreThreshold = thresholdNum.toString();
+           pineconePayload.scoreThreshold = thresholdNum.toString(); 
          }
        }
 
@@ -241,10 +240,10 @@ export default function NewMemoryPage() {
       } else {
         await createMemory(memoryData)
       }
-      toast.success(`Memory "${values.namespace}/${values.name}" ${editMode ? 'updated' : 'created'} successfully!`)
+      toast.success(`Memory "${values.name}" ${editMode ? 'updated' : 'created'} successfully!`)
       router.push('/memories')
     } catch (error) {
-      toast.error(`Failed to ${editMode ? 'update' : 'create'} memory ${values.namespace}/${values.name}: ${error instanceof Error ? error.message : String(error)}`)
+      toast.error(`Failed to ${editMode ? 'update' : 'create'} memory: ${error instanceof Error ? error.message : String(error)}`)
       setIsLoading(false)
     }
   }
@@ -298,12 +297,12 @@ export default function NewMemoryPage() {
                   <FormItem>
                     <FormLabel>Namespace</FormLabel>
                     <FormControl>
-                      <Input placeholder="The namespace where to create Memory" {...field} disabled={editMode} />
+                      <Input placeholder="e.g., default" {...field} disabled={editMode} />
                     </FormControl>
                     <FormDescription>
-                      {editMode
+                      {editMode 
                         ? "Memory namespace cannot be changed when editing."
-                        : "An existing namespace for this memory configuration."}
+                        : "A namespace for this memory configuration."}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -374,7 +373,7 @@ export default function NewMemoryPage() {
                 const isRequired = selectedProvider.requiredParams.includes(paramName);
                 let inputType = "text";
                 let inputProps = {};
-
+                
                 if (paramName.toLowerCase().includes('key') || paramName.toLowerCase().includes('secret')) {
                   inputType = "password";
                 }

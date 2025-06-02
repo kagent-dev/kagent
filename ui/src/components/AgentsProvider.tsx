@@ -91,9 +91,9 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
       setModels(response.data);
       setError("");
-    } catch (error) {
+    } catch (err) {
       console.error("Error fetching models:", error);
-      setError(error instanceof Error ? error.message : "An unexpected error occurred");
+      setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
@@ -107,9 +107,9 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         setTools(response.data);
         setError("");
       }
-    } catch (error) {
+    } catch (err) {
       console.error("Error fetching tools:", error);
-      setError(error instanceof Error ? error.message : "An unexpected error occurred");
+      setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
@@ -129,6 +129,12 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.name = `Agent name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
     }
 
+    if (data.namespace !== undefined && data.namespace.trim()) {
+      if (!isResourceNameValid(data.namespace)) {
+        errors.namespace = `Agent namespace can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
+      }
+    }
+
     if (data.description !== undefined && !data.description.trim()) {
       errors.description = "Description is required";
     }
@@ -137,7 +143,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.systemPrompt = "Agent instructions are required";
     }
 
-    // TODO: refactor this variable name. It's not about the model but ModelConfig name
     if (!data.model || data.model === undefined) {
       errors.model = "Please select a model";
     }
@@ -206,14 +211,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       if (Object.keys(errors).length > 0) {
         console.log("Errors validating agent data", errors);
         return { success: false, error: "Validation failed", data: {} as Agent };
-      }
-
-      if (agentData.model) {
-        if (agentData.model.name && agentData.model.name.includes('/')) {
-          const [namespace, name] = agentData.model.name.split('/');
-          agentData.model.namespace = namespace;
-          agentData.model.name = name;
-        }
       }
 
       // Use the same createTeam endpoint for updates

@@ -21,14 +21,14 @@ interface ValidationErrors {
 
 interface BasicInfoSectionProps {
   name: string;
-  namespace: string;
   isEditingName: boolean;
+  namespace: string;
   errors: ValidationErrors;
   isSubmitting: boolean;
   isLoading: boolean;
   onNameChange: (value: string) => void;
-  onNamespaceChange: (value: string) => void;
   onToggleEditName: () => void;
+  onNamespaceChange: (value: string) => void;
   providers: Provider[];
   providerModelsData: ProviderModelsResponse | null;
   selectedCombinedModel: string | undefined;
@@ -42,8 +42,8 @@ interface BasicInfoSectionProps {
 }
 
 export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
-  name, namespace, isEditingName, errors, isSubmitting, isLoading, onNameChange,
-  onNamespaceChange, onToggleEditName, providers, providerModelsData, selectedCombinedModel,
+  name, isEditingName, namespace, errors, isSubmitting, isLoading, onNameChange,
+  onToggleEditName, onNamespaceChange, providers, providerModelsData, selectedCombinedModel,
   onModelChange, selectedProvider, selectedModelSupportsFunctionCalling,
   loadingError, isEditMode, modelTag, onModelTagChange
 }) => {
@@ -86,19 +86,16 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
 
         <div>
           <label className="text-sm mb-2 block">Namespace</label>
-          <Input
-            value={namespace}
-            onChange={(e) => onNamespaceChange(e.target.value)}
-            className={errors.namespace ? "border-destructive" : ""}
-            placeholder="Leave blank for the KAgent`s default namespace"
-            disabled={isSubmitting || isLoading || isEditMode}
-          />
+          <div className="flex items-center space-x-2">
+            <Input
+              value={namespace}
+              onChange={(e) => onNamespaceChange(e.target.value)}
+              className={errors.name ? "border-destructive" : ""}
+              placeholder="Enter model namespace..."
+              disabled={isSubmitting || isLoading || isEditMode}
+            />
+          </div>
           {errors.namespace && <p className="text-destructive text-sm mt-1">{errors.namespace}</p>}
-          {isEditMode && (
-            <p className="text-[0.8rem] text-muted-foreground mt-1">
-              Namespace cannot be changed after creation.
-            </p>
-          )}
         </div>
 
         <div>

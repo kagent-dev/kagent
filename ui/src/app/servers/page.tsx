@@ -20,7 +20,7 @@ export default function ServersPage() {
 
   // Dialog states
   const [showAddServer, setShowAddServer] = useState(false);
-  const [showConfirmDelete, setShowConfirmDelete] = useState<{ namespace: string, name: string } | null>(null);
+  const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
   const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
 
   // Fetch data on component mount
@@ -39,11 +39,9 @@ export default function ServersPage() {
         setServers(serversResponse.data);
 
         // Initially expand all servers
-        const serverFullNames = serversResponse.data.map(
-          (server) => server.namespace && server.name ? `${server.namespace}/${server.name}` : undefined
-        ).filter((id): id is string => id !== undefined);
+        const serverNames = serversResponse.data.map((server) => server.ref).filter((ref): ref is string => ref !== undefined);
 
-        setExpandedServers(new Set(serverFullNames));
+        setExpandedServers(new Set(serverNames));
       } else {
         console.error("Failed to fetch servers:", serversResponse);
         toast.error(serversResponse.error || "Failed to fetch servers data.");
@@ -56,16 +54,12 @@ export default function ServersPage() {
     }
   };
 
-  const getServerFullName = (server: ToolServerWithTools): string => {
-    return `${server.namespace}/${server.name}`;
-  };
-
   // Handle server deletion
-  const handleDeleteServer = async (namespace: string, serverName: string) => {
+  const handleDeleteServer = async (serverName: string) => {
     try {
       setIsLoading(true);
 
-      const response = await deleteServer(namespace, serverName);
+      const response = await deleteServer(serverName);
 
       if (response.success) {
         toast.success("Server deleted successfully");
@@ -131,12 +125,12 @@ export default function ServersPage() {
       ) : servers.length > 0 ? (
         <div className="space-y-4">
           {servers.map((server) => {
-            if (!server.name || !server.namespace) return null;
-            const serverFullName = getServerFullName(server);
-            const isExpanded = expandedServers.has(serverFullName);
+            if (!server.ref) return null;
+            const serverName: string = server.ref;
+            const isExpanded = expandedServers.has(serverName);
 
             return (
-              <div key={serverFullName} className="border rounded-md overflow-hidden">
+              <div key={server.ref} className="border rounded-md overflow-hidden">
                 {/* Server Header */}
                 <div className="bg-secondary/10 p-4">
                   <div className="flex items-center justify-between">
@@ -145,18 +139,18 @@ export default function ServersPage() {
                       <div className="flex items-center gap-2">
                         <Globe className="h-5 w-5 text-green-500" />
                         <div>
-                          <div className="font-medium">{serverFullName}</div>
+                          <div className="font-medium">{server.ref}</div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
-                            <span className="font-mono">{serverFullName}</span>
+                            <span className="font-mono">{server.ref}</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <DropdownMenu
-                        open={openDropdownMenu === serverFullName}
-                        onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? serverFullName : null)}
+                      <DropdownMenu 
+                        open={openDropdownMenu === serverName} 
+                        onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? serverName : null)}
                       >
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -164,19 +158,16 @@ export default function ServersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem 
-                            className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                            onSelect={(e) => {
-                              e.preventDefault();
-                              setOpenDropdownMenu(null);
-                              setShowConfirmDelete({
-                                namespace: server.namespace || "",
-                                name: server.name
-                              });
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Remove Server
+                           <DropdownMenuItem 
+                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                             onSelect={(e) => {
+                               e.preventDefault();
+                               setOpenDropdownMenu(null);
+                                setShowConfirmDelete(serverName);
+                             }}
+                           >
+                             <Trash2 className="h-4 w-4 mr-2" />
+                             Remove Server
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -245,12 +236,8 @@ export default function ServersPage() {
           }
         }}
         title="Delete Server"
-        description={
-          showConfirmDelete
-            ? `Are you sure you want to delete server "${showConfirmDelete.namespace}/${showConfirmDelete.name}"? This will also delete all associated tools and cannot be undone.`
-            : "Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
-        }
-        onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete.namespace, showConfirmDelete.name)}
+        description="Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
+        onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete)}
       />
     </div>
   );

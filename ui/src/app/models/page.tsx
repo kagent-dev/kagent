@@ -16,6 +16,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 export default function ModelsPage() {
     const router = useRouter();
@@ -46,21 +47,19 @@ export default function ModelsPage() {
         }
     };
 
-    const getModelUniqueId = (model: ModelConfig) => `${model.namespace}/${model.name}`;
-
-    const toggleRow = (model: ModelConfig) => {
-        const modelId = getModelUniqueId(model);
+    const toggleRow = (modelName: string) => {
         const newExpandedRows = new Set(expandedRows);
-        if (expandedRows.has(modelId)) {
-            newExpandedRows.delete(modelId);
+        if (expandedRows.has(modelName)) {
+            newExpandedRows.delete(modelName);
         } else {
-            newExpandedRows.add(modelId);
+            newExpandedRows.add(modelName);
         }
         setExpandedRows(newExpandedRows);
     };
 
     const handleEdit = (model: ModelConfig) => {
-        router.push(`/models/new?edit=true&namespace=${model.namespace}&name=${model.name}`);
+        const modelRef = k8sRefUtils.fromRef(model.ref);
+        router.push(`/models/new?edit=true&name=${modelRef.name}&namespace=${modelRef.namespace}`);
     };
 
     const handleDelete = async (model: ModelConfig) => {
@@ -71,15 +70,15 @@ export default function ModelsPage() {
         if (!modelToDelete) return;
 
         try {
-            const response = await deleteModelConfig(modelToDelete.namespace, modelToDelete.name);
+            const response = await deleteModelConfig(modelToDelete.ref);
             if (!response.success) {
                 throw new Error(response.error || "Failed to delete model");
             }
-            toast.success(`Model "${modelToDelete.namespace}/${modelToDelete.name}" deleted successfully`);
+            toast.success(`Model "${modelToDelete.ref}" deleted successfully`);
             setModelToDelete(null);
             await fetchModels();
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : `Failed to delete model ${modelToDelete.namespace}/${modelToDelete.name}`;
+            const errorMessage = err instanceof Error ? err.message : "Failed to delete model";
             toast.error(errorMessage);
             setModelToDelete(null);
         }
@@ -107,78 +106,75 @@ export default function ModelsPage() {
                     <LoadingState />
                 ) : (
                     <div className="space-y-4">
-                        {models.map((modelConfig) => {
-                            const modelConfigId = getModelUniqueId(modelConfig);
-                            return (
-                                <div key={modelConfigId} className="border rounded-lg overflow-hidden">
-                                    <div
-                                        className="flex items-center justify-between p-4 cursor-pointer hover:bg-secondary/5"
-                                        onClick={() => toggleRow(modelConfig)}
-                                    >
-                                        <div className="flex items-center space-x-2">
-                                            {expandedRows.has(modelConfigId) ? (
-                                                <ChevronDown className="h-4 w-4" />
-                                            ) : (
-                                                <ChevronRight className="h-4 w-4" />
+                        {models.map((model) => (
+                            <div key={model.ref} className="border rounded-lg overflow-hidden">
+                                <div
+                                    className="flex items-center justify-between p-4 cursor-pointer hover:bg-secondary/5"
+                                    onClick={() => toggleRow(model.ref)}
+                                >
+                                    <div className="flex items-center space-x-2">
+                                        {expandedRows.has(model.ref) ? (
+                                            <ChevronDown className="h-4 w-4" />
+                                        ) : (
+                                            <ChevronRight className="h-4 w-4" />
+                                        )}
+                                        <span className="font-medium">{model.ref}</span>
+                                    </div>
+                                    <div className="flex space-x-2">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEdit(model);
+                                            }}
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDelete(model);
+                                            }}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                                {expandedRows.has(model.ref) && (
+                                    <div className="p-4 border-t bg-secondary/10">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <p className="text-sm font-medium text-muted-foreground">Provider</p>
+                                                <p>{model.providerName}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-medium text-muted-foreground">Model</p>
+                                                <p>{model.model}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-medium text-muted-foreground">Namespace</p>
+                                                <p>{k8sRefUtils.fromRef(model.ref).namespace}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-medium text-muted-foreground">API Key Secret</p>
+                                                <p>{model.apiKeySecretRef ? model.apiKeySecretRef : "N/A"}</p>
+                                            </div>
+                                            {model.modelParams && (
+                                                <div className="col-span-2">
+                                                    <p className="text-sm font-medium text-muted-foreground">Model Parameters</p>
+                                                    <pre className="mt-1 text-sm bg-muted p-2 rounded">
+                                                        {JSON.stringify(model.modelParams, null, 2)}
+                                                    </pre>
+                                                </div>
                                             )}
-                                            <span className="font-medium">{modelConfigId}</span>
-                                        </div>
-                                        <div className="flex space-x-2">
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleEdit(modelConfig);
-                                                }}
-                                            >
-                                                <Pencil className="h-4 w-4" />
-                                            </Button>
-                                            <Button
-                                                variant="destructive"
-                                                size="sm"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDelete(modelConfig);
-                                                }}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
                                         </div>
                                     </div>
-                                    {expandedRows.has(modelConfigId) && (
-                                        <div className="p-4 border-t bg-secondary/10">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <p className="text-sm font-medium text-muted-foreground">Provider</p>
-                                                    <p>{modelConfig.providerName}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-medium text-muted-foreground">Model</p>
-                                                    <p>{modelConfig.model}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-medium text-muted-foreground">Namespace</p>
-                                                    <p>{modelConfig.namespace}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-medium text-muted-foreground">API Key Secret</p>
-                                                    <p>{modelConfig.apiKeySecretRef}</p>
-                                                </div>
-                                                {modelConfig.modelParams && (
-                                                    <div className="col-span-2">
-                                                        <p className="text-sm font-medium text-muted-foreground">Model Parameters</p>
-                                                        <pre className="mt-1 text-sm bg-muted p-2 rounded">
-                                                            {JSON.stringify(modelConfig.modelParams, null, 2)}
-                                                        </pre>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )
-                        })}
+                                )}
+                            </div>
+                        ))}
                     </div>
                 )}
 
@@ -188,7 +184,7 @@ export default function ModelsPage() {
                         <DialogHeader>
                             <DialogTitle>Delete Model</DialogTitle>
                             <DialogDescription>
-                                Are you sure you want to delete the model &apos;<b>{modelToDelete?.namespace}/{modelToDelete?.name}</b>&apos;? This action cannot be undone.
+                                Are you sure you want to delete the model &apos;{modelToDelete?.ref}&apos;? This action cannot be undone.
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter className="flex space-x-2 justify-end">

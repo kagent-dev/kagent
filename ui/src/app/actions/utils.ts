@@ -51,7 +51,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
         // If we can't parse the error response, use the default error message
         console.warn("Could not parse error response:", parseError);
       }
-
+      
       throw new Error(errorMessage);
     }
 

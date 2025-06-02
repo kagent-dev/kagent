@@ -24,6 +24,7 @@ import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendMo
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ValidationErrors {
   name?: string;
@@ -101,7 +102,7 @@ function ModelPageContent() {
 
   const isEditMode = searchParams.get("edit") === "true";
   const modelConfigName = searchParams.get("name");
-  const urlNamespace = searchParams.get("namespace")
+  const modelConfigNamespace = searchParams.get("namespace");
 
   const [name, setName] = useState("");
   const [namespace, setNamespace] = useState("");
@@ -171,18 +172,21 @@ function ModelPageContent() {
   useEffect(() => {
     let isMounted = true;
     const fetchModelData = async () => {
-      if (isEditMode && modelConfigName && urlNamespace && providers.length > 0 && providerModelsData) {
+      if (isEditMode && modelConfigName && providers.length > 0 && providerModelsData) {
         try {
           if (!isLoading) setIsLoading(true);
-          const response = await getModelConfig(urlNamespace, modelConfigName);
+          const response = await getModelConfig(
+            k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName)
+          );
           if (!isMounted) return;
 
           if (!response.success || !response.data) {
             throw new Error(response.error || "Failed to fetch model");
           }
           const modelData = response.data;
-          setName(modelData.name);
-          setNamespace(modelData.namespace);
+          const modelRef = k8sRefUtils.fromRef(modelData.ref);
+          setName(modelRef.name);
+          setNamespace(modelRef.namespace);
 
           const provider = providers.find(p => p.type === modelData.providerName);
           setSelectedProvider(provider || null);
@@ -313,7 +317,6 @@ function ModelPageContent() {
     const newErrors: ValidationErrors = { requiredParams: {} };
 
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
-    if (namespace && !isResourceNameValid(namespace)) newErrors.namespace = "Namespace must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
     const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
     if (!isEditMode && !isOllamaNow && isApiKeyNeeded && !apiKey.trim()) {
@@ -353,7 +356,7 @@ function ModelPageContent() {
     }
 
     setErrors(newErrors);
-    const hasBaseErrors = !!newErrors.name || !!newErrors.namespace || !!newErrors.selectedCombinedModel || !!newErrors.apiKey;
+    const hasBaseErrors = !!newErrors.name || !!newErrors.selectedCombinedModel || !!newErrors.apiKey;
     const hasRequiredParamErrors = Object.keys(newErrors.requiredParams || {}).length > 0;
     const hasOptionalParamErrors = !!newErrors.optionalParams;
     return !hasBaseErrors && !hasRequiredParamErrors && !hasOptionalParamErrors;
@@ -414,8 +417,7 @@ function ModelPageContent() {
     }
 
     const payload: CreateModelConfigPayload = {
-      name: name.trim(),
-      namespace: namespace.trim(),
+      ref: k8sRefUtils.toRef(namespace, name),
       provider: {
         name: finalSelectedProvider.name,
         type: finalSelectedProvider.type,
@@ -449,7 +451,7 @@ function ModelPageContent() {
 
     try {
       let response;
-      if (isEditMode && modelConfigName && urlNamespace) {
+      if (isEditMode && modelConfigName) {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
@@ -459,13 +461,14 @@ function ModelPageContent() {
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
         };
-        response = await updateModelConfig(urlNamespace, modelConfigName, updatePayload);
+        const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
+        response = await updateModelConfig(modelConfigRef, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }
 
       if (response.success) {
-        toast.success(`Model configuration ${namespace}/${name} ${isEditMode ? 'updated' : 'created'} successfully!`);
+        toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
         router.push("/models");
       } else {
         throw new Error(response.error || "Failed to save model configuration");
@@ -504,14 +507,14 @@ function ModelPageContent() {
         <div className="space-y-6">
           <BasicInfoSection
             name={name}
-            namespace={namespace}
-            onNamespaceChange={setNamespace}
             isEditingName={isEditingName}
+            namespace={namespace}
             errors={errors}
             isSubmitting={isSubmitting}
             isLoading={isLoading}
             onNameChange={setName}
             onToggleEditName={() => setIsEditingName(!isEditingName)}
+            onNamespaceChange={setNamespace}
             providers={providers}
             providerModelsData={providerModelsData}
             selectedCombinedModel={selectedCombinedModel}

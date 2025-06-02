@@ -26,6 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { k8sRefUtils } from '@/lib/k8sUtils'
 
 export default function MemoriesPage() {
   const router = useRouter()
@@ -35,7 +36,6 @@ export default function MemoriesPage() {
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [memoryNameToDelete, setMemoryNameToDelete] = useState<string | null>(null)
-  const [memoryNamespaceToDelete, setMemoryNamespaceToDelete] = useState<string | null>(null)
 
   // Helper function to display not set for null/undefined/empty values
   const formatValue = (value: string | number | boolean | null | undefined): string => {
@@ -61,28 +61,24 @@ export default function MemoriesPage() {
   }, [])
 
   // Function to open the confirmation dialog
-  const handleDeleteRequest = (namespace: string, name: string) => {
-    setMemoryNameToDelete(name)
-    setMemoryNamespaceToDelete(namespace)
+  const handleDeleteRequest = (ref: string) => {
+    setMemoryNameToDelete(ref)
     setIsDeleteDialogOpen(true)
   }
 
   // Function to handle the actual deletion after confirmation
   const handleDeleteConfirm = async () => {
-    if (!memoryNameToDelete || !memoryNamespaceToDelete) return // Should not happen if dialog is open
+    if (!memoryNameToDelete) return // Should not happen if dialog is open
 
     const memoryToDelete = memoryNameToDelete;
-    const namespace = memoryNamespaceToDelete || '';
     try {
-      toast.info(`Deleting memory "${namespace}/${memoryToDelete}"...`)
-      await deleteMemory(namespace, memoryToDelete)
-      setMemories(memories.filter((m) => 
-        !(m.name === memoryToDelete && m.namespace === namespace)
-      ))
-      toast.success(`Memory "${namespace}/${memoryToDelete}" deleted successfully.`)
+      toast.info(`Deleting memory "${memoryToDelete}"...`)
+      await deleteMemory(memoryToDelete)
+      setMemories(memories.filter((m) => m.ref !== memoryToDelete))
+      toast.success(`Memory "${memoryToDelete}" deleted successfully.`)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred'
-      toast.error(`Failed to delete memory "${namespace}/${memoryToDelete}": ${errorMessage}`)
+      toast.error(`Failed to delete memory "${memoryToDelete}": ${errorMessage}`)
     } finally {
       setIsDeleteDialogOpen(false)
       setMemoryNameToDelete(null)
@@ -124,38 +120,41 @@ export default function MemoriesPage() {
                  </TableCell>
                </TableRow>
             ) : (
-              memories.map((memory) => (
-                <TableRow key={`${memory.namespace}/${memory.name}`}>
-                  <TableCell className="font-medium">{memory.name}</TableCell>
-                  <TableCell className="font-medium">{memory.namespace}</TableCell>
-                  <TableCell>{formatValue(memory.providerName)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.indexHost)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.topK)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.namespace)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.recordFields)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.scoreThreshold)}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => router.push(`/memories/new?edit=true&namespace=${encodeURIComponent(memory.namespace)}&name=${encodeURIComponent(memory.name)}`)}
-                      aria-label="Edit memory"
-                      className="mr-1"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDeleteRequest(memory.namespace, memory.name)}
-                      aria-label="Delete memory"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
+              memories.map((memory) => {
+                const memoryRef = k8sRefUtils.fromRef(memory.ref)
+                return (
+                  <TableRow key={memory.ref}>
+                    <TableCell className="font-medium">{memoryRef.name}</TableCell>
+                    <TableCell className="font-medium">{memoryRef.namespace}</TableCell>
+                    <TableCell>{formatValue(memory.providerName)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.indexHost)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.topK)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.namespace)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.recordFields)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.scoreThreshold)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => router.push(`/memories/new?edit=${encodeURIComponent(memory.ref)}`)}
+                        aria-label="Edit memory"
+                        className="mr-1"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteRequest(memory.ref)}
+                        aria-label="Delete memory"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )
+              }
+            ))}
           </TableBody>
         </Table>
       )}
@@ -167,7 +166,7 @@ export default function MemoriesPage() {
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              memory configuration named &quot;<span className="font-semibold">{memoryNamespaceToDelete}/{memoryNameToDelete}</span>&quot;.
+              memory configuration named &quot;<span className="font-semibold">{memoryNameToDelete}</span>&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

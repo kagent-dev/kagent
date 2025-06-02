@@ -4,15 +4,15 @@ import { MemoryResponse, CreateMemoryRequest, UpdateMemoryRequest } from '@/lib/
 import { fetchApi } from './utils'
 
 export async function listMemories(): Promise<MemoryResponse[]> {
-  const data = await fetchApi<MemoryResponse[]>('/memories');
-  return data.map((memory) => ({
+  const data = await fetchApi<MemoryResponse[]>('/memories')
+  return data.map(memory => ({
     ...memory,
     memoryParams: memory.memoryParams || {}
   }))
 }
 
-export async function getMemory(namespace: string, name: string): Promise<MemoryResponse> {
-  return fetchApi<MemoryResponse>(`/memories/${namespace}/${name}`);
+export async function getMemory(ref: string): Promise<MemoryResponse> {
+  return fetchApi<MemoryResponse>(`/memories/${ref}`)
 }
 
 export async function createMemory(
@@ -27,14 +27,15 @@ export async function createMemory(
 export async function updateMemory(
   memoryData: UpdateMemoryRequest
 ): Promise<MemoryResponse> {
-  return fetchApi<MemoryResponse>(`/memories/${memoryData.namespace}/${memoryData.name}`, {
+  return fetchApi<MemoryResponse>(`/memories/${memoryData.ref}`, {
     method: 'PUT',
     body: JSON.stringify(memoryData),
   })
 }
 
-export async function deleteMemory(namespace: string, name: string): Promise<void> {
-  await fetchApi<void>(`/memories/${namespace}/${name}`, {
+
+export async function deleteMemory(ref: string): Promise<void> {
+  await fetchApi<void>(`/memories/${ref}`, {
     method: 'DELETE',
   })
 } 

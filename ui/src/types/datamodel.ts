@@ -34,7 +34,7 @@ export interface FunctionExecutionResult {
   content: string;
 }
 
-export interface ToolCallExecutionEvent extends BaseMessageConfig { 
+export interface ToolCallExecutionEvent extends BaseMessageConfig {
   content: Array<{
     content: string;
     name: string;
@@ -102,7 +102,7 @@ export interface ToolCallSummaryMessage extends BaseMessageConfig {
   type: "ToolCallSummaryMessage";
 }
 
-export interface ModelClientStreamingChunkEvent extends BaseAgentEvent {
+export interface ModelClientStreamingChunkEvent extends BaseAgentEvent { 
   content: string;
   type: "ModelClientStreamingChunkEvent";
 }
@@ -363,7 +363,7 @@ export interface TaskResultMessage {
 
 export interface ResourceMetadata {
   name: string;
-  namespace: string;
+  namespace?: string;
 }
 
 export type ToolProviderType = "Builtin" | "McpServer" | "Agent"
@@ -410,7 +410,10 @@ export interface AgentResponse {
   agent: Agent;
   component: Component<TeamConfig>;
   model: string;
-  provider: string;
+  modelProvider: string;
+  modelConfigRef: string;
+  memoryRefs: string[];
+  tools: Tool[];
 }
 
 export interface ToolServer {
@@ -434,8 +437,7 @@ export interface ToolComponent {
 }
 
 export interface ToolServerWithTools {
-  name: string;
-  namespace?: string;
+  ref: string;
   config: ToolServerConfiguration;
   discoveredTools: ToolComponent[];
 }
