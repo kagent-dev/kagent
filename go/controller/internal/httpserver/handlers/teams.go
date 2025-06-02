@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
@@ -19,11 +18,14 @@ import (
 )
 
 type TeamResponse struct {
-	Id            int                    `json:"id"`
-	Agent         v1alpha1.Agent         `json:"agent"`
-	Component     *api.Component         `json:"component"`
-	ModelProvider v1alpha1.ModelProvider `json:"modelProvider"`
-	Model         string                 `json:"model"`
+	Id             int                    `json:"id"`
+	Agent          v1alpha1.Agent         `json:"agent"`
+	Component      *api.Component         `json:"component"`
+	ModelProvider  v1alpha1.ModelProvider `json:"modelProvider"`
+	Model          string                 `json:"model"`
+	ModelConfigRef string                 `json:"modelConfigRef"`
+	MemoryRefs     []string               `json:"memoryRefs"`
+	Tools          []*v1alpha1.Tool       `json:"tools"`
 }
 
 // TeamsHandler handles team-related requests
@@ -78,7 +80,7 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 			team.Spec.ModelConfig,
 			team.Namespace,
 		); err != nil {
-			modelConfigRef := common.ResourceRefString(modelConfig.Namespace, modelConfig.Name)
+			modelConfigRef := common.GetObjectRef(modelConfig)
 			if k8serrors.IsNotFound(err) {
 				log.V(1).Info("ModelConfig not found", "modelConfigRef", modelConfigRef)
 				continue
@@ -87,12 +89,71 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// Get the MemoryRefs for the team
+		memoryRefs := make([]string, 0, len(team.Spec.Memory))
+		for _, memory := range team.Spec.Memory {
+			memoryRef, err := common.ParseRefString(memory, team.Namespace)
+			if err != nil  {
+				log.Error(err, "Failed to parse memory reference", "memoryRef", memory)
+				continue
+			}
+			memoryRefs = append(memoryRefs, memoryRef.String())
+		}
+
+		// Get the tools for the team
+		tools := make([]*v1alpha1.Tool, 0, len(team.Spec.Tools))
+		for _, tool := range team.Spec.Tools {
+			toolCopy := tool.DeepCopy()
+
+			if tool.Type == v1alpha1.ToolProviderType_Builtin {
+				if tool.Builtin != nil {
+					tools = append(tools, tool)
+				}
+				continue
+			}
+
+			switch toolCopy.Type {
+			case v1alpha1.ToolProviderType_Builtin:
+				if toolCopy.Builtin != nil {
+					tools = append(tools, toolCopy)
+				}
+
+			case v1alpha1.ToolProviderType_Agent:
+				if toolCopy.Agent == nil {
+					log.Info("Agent tool has nil Agent field", "tool", toolCopy)
+					continue
+				}
+				if err := updateRef(&toolCopy.Agent.Ref, team.Namespace); err != nil {
+					log.Error(err, "Failed to parse agent tool reference", "toolRef", toolCopy.Agent.Ref)
+					continue
+				}
+				tools = append(tools, toolCopy)
+
+			case v1alpha1.ToolProviderType_McpServer:
+				if toolCopy.McpServer == nil {
+					log.Info("McpServer tool has nil McpServer field", "tool", toolCopy)
+					continue
+				}
+				if err := updateRef(&toolCopy.McpServer.ToolServer, team.Namespace); err != nil {
+					log.Error(err, "Failed to parse server tool reference", "toolRef", toolCopy.McpServer.ToolServer)
+					continue
+				}
+				tools = append(tools, toolCopy)
+
+			default:
+				log.Info("Unknown tool type", "toolType", toolCopy.Type)
+			}
+		}
+
 		teamsWithID = append(teamsWithID, TeamResponse{
-			Id:            autogenTeam.Id,
-			Agent:         team,
-			Component:     autogenTeam.Component,
-			ModelProvider: modelConfig.Spec.Provider,
-			Model:         modelConfig.Spec.Model,
+			Id:             autogenTeam.Id,
+			Agent:          team,
+			Component:      autogenTeam.Component,
+			ModelProvider:  modelConfig.Spec.Provider,
+			Model:          modelConfig.Spec.Model,
+			ModelConfigRef: common.GetObjectRef(modelConfig),
+			MemoryRefs:     memoryRefs,
+			Tools:          tools,
 		})
 	}
 
@@ -100,31 +161,26 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 	RespondWithJSON(w, http.StatusOK, teamsWithID)
 }
 
-type UpdateTeamRequest struct {
-	TeamRef string             `json:"teamRef"`
-	Spec    v1alpha1.AgentSpec `json:"spec"`
-}
-
 // HandleUpdateTeam handles PUT /api/teams requests
 func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "update")
 	log.Info("Received request to update Team")
 
-	var teamRequest UpdateTeamRequest
+	var teamRequest *v1alpha1.Agent
 	if err := DecodeJSONBody(r, &teamRequest); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
-	teamRef, err := common.ParseRefString(teamRequest.TeamRef, common.GetResourceNamespace())
-	if err != nil {
-		log.Error(err, "Failed to parse TeamRef")
-		w.RespondWithError(errors.NewBadRequestError("Invalid TeamRef", err))
-		return
+	if teamRequest.Namespace == "" {
+		teamRequest.Namespace = "default"
 	}
-	if !strings.Contains(teamRequest.TeamRef, "/") {
-		log.V(4).Info("No namespace provided in ModelConfigRef, using default namespace",
-			"defaultNamespace", teamRef.Namespace)
+	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
+    if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid agent metadata", err))
+	}
+	if teamRef.Namespace == "default" {
+		log.V(4).Info("Namespace not provided in request. Creating in", teamRef.Namespace, "namespace")
 	}
 
 	log = log.WithValues(
@@ -165,29 +221,25 @@ func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) 
 	RespondWithJSON(w, http.StatusOK, teamRequest)
 }
 
-type CreateTeamRequest struct {
-	TeamRef string             `json:"teamRef"`
-	Spec    v1alpha1.AgentSpec `json:"spec"`
-}
-
 // HandleCreateTeam handles POST /api/teams requests
 func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("teams-handler").WithValues("operation", "create")
 	log.V(1).Info("Received request to create Team")
 
-	var teamRequest CreateTeamRequest
+	var teamRequest *v1alpha1.Agent
 	if err := DecodeJSONBody(r, &teamRequest); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
-	teamRef, err := common.ParseRefString(teamRequest.TeamRef, common.GetResourceNamespace())
-	if err != nil {
-		log.Error(err, "Failed to parse TeamRef")
-		w.RespondWithError(errors.NewBadRequestError("Invalid TeamRef", err))
-		return
+	if teamRequest.Namespace == "" {
+		teamRequest.Namespace = "default"
 	}
-	if teamRef.Namespace == common.GetResourceNamespace() {
+	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
+    if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid agent metadata", err))
+	}
+	if teamRef.Namespace == "default" {
 		log.V(4).Info("Namespace not provided in request. Creating in", teamRef.Namespace, "namespace")
 	}
 
@@ -196,16 +248,8 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 		"teamName", teamRef.Name,
 	)
 
-	team := &v1alpha1.Agent{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      teamRef.Name,
-			Namespace: teamRef.Namespace,
-		},
-		Spec: teamRequest.Spec,
-	}
-
 	kubeClientWrapper := client_wrapper.NewKubeClientWrapper(h.KubeClient)
-	kubeClientWrapper.AddInMemory(team)
+	kubeClientWrapper.AddInMemory(teamRequest)
 
 	apiTranslator := autogen.NewAutogenApiTranslator(
 		kubeClientWrapper,
@@ -213,7 +257,7 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 	)
 
 	log.V(1).Info("Translating Team to Autogen format")
-	autogenTeam, err := apiTranslator.TranslateGroupChatForAgent(r.Context(), team)
+	autogenTeam, err := apiTranslator.TranslateGroupChatForAgent(r.Context(), teamRequest)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to translate Team to Autogen format", err))
 		return
@@ -258,7 +302,7 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 
 	// Team is valid, we can store it
 	log.V(1).Info("Creating Team in Kubernetes")
-	if err := h.KubeClient.Create(r.Context(), team); err != nil {
+	if err := h.KubeClient.Create(r.Context(), teamRequest); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create Team in Kubernetes", err))
 		return
 	}
@@ -319,17 +363,79 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 		team.Spec.ModelConfig,
 		team.Namespace,
 	); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to get ModelConfig", err))
-		return
+		modelConfigRef := common.GetObjectRef(modelConfig)
+		if k8serrors.IsNotFound(err) {
+			log.V(1).Info("ModelConfig not found", "modelConfigRef", modelConfigRef)
+		}
+		log.Error(err, "Failed to get ModelConfig", "modelConfigRef", modelConfigRef)
+	}
+
+	// Get the MemoryRefs for the team
+	memoryRefs := make([]string, 0, len(team.Spec.Memory))
+	for _, memory := range team.Spec.Memory {
+		memoryRef, err := common.ParseRefString(memory, team.Namespace)
+		if err != nil  {
+			log.Error(err, "Failed to parse memory reference", "memoryRef", memory)
+			continue
+		}
+		memoryRefs = append(memoryRefs, memoryRef.String())
+	}
+
+	// Get the tools for the team
+	tools := make([]*v1alpha1.Tool, 0, len(team.Spec.Tools))
+	for _, tool := range team.Spec.Tools {
+		toolCopy := tool.DeepCopy()
+
+		if tool.Type == v1alpha1.ToolProviderType_Builtin {
+			if tool.Builtin != nil {
+				tools = append(tools, tool)
+			}
+			continue
+		}
+
+		switch toolCopy.Type {
+		case v1alpha1.ToolProviderType_Builtin:
+			if toolCopy.Builtin != nil {
+				tools = append(tools, toolCopy)
+			}
+
+		case v1alpha1.ToolProviderType_Agent:
+			if toolCopy.Agent == nil {
+				log.Info("Agent tool has nil Agent field", "tool", toolCopy)
+				continue
+			}
+			if err := updateRef(&toolCopy.Agent.Ref, team.Namespace); err != nil {
+				log.Error(err, "Failed to parse agent tool reference", "toolRef", toolCopy.Agent.Ref)
+				continue
+			}
+			tools = append(tools, toolCopy)
+
+		case v1alpha1.ToolProviderType_McpServer:
+			if toolCopy.McpServer == nil {
+				log.Info("McpServer tool has nil McpServer field", "tool", toolCopy)
+				continue
+			}
+			if err := updateRef(&toolCopy.McpServer.ToolServer, team.Namespace); err != nil {
+				log.Error(err, "Failed to parse server tool reference", "toolRef", toolCopy.McpServer.ToolServer)
+				continue
+			}
+			tools = append(tools, toolCopy)
+
+		default:
+			log.Info("Unknown tool type", "toolType", toolCopy.Type)
+		}
 	}
 
 	// Create a new object that contains the Team information from Team and the ID from the autogenTeam
 	teamWithID := &TeamResponse{
-		Id:            autogenTeam.Id,
-		Agent:         *team,
-		Component:     autogenTeam.Component,
-		ModelProvider: modelConfig.Spec.Provider,
-		Model:         modelConfig.Spec.Model,
+		Id:             autogenTeam.Id,
+		Agent:          *team,
+		Component:      autogenTeam.Component,
+		ModelProvider:  modelConfig.Spec.Provider,
+		Model:          modelConfig.Spec.Model,
+		ModelConfigRef: common.GetObjectRef(modelConfig),
+		MemoryRefs:     memoryRefs,
+		Tools:          tools,
 	}
 
 	log.Info("Successfully retrieved Team")

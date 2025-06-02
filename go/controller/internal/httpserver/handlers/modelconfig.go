@@ -18,7 +18,7 @@ import (
 
 // ModelConfigResponse defines the structure for the ModelConfig API response.
 type ModelConfigResponse struct {
-	ModelConfigRef  string                 `json:"modelConfigRef"`
+	Ref             string                 `json:"ref"`
 	ProviderName    string                 `json:"providerName"`
 	Model           string                 `json:"model"`
 	APIKeySecretRef string                 `json:"apiKeySecretRef"`
@@ -65,7 +65,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		}
 
 		responseItem := ModelConfigResponse{
-			ModelConfigRef:  common.GetObjectRef(&config),
+			Ref:             common.GetObjectRef(&config),
 			ProviderName:    string(config.Spec.Provider),
 			Model:           config.Spec.Model,
 			APIKeySecretRef: config.Spec.APIKeySecretRef,
@@ -139,7 +139,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	}
 
 	responseItem := ModelConfigResponse{
-		ModelConfigRef:  common.GetObjectRef(modelConfig),
+		Ref:             common.GetObjectRef(modelConfig),
 		ProviderName:    string(modelConfig.Spec.Provider),
 		Model:           modelConfig.Spec.Model,
 		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
@@ -169,7 +169,7 @@ func getStructJSONKeys(structType reflect.Type) []string {
 }
 
 type CreateModelConfigRequest struct {
-	ModelConfigRef  string                      `json:"modelConfigRef"`
+	Ref             string                      `json:"ref"`
 	Provider        Provider                    `json:"provider"`
 	Model           string                      `json:"model"`
 	APIKey          string                      `json:"apiKey"`
@@ -196,14 +196,14 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	modelConfigRef, err := common.ParseRefString(req.ModelConfigRef, common.GetResourceNamespace())
+	modelConfigRef, err := common.ParseRefString(req.Ref, "default")
 	if err != nil {
-		log.Error(err, "Failed to parse ModelConfigRef")
-		w.RespondWithError(errors.NewBadRequestError("Invalid ModelConfigRef", err))
+		log.Error(err, "Failed to parse Ref")
+		w.RespondWithError(errors.NewBadRequestError("Invalid Ref", err))
 		return
 	}
-	if !strings.Contains(req.ModelConfigRef, "/") {
-		log.V(4).Info("No namespace provided in ModelConfigRef, using default namespace",
+	if !strings.Contains(req.Ref, "/") {
+		log.V(4).Info("No namespace provided in Ref, using default namespace",
 			"defaultNamespace", modelConfigRef.Namespace)
 	}
 
@@ -534,17 +534,10 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		FlattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
 	}
 
-	apiKeySecretRef, err := common.ParseRefString(modelConfig.Spec.APIKeySecretRef, modelConfig.Namespace)
-	if err != nil {
-		log.Error(err, "Failed to parse APIKeySecretRef")
-		w.RespondWithError(errors.NewBadRequestError("Failed to parse APIKeySecretRef", err))
-		return
-	}
-
 	responseItem := ModelConfigResponse{
-		ModelConfigRef:  common.GetObjectRef(modelConfig),
+		Ref:             common.GetObjectRef(modelConfig),
 		ProviderName:    string(modelConfig.Spec.Provider),
-		APIKeySecretRef: apiKeySecretRef.String(),
+		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		Model:           modelConfig.Spec.Model,
 		ModelParams:     updatedParams,

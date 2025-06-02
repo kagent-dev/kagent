@@ -2,18 +2,16 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type ToolServerResponse struct {
-	ToolServerRef   string                    `json:"toolServerRef"`
+	Ref             string                    `json:"ref"`
 	Config          v1alpha1.ToolServerConfig `json:"config"`
 	DiscoveredTools []*v1alpha1.MCPTool       `json:"discoveredTools"`
 }
@@ -42,7 +40,7 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 	toolServerWithTools := make([]ToolServerResponse, len(toolServerList.Items))
 	for i, toolServer := range toolServerList.Items {
 		toolServerWithTools[i] = ToolServerResponse{
-			ToolServerRef:   common.ResourceRefString(toolServer.Namespace, toolServer.Name),
+			Ref:             common.ResourceRefString(toolServer.Namespace, toolServer.Name),
 			Config:          toolServer.Spec.Config,
 			DiscoveredTools: toolServer.Status.DiscoveredTools,
 		}
@@ -52,60 +50,34 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 	RespondWithJSON(w, http.StatusOK, toolServerWithTools)
 }
 
-type CreateToolServerRequest struct {
-	ToolServerRef string                    `json:"toolServerRef"`
-	Description   string                    `json:"description"`
-	Config        v1alpha1.ToolServerConfig `json:"config"`
-}
-
 // HandleCreateToolServer handles POST /api/toolservers requests
 func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "create")
 	log.Info("Received request to create ToolServer")
 
-	var toolServerRequest *CreateToolServerRequest
+	var toolServerRequest *v1alpha1.ToolServer
 	if err := DecodeJSONBody(r, &toolServerRequest); err != nil {
-		log.Error(err, "Failed to decode request body")
+		log.Error(err, "Invalid request body")
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
-	toolServerRef, err := common.ParseRefString(toolServerRequest.ToolServerRef, common.GetResourceNamespace())
-	if err != nil {
-		log.Error(err, "Failed to parse ToolServerRef")
-		w.RespondWithError(errors.NewBadRequestError("Invalid TooServerRef", err))
-		return
-	}
-	if !strings.Contains(toolServerRequest.ToolServerRef, "/") {
-		log.V(4).Info("No namespace provided in ModelConfigRef, using default namespace",
-			"defaultNamespace", toolServerRef.Namespace)
+	if toolServerRequest.Namespace == "" {
+		toolServerRequest.Namespace = "default"
 	}
 
 	log = log.WithValues(
-		"toolServerNamespace", toolServerRef.Namespace,
-		"toolServerName", toolServerRef.Name,
+		"toolServerName", toolServerRequest.Name,
+		"toolServerNamespace", toolServerRequest.Namespace,
 	)
 
-	toolServerSpec := v1alpha1.ToolServerSpec{
-		Description: toolServerRequest.Description,
-		Config:      toolServerRequest.Config,
-	}
-
-	toolServer := &v1alpha1.ToolServer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      toolServerRef.Name,
-			Namespace: toolServerRef.Namespace,
-		},
-		Spec: toolServerSpec,
-	}
-
-	if err := h.KubeClient.Create(r.Context(), toolServer); err != nil {
+	if err := h.KubeClient.Create(r.Context(), toolServerRequest); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create ToolServer in Kubernetes", err))
 		return
 	}
 
 	log.Info("Successfully created ToolServer")
-	RespondWithJSON(w, http.StatusCreated, toolServer)
+	RespondWithJSON(w, http.StatusCreated, toolServerRequest)
 }
 
 // HandleDeleteToolServer handles DELETE /api/toolservers/{namespace}/{toolServerName} requests
@@ -122,7 +94,7 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 
 	toolServerName, err := GetPathParam(r, "toolServerName")
 	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get ToolServer name from path", err))
+		w.RespondWithError(errors.NewBadRequestError("Failed to get ToolServerName from path", err))
 		return
 	}
 

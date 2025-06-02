@@ -16,7 +16,7 @@ import (
 )
 
 type MemoryResponse struct {
-	MemoryRef       string                 `json:"memoryRef"`
+	Ref             string                 `json:"ref"`
 	ProviderName    string                 `json:"providerName"`
 	APIKeySecretRef string                 `json:"apiKeySecretRef"`
 	APIKeySecretKey string                 `json:"apiKeySecretKey"`
@@ -55,7 +55,7 @@ func (h *MemoryHandler) HandleListMemories(w ErrorResponseWriter, r *http.Reques
 		}
 
 		memoryResponses[i] = MemoryResponse{
-			MemoryRef:       memoryRef,
+			Ref:             memoryRef,
 			ProviderName:    string(memory.Spec.Provider),
 			APIKeySecretRef: memory.Spec.APIKeySecretRef,
 			APIKeySecretKey: memory.Spec.APIKeySecretKey,
@@ -68,7 +68,7 @@ func (h *MemoryHandler) HandleListMemories(w ErrorResponseWriter, r *http.Reques
 }
 
 type CreateMemoryRequest struct {
-	MemoryRef      string                   `json:"memoryRef"`
+	Ref            string                   `json:"ref"`
 	Provider       Provider                 `json:"provider"`
 	APIKey         string                   `json:"apiKey"`
 	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
@@ -86,14 +86,14 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	memoryRef, err := common.ParseRefString(req.MemoryRef, common.GetResourceNamespace())
+	memoryRef, err := common.ParseRefString(req.Ref, "default")
 	if err != nil {
-		log.Error(err, "Failed to parse MemoryRef")
-		w.RespondWithError(errors.NewBadRequestError("Invalid MemoryRef", err))
+		log.Error(err, "Failed to parse Ref")
+		w.RespondWithError(errors.NewBadRequestError("Invalid Ref", err))
 		return
 	}
-	if !strings.Contains(req.MemoryRef, "/") {
-		log.V(4).Info("No namespace provided in ModelConfigRef, using default namespace",
+	if !strings.Contains(req.Ref, "/") {
+		log.V(4).Info("No namespace provided in Ref, using default namespace",
 			"defaultNamespace", memoryRef.Namespace)
 	}
 
@@ -277,7 +277,7 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 	}
 
 	memoryResponse := MemoryResponse{
-		MemoryRef:       common.GetObjectRef(memory),
+		Ref:             common.GetObjectRef(memory),
 		ProviderName:    string(memory.Spec.Provider),
 		APIKeySecretRef: apiKeySecretRef.String(),
 		APIKeySecretKey: memory.Spec.APIKeySecretKey,
