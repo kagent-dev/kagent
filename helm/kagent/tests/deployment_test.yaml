@@ -28,21 +28,21 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].name
           value: controller
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[0].image
-          value: cr.kagent.dev/kagent-dev/kagent/controller:v0.3.10-28-g9005ba2
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/controller:.+"
       - equal:
           path: spec.template.spec.containers[1].name
           value: app
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[1].image
-          value: cr.kagent.dev/kagent-dev/kagent/app:v0.3.10-28-g9005ba2
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/app:.+"
       - equal:
           path: spec.template.spec.containers[2].name
           value: ui
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[2].image
-          value: cr.kagent.dev/kagent-dev/kagent/ui:v0.3.10-28-g9005ba2
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/ui:.+"
 
   - it: should use global tag when set
     set:
