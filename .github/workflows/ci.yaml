@@ -106,6 +106,10 @@ jobs:
         run: |
           helm plugin install https://github.com/helm-unittest/helm-unittest
 
+      - name: Chart init
+        run: |
+          make helm-version
+
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
