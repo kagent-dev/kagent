@@ -224,17 +224,46 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         const component = item as Component<ToolConfig>;
         toolToAdd = componentToAgentTool(component);
         
-        if (toolToAdd.mcpServer?.toolNames && toolToAdd.mcpServer.toolNames.length > 0) {
-            numEffectiveToolsInThisItem = toolToAdd.mcpServer.toolNames.length;
-        } else {
-            numEffectiveToolsInThisItem = 1; 
+        // For MCP tools, check if we already have a tool from the same server
+        if (isMcpTool(toolToAdd) && toolToAdd.mcpServer) {
+            const existingToolIndex = localSelectedComponents.findIndex(entry => 
+                isMcpTool(entry.toolInstance) && 
+                entry.toolInstance.mcpServer?.toolServer === toolToAdd.mcpServer?.toolServer
+            );
+
+            if (existingToolIndex !== -1) {
+                // Add the new tool name to the existing MCP server entry
+                const existingTool = localSelectedComponents[existingToolIndex].toolInstance;
+                if (isMcpTool(existingTool) && existingTool.mcpServer) {
+                    const updatedTool = {
+                        ...existingTool,
+                        mcpServer: {
+                            ...existingTool.mcpServer,
+                            toolNames: [...new Set([...existingTool.mcpServer.toolNames, ...toolToAdd.mcpServer.toolNames])]
+                        }
+                    };
+                    setLocalSelectedComponents(prev => {
+                        const newComponents = [...prev];
+                        newComponents[existingToolIndex] = {
+                            ...newComponents[existingToolIndex],
+                            toolInstance: updatedTool
+                        };
+                        return newComponents;
+                    });
+                    return;
+                }
+            }
         }
     }
 
+    // If we get here, either it's not an MCP tool or we need to add a new entry
     if (actualSelectedCount + numEffectiveToolsInThisItem <= MAX_TOOLS_LIMIT) {
-        setLocalSelectedComponents((prev) => [
+        setLocalSelectedComponents(prev => [
             ...prev,
-            { originalItemIdentifier: originalItemInfo.identifier, toolInstance: toolToAdd }
+            {
+                originalItemIdentifier: originalItemInfo.identifier,
+                toolInstance: toolToAdd
+            }
         ]);
     } else {
         console.warn(`Cannot add tool. Limit reached or will be exceeded. Current: ${actualSelectedCount}, Adding: ${numEffectiveToolsInThisItem}, Limit: ${MAX_TOOLS_LIMIT}`);
@@ -257,30 +286,25 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   };
 
   const handleToggleCategoryFilter = (category: string) => {
-    const trimmedCategory = category.trim();
-    if (!trimmedCategory) return;
-
-    setSelectedCategories((prev) => {
-      const newSelection = new Set(prev);
-      if (newSelection.has(trimmedCategory)) {
-        newSelection.delete(trimmedCategory);
+    setSelectedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(category)) {
+        newSet.delete(category);
       } else {
-        newSelection.add(trimmedCategory);
+        newSet.add(category);
       }
-      return newSelection;
+      return newSet;
     });
   };
 
   const toggleCategory = (category: string) => {
-    setExpandedCategories((prev) => ({ ...prev, [category]: !prev[category] }));
+    setExpandedCategories(prev => ({ ...prev, [category]: !prev[category] }));
   };
 
   const selectAllCategories = () => setSelectedCategories(new Set(categories));
   const clearCategories = () => setSelectedCategories(new Set());
-
   const clearAllSelectedTools = () => setLocalSelectedComponents([]);
 
-  // Helper to highlight search term
   const highlightMatch = (text: string, highlight: string) => {
     if (!highlight || !text) return text;
     const parts = text.split(new RegExp(`(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
@@ -366,7 +390,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                           </div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             {itemsSelectedInCategory > 0 && (
-                               <Badge variant="outline">{itemsSelectedInCategory} selected</Badge>
+                              <Badge variant="outline">{itemsSelectedInCategory} selected</Badge>
                             )}
                           </div>
                         </div>

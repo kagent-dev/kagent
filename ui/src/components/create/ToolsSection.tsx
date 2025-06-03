@@ -12,6 +12,7 @@ import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
 import { getTeams } from "@/app/actions/teams";
 import { Textarea } from "@/components/ui/textarea";
 import KagentLogo from "../kagent-logo";
+import { Badge } from "@/components/ui/badge";
 
 interface ToolsSectionProps {
   allTools: Component<ToolConfig>[];
@@ -293,7 +294,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
             currentIconColor = "text-yellow-500";
           }
 
-          return [( // flatMap expects an array
+          return [( 
             <Card key={parentToolIdentifier}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
