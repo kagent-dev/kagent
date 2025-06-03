@@ -46,7 +46,6 @@ spec:
           metadata:
             type: object
           spec:
-            description: ModelConfigSpec defines the desired state of ModelConfig.
             properties:
               anthropic:
                 description: Anthropic-specific configuration
@@ -63,6 +62,36 @@ spec:
                   topK:
                     description: Top-k sampling parameter
                     type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
+              anthropicVertexAI:
+                description: Anthropic-specific configuration
+                properties:
+                  location:
+                    description: The project location
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  projectID:
+                    description: The project ID
+                    type: string
+                  stopSequences:
+                    description: Stop sequences
+                    items:
+                      type: string
+                    type: array
+                  stream:
+                    description: Stream
+                    type: boolean
+                  temperature:
+                    description: Temperature
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: string
                   topP:
                     description: Top-p sampling parameter
                     type: string
@@ -108,7 +137,7 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
-              gemini:
+              geminiVertexAI:
                 description: Gemini-specific configuration
                 properties:
                   candidateCount:
@@ -140,9 +169,6 @@ spec:
                   topP:
                     description: Top-p sampling parameter
                     type: string
-                  vertexAI:
-                    description: Whether to use Vertex AI
-                    type: boolean
                 type: object
               model:
                 type: string
@@ -219,7 +245,8 @@ spec:
                 - OpenAI
                 - AzureOpenAI
                 - Ollama
-                - Gemini
+                - GeminiVertexAI
+                - AnthropicVertexAI
                 type: string
             required:
             - model
@@ -234,8 +261,12 @@ spec:
               rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
             - message: provider.ollama must be nil if the provider is not Ollama
               rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
-            - message: provider.gemini must be nil if the provider is not Gemini
-              rule: '!(has(self.gemini) && self.provider != ''Gemini'')'
+            - message: provider.geminiVertexAI must be nil if the provider is not
+                GeminiVertexAI
+              rule: '!(has(self.geminiVertexAI) && self.provider != ''GeminiVertexAI'')'
+            - message: provider.anthropicVertexAI must be nil if the provider is not
+                AnthropicVertexAI
+              rule: '!(has(self.anthropicVertexAI) && self.provider != ''AnthropicVertexAI'')'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

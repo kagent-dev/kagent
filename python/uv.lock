@@ -56,6 +56,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/76/74/5d90ad14d55fbe3f9c474fdcb6e34b4bed99e3be8efac98734a5ddce88c1/anthropic-0.49.0-py3-none-any.whl", hash = "sha256:bbc17ad4e7094988d2fa86b87753ded8dce12498f4b85fe5810f208f454a8375", size = 243368 },
 ]
 
+[package.optional-dependencies]
+vertex = [
+    { name = "google-auth" },
+]
+
 [[package]]
 name = "anyio"
 version = "4.9.0"
@@ -990,7 +995,7 @@ version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
-    { name = "anthropic" },
+    { name = "anthropic", extra = ["vertex"] },
     { name = "autogen-agentchat" },
     { name = "autogen-core" },
     { name = "autogen-ext", extra = ["anthropic", "azure", "mcp", "ollama", "openai"] },
@@ -1038,7 +1043,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.11.0" },
-    { name = "anthropic", specifier = ">=0.49.0" },
+    { name = "anthropic", extras = ["vertex"], specifier = ">=0.49.0" },
     { name = "autogen-agentchat", specifier = ">=0.5.7" },
     { name = "autogen-core", specifier = ">=0.5.7" },
     { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], specifier = ">=0.5.7" },

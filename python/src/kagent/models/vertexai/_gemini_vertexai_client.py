@@ -43,9 +43,10 @@ from google import genai
 from google.auth import load_credentials_from_dict
 from google.genai import types as genai_types
 from google.genai.types import Content, GenerationConfig, Part
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, SecretStr
 
 from ._model_info import get_info, get_token_limit
+from .config import GeminiVertexAIClientConfiguration
 
 
 # Name validation for Gemini tools
@@ -61,27 +62,6 @@ def assert_valid_gemini_name(name: str) -> str:
             f"Invalid Gemini tool/function name: {name}. Must be 1-63 chars, letters, numbers, or underscores."
         )
     return name
-
-
-class GeminiClientConfiguration(BaseModel):
-    model: str = Field(description="Name of the Gemini model to use, e.g., 'gemini-1.5-pro-latest'.")
-    api_key: Optional[SecretStr] = Field(default=None, description="Google AI API key.")
-    # Credentials are required if vertexai is true
-    credentials: Optional[dict] = Field(default=None, description="Google Cloud credentials file path.")
-    vertexai: bool = Field(default=False, description="Set to True if using Vertex AI backend.")
-    project: Optional[str] = Field(default=None, description="Google Cloud Project ID (required for Vertex AI).")
-    location: Optional[str] = Field(default=None, description="Google Cloud Project Location (required for Vertex AI).")
-
-    temperature: Optional[float] = Field(
-        default=None, ge=0.0, le=2.0, description="Controls randomness. Lower for less random, higher for more."
-    )
-    top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Nucleus sampling parameter.")
-    top_k: Optional[int] = Field(default=None, ge=0, description="Top-k sampling parameter.")
-    max_output_tokens: Optional[int] = Field(default=None, ge=1, description="Maximum number of tokens to generate.")
-
-    model_info_override: Optional[ModelInfo] = Field(
-        default=None, description="Optional override for model capabilities and information."
-    )
 
 
 logger = logging.getLogger(EVENT_LOGGER_NAME)
@@ -109,38 +89,29 @@ def _normalize_gemini_finish_reason(reason: Optional[genai_types.FinishReason]) 
     return mapping.get(reason, "unknown")
 
 
-class GeminiChatCompletionClient(ChatCompletionClient, Component[GeminiClientConfiguration]):
+class GeminiVertexAIChatCompletionClient(ChatCompletionClient, Component[GeminiVertexAIClientConfiguration]):
     component_type = "model"
-    component_config_schema = GeminiClientConfiguration
-    component_provider_override = "kagent.models.gemini.GeminiChatCompletionClient"
+    component_config_schema = GeminiVertexAIClientConfiguration
+    component_provider_override = "kagent.models.vertexai.GeminiVertexAIChatCompletionClient"
 
-    def __init__(self, **kwargs: Unpack[GeminiClientConfiguration]):
-        resolved_config = GeminiClientConfiguration(**kwargs)
+    def __init__(self, **kwargs: Unpack[GeminiVertexAIClientConfiguration]):
+        resolved_config = GeminiVertexAIClientConfiguration(**kwargs)
 
         self._model_name = resolved_config.model
         self._raw_config: Dict[str, Any] = resolved_config.model_dump(warnings=False)
 
-        if resolved_config.vertexai and resolved_config.api_key:
-            raise ValueError("vertexai and api_key cannot be provided together.")
-
-        if not resolved_config.vertexai and not resolved_config.api_key:
-            raise ValueError("either vertexai or api_key must be provided.")
-
         client_options_dict: Dict[str, Any] = {}
-        if resolved_config.api_key:
-            client_options_dict["api_key"] = resolved_config.api_key.get_secret_value()
-        else:
-            if not resolved_config.project or not resolved_config.location or not resolved_config.credentials:
-                raise ValueError("project, location, and credentials are required for Vertex AI.")
+        if not resolved_config.project or not resolved_config.location or not resolved_config.credentials:
+            raise ValueError("project, location, and credentials are required for Vertex AI.")
 
-            # need to explicitly provide the scopes for the credentials, otherwise it will not work
-            google_creds = load_credentials_from_dict(
-                resolved_config.credentials, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            client_options_dict["credentials"] = google_creds[0]
-            client_options_dict["project"] = resolved_config.project
-            client_options_dict["location"] = resolved_config.location
-            client_options_dict["vertexai"] = resolved_config.vertexai
+        # need to explicitly provide the scopes for the credentials, otherwise it will not work
+        google_creds = load_credentials_from_dict(
+            resolved_config.credentials, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        client_options_dict["credentials"] = google_creds[0]
+        client_options_dict["project"] = resolved_config.project
+        client_options_dict["location"] = resolved_config.location
+        client_options_dict["vertexai"] = True
 
         self._client = genai.Client(**client_options_dict)
 
@@ -695,7 +666,7 @@ class GeminiChatCompletionClient(ChatCompletionClient, Component[GeminiClientCon
 
     def __setstate__(self, state: Dict[str, Any]) -> None:
         self.__dict__.update(state)
-        resolved_config_from_raw = GeminiClientConfiguration(**self._raw_config)
+        resolved_config_from_raw = GeminiVertexAIClientConfiguration(**self._raw_config)
 
         client_options_dict: Dict[str, Any] = {}
         if resolved_config_from_raw.api_key:
@@ -721,7 +692,7 @@ class GeminiChatCompletionClient(ChatCompletionClient, Component[GeminiClientCon
         return self._model_info
 
     @classmethod
-    def _from_config(cls, config: GeminiClientConfiguration) -> "GeminiChatCompletionClient":
+    def _from_config(cls, config: GeminiVertexAIClientConfiguration) -> "GeminiVertexAIChatCompletionClient":
         copied_config = config.model_copy().model_dump(exclude_none=True)
 
         if "api_key" in copied_config and isinstance(copied_config["api_key"], str):
@@ -729,6 +700,6 @@ class GeminiChatCompletionClient(ChatCompletionClient, Component[GeminiClientCon
 
         return cls(**copied_config)
 
-    def _to_config(self) -> GeminiClientConfiguration:
+    def _to_config(self) -> GeminiVertexAIClientConfiguration:
         config_data = self._raw_config.copy()
-        return GeminiClientConfiguration(**config_data)
+        return GeminiVertexAIClientConfiguration(**config_data)

@@ -1136,81 +1136,123 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			Config:        api.MustToConfig(config),
 		}, nil
 
-	case v1alpha1.Gemini:
-		var config *api.GeminiClientConfiguration
+	case v1alpha1.AnthropicVertexAI:
+		var config *api.AnthropicVertexAIConfig
 
-		// Check whether we're using Vertex AI or API key
-		if modelConfig.Spec.Gemini.VertexAI {
-			creds, err := a.getModelConfigGoogleApplicationCredentials(ctx, modelConfig)
-			if err != nil {
-				return nil, err
-			}
-
-			config = &api.GeminiClientConfiguration{
-				Model:       modelConfig.Spec.Model,
-				VertexAI:    true,
-				ProjectID:   modelConfig.Spec.Gemini.ProjectID,
-				Location:    modelConfig.Spec.Gemini.Location,
-				Credentials: creds,
-			}
-		} else {
-			apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
-			if err != nil {
-				return nil, err
-			}
-
-			config = &api.GeminiClientConfiguration{
-				APIKey:    string(apiKey),
-				Model:     modelConfig.Spec.Model,
-				VertexAI:  false,
-				ProjectID: modelConfig.Spec.Gemini.ProjectID,
-				Location:  modelConfig.Spec.Gemini.Location,
-			}
+		creds, err := a.getModelConfigGoogleApplicationCredentials(ctx, modelConfig)
+		if err != nil {
+			return nil, err
 		}
 
-		if modelConfig.Spec.Gemini != nil {
-			geminiConfig := modelConfig.Spec.Gemini
+		config = &api.AnthropicVertexAIConfig{
+			BaseVertexAIConfig: api.BaseVertexAIConfig{
+				Model:       modelConfig.Spec.Model,
+				ProjectID:   modelConfig.Spec.AnthropicVertexAI.ProjectID,
+				Location:    modelConfig.Spec.AnthropicVertexAI.Location,
+				Credentials: creds,
+			},
+		}
 
-			if geminiConfig.MaxOutputTokens > 0 {
-				config.MaxOutputTokens = &geminiConfig.MaxOutputTokens
+		if modelConfig.Spec.AnthropicVertexAI != nil {
+			anthropicVertexAIConfig := modelConfig.Spec.AnthropicVertexAI
+
+			if anthropicVertexAIConfig.MaxTokens > 0 {
+				config.MaxTokens = &anthropicVertexAIConfig.MaxTokens
 			}
 
-			if geminiConfig.Temperature != "" {
-				temp, err := strconv.ParseFloat(geminiConfig.Temperature, 64)
+			if anthropicVertexAIConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(anthropicVertexAIConfig.Temperature, 64)
 				if err == nil {
 					config.Temperature = &temp
 				}
 			}
 
-			if geminiConfig.TopP != "" {
-				topP, err := strconv.ParseFloat(geminiConfig.TopP, 64)
+			if anthropicVertexAIConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(anthropicVertexAIConfig.TopP, 64)
 				if err == nil {
 					config.TopP = &topP
 				}
 			}
 
-			if geminiConfig.TopK != "" {
-				topK, err := strconv.ParseFloat(geminiConfig.TopK, 64)
+			if anthropicVertexAIConfig.TopK != "" {
+				topK, err := strconv.ParseFloat(anthropicVertexAIConfig.TopK, 64)
 				if err == nil {
 					config.TopK = &topK
 				}
 			}
 
-			if geminiConfig.StopSequences != nil {
-				config.StopSequences = &geminiConfig.StopSequences
-			}
-
-			if geminiConfig.CandidateCount > 0 {
-				config.CandidateCount = &geminiConfig.CandidateCount
-			}
-
-			if geminiConfig.ResponseMimeType != "" {
-				config.ResponseMimeType = &geminiConfig.ResponseMimeType
+			if anthropicVertexAIConfig.StopSequences != nil {
+				config.StopSequences = &anthropicVertexAIConfig.StopSequences
 			}
 		}
 
 		return &api.Component{
-			Provider:      "kagent.models.gemini.GeminiChatCompletionClient",
+			Provider:      "kagent.models.vertexai.AnthropicVertexAIChatCompletionClient",
+			ComponentType: "model",
+			Version:       1,
+			Config:        api.MustToConfig(config),
+		}, nil
+
+	case v1alpha1.GeminiVertexAI:
+		var config *api.GeminiVertexAIConfig
+
+		creds, err := a.getModelConfigGoogleApplicationCredentials(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
+
+		config = &api.GeminiVertexAIConfig{
+			BaseVertexAIConfig: api.BaseVertexAIConfig{
+				Model:       modelConfig.Spec.Model,
+				ProjectID:   modelConfig.Spec.GeminiVertexAI.ProjectID,
+				Location:    modelConfig.Spec.GeminiVertexAI.Location,
+				Credentials: creds,
+			},
+		}
+
+		if modelConfig.Spec.GeminiVertexAI != nil {
+			geminiVertexAIConfig := modelConfig.Spec.GeminiVertexAI
+
+			if geminiVertexAIConfig.MaxOutputTokens > 0 {
+				config.MaxOutputTokens = &geminiVertexAIConfig.MaxOutputTokens
+			}
+
+			if geminiVertexAIConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(geminiVertexAIConfig.Temperature, 64)
+				if err == nil {
+					config.Temperature = &temp
+				}
+			}
+
+			if geminiVertexAIConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(geminiVertexAIConfig.TopP, 64)
+				if err == nil {
+					config.TopP = &topP
+				}
+			}
+
+			if geminiVertexAIConfig.TopK != "" {
+				topK, err := strconv.ParseFloat(geminiVertexAIConfig.TopK, 64)
+				if err == nil {
+					config.TopK = &topK
+				}
+			}
+
+			if geminiVertexAIConfig.StopSequences != nil {
+				config.StopSequences = &geminiVertexAIConfig.StopSequences
+			}
+
+			if geminiVertexAIConfig.CandidateCount > 0 {
+				config.CandidateCount = &geminiVertexAIConfig.CandidateCount
+			}
+
+			if geminiVertexAIConfig.ResponseMimeType != "" {
+				config.ResponseMimeType = &geminiVertexAIConfig.ResponseMimeType
+			}
+		}
+
+		return &api.Component{
+			Provider:      "kagent.models.vertexai.GeminiVertexAIChatCompletionClient",
 			ComponentType: "model",
 			Version:       1,
 			Config:        api.MustToConfig(config),
