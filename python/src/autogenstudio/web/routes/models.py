@@ -4,8 +4,9 @@ from autogen_ext.models.anthropic._model_info import _MODEL_INFO as anthropic_mo
 from autogen_ext.models.ollama._model_info import _MODEL_INFO as ollama_models
 from autogen_ext.models.openai._model_info import _MODEL_INFO as openai_models
 from autogen_ext.models.openai._model_info import _MODEL_POINTERS
-from kagent.models.vertexai._model_info import _MODEL_INFO as vertexai_models
 from fastapi import APIRouter
+
+from kagent.models.vertexai._model_info import _MODEL_INFO as vertexai_models
 
 router = APIRouter()
 

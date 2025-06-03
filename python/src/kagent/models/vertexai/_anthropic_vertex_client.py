@@ -6,7 +6,8 @@ from autogen_ext.models.anthropic import BaseAnthropicChatCompletionClient
 from google.auth import load_credentials_from_dict
 from typing_extensions import Any, Dict, Mapping, Optional, Self, Set, Unpack
 
-from .config import AnthropicVertexAIClientConfiguration, ModelInfo
+from ._model_info import ModelInfo, get_info
+from .config import AnthropicVertexAIClientConfiguration
 
 # Common parameters for message creation
 anthropic_message_params = {
@@ -65,6 +66,12 @@ class AnthropicVertexAIChatCompletionClient(
         if "model_info" in kwargs:
             model_info = kwargs["model_info"]
             del copied_args["model_info"]
+
+        if "model" in kwargs:
+            model_info = get_info(kwargs["model"])
+
+        if not model_info:
+            raise ValueError("model_info or model is required for AnthropicVertexAIChatCompletionClient")
 
         if "credentials" in kwargs:
             credentials = kwargs["credentials"]

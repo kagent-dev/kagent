@@ -159,7 +159,6 @@ type AnthropicVertexAIConfig struct {
 	BaseVertexAIConfig
 
 	MaxTokens *int `json:"max_tokens,omitempty"`
-	Stream    bool `json:"stream,omitempty"`
 }
 
 func (c *GeminiVertexAIConfig) ToConfig() (map[string]interface{}, error) {

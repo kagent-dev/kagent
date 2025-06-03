@@ -39,11 +39,11 @@ const (
 
 type BaseVertexAIConfig struct {
 	// The project ID
-	// +optional
-	ProjectID string `json:"projectID,omitempty"`
+	// +required
+	ProjectID string `json:"projectID"`
 
 	// The project location
-	// +optional
+	// +required
 	Location string `json:"location,omitempty"`
 
 	// Temperature
@@ -86,10 +86,6 @@ type AnthropicVertexAIConfig struct {
 	// Maximum tokens to generate
 	// +optional
 	MaxTokens int `json:"maxTokens,omitempty"`
-
-	// Stream
-	// +optional
-	Stream bool `json:"stream,omitempty"`
 }
 
 // AnthropicConfig contains Anthropic-specific configuration options
