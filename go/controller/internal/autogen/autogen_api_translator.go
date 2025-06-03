@@ -97,7 +97,7 @@ func (a *apiTranslator) getConfigMapValue(ctx context.Context, source *v1alpha1.
 	}
 
 	configMap := &corev1.ConfigMap{}
-	err := fetchObjKube(
+	err := common.GetObject(
 		ctx,
 		a.kube,
 		configMap,
@@ -122,7 +122,7 @@ func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.Val
 	}
 
 	secret := &corev1.Secret{}
-	err := fetchObjKube(
+	err := common.GetObject(
 		ctx,
 		a.kube,
 		secret,

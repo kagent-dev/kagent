@@ -71,13 +71,15 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
     setFeedbackDialogOpen(true);
   };
 
+  const formattedSource = convertToUserFriendlyName(source);
+  
   const messageBorderColor = isErrorMessage ? "border-l-red-500" : source === "user" ? "border-l-blue-500" : "border-l-violet-500";
   return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${messageBorderColor}`}>
     <div className="flex flex-col gap-1 w-full">
       {source !== "user" ? <div className="flex items-center gap-1">
         <KagentLogo className="w-4 h-4" />
-        <div className="text-xs font-bold">{source}</div>
-      </div> : <div className="text-xs font-bold">{source}</div>}
+        <div className="text-xs font-bold">{formattedSource}</div>
+      </div> : <div className="text-xs font-bold">{formattedSource}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
       
       {source !== "user" && messageId !== undefined && (

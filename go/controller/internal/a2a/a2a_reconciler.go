@@ -21,8 +21,7 @@ type A2AReconciler interface {
 	) error
 
 	ReconcileAutogenAgentDeletion(
-		agentNamespace string,
-		agentName string,
+		agentRef string,
 	)
 }
 
@@ -67,10 +66,7 @@ func (a *a2aReconciler) ReconcileAutogenAgent(
 }
 
 func (a *a2aReconciler) ReconcileAutogenAgentDeletion(
-	agentNamespace string,
-	agentName string,
+	agentRef string,
 ) {
-	a.a2aHandler.RemoveAgentHandler(
-		agentNamespace, agentName,
-	)
+	a.a2aHandler.RemoveAgentHandler(agentRef)
 }

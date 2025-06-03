@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/autogen/api"
+	"k8s.io/apimachinery/pkg/api/errors"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -95,7 +96,7 @@ func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
 	// }
 
 	// remove a2a handler if it exists
-	a.a2aReconciler.ReconcileAutogenAgentDeletion(req.Namespace, req.Name)
+	a.a2aReconciler.ReconcileAutogenAgentDeletion(req.NamespacedName.String())
 
 	// TODO(sbx0r): temporary mock on GlobalUserID.
 	//              This block will be removed after resolving previous TODO
@@ -107,8 +108,8 @@ func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
 
 	if team != nil {
 		if err = a.autogenClient.DeleteTeam(team.Id, team.UserID); err != nil {
-			return fmt.Errorf("failed to delete agent %s/%s: %w",
-				req.Namespace, req.Name, err)
+			return fmt.Errorf("failed to delete agent %s: %w",
+				req.NamespacedName.String(), err)
 		}
 	}
 
