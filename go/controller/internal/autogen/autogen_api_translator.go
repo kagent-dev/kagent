@@ -1136,6 +1136,86 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			Config:        api.MustToConfig(config),
 		}, nil
 
+	case v1alpha1.Gemini:
+		var config *api.GeminiClientConfiguration
+
+		// Check whether we're using Vertex AI or API key
+		if modelConfig.Spec.Gemini.VertexAI {
+			creds, err := a.getModelConfigGoogleApplicationCredentials(ctx, modelConfig)
+			if err != nil {
+				return nil, err
+			}
+
+			config = &api.GeminiClientConfiguration{
+				Model:       modelConfig.Spec.Model,
+				VertexAI:    true,
+				ProjectID:   modelConfig.Spec.Gemini.ProjectID,
+				Location:    modelConfig.Spec.Gemini.Location,
+				Credentials: creds,
+			}
+		} else {
+			apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+			if err != nil {
+				return nil, err
+			}
+
+			config = &api.GeminiClientConfiguration{
+				APIKey:    string(apiKey),
+				Model:     modelConfig.Spec.Model,
+				VertexAI:  false,
+				ProjectID: modelConfig.Spec.Gemini.ProjectID,
+				Location:  modelConfig.Spec.Gemini.Location,
+			}
+		}
+
+		if modelConfig.Spec.Gemini != nil {
+			geminiConfig := modelConfig.Spec.Gemini
+
+			if geminiConfig.MaxOutputTokens > 0 {
+				config.MaxOutputTokens = &geminiConfig.MaxOutputTokens
+			}
+
+			if geminiConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(geminiConfig.Temperature, 64)
+				if err == nil {
+					config.Temperature = &temp
+				}
+			}
+
+			if geminiConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(geminiConfig.TopP, 64)
+				if err == nil {
+					config.TopP = &topP
+				}
+			}
+
+			if geminiConfig.TopK != "" {
+				topK, err := strconv.ParseFloat(geminiConfig.TopK, 64)
+				if err == nil {
+					config.TopK = &topK
+				}
+			}
+
+			if geminiConfig.StopSequences != nil {
+				config.StopSequences = &geminiConfig.StopSequences
+			}
+
+			if geminiConfig.CandidateCount > 0 {
+				config.CandidateCount = &geminiConfig.CandidateCount
+			}
+
+			if geminiConfig.ResponseMimeType != "" {
+				config.ResponseMimeType = &geminiConfig.ResponseMimeType
+			}
+		}
+
+		return &api.Component{
+			Provider:      "kagent.models.gemini.GeminiChatCompletionClient",
+			ComponentType: "model",
+			Version:       1,
+			Config:        api.MustToConfig(config),
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
 	}
@@ -1179,6 +1259,37 @@ func (a *apiTranslator) getMemoryApiKey(ctx context.Context, memory *v1alpha1.Me
 	}
 
 	return memoryApiKey, nil
+}
+
+func (a *apiTranslator) getModelConfigGoogleApplicationCredentials(ctx context.Context, modelConfig *v1alpha1.ModelConfig) (map[string]interface{}, error) {
+	googleApplicationCredentialsSecret := &v1.Secret{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		googleApplicationCredentialsSecret,
+		modelConfig.Spec.APIKeySecretRef,
+		modelConfig.Namespace,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if googleApplicationCredentialsSecret.Data == nil {
+		return nil, fmt.Errorf("google application credentials secret data not found")
+	}
+
+	googleApplicationCredentialsBytes, ok := googleApplicationCredentialsSecret.Data[modelConfig.Spec.APIKeySecretKey]
+	if !ok {
+		return nil, fmt.Errorf("google application credentials not found")
+	}
+
+	var credsMap map[string]interface{}
+	err = json.Unmarshal(googleApplicationCredentialsBytes, &credsMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal google application credentials into map: %w", err)
+	}
+
+	return credsMap, nil
 }
 
 func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v1alpha1.ModelConfig) ([]byte, error) {

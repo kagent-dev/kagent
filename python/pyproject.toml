@@ -42,6 +42,8 @@ dependencies = [
   "magika>=0.6.2",
   "markitdown[all]>=v0.1.1",
   "websockets>=11.0",
+  "google-genai>=1.18.0",
+  "google-auth>=2.40.2",
 ]
 
 [project.optional-dependencies]

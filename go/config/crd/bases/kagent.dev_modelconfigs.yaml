@@ -108,6 +108,42 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              gemini:
+                description: Gemini-specific configuration
+                properties:
+                  candidateCount:
+                    description: Candidate count
+                    type: integer
+                  location:
+                    description: The project location
+                    type: string
+                  maxOutputTokens:
+                    description: Maximum output tokens
+                    type: integer
+                  projectID:
+                    description: The project ID
+                    type: string
+                  responseMimeType:
+                    description: Response mime type
+                    type: string
+                  stopSequences:
+                    description: Stop sequences
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                  vertexAI:
+                    description: Whether to use Vertex AI
+                    type: boolean
+                type: object
               model:
                 type: string
               modelInfo:
@@ -183,6 +219,7 @@ spec:
                 - OpenAI
                 - AzureOpenAI
                 - Ollama
+                - Gemini
                 type: string
             required:
             - model
@@ -197,6 +234,8 @@ spec:
               rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
             - message: provider.ollama must be nil if the provider is not Ollama
               rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
+            - message: provider.gemini must be nil if the provider is not Gemini
+              rule: '!(has(self.gemini) && self.provider != ''Gemini'')'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

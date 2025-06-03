@@ -25,7 +25,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini
 type ModelProvider string
 
 const (
@@ -33,7 +33,51 @@ const (
 	AzureOpenAI ModelProvider = "AzureOpenAI"
 	OpenAI      ModelProvider = "OpenAI"
 	Ollama      ModelProvider = "Ollama"
+	Gemini      ModelProvider = "Gemini"
 )
+
+// GeminiConfig contains Gemini-specific configuration options
+type GeminiConfig struct {
+	// Whether to use Vertex AI
+	// +optional
+	VertexAI bool `json:"vertexAI,omitempty"`
+
+	// The project ID
+	// +optional
+	ProjectID string `json:"projectID,omitempty"`
+
+	// The project location
+	// +optional
+	Location string `json:"location,omitempty"`
+
+	// Maximum output tokens
+	// +optional
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+
+	// Temperature
+	// +optional
+	Temperature string `json:"temperature,omitempty"`
+
+	// Top-p sampling parameter
+	// +optional
+	TopP string `json:"topP,omitempty"`
+
+	// Top-k sampling parameter
+	// +optional
+	TopK string `json:"topK,omitempty"`
+
+	// Stop sequences
+	// +optional
+	StopSequences []string `json:"stopSequences,omitempty"`
+
+	// Candidate count
+	// +optional
+	CandidateCount int `json:"candidateCount,omitempty"`
+
+	// Response mime type
+	// +optional
+	ResponseMimeType string `json:"responseMimeType,omitempty"`
+}
 
 // AnthropicConfig contains Anthropic-specific configuration options
 type AnthropicConfig struct {
@@ -152,6 +196,7 @@ type OllamaConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.anthropic must be nil if the provider is not Anthropic",rule="!(has(self.anthropic) && self.provider != 'Anthropic')"
 // +kubebuilder:validation:XValidation:message="provider.azureOpenAI must be nil if the provider is not AzureOpenAI",rule="!(has(self.azureOpenAI) && self.provider != 'AzureOpenAI')"
 // +kubebuilder:validation:XValidation:message="provider.ollama must be nil if the provider is not Ollama",rule="!(has(self.ollama) && self.provider != 'Ollama')"
+// +kubebuilder:validation:XValidation:message="provider.gemini must be nil if the provider is not Gemini",rule="!(has(self.gemini) && self.provider != 'Gemini')"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
@@ -191,6 +236,10 @@ type ModelConfigSpec struct {
 	// Ollama-specific configuration
 	// +optional
 	Ollama *OllamaConfig `json:"ollama,omitempty"`
+
+	// Gemini-specific configuration
+	// +optional
+	Gemini *GeminiConfig `json:"gemini,omitempty"`
 }
 
 // Model Configurations
