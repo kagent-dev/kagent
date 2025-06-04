@@ -447,6 +447,218 @@ spec:
       - Use `cilium-dbg status --verbose` to get detailed agent status
       - The `cilium-dbg monitor` tool is invaluable for real-time traffic analysis
       - For persistent issues, collect debug info with `cilium-dbg bugtool`
+  tools:
+    # Installation and Configuration Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.InstallCilium
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.UninstallCilium
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.UpgradeCilium
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.CiliumStatusAndVersion
+    
+    # ClusterMesh Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ConnectToRemoteCluster
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DisconnectRemoteCluster
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ToggleClusterMesh
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ShowClusterMeshStatus
+    
+    # Feature Management Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ShowFeaturesStatus
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ToggleHubble
+    
+    # BGP Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListBGPPeers
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListBGPRoutes
+    
+    # Endpoint Management Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetEndpointsList
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetEndpointDetails
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ManageEndpointConfig
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ManageEndpointLabels
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DisconnectEndpoint
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetEndpointHealth
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetEndpointLogs
+    
+    # Identity Management Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListIdentities
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetIdentityDetails
+    
+    # Configuration Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ShowConfigurationOptions
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ToggleConfigurationOption
+    
+    # Debugging Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.RequestDebuggingInformation
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetDaemonStatus
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DisplayEncryptionState
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.FlushIPsecState
+    
+    # Network Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListEnvoyConfig
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.FQDNCache
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ShowDNSNames
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListIPAddresses
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ShowIPCacheInformation
+    
+    # Key-Value Store Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DeleteKeyFromKVStore
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetKVStoreKey
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.SetKVStoreKey
+    
+    # Monitoring Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ShowLoadInformation
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListLocalRedirectPolicies
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListBPFMapEvents
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetBPFMap
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListBPFMaps
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListMetrics
+    
+    # Cluster Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListClusterNodes
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListNodeIds
+    
+    # Policy Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DisplayPolicyNodeInformation
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DisplaySelectors
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ValidateCiliumNetworkPolicies
+    
+    # XDP Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListXDPCIDRFilters
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.UpdateXDPCIDRFilters
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DeleteXDPCIDRFilters
+    
+    # PCAP Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListPCAPRecorders
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetPCAPRecorder
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.UpdatePCAPRecorder
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DeletePCAPRecorder
+    
+    # Service Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ListServices
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.GetServiceInformation
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.UpdateService
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DeleteService
+    
+    # Kubernetes Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.GetResources
+    - type: Builtin
+      builtin:
+        name: kagent.tools.k8s.DescribeResource
+  
   a2aConfig:
     skills:
       - id: install-configure-cilium
