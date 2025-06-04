@@ -32,11 +32,11 @@ export const K8S_AGENT_DEFAULTS = {
     instructions: `You're a friendly and helpful agent that uses Kubernetes tools to answer users questions about the cluster.
 
 # Instructions
-
 - If user question is unclear, ask for clarification before running any tools
 - Always be helpful and friendly
 - If you don't know how to answer the question DO NOT make things up
   respond with "Sorry, I don't know how to answer that" and ask the user to further clarify the question
+  If you are unable to help, or something goes wrong, refer the user to https://kagent.dev for more information or support.
 
 # Response format
 - ALWAYS format your response as Markdown
@@ -198,7 +198,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
       <Card className="w-full max-w-2xl relative">
         {renderCurrentStep()}
-        <div className="absolute bottom-4 right-4">
+        <div className="flex justify-between items-center px-6 pb-4 pt-2 w-full">
           <button
             onClick={onSkip}
             className="text-sm text-muted-foreground hover:text-primary underline cursor-pointer"

@@ -1,5 +1,9 @@
 {{- $dot := . }}
-{{- $model := index $dot.Values.providers $dot.Values.providers.default  }}
+{{- $defaultProfider := .Values.providers.default | default "openAI" }}
+{{- $model := index .Values.providers $defaultProfider }}
+{{- if hasKey .Values.providers  $defaultProfider | not }}
+{{- fail  (printf "Provider key=%s is not found under .Values.providers" $defaultProfider)  }}
+{{- end }}
 ---
 apiVersion: kagent.dev/v1alpha1
 kind: ModelConfig
@@ -17,6 +21,10 @@ spec:
   {{- end }}
   {{- if $model.apiKeySecretKey }}
   apiKeySecretKey: {{.apiKeySecretKey}}
+  {{- end }}
+  {{- if hasKey $model "defaultHeaders" }}
+  defaultHeaders:
+    {{- toYaml $model.defaultHeaders | nindent 4 }}
   {{- end }}
   {{ $dot.Values.providers.default }}:
   {{- toYaml $model.config | nindent 4 }}

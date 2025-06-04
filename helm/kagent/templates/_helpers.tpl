@@ -71,8 +71,5 @@ Removes duplicates
 */}}
 {{- define "kagent.watchNamespaces" -}}
 {{- $nsSet := dict }}
-{{- range .Values.controller.watchNamespaces | default list }}
-{{- $_ := set $nsSet . "" }}
-{{- end }}
-{{- keys $nsSet | join "," }}
+{{- .Values.controller.watchNamespaces | default list | uniq | join "," }}
 {{- end -}}

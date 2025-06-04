@@ -5,18 +5,18 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowBigUp, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Session, AgentMessageConfig, TextMessageConfig } from "@/types/datamodel";
+import type { Session, AgentMessageConfig } from "@/types/datamodel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import StreamingMessage from "./StreamingMessage";
-import TokenStatsDisplay, { calculateTokenStats } from "./TokenStats";
+import TokenStatsDisplay from "./TokenStats";
 import { TokenStats } from "@/lib/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionMessages, checkSessionExists, updateSession } from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
-import { messageUtils } from "@/lib/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { createMessageHandlers } from "@/lib/messageHandlers";
 
 export type ChatStatus = "ready" | "thinking" | "error";
 
@@ -48,6 +48,13 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
   const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
+
+  const { handleMessageEvent } = createMessageHandlers({
+    setMessages,
+    setIsStreaming,
+    setStreamingContent,
+    setTokenStats
+  });
 
   useEffect(() => {
     async function initializeChat() {
@@ -251,37 +258,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
               if (eventData) {
                 try {
                   const eventDataJson = JSON.parse(eventData) as AgentMessageConfig;
-
-                  if (messageUtils.isStreamingMessage(eventDataJson)) {
-                    // Set the streaming flag to true and concatenate the content
-                    setIsStreaming(true);
-                    setStreamingContent(prev => prev + eventDataJson.content);
-                  } else if (messageUtils.isTextMessageContent(eventDataJson)) {
-                    // The model usage is sent within the TextMessage, after the streaming is complete
-                    setTokenStats(prev => calculateTokenStats(prev, eventDataJson as TextMessageConfig));
-                    setIsStreaming(false);
-                    setStreamingContent("");
-                    if (eventDataJson.source !== "user") {
-                      // We don't want to add the user's message to the messages array (again), because 
-                      // we already added it when the user sent the message.
-                      setMessages(prevMessages => [...prevMessages, eventDataJson]);
-                    }
-                  }
-                  else {
-                    // For tool call messages and other non-streaming messages,
-                    // add them to the messages array immediately but don't stop streaming
-                    if (messageUtils.isToolCallRequestEvent(eventDataJson) || 
-                        messageUtils.isToolCallExecutionEvent(eventDataJson) || 
-                        messageUtils.isToolCallSummaryMessage(eventDataJson)) {
-                      // Add tool call messages immediately without stopping streaming
-                      setMessages(prevMessages => [...prevMessages, eventDataJson]);
-                    } else {
-                      // For other non-tool, non-streaming messages, use original behavior
-                      setIsStreaming(false);
-                      setStreamingContent("");
-                      setMessages(prevMessages => [...prevMessages, eventDataJson]);
-                    }
-                  }
+                  handleMessageEvent(eventDataJson);
                 } catch (error) {
                   toast.error("Error parsing event data");
                   console.error("Error parsing event data:", error, eventData);

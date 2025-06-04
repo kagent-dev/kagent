@@ -275,7 +275,7 @@ LabelResource, LabelResourceConfig = create_typed_fn_tool(
 
 create_resource = FunctionTool(
     _create_resource,
-    description="Create a resource in Kubernetes. Must be a local file.",
+    description="Create a resource in Kubernetes.",
     name="create_resource",
 )
 
@@ -372,7 +372,7 @@ ExecuteCommand, ExecuteCommandConfig = create_typed_fn_tool(
 
 apply_manifest = FunctionTool(
     _apply_manifest,
-    description="Apply a YAML resource file to the Kubernetes cluster.",
+    description="Apply a YAML resource to the Kubernetes cluster.",
     name="_apply_manifest",
 )
 

@@ -129,7 +129,7 @@ otel:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://localhost:4317
+        endpoint: http://host.docker.internal:4317
         timeout: 10
         insecure: true
 

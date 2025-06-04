@@ -5,12 +5,12 @@ metadata:
 spec:
   description: Application Expects a Key That Does NOT Exist
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 I see an error message telling about issues in the 'backend-v1' service.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`. And you have my permission to keep trying out things until you fix the environment and all tests pass.
   steps:
     - run: |
-        kubectl --context ${CLUSTER1} apply -f - <<EOF
+        kubectl --context ${CLUSTER_CTX} apply -f - <<EOF
         apiVersion: v1
         kind: ConfigMap
         metadata:
@@ -19,7 +19,7 @@ spec:
         data:
           CONFIG_PATH: "/etc/config"  
         EOF
-        kubectl patch deployment/backend-v1 --context ${CLUSTER1} -p "
+        kubectl patch deployment/backend-v1 --context ${CLUSTER_CTX} -p "
         spec:
           template:
             spec:
@@ -32,4 +32,4 @@ spec:
                       name: backend-v1-configmap
                       key: APP_CONFIG
         "
-        kubectl --context ${CLUSTER1} delete rs -l "app=backend,version=v1"
+        kubectl --context ${CLUSTER_CTX} delete rs -l "app=backend,version=v1"

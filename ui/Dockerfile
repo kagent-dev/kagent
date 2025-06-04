@@ -5,12 +5,10 @@ FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:late
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 RUN apk update \
-    && apk add curl openssl unzip bash git ca-certificates nginx supervisor \
+    && apk add curl openssl unzip bash git ca-certificates  \
     && update-ca-certificates \
     && rm -rf /var/cache/apk/*
 
-### STAGE 2: python
-FROM base-os AS node-os
 ARG TOOLS_BUN_VERSION
 ARG TARGETARCH
 
@@ -30,10 +28,6 @@ RUN --mount=type=cache,target=/cache/bun,rw \
     && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
     && bun --version
 
-### STAGE 2: build + ui
-FROM --platform=linux/$BUILDARCH node-os AS ui-builder
-ARG TARGETARCH
-
 WORKDIR /app/ui
 
 #copy the package.json
@@ -49,7 +43,25 @@ RUN --mount=type=cache,target=/cache/bun,rw             \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: final
-FROM node-os AS final
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+RUN apk update \
+    && apk add curl bash openssl ca-certificates nginx supervisor \
+    && update-ca-certificates \
+    && rm -rf /var/cache/apk/*
+
+
+ARG TOOLS_BUN_VERSION
+ENV BUN_INSTALL=/usr/local/bun
+ENV PATH=$BUN_INSTALL/bin:$PATH
+# Install Bun in native arch for running (uses official install script)
+# brew install oven-sh/bun/bun
+RUN --mount=type=cache,target=/cache/bun,rw \
+    mkdir -p $BUN_INSTALL  \
+    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
+    && bun --version
 
 RUN mkdir -p /app/ui /run/nginx /var/lib/nginx/tmp/     \
     && addgroup -g 1001    nginx                        \
@@ -62,11 +74,11 @@ COPY conf/nginx.conf /etc/nginx/nginx.conf
 COPY conf/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 WORKDIR /app/ui
-COPY --from=ui-builder /app/ui/next.config.ts ./
-COPY --from=ui-builder /app/ui/public ./public
-COPY --from=ui-builder /app/ui/package.json ./package.json
-COPY --from=ui-builder --chown=nextjs:nginx /app/ui/.next/standalone ./
-COPY --from=ui-builder --chown=nextjs:nginx /app/ui/.next/static ./.next/static
+COPY --from=base-os /app/ui/next.config.ts ./
+COPY --from=base-os /app/ui/public ./public
+COPY --from=base-os /app/ui/package.json ./package.json
+COPY --from=base-os --chown=nextjs:nginx /app/ui/.next/standalone ./
+COPY --from=base-os --chown=nextjs:nginx /app/ui/.next/static ./.next/static
 
 # Ensure correct permissions
 RUN chown -R nextjs:nginx /app/ui && \

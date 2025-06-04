@@ -22,7 +22,7 @@ source ./scripts/assert.sh
 ```bash
 kind create cluster --name kind1
 kubectl config rename-context kind-kind1 cluster1
-export CLUSTER1=cluster1
+export CLUSTER_CTX=cluster1
 
 ```
 
@@ -37,7 +37,7 @@ To do so, run the following command:
 ```bash
 docker pull mysql:9.2.0 || true
 kind load docker-image mysql:9.2.0 --name kind1 || true
-kubectl apply --context ${CLUSTER1} -f - <<EOF
+kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -129,7 +129,7 @@ To do so, run the following command:
 ```bash
 docker pull bitnami/neo4j:5.26.1 || true
 kind load docker-image bitnami/neo4j:5.26.1 --name kind1 || true
-kubectl apply --context ${CLUSTER1} -f - <<EOF
+kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -199,7 +199,7 @@ To do so, run the following command:
 ```bash
 docker pull nicholasjackson/fake-service:v0.26.2 || true
 kind load docker-image nicholasjackson/fake-service:v0.26.2 --name kind1 || true
-kubectl apply --context ${CLUSTER1} -f - <<EOF
+kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -271,7 +271,7 @@ Let's deploy the application backend, version v2 to the clusters.
 
 To do so, run the following command:
 ```bash
-kubectl apply --context ${CLUSTER1} -f - <<EOF
+kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -347,7 +347,7 @@ To do so, run the following command:
 ```bash
 docker pull node:23-alpine || true
 kind load docker-image node:23-alpine --name kind1 || true
-kubectl apply --context ${CLUSTER1} -f - <<EOF
+kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -509,7 +509,7 @@ Let's deploy the application frontend, version v1 to the clusters.
 
 To do so, run the following command:
 ```bash
-kubectl apply --context ${CLUSTER1} -f - <<EOF
+kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -579,7 +579,7 @@ EOF
 ##  8 - Wait until all pods are running <a name="-8---wait-until-all-pods-are-running-"></a>
 
 ```bash
-kubectl --context ${CLUSTER1} rollout status deployment
+kubectl --context ${CLUSTER_CTX} rollout status deployment
 ```
 
 

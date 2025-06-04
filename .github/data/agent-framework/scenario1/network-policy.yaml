@@ -5,12 +5,12 @@ metadata:
 spec:
   description: block some internal communication between services
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 I see an error message telling about issues communicating with other services.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`. And you have my permission to keep trying out things until you fix the environment and all tests pass.
   steps:
     - run: |
-        kubectl apply --context ${CLUSTER1} -f - <<EOF
+        kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
         apiVersion: networking.k8s.io/v1
         kind: NetworkPolicy
         metadata:
