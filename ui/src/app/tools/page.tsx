@@ -60,9 +60,9 @@ export default function ToolsPage() {
 
       if (serversResponse.success && serversResponse.data) {
         serversResponse.data.forEach(server => {
-          serversMap.set(server.name, {
-            name: server.name,
-            label: server.name,
+          serversMap.set(server.ref, {
+            name: server.ref,
+            label: server.ref,
             config: server.config
           });
           
@@ -71,7 +71,7 @@ export default function ToolsPage() {
             server.discoveredTools.forEach(tool => {
               const labeledTool = {
                 ...tool.component,
-                label: server.name
+                label: server.ref
               };
               toolsFromServers.push(labeledTool);
             });

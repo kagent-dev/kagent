@@ -10,6 +10,7 @@ import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
 import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider, isAgentTool, isMcpTool, isMcpProvider, componentToAgentTool } from "@/lib/toolUtils";
 import KagentLogo from "../kagent-logo";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 20;
 
@@ -50,13 +51,13 @@ const getItemDisplayInfo = (item: Component<ToolConfig> | AgentResponse | Tool):
     // Handle null/undefined/non-object case
     displayName = "Unknown Item";
     identifier = `unknown-${Math.random().toString(36).substring(7)}`;
-    return { displayName, description, identifier, providerText, Icon, iconColor, isAgent };
+    return { displayName: displayName, description, identifier, providerText, Icon, iconColor, isAgent };
   }
 
   // Handle AgentResponse specifically (as it's not a Tool or Component)
   if ('agent' in item && item.agent && typeof item.agent === 'object' && 'metadata' in item.agent && item.agent.metadata) {
       const agentResp = item as AgentResponse;
-      displayName = agentResp.agent.metadata.name;
+      displayName = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
       description = agentResp.agent.spec.description;
       // Use the same identifier format as AgentTool for consistency
       identifier = `agent-${displayName}`;
@@ -87,7 +88,7 @@ const getItemDisplayInfo = (item: Component<ToolConfig> | AgentResponse | Tool):
       }
   }
 
-  return { displayName, description, identifier, providerText, Icon, iconColor, isAgent };
+  return { displayName: displayName, description, identifier, providerText, Icon, iconColor, isAgent };
 };
 
 export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, availableAgents, loadingAgents }) => {
@@ -161,9 +162,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     // Filter agents if "Agents" category is selected or no category is selected
     const agentCategorySelected = selectedCategories.size === 0 || selectedCategories.has("Agents");
     const agents = agentCategorySelected ? availableAgents.filter(agentResp => {
-        const agentName = agentResp.agent.metadata.name.toLowerCase();
+        const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name).toLowerCase();
         const agentDesc = agentResp.agent.spec.description.toLowerCase();
-        return agentName.includes(searchLower) || agentDesc.includes(searchLower);
+        return agentRef.includes(searchLower) || agentDesc.includes(searchLower);
       })
     : [];
 
@@ -186,9 +187,11 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
     // Add agents to the "Agents" category
     if (filteredAvailableItems.agents.length > 0) {
-      groups["Agents"] = filteredAvailableItems.agents.sort((a, b) => 
-        a.agent.metadata.name.localeCompare(b.agent.metadata.name)
-      );
+      groups["Agents"] = filteredAvailableItems.agents.sort((a, b) => {
+        const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name)
+        const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name)
+        return aRef.localeCompare(bRef)
+      });
     }
     
     // Sort categories alphabetically
@@ -216,7 +219,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         toolToAdd = {
             type: "Agent",
             agent: {
-                ref: agentResp.agent.metadata.name,
+                ref: k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name),
                 description: agentResp.agent.spec.description
             }
         };

@@ -26,6 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { k8sRefUtils } from '@/lib/k8sUtils'
 
 export default function MemoriesPage() {
   const router = useRouter()
@@ -60,8 +61,8 @@ export default function MemoriesPage() {
   }, [])
 
   // Function to open the confirmation dialog
-  const handleDeleteRequest = (name: string) => {
-    setMemoryNameToDelete(name)
+  const handleDeleteRequest = (ref: string) => {
+    setMemoryNameToDelete(ref)
     setIsDeleteDialogOpen(true)
   }
 
@@ -73,7 +74,7 @@ export default function MemoriesPage() {
     try {
       toast.info(`Deleting memory "${memoryToDelete}"...`)
       await deleteMemory(memoryToDelete)
-      setMemories(memories.filter((m) => m.name !== memoryToDelete))
+      setMemories(memories.filter((m) => m.ref !== memoryToDelete))
       toast.success(`Memory "${memoryToDelete}" deleted successfully.`)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred'
@@ -100,7 +101,8 @@ export default function MemoriesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[200px]">Name</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead className="w-[200px]">Namespace</TableHead>
               <TableHead>Provider</TableHead>
               <TableHead>Index Host</TableHead>
               <TableHead>Top K</TableHead>
@@ -118,37 +120,41 @@ export default function MemoriesPage() {
                  </TableCell>
                </TableRow>
             ) : (
-              memories.map((memory) => (
-                <TableRow key={memory.name}>
-                  <TableCell className="font-medium">{memory.name}</TableCell>
-                  <TableCell>{formatValue(memory.providerName)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.indexHost)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.topK)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.namespace)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.recordFields)}</TableCell>
-                  <TableCell>{formatValue(memory.memoryParams?.scoreThreshold)}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => router.push(`/memories/new?edit=${encodeURIComponent(memory.name)}`)}
-                      aria-label="Edit memory"
-                      className="mr-1"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDeleteRequest(memory.name)}
-                      aria-label="Delete memory"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
+              memories.map((memory) => {
+                const memoryRef = k8sRefUtils.fromRef(memory.ref)
+                return (
+                  <TableRow key={memory.ref}>
+                    <TableCell className="font-medium">{memoryRef.name}</TableCell>
+                    <TableCell className="font-medium">{memoryRef.namespace}</TableCell>
+                    <TableCell>{formatValue(memory.providerName)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.indexHost)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.topK)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.namespace)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.recordFields)}</TableCell>
+                    <TableCell>{formatValue(memory.memoryParams?.scoreThreshold)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => router.push(`/memories/new?edit=true&name=${memoryRef.name}&namespace=${memoryRef.namespace}`)}
+                        aria-label="Edit memory"
+                        className="mr-1"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteRequest(memory.ref)}
+                        aria-label="Delete memory"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )
+              }
+            ))}
           </TableBody>
         </Table>
       )}

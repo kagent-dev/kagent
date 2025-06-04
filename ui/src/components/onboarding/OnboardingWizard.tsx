@@ -11,6 +11,7 @@ import { AgentSetupStep, AgentSetupFormData } from './steps/AgentSetupStep';
 import { ToolSelectionStep } from './steps/ToolSelectionStep';
 import { ReviewStep } from './steps/ReviewStep';
 import { FinishStep } from './steps/FinishStep';
+import { k8sRefUtils } from '@/lib/k8sUtils';
 
 interface OnboardingWizardProps {
   onOnboardingComplete: () => void;
@@ -18,9 +19,9 @@ interface OnboardingWizardProps {
 }
 
 interface OnboardingStateData {
-    modelConfigName?: string;
+    modelConfigRef?: string;
     modelName?: string;
-    agentName?: string;
+    agentRef?: string;
     agentDescription?: string;
     agentInstructions?: string;
     selectedTools?: Tool[];
@@ -28,6 +29,7 @@ interface OnboardingStateData {
 
 export const K8S_AGENT_DEFAULTS = {
     name: "my-first-k8s-agent",
+    namespace: "default",
     description: "This agent can interact with the Kubernetes API to get information about the cluster.",
     instructions: `You're a friendly and helpful agent that uses Kubernetes tools to answer users questions about the cluster.
 
@@ -47,7 +49,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [onboardingData, setOnboardingData] = useState<OnboardingStateData>({
-      agentName: K8S_AGENT_DEFAULTS.name,
+      agentRef: k8sRefUtils.toRef(K8S_AGENT_DEFAULTS.namespace, K8S_AGENT_DEFAULTS.name),
       agentDescription: K8S_AGENT_DEFAULTS.description,
       agentInstructions: K8S_AGENT_DEFAULTS.instructions,
       selectedTools: [],
@@ -67,10 +69,10 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       setCurrentStep(1);
   };
 
-  const handleNextFromModelConfig = (modelConfigName: string, modelName: string) => {
+  const handleNextFromModelConfig = (modelConfigRef: string, modelName: string) => {
       setOnboardingData(prev => ({
           ...prev,
-          modelConfigName: modelConfigName,
+          modelConfigRef: modelConfigRef,
           modelName: modelName
       }));
       setCurrentStep(2);
@@ -79,7 +81,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
   const handleNextFromAgentSetup = (data: AgentSetupFormData) => {
       setOnboardingData(prev => ({
           ...prev,
-          agentName: data.agentName,
+          agentRef: k8sRefUtils.toRef(data.agentNamespace || K8S_AGENT_DEFAULTS.namespace, data.agentName),
           agentDescription: data.agentDescription,
           agentInstructions: data.agentInstructions,
       }));
@@ -99,22 +101,24 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
   };
 
   const handleFinalSubmit = async () => {
-      if (!onboardingData.modelConfigName || !onboardingData.agentName || !onboardingData.agentInstructions) {
+      if (!onboardingData.modelConfigRef || !onboardingData.agentRef || !onboardingData.agentInstructions) {
           toast.error("Some agent details are missing. Please review previous steps.");
           return;
       }
       setIsLoading(true);
       try {
+          const agentRef = k8sRefUtils.fromRef(onboardingData.agentRef);
           const agentPayload: AgentFormData = {
-              name: onboardingData.agentName,
+              name: agentRef.name,
+              namespace: agentRef.namespace,
               description: onboardingData.agentDescription || "",
               systemPrompt: onboardingData.agentInstructions,
-              model: { name: onboardingData.modelConfigName },
+              model: { ref: onboardingData.modelConfigRef },
               tools: onboardingData.selectedTools || [],
           };
           const result = await createNewAgent(agentPayload);
           if (result.success) {
-              toast.success(`Agent '${onboardingData.agentName}' created successfully!`);
+              toast.success(`Agent '${onboardingData.agentRef}' created successfully!`);
               setCurrentStep(5);
           } else {
               const errorMessage = result.error || 'Failed to create agent.';
@@ -159,7 +163,8 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
           case 2:
               return <AgentSetupStep
                           initialData={{
-                              agentName: onboardingData.agentName,
+                              agentName: k8sRefUtils.fromRef(onboardingData.agentRef || "").name,
+                              agentNamespace: k8sRefUtils.fromRef(onboardingData.agentRef || "").namespace,
                               agentDescription: onboardingData.agentDescription,
                               agentInstructions: onboardingData.agentInstructions
                           }}
@@ -184,7 +189,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
                      />;
           case 5:
               return <FinishStep
-                          agentName={onboardingData.agentName}
+                          agentName={onboardingData.agentRef}
                           onFinish={handleFinish}
                           shareOnTwitter={shareOnTwitter}
                           shareOnLinkedIn={shareOnLinkedIn}

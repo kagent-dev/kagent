@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { isBuiltinTool, isMcpTool, isAgentTool } from "@/lib/toolUtils";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 /**
  * Converts a tool to AgentTool format
@@ -101,11 +102,12 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
   return {
     metadata: {
       name: agentFormData.name,
+      namespace: agentFormData.namespace || "",
     },
     spec: {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
-      modelConfig: agentFormData.model.name || "",
+      modelConfig: agentFormData.model.ref || "",
       memory: agentFormData.memory,
       tools: agentFormData.tools.map((tool) => {
         // Convert to the proper Tool structure based on the tool type
@@ -209,20 +211,25 @@ export async function deleteTeam(teamLabel: string): Promise<BaseResponse<void>>
  */
 export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
   try {
-    const agentSpec = fromAgentFormDataToAgent(agentConfig);
+    const agentPayload = fromAgentFormDataToAgent(agentConfig);
     const response = await fetchApi<Agent>(`/teams`, {
       method: update ? "PUT" : "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(agentSpec),
+      body: JSON.stringify(agentPayload),
     });
 
     if (!response) {
       throw new Error("Failed to create team");
     }
 
-    revalidatePath(`/agents/${response.metadata.name}/chat`);
+    const agentRef = k8sRefUtils.toRef(
+      response.metadata.namespace || "",
+      response.metadata.name,
+    )
+
+    revalidatePath(`/agents/${agentRef}/chat`);
     return { success: true, data: response };
   } catch (error) {
     return createErrorResponse<Agent>(error, "Error creating team");
@@ -241,17 +248,17 @@ export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
     const agentMap = new Map(validTeams.map(agentResp => [agentResp.agent.metadata.name, agentResp]));
 
     const convertedData: AgentResponse[] = validTeams.map(team => {
-      const augmentedTools = team.agent.spec.tools?.map(tool => {
+      const augmentedTools = team.tools?.map(tool => {
         // Check if it's an Agent tool reference needing description
         if (isAgentTool(tool)) {
-          const agentName = tool.agent.ref;
-          const foundAgent = agentMap.get(agentName);
+          const agentRef = tool.agent.ref;
+          const foundAgent = agentMap.get(agentRef);
           return {
             ...tool,
             type: "Agent",
             agent: {
               ...tool.agent,
-              ref: agentName,
+              ref: agentRef,
               description: foundAgent?.agent.spec.description
             }
           } as Tool;
@@ -271,9 +278,12 @@ export async function getTeams(): Promise<BaseResponse<AgentResponse[]>> {
       };
     });
 
-    const sortedData = convertedData.sort((a, b) => 
-      a.agent.metadata.name.localeCompare(b.agent.metadata.name)
-    );
+    const sortedData = convertedData.sort((a, b) => {
+      const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name)
+      const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name)
+
+      return aRef.localeCompare(bRef)
+    });
     
     return { success: true, data: sortedData };
   } catch (error) {

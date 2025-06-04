@@ -12,6 +12,7 @@ import { OLLAMA_DEFAULT_TAG } from '@/lib/constants';
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   selectedCombinedModel?: string;
   apiKey?: string;
   requiredParams?: Record<string, string>;
@@ -21,11 +22,13 @@ interface ValidationErrors {
 interface BasicInfoSectionProps {
   name: string;
   isEditingName: boolean;
+  namespace: string;
   errors: ValidationErrors;
   isSubmitting: boolean;
   isLoading: boolean;
   onNameChange: (value: string) => void;
   onToggleEditName: () => void;
+  onNamespaceChange: (value: string) => void;
   providers: Provider[];
   providerModelsData: ProviderModelsResponse | null;
   selectedCombinedModel: string | undefined;
@@ -39,8 +42,8 @@ interface BasicInfoSectionProps {
 }
 
 export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
-  name, isEditingName, errors, isSubmitting, isLoading, onNameChange,
-  onToggleEditName, providers, providerModelsData, selectedCombinedModel,
+  name, isEditingName, namespace, errors, isSubmitting, isLoading, onNameChange,
+  onToggleEditName, onNamespaceChange, providers, providerModelsData, selectedCombinedModel,
   onModelChange, selectedProvider, selectedModelSupportsFunctionCalling,
   loadingError, isEditMode, modelTag, onModelTagChange
 }) => {
@@ -79,6 +82,20 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             </Button>
           </div>
           {errors.name && <p className="text-destructive text-sm mt-1">{errors.name}</p>}
+        </div>
+
+        <div>
+          <label className="text-sm mb-2 block">Namespace</label>
+          <div className="flex items-center space-x-2">
+            <Input
+              value={namespace}
+              onChange={(e) => onNamespaceChange(e.target.value)}
+              className={errors.name ? "border-destructive" : ""}
+              placeholder="Enter model namespace..."
+              disabled={isSubmitting || isLoading || isEditMode}
+            />
+          </div>
+          {errors.namespace && <p className="text-destructive text-sm mt-1">{errors.namespace}</p>}
         </div>
 
         <div>

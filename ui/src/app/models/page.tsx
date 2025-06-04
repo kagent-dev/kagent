@@ -16,6 +16,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 export default function ModelsPage() {
     const router = useRouter();
@@ -57,7 +58,8 @@ export default function ModelsPage() {
     };
 
     const handleEdit = (model: ModelConfig) => {
-        router.push(`/models/new?edit=true&id=${model.name}`);
+        const modelRef = k8sRefUtils.fromRef(model.ref);
+        router.push(`/models/new?edit=true&name=${modelRef.name}&namespace=${modelRef.namespace}`);
     };
 
     const handleDelete = async (model: ModelConfig) => {
@@ -68,11 +70,11 @@ export default function ModelsPage() {
         if (!modelToDelete) return;
 
         try {
-            const response = await deleteModelConfig(modelToDelete.name);
+            const response = await deleteModelConfig(modelToDelete.ref);
             if (!response.success) {
                 throw new Error(response.error || "Failed to delete model");
             }
-            toast.success(`Model "${modelToDelete.name}" deleted successfully`);
+            toast.success(`Model "${modelToDelete.ref}" deleted successfully`);
             setModelToDelete(null);
             await fetchModels();
         } catch (err) {
@@ -105,18 +107,18 @@ export default function ModelsPage() {
                 ) : (
                     <div className="space-y-4">
                         {models.map((model) => (
-                            <div key={model.name} className="border rounded-lg overflow-hidden">
+                            <div key={model.ref} className="border rounded-lg overflow-hidden">
                                 <div
                                     className="flex items-center justify-between p-4 cursor-pointer hover:bg-secondary/5"
-                                    onClick={() => toggleRow(model.name)}
+                                    onClick={() => toggleRow(model.ref)}
                                 >
                                     <div className="flex items-center space-x-2">
-                                        {expandedRows.has(model.name) ? (
+                                        {expandedRows.has(model.ref) ? (
                                             <ChevronDown className="h-4 w-4" />
                                         ) : (
                                             <ChevronRight className="h-4 w-4" />
                                         )}
-                                        <span className="font-medium">{model.name}</span>
+                                        <span className="font-medium">{model.ref}</span>
                                     </div>
                                     <div className="flex space-x-2">
                                         <Button
@@ -141,7 +143,7 @@ export default function ModelsPage() {
                                         </Button>
                                     </div>
                                 </div>
-                                {expandedRows.has(model.name) && (
+                                {expandedRows.has(model.ref) && (
                                     <div className="p-4 border-t bg-secondary/10">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
@@ -154,7 +156,7 @@ export default function ModelsPage() {
                                             </div>
                                             <div>
                                                 <p className="text-sm font-medium text-muted-foreground">Namespace</p>
-                                                <p>{model.namespace}</p>
+                                                <p>{k8sRefUtils.fromRef(model.ref).namespace}</p>
                                             </div>
                                             <div>
                                                 <p className="text-sm font-medium text-muted-foreground">API Key Secret</p>
@@ -182,7 +184,7 @@ export default function ModelsPage() {
                         <DialogHeader>
                             <DialogTitle>Delete Model</DialogTitle>
                             <DialogDescription>
-                                Are you sure you want to delete the model &apos;{modelToDelete?.name}&apos;? This action cannot be undone.
+                                Are you sure you want to delete the model &apos;{modelToDelete?.ref}&apos;? This action cannot be undone.
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter className="flex space-x-2 justify-end">

@@ -102,10 +102,16 @@ spec:
               description:
                 type: string
               memory:
+                description: Can either be a reference to the name of a Memory in
+                  the same namespace as the referencing Agent, or a reference to the
+                  name of a Memory in a different namespace in the form <namespace>/<name>
                 items:
                   type: string
                 type: array
               modelConfig:
+                description: Can either be a reference to the name of a ModelConfig
+                  in the same namespace as the referencing Agent, or a reference to
+                  the name of a ModelConfig in a different namespace in the form <namespace>/<name>
                 type: string
               stream:
                 description: |-

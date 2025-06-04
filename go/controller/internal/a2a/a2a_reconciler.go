@@ -5,6 +5,7 @@ import (
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -20,8 +21,7 @@ type A2AReconciler interface {
 	) error
 
 	ReconcileAutogenAgentDeletion(
-		agentNamespace string,
-		agentName string,
+		agentRef string,
 	)
 }
 
@@ -52,22 +52,21 @@ func (a *a2aReconciler) ReconcileAutogenAgent(
 	if err != nil {
 		return err
 	}
+
+	agentRef := common.GetObjectRef(agent)
 	if params == nil {
-		reconcileLog.Info("No a2a handler found for agent, a2a will be disabled", "agent", agent.Name)
+		reconcileLog.Info("No a2a handler found for agent, a2a will be disabled", "agent", agentRef)
 		return nil
 	}
 
 	return a.a2aHandler.SetAgentHandler(
-		agent.Namespace, agent.Name,
+		agentRef,
 		params,
 	)
 }
 
 func (a *a2aReconciler) ReconcileAutogenAgentDeletion(
-	agentNamespace string,
-	agentName string,
+	agentRef string,
 ) {
-	a.a2aHandler.RemoveAgentHandler(
-		agentNamespace, agentName,
-	)
+	a.a2aHandler.RemoveAgentHandler(agentRef)
 }

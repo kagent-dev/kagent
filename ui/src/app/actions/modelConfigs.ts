@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse, ModelConfig, CreateModelConfigPayload, UpdateModelConfigPayload } from "@/lib/types";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 /**
  * Gets all available models
@@ -16,7 +17,7 @@ export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
     }
 
     // Sort models by name
-    response.sort((a, b) => a.name.localeCompare(b.name));
+    response.sort((a, b) => a.ref.localeCompare(b.ref));
 
     return {
       success: true,
@@ -29,12 +30,12 @@ export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
 
 /**
  * Gets a specific model by name
- * @param configName The model configuration name
+ * @param configRef The model configuration ref string
  * @returns A promise with the model data
  */
-export async function getModelConfig(configName: string): Promise<BaseResponse<ModelConfig>> {
+export async function getModelConfig(configRef: string): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>(`/modelconfigs/${configName}`);
+    const response = await fetchApi<ModelConfig>(`/modelconfigs/${configRef}`);
 
     if (!response) {
       throw new Error("Failed to get model config");
@@ -76,16 +77,16 @@ export async function createModelConfig(config: CreateModelConfigPayload): Promi
 
 /**
  * Updates an existing model configuration
- * @param configName The name of the model configuration to update
+ * @param configRef The ref string of the model configuration to update
  * @param config The updated configuration data
  * @returns A promise with the updated model
  */
 export async function updateModelConfig(
-  configName: string,
+  configRef: string,
   config: UpdateModelConfigPayload
 ): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>(`/modelconfigs/${configName}`, {
+    const response = await fetchApi<ModelConfig>(`/modelconfigs/${configRef}`, {
       method: "PUT", // Or PATCH depending on backend implementation
       body: JSON.stringify(config),
       headers: {
@@ -98,7 +99,9 @@ export async function updateModelConfig(
     }
     
     revalidatePath("/models"); // Revalidate list page
-    revalidatePath(`/models/new?edit=true&id=${configName}`); // Revalidate edit page if needed
+
+    const ref = k8sRefUtils.fromRef(configRef);
+    revalidatePath(`/models/new?edit=true&name=${ref.name}&namespace=${ref.namespace}`); // Revalidate edit page if needed
 
     return {
       success: true,
@@ -111,12 +114,12 @@ export async function updateModelConfig(
 
 /**
  * Deletes a model configuration
- * @param configName The name of the model configuration to delete
+ * @param configRef The ref string of the model configuration to delete
  * @returns A promise with the deleted model
  */
-export async function deleteModelConfig(configName: string): Promise<BaseResponse<void>> {
+export async function deleteModelConfig(configRef: string): Promise<BaseResponse<void>> {
   try {
-    await fetchApi(`/modelconfigs/${configName}`, {
+    await fetchApi(`/modelconfigs/${configRef}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",

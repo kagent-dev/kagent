@@ -11,10 +11,10 @@ import { getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
 import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
 
 interface OnboardingDataForReview {
-    agentName?: string;
+    agentRef?: string;
     agentDescription?: string;
     agentInstructions?: string;
-    modelConfigName?: string;
+    modelConfigRef?: string;
     modelName?: string;
     selectedTools?: Tool[];
 }
@@ -31,14 +31,14 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
         <>
             <CardHeader className="pt-8 pb-4 border-b">
                 <CardTitle className="text-2xl">Step 4: Review Agent Configuration</CardTitle>
-                <CardDescription className="text-md">Review your <span className="font-semibold">{onboardingData.agentName || K8S_AGENT_DEFAULTS.name}</span> configuration before creating it.</CardDescription>
+                <CardDescription className="text-md">Review your <span className="font-semibold">{onboardingData.agentRef}</span> configuration before creating it.</CardDescription>
             </CardHeader>
             <CardContent className="px-8 pt-6 pb-6 space-y-6">
                 <div className="space-y-3">
                     <h3 className="font-semibold text-lg mb-2">Agent Details</h3>
                     <div className="grid grid-cols-3 gap-x-4 gap-y-2 text-sm">
                         <dt className="text-muted-foreground font-medium col-span-1">Name:</dt>
-                        <dd className="col-span-2">{onboardingData.agentName || "(Not set)"}</dd>
+                        <dd className="col-span-2">{onboardingData.agentRef || "(Not set)"}</dd>
 
                         <dt className="text-muted-foreground font-medium col-span-1">Description:</dt>
                         <dd className="col-span-2">{onboardingData.agentDescription || <span className="italic text-muted-foreground">(None provided)</span>}</dd>
@@ -51,7 +51,7 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                     <h3 className="font-semibold text-lg mb-2">Model Configuration</h3>
                     <div className="grid grid-cols-3 gap-x-4 gap-y-2 text-sm">
                         <dt className="text-muted-foreground font-medium col-span-1">Config Name:</dt>
-                        <dd className="col-span-2">{onboardingData.modelConfigName || "(Not set)"}</dd>
+                        <dd className="col-span-2">{onboardingData.modelConfigRef || "(Not set)"}</dd>
 
                         <dt className="text-muted-foreground font-medium col-span-1">Model:</dt>
                         <dd className="col-span-2">{onboardingData.modelName || "(Not set)"}</dd> {/* Display model name */}
@@ -93,7 +93,7 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                 <Button variant="outline" onClick={onBack} disabled={isLoading}>Back</Button>
                 <Button onClick={onSubmit} disabled={isLoading}>
                     {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Create {onboardingData.agentName || K8S_AGENT_DEFAULTS.name} & Finish
+                    Create {onboardingData.agentRef} & Finish
                 </Button>
             </CardFooter>
         </>

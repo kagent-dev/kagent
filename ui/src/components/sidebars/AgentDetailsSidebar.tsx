@@ -80,11 +80,11 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
 
       try {
         const descriptions: Record<string, string> = {};
-        const toolsInSpec = selectedTeam.agent.spec.tools;
+        const toolRefs = selectedTeam.tools;
         const allToolDefinitions = allTools;
 
-        if (toolsInSpec && Array.isArray(toolsInSpec)) {
-          await Promise.all(toolsInSpec.map(async (tool) => {
+        if (toolRefs && Array.isArray(toolRefs)) {
+          await Promise.all(toolRefs.map(async (tool) => {
             if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
               const baseMcpIdentifier = getToolIdentifier(tool);
               await Promise.all(tool.mcpServer.toolNames.map(async (mcpToolName) => {
@@ -227,14 +227,14 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
             <SidebarGroup>
               <div className="flex items-center justify-between px-2 mb-1">
                 <SidebarGroupLabel className="font-bold mb-0 p-0">
-                  {selectedTeam?.agent.metadata.name} ({selectedTeam?.model})
+                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} ({selectedTeam?.model})
                 </SidebarGroupLabel>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
                   asChild
-                  aria-label={`Edit agent ${selectedTeam?.agent.metadata.name}`}
+                  aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
                 >
                   <Link href={`/agents/new?edit=true&id=${selectedAgentId}`}>
                     <Edit className="h-3.5 w-3.5" />
@@ -245,17 +245,17 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
             </SidebarGroup>
             <SidebarGroup className="group-data-[collapsible=icon]:hidden">
               <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
-              {selectedTeam && renderAgentTools(selectedTeam.agent.spec.tools)}
+              {selectedTeam && renderAgentTools(selectedTeam.tools)}
             </SidebarGroup>
             <SidebarGroup className="group-data-[collapsible=icon]:hidden">
               <SidebarGroupLabel>Memory</SidebarGroupLabel>
               <SidebarMenu>
-                {selectedTeam?.agent.spec.memory && selectedTeam.agent.spec.memory.length > 0 ? (
-                  selectedTeam.agent.spec.memory.map((memoryName) => (
-                    <SidebarMenuItem key={memoryName}>
+                {selectedTeam?.memoryRefs && selectedTeam.memoryRefs.length > 0 ? (
+                  selectedTeam.memoryRefs.map((memoryRef) => (
+                    <SidebarMenuItem key={memoryRef}>
                       <div className="flex justify-between items-center w-full">
                         <SidebarMenuButton className="justify-start" disabled>
-                          <span className="truncate max-w-[180px]">{memoryName}</span>
+                          <span className="truncate max-w-[180px]">{memoryRef}</span>
                         </SidebarMenuButton>
                         <Button
                           variant="ghost"
@@ -263,9 +263,9 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
                           className="h-7 w-7 ml-1"
                           onClick={(e) => {
                             e.stopPropagation();
-                            router.push(`/memories/new?edit=${encodeURIComponent(memoryName)}`);
+                            router.push(`/memories/new?edit=${encodeURIComponent(memoryRef)}`);
                           }}
-                          aria-label={`Edit memory ${memoryName}`}
+                          aria-label={`Edit memory ${memoryRef}`}
                         >
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
