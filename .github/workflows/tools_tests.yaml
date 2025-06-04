@@ -3,11 +3,11 @@ on:
   push:
     branches: [ main ]
     paths-ignore:
-      - !include .github/workflow-configs/paths-ignore.yml:python_ignores
+      - !include .github/workflow-configs/paths-ignore.yml:tools_ignores
   pull_request:
     branches: [ main ]
     paths-ignore:
-      - !include .github/workflow-configs/paths-ignore.yml:python_ignores
+      - !include .github/workflow-configs/paths-ignore.yml:tools_ignores
   workflow_dispatch:
 jobs:
   similarity-tests:

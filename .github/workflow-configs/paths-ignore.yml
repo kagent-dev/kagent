@@ -33,4 +33,13 @@ frontend_ignores: &frontend_ignores
 # Backend-specific ignores
 backend_ignores: &backend_ignores
   - *common_ignores
-  - 'ui/**' 
+  - 'ui/**'
+
+# Tools-specific ignores (everything except kagent/tools)
+tools_ignores: &tools_ignores
+  - *common_ignores
+  - 'go/**'
+  - 'ui/**'
+  - 'helm/**'
+  - 'python/**'
+  - '!kagent/tools/**'  
