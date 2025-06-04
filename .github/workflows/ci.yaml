@@ -1,6 +1,8 @@
 name: CI Build
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -88,6 +90,29 @@ jobs:
         working-directory: go
         run: |
           go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
+
+  helm-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4.2.0
+        with:
+          version: v3.17.0
+      # Install unittest plugin
+      - name: Install unittest plugin
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest
+
+      - name: Chart init
+        run: |
+          make helm-version
+
+      - name: Run helm unit tests
+        run: |
+          helm unittest helm/kagent
 
   python-test:
     runs-on: ubuntu-latest
