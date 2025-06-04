@@ -1,0 +1,36 @@
+# Common paths to ignore across all workflows
+common_ignores: &common_ignores
+  - '**.md'
+  - 'docs/**'
+  - 'LICENSE'
+  - '.gitignore'
+  - '.editorconfig'
+  - '**.txt'
+  - '.github/*.md'
+  - '.github/ISSUE_TEMPLATE/**'
+  - '.github/PULL_REQUEST_TEMPLATE/**'
+  - 'assets/**'
+  - '**.png'
+  - '**.jpg'
+  - '**.jpeg'
+  - '**.gif'
+  - '**.svg'
+
+# Python-specific ignores
+python_ignores: &python_ignores
+  - *common_ignores
+  - 'go/**'
+  - 'ui/**'
+  - 'helm/**'
+
+# Frontend-specific ignores
+frontend_ignores: &frontend_ignores
+  - *common_ignores
+  - 'go/**'
+  - 'python/**'
+  - 'helm/**'
+
+# Backend-specific ignores
+backend_ignores: &backend_ignores
+  - *common_ignores
+  - 'ui/**' 

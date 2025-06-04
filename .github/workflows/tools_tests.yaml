@@ -2,12 +2,12 @@ name: GenerateResourceTool Tests
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'kagent/tools/**'
+    paths-ignore:
+      - !include .github/workflow-configs/paths-ignore.yml:python_ignores
   pull_request:
     branches: [ main ]
-    paths:
-      - 'kagent/tools/**'
+    paths-ignore:
+      - !include .github/workflow-configs/paths-ignore.yml:python_ignores
   workflow_dispatch:
 jobs:
   similarity-tests:

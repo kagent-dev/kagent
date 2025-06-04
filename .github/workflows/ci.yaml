@@ -5,13 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    paths:
-      - 'go/**'
-      - 'python/**'
-      - 'ui/**'
-      - 'Makefile'
-      - 'Dockerfile*'
-      - '.github/workflows/**'
+    paths-ignore:
+      - !include .github/workflow-configs/paths-ignore.yml:common_ignores
   workflow_dispatch:
 
 jobs:
