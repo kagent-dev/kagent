@@ -1,0 +1,213 @@
+suite: test deployment
+templates:
+  - deployment.yaml
+tests:
+  - it: should render deployment with default values
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME
+      - equal:
+          path: spec.replicas
+          value: 1
+      - hasDocuments:
+          count: 1
+
+  - it: should render deployment with custom replica count
+    set:
+      replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should have correct container images with default values
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: controller
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/controller:.+"
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: app
+      - matchRegex:
+          path: spec.template.spec.containers[1].image
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/app:.+"
+      - equal:
+          path: spec.template.spec.containers[2].name
+          value: ui
+      - matchRegex:
+          path: spec.template.spec.containers[2].image
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/ui:.+"
+
+  - it: should use global tag when set
+    set:
+      global:
+        tag: "v1.0.0"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: cr.kagent.dev/kagent-dev/kagent/controller:v1.0.0
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: cr.kagent.dev/kagent-dev/kagent/app:v1.0.0
+      - equal:
+          path: spec.template.spec.containers[2].image
+          value: cr.kagent.dev/kagent-dev/kagent/ui:v1.0.0
+
+  - it: should have correct resource limits and requests
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 128Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 500m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 512Mi
+      - equal:
+          path: spec.template.spec.containers[1].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[1].resources.requests.memory
+          value: 256Mi
+
+  - it: should have correct service account name
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME
+
+  - it: should have correct container ports
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8083
+      - equal:
+          path: spec.template.spec.containers[1].ports[0].containerPort
+          value: 8081
+      - equal:
+          path: spec.template.spec.containers[2].ports[0].containerPort
+          value: 80
+
+  - it: should include namespace environment variable for controller
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+
+  - it: should have otel environment variables for app container
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: OTEL_TRACING_ENABLED
+            value: "false"
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+            value: "http://host.docker.internal:4317"
+
+  - it: should enable otel tracing when configured
+    set:
+      otel:
+        tracing:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: OTEL_TRACING_ENABLED
+            value: "true"
+
+  - it: should include custom annotations when provided
+    set:
+      podAnnotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/port"]
+          value: "8080"
+
+  - it: should add additional environment variables to controller
+    set:
+      controller:
+        env:
+          - name: DEBUG
+            value: "true"
+          - name: LOG_FORMAT
+            value: "json"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEBUG
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOG_FORMAT
+            value: "json"
+
+  - it: should add custom image pull secrets when provided
+    set:
+      imagePullSecrets:
+        - name: my-registry-secret
+        - name: another-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: my-registry-secret
+      - equal:
+          path: spec.template.spec.imagePullSecrets[1].name
+          value: another-secret
+
+  - it: should have readiness probe for app container
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.httpGet.path
+          value: /api/version
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.httpGet.port
+          value: 8081
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.initialDelaySeconds
+          value: 15
+
+  - it: should use custom loglevel when set
+    set:
+      controller:
+        loglevel: "debug"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "debug"
+
+  - it: should configure watch namespaces
+    set:
+      controller:
+        watchNamespaces:
+          - namespace-1
+          - namespace-2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "namespace-1,namespace-2" 
