@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kagent.fullname" . }}-cilium-crd-role
+  name: {{ include "kagent.fullname" . }}-cilium-policy-role
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 rules:
@@ -15,13 +15,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "kagent.fullname" . }}-cilium-crd-rolebinding
+  name: {{ include "kagent.fullname" . }}-cilium-policy-rolebinding
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "kagent.fullname" . }}-cilium-crd-role
+  name: {{ include "kagent.fullname" . }}-cilium-policy-role
 subjects:
   - kind: ServiceAccount
     name: {{ include "kagent.fullname" . }}

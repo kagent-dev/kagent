@@ -163,5 +163,11 @@ argo-rollouts-agent:
 helm-agent:
   enabled: true
 
-cilium-crd-agent:
+cilium-policy-agent:
+  enabled: true
+
+cilium-manager-agent:
+  enabled: true
+
+cilium-debug-agent:
   enabled: true
