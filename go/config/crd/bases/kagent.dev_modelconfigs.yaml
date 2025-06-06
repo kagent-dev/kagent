@@ -46,7 +46,6 @@ spec:
           metadata:
             type: object
           spec:
-            description: ModelConfigSpec defines the desired state of ModelConfig.
             properties:
               anthropic:
                 description: Anthropic-specific configuration
@@ -66,6 +65,36 @@ spec:
                   topP:
                     description: Top-p sampling parameter
                     type: string
+                type: object
+              anthropicVertexAI:
+                description: Anthropic-specific configuration
+                properties:
+                  location:
+                    description: The project location
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  projectID:
+                    description: The project ID
+                    type: string
+                  stopSequences:
+                    description: Stop sequences
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - location
+                - projectID
                 type: object
               apiKeySecretKey:
                 description: The key in the secret that contains the API key
@@ -107,6 +136,42 @@ spec:
               defaultHeaders:
                 additionalProperties:
                   type: string
+                type: object
+              geminiVertexAI:
+                description: Gemini-specific configuration
+                properties:
+                  candidateCount:
+                    description: Candidate count
+                    type: integer
+                  location:
+                    description: The project location
+                    type: string
+                  maxOutputTokens:
+                    description: Maximum output tokens
+                    type: integer
+                  projectID:
+                    description: The project ID
+                    type: string
+                  responseMimeType:
+                    description: Response mime type
+                    type: string
+                  stopSequences:
+                    description: Stop sequences
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - location
+                - projectID
                 type: object
               model:
                 type: string
@@ -183,6 +248,8 @@ spec:
                 - OpenAI
                 - AzureOpenAI
                 - Ollama
+                - GeminiVertexAI
+                - AnthropicVertexAI
                 type: string
             required:
             - model
@@ -197,6 +264,12 @@ spec:
               rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
             - message: provider.ollama must be nil if the provider is not Ollama
               rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
+            - message: provider.geminiVertexAI must be nil if the provider is not
+                GeminiVertexAI
+              rule: '!(has(self.geminiVertexAI) && self.provider != ''GeminiVertexAI'')'
+            - message: provider.anthropicVertexAI must be nil if the provider is not
+                AnthropicVertexAI
+              rule: '!(has(self.anthropicVertexAI) && self.provider != ''AnthropicVertexAI'')'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:
