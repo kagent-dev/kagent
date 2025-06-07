@@ -81,13 +81,16 @@ func InstallCmd(ctx context.Context, cfg *config.Config) {
 	defer s.Stop()
 	s.Start()
 	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, s); err != nil {
+		// Always stop the spinner before printing error messages
+		s.Stop()
+
 		// Check for various CRD existence scenarios, this is to be compatible with
 		// original kagent installation that had CRDs installed together with the kagent chart
 		if strings.Contains(output, "exists and cannot be imported into the current release") {
-			s.Stop()
 			fmt.Fprintln(os.Stderr, "Warning: CRDs exist but aren't managed by helm.")
 			fmt.Fprintln(os.Stderr, "Run `uninstall` or delete them manually to")
 			fmt.Fprintln(os.Stderr, "ensure they're fully managed on next install.")
+			// Restart the spinner
 			s.Start()
 		} else {
 			fmt.Fprintln(os.Stderr, "Error installing kagent-crds:", output)
@@ -98,6 +101,8 @@ func InstallCmd(ctx context.Context, cfg *config.Config) {
 	// Update status
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s", modelProvider, helmRegistry, helmVersion)
 	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, s); err != nil {
+		// Always stop the spinner before printing error messages
+		s.Stop()
 		fmt.Fprintln(os.Stderr, "Error installing kagent:", output)
 		return
 	}
@@ -121,6 +126,9 @@ func InstallCmd(ctx context.Context, cfg *config.Config) {
 		fmt.Fprintln(os.Stderr, "Port-forward failed to start")
 		return
 	}
+
+	// Stop the spinner completely before printing the success message
+	s.Stop()
 	fmt.Fprintln(os.Stdout, "kagent installed successfully")
 }
 
