@@ -510,7 +510,7 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	// Delete the associated secret if it exists and is not Ollama provider
+	// Delete the associated secret if it exists
 	if existingConfig.Spec.Provider != v1alpha1.Ollama && existingConfig.Spec.APIKeySecretRef != "" {
 		log.V(1).Info("Deleting associated API key secret")
 		secret := &corev1.Secret{
