@@ -142,7 +142,7 @@ func main() {
 
 	getSessionCmd := &cobra.Command{
 		Use:   "session [session_id]",
-		Short: "Get a session",
+		Short: "Get a session or list all sessions",
 		Long:  `Get a session by ID or list all sessions`,
 		Run: func(cmd *cobra.Command, args []string) {
 			client := autogen_client.New(cfg.APIURL)
@@ -160,7 +160,7 @@ func main() {
 
 	getRunCmd := &cobra.Command{
 		Use:   "run [run_id]",
-		Short: "Get a run",
+		Short: "Get a run or list all runs",
 		Long:  `Get a run by ID or list all runs`,
 		Run: func(cmd *cobra.Command, args []string) {
 			client := autogen_client.New(cfg.APIURL)
@@ -178,7 +178,7 @@ func main() {
 
 	getAgentCmd := &cobra.Command{
 		Use:   "agent [agent_name]",
-		Short: "Get an agent",
+		Short: "Get an agent or list all agents",
 		Long:  `Get an agent by name or list all agents`,
 		Run: func(cmd *cobra.Command, args []string) {
 			client := autogen_client.New(cfg.APIURL)
