@@ -138,20 +138,29 @@ spec:
     # Get Cilium version
     cilium version
     
-    # Show detailed daemon status
+    # Show detailed daemon status (cilium-dbg has been superseded by cilium CLI in v1.17+)
     cilium-dbg status --verbose
+    # or with integrated CLI
+    cilium status --verbose
     
     # List endpoints
     cilium-dbg endpoint list
+    # or with integrated CLI
+    cilium endpoint list
     
     # Get detailed endpoint info
     cilium-dbg endpoint get <endpoint-id>
+    # or with integrated CLI
+    cilium endpoint get <endpoint-id>
     ```
     
     ### ClusterMesh Management
     ```bash
-    # Enable ClusterMesh
+    # Enable ClusterMesh (KVStoreMesh is default since v1.16+)
     cilium clustermesh enable
+    
+    # Enable ClusterMesh with additional options
+    cilium clustermesh enable --create-ca --context=<ctx> --service-type=LoadBalancer
     
     # Generate cluster name
     cilium clustermesh generate-name
@@ -182,6 +191,9 @@ spec:
     
     # Show features status
     cilium status --verbose | grep Hubble
+    
+    # Enable with specific metrics (via Helm)
+    # cilium install --set hubble.metrics.enabled='{dns,drop,tcp,flow,port-distribution,icmp,http}'
     ```
     
     ### BGP Configuration
@@ -241,20 +253,26 @@ spec:
     - **AWS ENI**: Uses AWS Elastic Network Interfaces
       ```bash
       cilium install --datapath-mode=aws-eni
+      # or via IPAM setting
+      cilium install --ipam=eni
       ```
     
     - **Azure IPAM**: Uses Azure's IP address management
       ```bash
       cilium install --datapath-mode=azure
+      # or via IPAM setting
+      cilium install --ipam=azure
       ```
 
     ### Encryption Options
-    - **IPsec Encryption**:
+    - **IPsec Encryption**: Automatically enables IPsec and adds required configuration based on a secret
       ```bash
       cilium install --encryption=ipsec
+      # Can also specify interface
+      cilium install --encryption=ipsec --set encryption.ipsec.interface=eth0
       ```
     
-    - **WireGuard Encryption**:
+    - **WireGuard Encryption**: Note that all clusters in a ClusterMesh must have WireGuard enabled - no mixed mode
       ```bash
       cilium install --encryption=wireguard
       ```
@@ -290,15 +308,21 @@ spec:
       - Some features require specific kernel versions (e.g., WireGuard requires 5.6+)
 
     4. **Cloud Provider Notes**:
-      - AWS: Consider using the aws-eni datapath mode for better integration
+      - AWS: Consider using the aws-eni datapath mode or --ipam=eni for better integration
       - GKE: Use the gke datapath mode for Google Kubernetes Engine
-      - Azure: The azure datapath mode is optimized for AKS
+      - Azure: The azure datapath mode or --ipam=azure is optimized for AKS
 
-    5. **Troubleshooting Tips**:
+    5. **ClusterMesh Notes**:
+      - KVStoreMesh architecture is default since v1.16+
+      - Can disable with clustermesh.enable=false in Helm or ConfigMap
+      - Support for Global Shared Services, Service Affinity, and EndpointSlice sync available
+      - MCS-API support available in recent versions
+
+    6. **Troubleshooting Tips**:
       - Always check the Cilium agent logs first: `kubectl logs -n kube-system -l k8s-app=cilium`
-      - Use `cilium-dbg status --verbose` to get detailed agent status
-      - The `cilium-dbg monitor` tool is invaluable for real-time traffic analysis
-      - For persistent issues, collect debug info with `cilium-dbg bugtool`
+      - Use `cilium status --verbose` to get detailed agent status (or `cilium-dbg status --verbose`)
+      - The `cilium monitor` tool is invaluable for real-time traffic analysis
+      - For persistent issues, collect debug info with `cilium bugtool`
   tools:
     # Installation and Configuration Tools
     - type: Builtin
