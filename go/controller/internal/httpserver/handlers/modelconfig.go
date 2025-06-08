@@ -510,6 +510,23 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
+	// Delete the associated secret if it exists and is not Ollama provider
+	if existingConfig.Spec.Provider != v1alpha1.Ollama && existingConfig.Spec.APIKeySecretRef != "" {
+		log.V(1).Info("Deleting associated API key secret")
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      existingConfig.Spec.APIKeySecretRef,
+				Namespace: common.GetResourceNamespace(),
+			},
+		}
+		if err := h.KubeClient.Delete(r.Context(), secret); err != nil && !k8serrors.IsNotFound(err) {
+			log.Error(err, "Failed to delete associated API key secret")
+			w.RespondWithError(errors.NewInternalServerError("Failed to delete associated API key secret", err))
+			return
+		}
+		log.V(1).Info("Successfully deleted associated API key secret")
+	}
+
 	log.V(1).Info("Deleting ModelConfig resource")
 	if err := h.KubeClient.Delete(r.Context(), existingConfig); err != nil {
 		log.Error(err, "Failed to delete ModelConfig resource")
