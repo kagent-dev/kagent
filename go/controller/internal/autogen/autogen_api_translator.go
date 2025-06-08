@@ -13,6 +13,7 @@ import (
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -52,7 +53,7 @@ type apiTranslator struct {
 
 func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServer, error) {
 	// provder = "kagent.tool_servers.StdioMcpToolServer" || "kagent.tool_servers.SseMcpToolServer"
-	provider, toolServerConfig, err := translateToolServerConfig(toolServer.Spec.Config)
+	provider, toolServerConfig, err := a.translateToolServerConfig(ctx, toolServer.Spec.Config, toolServer.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -70,14 +71,104 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 	}, nil
 }
 
-func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.ToolServerConfig, error) {
+// resolveValueSource resolves a value from a ValueSource
+func (a *apiTranslator) resolveValueSource(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
+	if source == nil {
+		return "", fmt.Errorf("source cannot be nil")
+	}
+
+	switch source.Type {
+	case v1alpha1.ConfigMapValueSource:
+		return a.getConfigMapValue(ctx, source, namespace)
+	case v1alpha1.SecretValueSource:
+		return a.getSecretValue(ctx, source, namespace)
+	default:
+		return "", fmt.Errorf("unknown value source type: %s", source.Type)
+	}
+}
+
+// getConfigMapValue fetches a value from a ConfigMap
+func (a *apiTranslator) getConfigMapValue(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
+	if source == nil {
+		return "", fmt.Errorf("source cannot be nil")
+	}
+
+	configMap := &corev1.ConfigMap{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		configMap,
+		source.ValueRef,
+		namespace,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to find ConfigMap for %s: %v", source.ValueRef, err)
+	}
+
+	value, exists := configMap.Data[source.Key]
+	if !exists {
+		return "", fmt.Errorf("key %s not found in ConfigMap %s/%s", source.Key, configMap.Namespace, configMap.Name)
+	}
+	return value, nil
+}
+
+// getSecretValue fetches a value from a Secret
+func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
+	if source == nil {
+		return "", fmt.Errorf("source cannot be nil")
+	}
+
+	secret := &corev1.Secret{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		secret,
+		source.ValueRef,
+		namespace,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to find Secret for %s: %v", source.ValueRef, err)
+	}
+
+	value, exists := secret.Data[source.Key]
+	if !exists {
+		return "", fmt.Errorf("key %s not found in Secret %s/%s", source.Key, secret.Namespace, secret.Name)
+	}
+	return string(value), nil
+}
+
+func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1alpha1.ToolServerConfig, namespace string) (string, *api.ToolServerConfig, error) {
 	switch {
 	case config.Stdio != nil:
+		env := make(map[string]string)
+
+		if config.Stdio.Env != nil {
+			for k, v := range config.Stdio.Env {
+				env[k] = v
+			}
+		}
+
+		if len(config.Stdio.EnvFrom) > 0 {
+			for _, envVar := range config.Stdio.EnvFrom {
+				if envVar.ValueFrom != nil {
+					value, err := a.resolveValueSource(ctx, envVar.ValueFrom, namespace)
+
+					if err != nil {
+						return "", nil, fmt.Errorf("failed to resolve environment variable %s: %v", envVar.Name, err)
+					}
+
+					env[envVar.Name] = value
+				} else if envVar.Value != "" {
+					env[envVar.Name] = envVar.Value
+				}
+			}
+		}
+
 		return "kagent.tool_servers.StdioMcpToolServer", &api.ToolServerConfig{
 			StdioMcpServerConfig: &api.StdioMcpServerConfig{
 				Command: config.Stdio.Command,
 				Args:    config.Stdio.Args,
-				Env:     config.Stdio.Env,
+				Env:     env,
 			},
 		}, nil
 	case config.Sse != nil:
@@ -85,6 +176,23 @@ func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.T
 		if err != nil {
 			return "", nil, err
 		}
+
+		if len(config.Sse.HeadersFrom) > 0 {
+			for _, header := range config.Sse.HeadersFrom {
+				if header.ValueFrom != nil {
+					value, err := a.resolveValueSource(ctx, header.ValueFrom, namespace)
+
+					if err != nil {
+						return "", nil, fmt.Errorf("failed to resolve header %s: %v", header.Name, err)
+					}
+
+					headers[header.Name] = value
+				} else if header.Value != "" {
+					headers[header.Name] = header.Value
+				}
+			}
+		}
+
 		timeout, err := convertDurationToSeconds(config.Sse.Timeout)
 		if err != nil {
 			return "", nil, err
@@ -1028,6 +1136,128 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			Config:        api.MustToConfig(config),
 		}, nil
 
+	case v1alpha1.AnthropicVertexAI:
+		var config *api.AnthropicVertexAIConfig
+
+		creds, err := a.getModelConfigGoogleApplicationCredentials(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
+
+		config = &api.AnthropicVertexAIConfig{
+			BaseVertexAIConfig: api.BaseVertexAIConfig{
+				Model:       modelConfig.Spec.Model,
+				ProjectID:   modelConfig.Spec.AnthropicVertexAI.ProjectID,
+				Location:    modelConfig.Spec.AnthropicVertexAI.Location,
+				Credentials: creds,
+			},
+		}
+
+		if modelConfig.Spec.AnthropicVertexAI != nil {
+			anthropicVertexAIConfig := modelConfig.Spec.AnthropicVertexAI
+
+			if anthropicVertexAIConfig.MaxTokens > 0 {
+				config.MaxTokens = &anthropicVertexAIConfig.MaxTokens
+			}
+
+			if anthropicVertexAIConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(anthropicVertexAIConfig.Temperature, 64)
+				if err == nil {
+					config.Temperature = &temp
+				}
+			}
+
+			if anthropicVertexAIConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(anthropicVertexAIConfig.TopP, 64)
+				if err == nil {
+					config.TopP = &topP
+				}
+			}
+
+			if anthropicVertexAIConfig.TopK != "" {
+				topK, err := strconv.ParseFloat(anthropicVertexAIConfig.TopK, 64)
+				if err == nil {
+					config.TopK = &topK
+				}
+			}
+
+			if anthropicVertexAIConfig.StopSequences != nil {
+				config.StopSequences = &anthropicVertexAIConfig.StopSequences
+			}
+		}
+
+		return &api.Component{
+			Provider:      "kagent.models.vertexai.AnthropicVertexAIChatCompletionClient",
+			ComponentType: "model",
+			Version:       1,
+			Config:        api.MustToConfig(config),
+		}, nil
+
+	case v1alpha1.GeminiVertexAI:
+		var config *api.GeminiVertexAIConfig
+
+		creds, err := a.getModelConfigGoogleApplicationCredentials(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
+
+		config = &api.GeminiVertexAIConfig{
+			BaseVertexAIConfig: api.BaseVertexAIConfig{
+				Model:       modelConfig.Spec.Model,
+				ProjectID:   modelConfig.Spec.GeminiVertexAI.ProjectID,
+				Location:    modelConfig.Spec.GeminiVertexAI.Location,
+				Credentials: creds,
+			},
+		}
+
+		if modelConfig.Spec.GeminiVertexAI != nil {
+			geminiVertexAIConfig := modelConfig.Spec.GeminiVertexAI
+
+			if geminiVertexAIConfig.MaxOutputTokens > 0 {
+				config.MaxOutputTokens = &geminiVertexAIConfig.MaxOutputTokens
+			}
+
+			if geminiVertexAIConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(geminiVertexAIConfig.Temperature, 64)
+				if err == nil {
+					config.Temperature = &temp
+				}
+			}
+
+			if geminiVertexAIConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(geminiVertexAIConfig.TopP, 64)
+				if err == nil {
+					config.TopP = &topP
+				}
+			}
+
+			if geminiVertexAIConfig.TopK != "" {
+				topK, err := strconv.ParseFloat(geminiVertexAIConfig.TopK, 64)
+				if err == nil {
+					config.TopK = &topK
+				}
+			}
+
+			if geminiVertexAIConfig.StopSequences != nil {
+				config.StopSequences = &geminiVertexAIConfig.StopSequences
+			}
+
+			if geminiVertexAIConfig.CandidateCount > 0 {
+				config.CandidateCount = &geminiVertexAIConfig.CandidateCount
+			}
+
+			if geminiVertexAIConfig.ResponseMimeType != "" {
+				config.ResponseMimeType = &geminiVertexAIConfig.ResponseMimeType
+			}
+		}
+
+		return &api.Component{
+			Provider:      "kagent.models.vertexai.GeminiVertexAIChatCompletionClient",
+			ComponentType: "model",
+			Version:       1,
+			Config:        api.MustToConfig(config),
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported model provider: %s", modelConfig.Spec.Provider)
 	}
@@ -1071,6 +1301,37 @@ func (a *apiTranslator) getMemoryApiKey(ctx context.Context, memory *v1alpha1.Me
 	}
 
 	return memoryApiKey, nil
+}
+
+func (a *apiTranslator) getModelConfigGoogleApplicationCredentials(ctx context.Context, modelConfig *v1alpha1.ModelConfig) (map[string]interface{}, error) {
+	googleApplicationCredentialsSecret := &v1.Secret{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		googleApplicationCredentialsSecret,
+		modelConfig.Spec.APIKeySecretRef,
+		modelConfig.Namespace,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if googleApplicationCredentialsSecret.Data == nil {
+		return nil, fmt.Errorf("google application credentials secret data not found")
+	}
+
+	googleApplicationCredentialsBytes, ok := googleApplicationCredentialsSecret.Data[modelConfig.Spec.APIKeySecretKey]
+	if !ok {
+		return nil, fmt.Errorf("google application credentials not found")
+	}
+
+	var credsMap map[string]interface{}
+	err = json.Unmarshal(googleApplicationCredentialsBytes, &credsMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal google application credentials into map: %w", err)
+	}
+
+	return credsMap, nil
 }
 
 func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v1alpha1.ModelConfig) ([]byte, error) {

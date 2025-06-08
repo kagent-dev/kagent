@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -17,16 +18,21 @@ type A2AReconciler interface {
 		agent *v1alpha1.Agent,
 		autogenTeam *autogen_client.Team,
 	) error
+
+	ReconcileAutogenAgentDeletion(
+		agentNamespace string,
+		agentName string,
+	)
 }
 
 type a2aReconciler struct {
 	a2aTranslator AutogenA2ATranslator
-	autogenClient *autogen_client.Client
+	autogenClient autogen_client.Client
 	a2aHandler    A2AHandlerMux
 }
 
 func NewAutogenReconciler(
-	autogenClient *autogen_client.Client,
+	autogenClient autogen_client.Client,
 	a2aHandler A2AHandlerMux,
 	a2aBaseUrl string,
 ) A2AReconciler {
@@ -54,5 +60,14 @@ func (a *a2aReconciler) ReconcileAutogenAgent(
 	return a.a2aHandler.SetAgentHandler(
 		agent.Namespace, agent.Name,
 		params,
+	)
+}
+
+func (a *a2aReconciler) ReconcileAutogenAgentDeletion(
+	agentNamespace string,
+	agentName string,
+) {
+	a.a2aHandler.RemoveAgentHandler(
+		agentNamespace, agentName,
 	)
 }

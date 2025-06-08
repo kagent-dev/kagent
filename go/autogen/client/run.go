@@ -6,20 +6,20 @@ import (
 	"github.com/google/uuid"
 )
 
-func (c *Client) CreateRun(req *CreateRunRequest) (*CreateRunResult, error) {
+func (c *client) CreateRun(req *CreateRunRequest) (*CreateRunResult, error) {
 	var run CreateRunResult
 	err := c.doRequest("POST", "/runs", req, &run)
 	return &run, err
 }
 
-func (c *Client) GetRun(runID int) (*Run, error) {
+func (c *client) GetRun(runID int) (*Run, error) {
 
 	var run Run
 	err := c.doRequest("GET", fmt.Sprintf("/runs/%d", runID), nil, &run)
 	return &run, err
 }
 
-func (c *Client) ListRuns(userID string) ([]*Run, error) {
+func (c *client) ListRuns(userID string) ([]*Run, error) {
 	// Go through all sessions and then retrieve all runs for each session
 	var sessions []Session
 	err := c.doRequest("GET", fmt.Sprintf("/sessions/?user_id=%s", userID), nil, &sessions)
@@ -39,12 +39,12 @@ func (c *Client) ListRuns(userID string) ([]*Run, error) {
 	return runs, nil
 }
 
-func (c *Client) GetRunMessages(runID uuid.UUID) ([]*RunMessage, error) {
+func (c *client) GetRunMessages(runID uuid.UUID) ([]*RunMessage, error) {
 	var messages []*RunMessage
 	err := c.doRequest("GET", fmt.Sprintf("/runs/%s/messages", runID), nil, &messages)
 	return messages, err
 }
 
-func (c *Client) DeleteRun(runID uuid.UUID) error {
+func (c *client) DeleteRun(runID uuid.UUID) error {
 	return c.doRequest("DELETE", fmt.Sprintf("/runs/%s", runID), nil, nil)
 }
