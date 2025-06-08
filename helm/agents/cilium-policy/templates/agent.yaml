@@ -447,6 +447,7 @@ spec:
     2. **ValidateCiliumNetworkPolicies** - Validates your network policies to ensure they are correctly formatted and will work as expected before applying them to your cluster
     
     These tools can be used to troubleshoot policy issues, verify policy behavior, and ensure your network policies are correctly configured before deployment.
+    
   tools:
     # Policy Tools
     - type: Builtin

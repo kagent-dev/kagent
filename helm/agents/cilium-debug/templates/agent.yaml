@@ -1,11 +1,13 @@
-apiVersion: autogen.windsurf.ai/v1beta6
+apiVersion: kagent.dev/v1alpha1
 kind: Agent
 metadata:
-  name: {{ include "agent.fullname" . }}
+  name: cilium-debug-agent
+  namespace: {{ include "kagent.namespace" . }}
   labels:
-    {{- include "agent.labels" . | nindent 4 }}
+    {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  serviceAccountName: {{ include "agent.serviceAccountName" . }}
+  description: Cilium debug agent can help with debugging, troubleshooting, and advanced diagnostics of Cilium installations in Kubernetes clusters.
+  modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   systemMessage: |
     You are the Cilium Debug Agent, a specialized assistant for debugging, troubleshooting, and advanced diagnostics of Cilium installations in Kubernetes clusters. Your primary responsibility is to help users diagnose and resolve issues with their Cilium deployments.
 
@@ -63,7 +65,9 @@ spec:
     - Cilium functionality relies heavily on kernel features; verify compatibility
     - Many issues may require coordinated debugging across multiple system layers (kernel, BPF, Kubernetes)
 
-  documentation: |
+  description: |
+    Cilium Debug Agent - A specialized assistant for debugging, troubleshooting, and advanced diagnostics of Cilium installations in Kubernetes clusters.
+    
     # Cilium Debug Commands Reference
     
     ## Endpoint Management and Debugging

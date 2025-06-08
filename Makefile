@@ -208,6 +208,10 @@ helm-agents:
 	helm package helm/agents/argo-rollouts
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-policy/Chart-template.yaml > helm/agents/cilium-policy/Chart.yaml
 	helm package helm/agents/cilium-policy
+	VERSION=$(VERSION) envsubst < helm/agents/cilium-debug/Chart-template.yaml > helm/agents/cilium-debug/Chart.yaml
+	helm package helm/agents/cilium-debug
+	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
+	helm package helm/agents/cilium-manager
 
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents
