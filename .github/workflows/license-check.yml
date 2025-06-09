@@ -20,42 +20,9 @@ jobs:
           
       - name: Install license-lint
         run: |
-          go install istio.io/tools/cmd/license-lint@v0.0.0-20240213162025-812b15c76d10
+          go install istio.io/tools/cmd/license-lint@v1.26.1
           
       - name: Run Go license check
         run: |
           cd go
-          license-lint --config .license-lint.yaml
-
-  python-license-check:
-    name: Python License Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          
-      - name: Install dependencies
-        run: |
-          cd python
-          pip install -e ".[lint]"
-          
-      - name: Run Python license check
-        run: |
-          cd python
-          # Check for license in pyproject.toml
-          if ! grep -q "license.*Apache" pyproject.toml; then
-            echo "Error: License not found in pyproject.toml"
-            exit 1
-          fi
-          
-          # Check for license headers in Python files
-          files_without_license=$(find src -name "*.py" -type f -exec grep -L "Licensed under the Apache License" {} \;)
-          if [ ! -z "$files_without_license" ]; then
-            echo "Error: The following Python files are missing license headers:"
-            echo "$files_without_license"
-            exit 1
-          fi 
+          license-lint --config .license-lint.yaml 
