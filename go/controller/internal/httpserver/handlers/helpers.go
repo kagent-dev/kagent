@@ -11,7 +11,9 @@ import (
 
 	"github.com/gorilla/mux"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -150,6 +152,7 @@ func CreateSecret(ctx context.Context, kubeClient client.Client, name string, na
 			Name:      name,
 			Namespace: namespace,
 		},
+		Type:       corev1.SecretTypeOpaque,
 		StringData: data,
 	}
 
@@ -158,6 +161,25 @@ func CreateSecret(ctx context.Context, kubeClient client.Client, name string, na
 	}
 
 	if err := kubeClient.Create(ctx, secret); err != nil {
+		if k8serrors.IsAlreadyExists(err) {
+			// If the secret already exists, try to update it
+			existing := &corev1.Secret{}
+			if err := kubeClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, existing); err != nil {
+				return nil, fmt.Errorf("failed to get existing secret: %w", err)
+			}
+
+			// Update the existing secret
+			existing.StringData = data
+			existing.Type = corev1.SecretTypeOpaque
+			if owner != nil {
+				existing.OwnerReferences = []metav1.OwnerReference{*owner}
+			}
+
+			if err := kubeClient.Update(ctx, existing); err != nil {
+				return nil, fmt.Errorf("failed to update existing secret: %w", err)
+			}
+			return existing, nil
+		}
 		return nil, err
 	}
 	return secret, nil

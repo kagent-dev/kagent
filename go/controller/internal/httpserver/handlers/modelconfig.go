@@ -214,107 +214,42 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		Spec: modelConfigSpec,
 	}
 
-	var providerConfigErr error
-	switch providerTypeEnum {
-	case v1alpha1.OpenAI:
-		if req.OpenAIParams != nil {
-			modelConfig.Spec.OpenAI = req.OpenAIParams
-			log.V(1).Info("Assigned OpenAI params to spec")
-		} else {
-			log.V(1).Info("No OpenAI params provided in create.")
-		}
-	case v1alpha1.Anthropic:
-		if req.AnthropicParams != nil {
-			modelConfig.Spec.Anthropic = req.AnthropicParams
-			log.V(1).Info("Assigned Anthropic params to spec")
-		} else {
-			log.V(1).Info("No Anthropic params provided in create.")
-		}
-	case v1alpha1.AzureOpenAI:
-		if req.AzureParams == nil {
-			providerConfigErr = fmt.Errorf("azureOpenAI parameters are required for AzureOpenAI provider")
-		} else {
-			// Basic validation for required Azure fields (can be enhanced)
-			if req.AzureParams.Endpoint == "" || req.AzureParams.APIVersion == "" {
-				providerConfigErr = fmt.Errorf("missing required AzureOpenAI parameters: azureEndpoint, apiVersion")
-			} else {
-				modelConfig.Spec.AzureOpenAI = req.AzureParams
-				log.V(1).Info("Assigned AzureOpenAI params to spec")
-			}
-		}
-	case v1alpha1.Ollama:
-		if req.OllamaParams != nil {
-			modelConfig.Spec.Ollama = req.OllamaParams
-			log.V(1).Info("Assigned Ollama params to spec")
-		} else {
-			log.V(1).Info("No Ollama params provided in create.")
-		}
-	default:
-		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
-	}
-
-	if providerConfigErr != nil {
-		log.Error(providerConfigErr, "Failed to assign provider config")
-		w.RespondWithError(errors.NewBadRequestError(providerConfigErr.Error(), providerConfigErr))
-		return
-	}
-
-	// Create the ModelConfig first so we have its UID
+	// Create the ModelConfig first
 	if err := h.KubeClient.Create(r.Context(), modelConfig); err != nil {
-		log.Error(err, "Failed to create ModelConfig resource")
+		log.Error(err, "Failed to create model config")
 		w.RespondWithError(errors.NewInternalServerError("Failed to create model config", err))
 		return
 	}
 
-	// Now create the secret if needed
-	if providerTypeEnum != v1alpha1.Ollama && req.APIKey != "" {
-		apiKey := req.APIKey
-		secretName := req.Name
-		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-		log.V(1).Info("Creating API key secret", "secretName", secretName, "secretKey", secretKey)
-
-		// Create owner reference for the secret
-		blockOwnerDeletion := true
-		controller := true
-		ownerRef := &metav1.OwnerReference{
-			APIVersion:         v1alpha1.GroupVersion.String(),
-			Kind:               "ModelConfig",
-			Name:               modelConfig.Name,
-			UID:                modelConfig.UID,
-			BlockOwnerDeletion: &blockOwnerDeletion,
-			Controller:         &controller,
-		}
-
-		secret, err := CreateSecret(r.Context(), h.KubeClient, secretName, common.GetResourceNamespace(), map[string]string{secretKey: apiKey}, ownerRef)
-		if err != nil {
-			log.Error(err, "Failed to create API key secret")
-			// Clean up the ModelConfig since secret creation failed
-			if cleanupErr := h.KubeClient.Delete(r.Context(), modelConfig); cleanupErr != nil {
-				log.Error(cleanupErr, "Failed to cleanup ModelConfig after secret creation failure")
-			}
-			w.RespondWithError(errors.NewInternalServerError("Failed to create API key secret", err))
-			return
-		}
-		log.V(1).Info("Successfully created API key secret")
-		modelConfig.Spec.APIKeySecretRef = secretName
-		modelConfig.Spec.APIKeySecretKey = secretKey
-
-		// Update the ModelConfig with the secret reference
-		if err := h.KubeClient.Update(r.Context(), modelConfig); err != nil {
-			log.Error(err, "Failed to update ModelConfig with secret reference")
-			// Clean up both resources
-			if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
-				log.Error(cleanupErr, "Failed to cleanup secret after ModelConfig update failure")
-			}
-			if cleanupErr := h.KubeClient.Delete(r.Context(), modelConfig); cleanupErr != nil {
-				log.Error(cleanupErr, "Failed to cleanup ModelConfig after update failure")
-			}
-			w.RespondWithError(errors.NewInternalServerError("Failed to update model config with secret reference", err))
-			return
-		}
+	// Now create the secret with the correct owner reference
+	blockOwnerDeletion := true
+	controller := true
+	ownerRef := &metav1.OwnerReference{
+		APIVersion:         v1alpha1.GroupVersion.String(),
+		Kind:               "ModelConfig",
+		Name:               modelConfig.Name,
+		UID:                modelConfig.UID,
+		BlockOwnerDeletion: &blockOwnerDeletion,
+		Controller:         &controller,
 	}
 
-	log.Info("Successfully created model config", "name", req.Name)
+	_, err = CreateSecret(r.Context(), h.KubeClient, modelConfigSpec.APIKeySecretRef, common.GetResourceNamespace(), map[string]string{modelConfigSpec.APIKeySecretKey: req.APIKey}, ownerRef)
+	if err != nil {
+		log.Error(err, "Failed to create/update model config API key secret")
+		// Clean up the ModelConfig since secret creation failed
+		if cleanupErr := h.KubeClient.Delete(r.Context(), modelConfig); cleanupErr != nil {
+			log.Error(cleanupErr, "Failed to cleanup ModelConfig after secret creation failure")
+		}
+		if k8serrors.IsAlreadyExists(err) {
+			w.RespondWithError(errors.NewConflictError("Model config API key secret already exists", err))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to create/update model config API key secret", err))
+		return
+	}
+	log.V(1).Info("Successfully created/updated model config API key secret")
+
+	log.Info("Model config created successfully")
 	RespondWithJSON(w, http.StatusCreated, modelConfig)
 }
 
