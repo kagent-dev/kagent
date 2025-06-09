@@ -111,7 +111,6 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		memorySpec.Pinecone = req.PineconeParams
 	}
 
-	// Create the Memory object first
 	memory := &v1alpha1.Memory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
@@ -126,7 +125,6 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	// Now create the secret with the correct owner reference
 	apiKey := req.APIKey
 	blockOwnerDeletion := true
 	controller := true
@@ -142,7 +140,6 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 	_, err = CreateSecret(r.Context(), h.KubeClient, memorySpec.APIKeySecretRef, common.GetResourceNamespace(), map[string]string{memorySpec.APIKeySecretKey: apiKey}, ownerRef)
 	if err != nil {
 		log.Error(err, "Failed to create/update memory API key secret")
-		// Clean up the Memory since secret creation failed
 		if cleanupErr := h.KubeClient.Delete(r.Context(), memory); cleanupErr != nil {
 			log.Error(cleanupErr, "Failed to cleanup Memory after secret creation failure")
 		}

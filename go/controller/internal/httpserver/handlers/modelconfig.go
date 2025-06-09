@@ -214,14 +214,12 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		Spec: modelConfigSpec,
 	}
 
-	// Create the ModelConfig first
 	if err := h.KubeClient.Create(r.Context(), modelConfig); err != nil {
 		log.Error(err, "Failed to create model config")
 		w.RespondWithError(errors.NewInternalServerError("Failed to create model config", err))
 		return
 	}
 
-	// Now create the secret with the correct owner reference
 	blockOwnerDeletion := true
 	controller := true
 	ownerRef := &metav1.OwnerReference{
@@ -236,7 +234,6 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	_, err = CreateSecret(r.Context(), h.KubeClient, modelConfigSpec.APIKeySecretRef, common.GetResourceNamespace(), map[string]string{modelConfigSpec.APIKeySecretKey: req.APIKey}, ownerRef)
 	if err != nil {
 		log.Error(err, "Failed to create/update model config API key secret")
-		// Clean up the ModelConfig since secret creation failed
 		if cleanupErr := h.KubeClient.Delete(r.Context(), modelConfig); cleanupErr != nil {
 			log.Error(cleanupErr, "Failed to cleanup ModelConfig after secret creation failure")
 		}
