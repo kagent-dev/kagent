@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Component, ToolConfig, AgentResponse, Tool } from "@/types/datamodel";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider, isAgentTool, isMcpTool, isMcpProvider, componentToAgentTool } from "@/lib/toolUtils";
+import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider, isAgentTool, isMcpTool, isMcpProvider, componentToAgentTool, handleMcpToolOperation } from "@/lib/toolUtils";
 import KagentLogo from "../kagent-logo";
+import type { ReactElement } from 'react';
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 20;
 
@@ -90,7 +91,7 @@ const getItemDisplayInfo = (item: Component<ToolConfig> | AgentResponse | Tool):
   return { displayName, description, identifier, providerText, Icon, iconColor, isAgent };
 };
 
-export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, availableAgents, loadingAgents }) => {
+export function SelectToolsDialog({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, availableAgents, loadingAgents }: SelectToolsDialogProps): ReactElement {
   const [searchTerm, setSearchTerm] = useState("");
   const [localSelectedComponents, setLocalSelectedComponents] = useState<SelectedToolEntry[]>([]);
   const [categories, setCategories] = useState<Set<string>>(new Set());
@@ -212,61 +213,61 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     let numEffectiveToolsInThisItem = 1;
 
     if ('agent' in item && item.agent && typeof item.agent === 'object' && 'metadata' in item.agent) {
-        const agentResp = item as AgentResponse;
-        toolToAdd = {
-            type: "Agent",
-            agent: {
-                ref: agentResp.agent.metadata.name,
-                description: agentResp.agent.spec.description
-            }
-        };
-    } else {
-        const component = item as Component<ToolConfig>;
-        toolToAdd = componentToAgentTool(component);
-        
-        // For MCP tools, check if we already have a tool from the same server
-        if (isMcpTool(toolToAdd) && toolToAdd.mcpServer) {
-            const existingToolIndex = localSelectedComponents.findIndex(entry => 
-                isMcpTool(entry.toolInstance) && 
-                entry.toolInstance.mcpServer?.toolServer === toolToAdd.mcpServer?.toolServer
-            );
-
-            if (existingToolIndex !== -1) {
-                // Add the new tool name to the existing MCP server entry
-                const existingTool = localSelectedComponents[existingToolIndex].toolInstance;
-                if (isMcpTool(existingTool) && existingTool.mcpServer) {
-                    const updatedTool = {
-                        ...existingTool,
-                        mcpServer: {
-                            ...existingTool.mcpServer,
-                            toolNames: [...new Set([...existingTool.mcpServer.toolNames, ...toolToAdd.mcpServer.toolNames])]
-                        }
-                    };
-                    setLocalSelectedComponents(prev => {
-                        const newComponents = [...prev];
-                        newComponents[existingToolIndex] = {
-                            ...newComponents[existingToolIndex],
-                            toolInstance: updatedTool
-                        };
-                        return newComponents;
-                    });
-                    return;
-                }
-            }
+      const agentResp = item as AgentResponse;
+      toolToAdd = {
+        type: "Agent",
+        agent: {
+          ref: agentResp.agent.metadata.name,
+          description: agentResp.agent.spec.description
         }
+      };
+    } else {
+      const component = item as Component<ToolConfig>;
+      toolToAdd = componentToAgentTool(component);
+      
+      // For MCP tools, check if we already have a tool from the same server
+      if (isMcpTool(toolToAdd) && toolToAdd.mcpServer) {
+        const existingToolIndex = localSelectedComponents.findIndex(entry => 
+          isMcpTool(entry.toolInstance) && 
+          entry.toolInstance.mcpServer?.toolServer === toolToAdd.mcpServer?.toolServer
+        );
+
+        if (existingToolIndex !== -1) {
+          // Add the new tool name to the existing MCP server entry
+          const existingTool = localSelectedComponents[existingToolIndex].toolInstance;
+          const updatedTool = handleMcpToolOperation(
+            existingTool,
+            'add',
+            toolToAdd.mcpServer.toolServer,
+            toolToAdd.mcpServer.toolNames
+          );
+          
+          if (updatedTool) {
+            setLocalSelectedComponents(prev => {
+              const newComponents = [...prev];
+              newComponents[existingToolIndex] = {
+                ...newComponents[existingToolIndex],
+                toolInstance: updatedTool
+              };
+              return newComponents;
+            });
+            return;
+          }
+        }
+      }
     }
 
     // If we get here, either it's not an MCP tool or we need to add a new entry
     if (actualSelectedCount + numEffectiveToolsInThisItem <= MAX_TOOLS_LIMIT) {
-        setLocalSelectedComponents(prev => [
-            ...prev,
-            {
-                originalItemIdentifier: originalItemInfo.identifier,
-                toolInstance: toolToAdd
-            }
-        ]);
+      setLocalSelectedComponents(prev => [
+        ...prev,
+        {
+          originalItemIdentifier: originalItemInfo.identifier,
+          toolInstance: toolToAdd
+        }
+      ]);
     } else {
-        console.warn(`Cannot add tool. Limit reached or will be exceeded. Current: ${actualSelectedCount}, Adding: ${numEffectiveToolsInThisItem}, Limit: ${MAX_TOOLS_LIMIT}`);
+      console.warn(`Cannot add tool. Limit reached or will be exceeded. Current: ${actualSelectedCount}, Adding: ${numEffectiveToolsInThisItem}, Limit: ${MAX_TOOLS_LIMIT}`);
     }
   };
 
@@ -556,4 +557,4 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       </DialogContent>
     </Dialog>
   );
-};
+}

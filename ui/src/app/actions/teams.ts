@@ -107,42 +107,34 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       systemMessage: agentFormData.systemPrompt,
       modelConfig: agentFormData.model.name || "",
       memory: agentFormData.memory,
-      tools: agentFormData.tools.map((tool) => {
-        // Convert to the proper Tool structure based on the tool type
-        if (isBuiltinTool(tool) && tool.builtin) {
-          return {
-            type: "Builtin",
-            builtin: {
-              name: tool.builtin.name,
-              config: tool.builtin.config ? processConfigObject(tool.builtin.config) : {},
-              label: tool.builtin.label,
-            },
-          } as Tool;
-        }
-        
-        if (isMcpTool(tool) && tool.mcpServer) {
-          return {
-            type: "McpServer",
-            mcpServer: {
-              toolServer: tool.mcpServer.toolServer,
-              toolNames: tool.mcpServer.toolNames,
-            },
-          } as Tool;
-        }
+      tools: (() => {
+        // First, group MCP tools by server
+        const mcpToolsByServer = new Map<string, string[]>();
+        const otherTools: Tool[] = [];
 
-        if (tool.agent) {
-          return {
-            type: "Agent",
-            agent: {
-              ref: tool.agent.ref
-            },
-          } as Tool;
-        }
-        
-        // Default case - shouldn't happen with proper type checking
-        console.warn("Unknown tool type:", tool);
-        return tool;
-      }),
+        agentFormData.tools.forEach((tool) => {
+          if (isMcpTool(tool) && tool.mcpServer) {
+            const serverName = tool.mcpServer.toolServer;
+            if (!mcpToolsByServer.has(serverName)) {
+              mcpToolsByServer.set(serverName, []);
+            }
+            mcpToolsByServer.get(serverName)?.push(...tool.mcpServer.toolNames);
+          } else {
+            otherTools.push(tool);
+          }
+        });
+
+        // Convert grouped MCP tools to Tool objects
+        const mcpTools: Tool[] = Array.from(mcpToolsByServer.entries()).map(([server, toolNames]) => ({
+          type: "McpServer",
+          mcpServer: {
+            toolServer: server,
+            toolNames: [...new Set(toolNames)], // Remove any duplicates
+          },
+        }));
+
+        return [...mcpTools, ...otherTools];
+      })(),
     },
   };
 }

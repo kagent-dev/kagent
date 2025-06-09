@@ -229,3 +229,38 @@ export const getToolCategory = (tool: Component<ToolConfig>) => {
   }
   return "other"; // Default category
 };
+
+export const handleMcpToolOperation = (
+  tool: Tool,
+  operation: 'add' | 'remove',
+  toolServer: string,
+  toolNames: string[]
+): Tool | null => {
+  if (!isMcpTool(tool) || !tool.mcpServer || tool.mcpServer.toolServer !== toolServer) {
+    return tool;
+  }
+
+  if (operation === 'add') {
+    return {
+      ...tool,
+      mcpServer: {
+        ...tool.mcpServer,
+        toolNames: [...new Set([...tool.mcpServer.toolNames, ...toolNames])]
+      }
+    };
+  } else if (operation === 'remove') {
+    const newToolNames = tool.mcpServer.toolNames.filter(name => !toolNames.includes(name));
+    if (newToolNames.length === 0) {
+      return null;
+    }
+    return {
+      ...tool,
+      mcpServer: {
+        ...tool.mcpServer,
+        toolNames: newToolNames
+      }
+    };
+  }
+
+  return tool;
+};
