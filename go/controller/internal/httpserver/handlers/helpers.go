@@ -144,7 +144,7 @@ func FlattenStructToMap(data interface{}, targetMap map[string]interface{}) {
 	}
 }
 
-func CreateSecret(kubeClient client.Client, name string, namespace string, data map[string]string) (*corev1.Secret, error) {
+func CreateSecret(ctx context.Context, kubeClient client.Client, name string, namespace string, data map[string]string, owner *metav1.OwnerReference) (*corev1.Secret, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -153,7 +153,11 @@ func CreateSecret(kubeClient client.Client, name string, namespace string, data 
 		StringData: data,
 	}
 
-	if err := kubeClient.Create(context.Background(), secret); err != nil {
+	if owner != nil {
+		secret.OwnerReferences = []metav1.OwnerReference{*owner}
+	}
+
+	if err := kubeClient.Create(ctx, secret); err != nil {
 		return nil, err
 	}
 	return secret, nil

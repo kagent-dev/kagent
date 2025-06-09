@@ -112,7 +112,17 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 	}
 
 	apiKey := req.APIKey
-	_, err = CreateSecret(h.KubeClient, memorySpec.APIKeySecretRef, common.GetResourceNamespace(), map[string]string{memorySpec.APIKeySecretKey: apiKey})
+	blockOwnerDeletion := true
+	controller := true
+	ownerRef := &metav1.OwnerReference{
+		APIVersion:         v1alpha1.GroupVersion.String(),
+		Kind:               "Memory",
+		Name:               req.Name,
+		UID:                existingMemory.UID,
+		BlockOwnerDeletion: &blockOwnerDeletion,
+		Controller:         &controller,
+	}
+	_, err = CreateSecret(r.Context(), h.KubeClient, memorySpec.APIKeySecretRef, common.GetResourceNamespace(), map[string]string{memorySpec.APIKeySecretKey: apiKey}, ownerRef)
 	if err != nil {
 		log.Error(err, "Failed to create memory API key secret")
 		w.RespondWithError(errors.NewInternalServerError("Failed to create memory API key secret", err))
