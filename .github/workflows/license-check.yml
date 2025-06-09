@@ -20,7 +20,7 @@ jobs:
           
       - name: Install license-lint
         run: |
-          go install istio.io/tools/cmd/license-lint@v1.26.1
+          go install istio.io/tools/cmd/license-lint@latest
           
       - name: Run Go license check
         run: |
