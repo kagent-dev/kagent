@@ -243,6 +243,15 @@ export function SelectToolsDialog({ open, onOpenChange, availableTools, selected
           );
           
           if (updatedTool) {
+            const delta = 
+              updatedTool.mcpServer!.toolNames.length - 
+              existingTool.mcpServer!.toolNames.length;
+
+            if (actualSelectedCount + delta > MAX_TOOLS_LIMIT) {
+              console.warn(`Cannot add tool - limit would be exceeded.`);
+              return;
+            }
+
             setLocalSelectedComponents(prev => {
               const newComponents = [...prev];
               newComponents[existingToolIndex] = {
@@ -254,6 +263,9 @@ export function SelectToolsDialog({ open, onOpenChange, availableTools, selected
             return;
           }
         }
+
+        
+        numEffectiveToolsInThisItem = toolToAdd.mcpServer.toolNames.length;
       }
     }
 
