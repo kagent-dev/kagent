@@ -214,6 +214,50 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		Spec: modelConfigSpec,
 	}
 
+	var providerConfigErr error
+	switch providerTypeEnum {
+	case v1alpha1.OpenAI:
+		if req.OpenAIParams != nil {
+			modelConfig.Spec.OpenAI = req.OpenAIParams
+			log.V(1).Info("Assigned OpenAI params to spec")
+		} else {
+			log.V(1).Info("No OpenAI params provided in create.")
+		}
+	case v1alpha1.Anthropic:
+		if req.AnthropicParams != nil {
+			modelConfig.Spec.Anthropic = req.AnthropicParams
+			log.V(1).Info("Assigned Anthropic params to spec")
+		} else {
+			log.V(1).Info("No Anthropic params provided in create.")
+		}
+	case v1alpha1.AzureOpenAI:
+		if req.AzureParams == nil {
+			providerConfigErr = fmt.Errorf("azureOpenAI parameters are required for AzureOpenAI provider")
+		} else {
+			if req.AzureParams.Endpoint == "" || req.AzureParams.APIVersion == "" {
+				providerConfigErr = fmt.Errorf("missing required AzureOpenAI parameters: azureEndpoint, apiVersion")
+			} else {
+				modelConfig.Spec.AzureOpenAI = req.AzureParams
+				log.V(1).Info("Assigned AzureOpenAI params to spec")
+			}
+		}
+	case v1alpha1.Ollama:
+		if req.OllamaParams != nil {
+			modelConfig.Spec.Ollama = req.OllamaParams
+			log.V(1).Info("Assigned Ollama params to spec")
+		} else {
+			log.V(1).Info("No Ollama params provided in create.")
+		}
+	default:
+		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
+	}
+
+	if providerConfigErr != nil {
+		log.Error(providerConfigErr, "Failed to assign provider config")
+		w.RespondWithError(errors.NewBadRequestError(providerConfigErr.Error(), providerConfigErr))
+		return
+	}
+
 	if err := h.KubeClient.Create(r.Context(), modelConfig); err != nil {
 		log.Error(err, "Failed to create model config")
 		w.RespondWithError(errors.NewInternalServerError("Failed to create model config", err))
