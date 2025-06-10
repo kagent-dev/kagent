@@ -445,7 +445,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		return nil, fmt.Errorf("no team config specified")
 	}
 
-	teamConfig.Label = team.Namespace + "/" + team.Name
+	teamConfig.Label = common.GetObjectRef(team)
 
 	return &autogen_client.Team{
 		Component: teamConfig,
@@ -535,13 +535,12 @@ func (a *apiTranslator) translateAssistantAgent(
 				tools = append(tools, autogenTool)
 			}
 		case tool.Agent != nil:
-			toolRef := ""
-			if toolNamespacedName, err := common.ParseRefString(tool.Agent.Ref, agent.Namespace); err != nil {
+			toolNamespacedName, err := common.ParseRefString(tool.Agent.Ref, agent.Namespace)
+			if err != nil {
 				return nil, err
-			} else {
-				toolRef = toolNamespacedName.String()
 			}
 
+			toolRef := toolNamespacedName.String()
 			agentRef := common.GetObjectRef(agent)
 
 			if toolRef == agentRef {
@@ -559,7 +558,7 @@ func (a *apiTranslator) translateAssistantAgent(
 			// Translate a nested tool
 			toolAgent := &v1alpha1.Agent{}
 
-			err := common.GetObject(
+			err = common.GetObject(
 				ctx,
 				a.kube,
 				toolAgent,

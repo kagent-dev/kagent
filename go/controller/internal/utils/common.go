@@ -14,14 +14,14 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// ResourceInfo represents a Kubernetes resource that can be associated with a ModelConfig.
+// ObjectWithModelConfig represents a Kubernetes resource that can be associated with a ModelConfig.
 // It extends client.Object to provide access to standard Kubernetes object metadata
 // while adding the ability to specify which ModelConfig should be used for the resource.
 // Implementers must provide a GetModelConfigName() method that returns either:
 // - An empty string: indicating the default ModelConfig should be used
 // - A name: indicating a ModelConfig in the same namespace as the resource
 // - A namespace/name reference: indicating a specific ModelConfig in a specific namespace
-type ResourceInfo interface {
+type ObjectWithModelConfig interface {
 	client.Object
 	GetModelConfigName() string
 }
@@ -156,7 +156,7 @@ func ParseRefString(ref string, parentNamespace string) (types.NamespacedName, e
 func GetModelConfig(
 	ctx context.Context,
 	kube client.Client,
-	resource ResourceInfo,
+	resource ObjectWithModelConfig,
 	defaultModelConfig types.NamespacedName,
 ) (*v1alpha1.ModelConfig, error) {
 	// Start with the default model config reference
@@ -197,10 +197,10 @@ func GetModelConfig(
 	return modelConfigObj, nil
 }
 
-// GetObject retrieves a Kubernetes resource by name and namespace.
-// The found resource is stored in the provided obj parameter.
-func GetObject(ctx context.Context, kube client.Client, obj client.Object, objName, objNamespace string) error {
-	ref, err := ParseRefString(objName, objNamespace)
+// GetObject fetches the Kubernetes resource identified by objRef into obj.
+// objRef may be given as "namespace/name" or just "name"; if the namespace is missing, defaultNamespace is applied
+func GetObject(ctx context.Context, kube client.Client, obj client.Object, objRef, defaultNamespace string) error {
+	ref, err := ParseRefString(objRef, defaultNamespace)
 	if err != nil {
 		return err
 	}

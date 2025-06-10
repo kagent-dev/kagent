@@ -19,7 +19,7 @@ import (
 
 type TeamResponse struct {
 	Id             int                    `json:"id"`
-	Agent          v1alpha1.Agent         `json:"agent"`
+	Agent          *v1alpha1.Agent        `json:"agent"`
 	Component      *api.Component         `json:"component"`
 	ModelProvider  v1alpha1.ModelProvider `json:"modelProvider"`
 	Model          string                 `json:"model"`
@@ -105,17 +105,11 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 		for _, tool := range team.Spec.Tools {
 			toolCopy := tool.DeepCopy()
 
-			if tool.Type == v1alpha1.ToolProviderType_Builtin {
-				if tool.Builtin != nil {
-					tools = append(tools, tool)
-				}
-				continue
-			}
-
 			switch toolCopy.Type {
 			case v1alpha1.ToolProviderType_Builtin:
 				if toolCopy.Builtin != nil {
 					tools = append(tools, toolCopy)
+					continue
 				}
 
 			case v1alpha1.ToolProviderType_Agent:
@@ -147,7 +141,7 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 
 		teamsWithID = append(teamsWithID, TeamResponse{
 			Id:             autogenTeam.Id,
-			Agent:          team,
+			Agent:          &team,
 			Component:      autogenTeam.Component,
 			ModelProvider:  modelConfig.Spec.Provider,
 			Model:          modelConfig.Spec.Model,
@@ -173,14 +167,15 @@ func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) 
 	}
 
 	if teamRequest.Namespace == "" {
-		teamRequest.Namespace = "default"
+		teamRequest.Namespace = common.GetResourceNamespace()
 	}
 	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
     if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid agent metadata", err))
 	}
-	if teamRef.Namespace == "default" {
-		log.V(4).Info("Namespace not provided in request. Creating in", teamRef.Namespace, "namespace")
+	if teamRef.Namespace == common.GetResourceNamespace() {
+		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
+			"namespace", teamRef.Namespace)
 	}
 
 	log = log.WithValues(
@@ -233,14 +228,15 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 	}
 
 	if teamRequest.Namespace == "" {
-		teamRequest.Namespace = "default"
+		teamRequest.Namespace = common.GetResourceNamespace()
 	}
 	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
     if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid agent metadata", err))
 	}
-	if teamRef.Namespace == "default" {
-		log.V(4).Info("Namespace not provided in request. Creating in", teamRef.Namespace, "namespace")
+	if teamRef.Namespace == common.GetResourceNamespace() {
+		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
+			"namespace", teamRef.Namespace)
 	}
 
 	log = log.WithValues(
@@ -386,17 +382,11 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	for _, tool := range team.Spec.Tools {
 		toolCopy := tool.DeepCopy()
 
-		if tool.Type == v1alpha1.ToolProviderType_Builtin {
-			if tool.Builtin != nil {
-				tools = append(tools, tool)
-			}
-			continue
-		}
-
 		switch toolCopy.Type {
 		case v1alpha1.ToolProviderType_Builtin:
 			if toolCopy.Builtin != nil {
 				tools = append(tools, toolCopy)
+				continue
 			}
 
 		case v1alpha1.ToolProviderType_Agent:
@@ -429,7 +419,7 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	// Create a new object that contains the Team information from Team and the ID from the autogenTeam
 	teamWithID := &TeamResponse{
 		Id:             autogenTeam.Id,
-		Agent:          *team,
+		Agent:          team,
 		Component:      autogenTeam.Component,
 		ModelProvider:  modelConfig.Spec.Provider,
 		Model:          modelConfig.Spec.Model,
