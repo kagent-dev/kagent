@@ -206,8 +206,12 @@ helm-agents:
 	helm package helm/agents/helm
 	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
 	helm package helm/agents/argo-rollouts
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-crd/Chart-template.yaml > helm/agents/cilium-crd/Chart.yaml
-	helm package helm/agents/cilium-crd
+	VERSION=$(VERSION) envsubst < helm/agents/cilium-policy/Chart-template.yaml > helm/agents/cilium-policy/Chart.yaml
+	helm package helm/agents/cilium-policy
+	VERSION=$(VERSION) envsubst < helm/agents/cilium-debug/Chart-template.yaml > helm/agents/cilium-debug/Chart.yaml
+	helm package helm/agents/cilium-debug
+	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
+	helm package helm/agents/cilium-manager
 
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents
@@ -266,7 +270,9 @@ helm-publish: helm-version
 	helm push promql-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
 	helm push observability-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
 	helm push argo-rollouts-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push cilium-crd-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push cilium-policy-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push cilium-manager-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push cilium-debug-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
 	helm push kgateway-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
 
 .PHONY: kagent-cli-install
