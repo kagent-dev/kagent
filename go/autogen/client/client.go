@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,7 +37,7 @@ type Client interface {
 	GetTool(provider string, userID string) (*Tool, error)
 	GetToolServer(serverID int, userID string) (*ToolServer, error)
 	GetToolServerByLabel(toolServerLabel string, userID string) (*ToolServer, error)
-	GetVersion() (string, error)
+	GetVersion(ctx context.Context) (string, error)
 	InvokeSession(sessionID int, userID string, task string) (*TeamResult, error)
 	InvokeSessionStream(sessionID int, userID string, task string) (<-chan *SseEvent, error)
 	InvokeTask(req *InvokeTaskRequest) (*InvokeTaskResult, error)
@@ -69,12 +70,12 @@ func New(baseURL string) Client {
 	}
 }
 
-func (c *client) GetVersion() (string, error) {
+func (c *client) GetVersion(ctx context.Context) (string, error) {
 	var result struct {
 		Version string `json:"version"`
 	}
 
-	err := c.doRequest("GET", "/version", nil, &result)
+	err := c.doRequest(context.Background(), "GET", "/version", nil, &result)
 	if err != nil {
 		return "", err
 	}
@@ -82,7 +83,7 @@ func (c *client) GetVersion() (string, error) {
 	return result.Version, nil
 }
 
-func (c *client) startRequest(method, path string, body interface{}) (*http.Response, error) {
+func (c *client) startRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
 	var bodyReader *bytes.Reader
 	if body != nil {
 		bodyBytes, err := json.Marshal(body)
@@ -102,9 +103,9 @@ func (c *client) startRequest(method, path string, body interface{}) (*http.Resp
 	var req *http.Request
 	var err error
 	if bodyReader != nil {
-		req, err = http.NewRequest(method, url, bodyReader)
+		req, err = http.NewRequestWithContext(ctx, method, url, bodyReader)
 	} else {
-		req, err = http.NewRequest(method, url, nil)
+		req, err = http.NewRequestWithContext(ctx, method, url, nil)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
@@ -115,8 +116,8 @@ func (c *client) startRequest(method, path string, body interface{}) (*http.Resp
 	return c.HTTPClient.Do(req)
 }
 
-func (c *client) doRequest(method, path string, body interface{}, result interface{}) error {
-	resp, err := c.startRequest(method, path, body)
+func (c *client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
+	resp, err := c.startRequest(ctx, method, path, body)
 	if err != nil {
 		return fmt.Errorf("error making request: %w", err)
 	}

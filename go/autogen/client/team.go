@@ -1,22 +1,23 @@
 package client
 
 import (
+	"context"
 	"fmt"
 )
 
 func (c *client) ListTeams(userID string) ([]*Team, error) {
 	var teams []*Team
-	err := c.doRequest("GET", fmt.Sprintf("/teams/?user_id=%s", userID), nil, &teams)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/teams/?user_id=%s", userID), nil, &teams)
 	return teams, err
 }
 
 func (c *client) CreateTeam(team *Team) error {
-	return c.doRequest("POST", "/teams/", team, team)
+	return c.doRequest(context.Background(), "POST", "/teams/", team, team)
 }
 
 func (c *client) GetTeamByID(teamID int, userID string) (*Team, error) {
 	var team *Team
-	err := c.doRequest("GET", fmt.Sprintf("/teams/%d?user_id=%s", teamID, userID), nil, &team)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/teams/%d?user_id=%s", teamID, userID), nil, &team)
 	return team, err
 }
 
@@ -36,5 +37,5 @@ func (c *client) GetTeam(teamLabel string, userID string) (*Team, error) {
 }
 
 func (c *client) DeleteTeam(teamID int, userID string) error {
-	return c.doRequest("DELETE", fmt.Sprintf("/teams/%d?user_id=%s", teamID, userID), nil, nil)
+	return c.doRequest(context.Background(), "DELETE", fmt.Sprintf("/teams/%d?user_id=%s", teamID, userID), nil, nil)
 }
