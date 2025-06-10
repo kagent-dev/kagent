@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -26,12 +27,12 @@ type A2AReconciler interface {
 
 type a2aReconciler struct {
 	a2aTranslator AutogenA2ATranslator
-	autogenClient *autogen_client.Client
+	autogenClient autogen_client.Client
 	a2aHandler    A2AHandlerMux
 }
 
 func NewAutogenReconciler(
-	autogenClient *autogen_client.Client,
+	autogenClient autogen_client.Client,
 	a2aHandler A2AHandlerMux,
 	a2aBaseUrl string,
 ) A2AReconciler {

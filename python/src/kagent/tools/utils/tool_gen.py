@@ -13,7 +13,8 @@ from typing import Any, Literal, Optional, Type, Union
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-logging.basicConfig(level=logging.INFO)
+LOGLEVEL = os.getenv("LOGLEVEL", "INFO").upper()
+logging.basicConfig(level=LOGLEVEL)
 
 TOOL_DIRS = ["istio", "k8s", "prometheus", "docs", "helm", "argo", "grafana", "datetime", "cilium"]
 

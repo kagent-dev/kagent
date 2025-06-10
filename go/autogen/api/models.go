@@ -133,3 +133,46 @@ func (c *OllamaClientConfiguration) ToConfig() (map[string]interface{}, error) {
 func (c *OllamaClientConfiguration) FromConfig(config map[string]interface{}) error {
 	return fromConfig(c, config)
 }
+
+type BaseVertexAIConfig struct {
+	Model       string                 `json:"model"`
+	ProjectID   string                 `json:"project"`
+	Location    string                 `json:"location"`
+	Credentials map[string]interface{} `json:"credentials,omitempty"`
+	ModelInfo   *ModelInfo             `json:"model_info,omitempty"`
+
+	Temperature   *float64  `json:"temperature,omitempty"`
+	TopP          *float64  `json:"topP,omitempty"`
+	TopK          *float64  `json:"topK,omitempty"`
+	StopSequences *[]string `json:"stopSequences,omitempty"`
+}
+
+type GeminiVertexAIConfig struct {
+	BaseVertexAIConfig
+
+	MaxOutputTokens  *int    `json:"max_output_tokens,omitempty"`
+	CandidateCount   *int    `json:"candidate_count,omitempty"`
+	ResponseMimeType *string `json:"response_mime_type,omitempty"`
+}
+
+type AnthropicVertexAIConfig struct {
+	BaseVertexAIConfig
+
+	MaxTokens *int `json:"max_tokens,omitempty"`
+}
+
+func (c *GeminiVertexAIConfig) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *GeminiVertexAIConfig) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
+
+func (c *AnthropicVertexAIConfig) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *AnthropicVertexAIConfig) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
