@@ -71,13 +71,13 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 
 		require.NoError(t, err)
 		require.NotNil(t, result)
-		assert.Equal(t, "test-agent", result.AgentCard.Name)
+		assert.Equal(t, "test-namespace/test-agent", result.AgentCard.Name)
 		assert.Equal(t, "Test agent", *result.AgentCard.Description)
 		assert.Equal(t, "http://localhost:8083/test-namespace/test-agent", result.AgentCard.URL)
 		assert.Equal(t, "1", result.AgentCard.Version)
@@ -103,7 +103,7 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 
@@ -128,12 +128,12 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no skills found for agent test-agent")
+		assert.Contains(t, err.Error(), "no skills found for agent test-namespace/test-agent")
 		assert.Nil(t, result)
 	})
 }
@@ -178,7 +178,7 @@ func TestTaskHandlerWithSession(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -216,7 +216,7 @@ func TestTaskHandlerWithSession(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -259,7 +259,7 @@ func TestTaskHandlerWithSession(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -300,7 +300,7 @@ func TestTaskHandlerWithoutSession(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -336,7 +336,7 @@ func TestTaskHandlerWithoutSession(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -376,7 +376,7 @@ func TestTaskHandlerMessageContentExtraction(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -411,7 +411,7 @@ func TestTaskHandlerMessageContentExtraction(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -446,7 +446,7 @@ func TestTaskHandlerMessageContentExtraction(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -488,7 +488,7 @@ func TestTaskHandlerErrorHandling(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -530,7 +530,7 @@ func TestTaskHandlerErrorHandling(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
@@ -568,7 +568,7 @@ func TestTaskHandlerErrorHandling(t *testing.T) {
 			},
 		}
 
-		autogenTeam := createMockAutogenTeam(123, "test-team")
+		autogenTeam := createMockAutogenTeam(123, common.GetObjectRef(agent))
 
 		result, err := translator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 		require.NoError(t, err)
