@@ -4,23 +4,23 @@ import (
 	"fmt"
 )
 
-func (c *Client) ListTeams(userID string) ([]*Team, error) {
+func (c *client) ListTeams(userID string) ([]*Team, error) {
 	var teams []*Team
 	err := c.doRequest("GET", fmt.Sprintf("/teams/?user_id=%s", userID), nil, &teams)
 	return teams, err
 }
 
-func (c *Client) CreateTeam(team *Team) error {
+func (c *client) CreateTeam(team *Team) error {
 	return c.doRequest("POST", "/teams/", team, team)
 }
 
-func (c *Client) GetTeamByID(teamID int, userID string) (*Team, error) {
+func (c *client) GetTeamByID(teamID int, userID string) (*Team, error) {
 	var team *Team
 	err := c.doRequest("GET", fmt.Sprintf("/teams/%d?user_id=%s", teamID, userID), nil, &team)
 	return team, err
 }
 
-func (c *Client) GetTeam(teamLabel string, userID string) (*Team, error) {
+func (c *client) GetTeam(teamLabel string, userID string) (*Team, error) {
 	allTeams, err := c.ListTeams(userID)
 	if err != nil {
 		return nil, err
@@ -35,6 +35,6 @@ func (c *Client) GetTeam(teamLabel string, userID string) (*Team, error) {
 	return nil, nil
 }
 
-func (c *Client) DeleteTeam(teamID int, userID string) error {
+func (c *client) DeleteTeam(teamID int, userID string) error {
 	return c.doRequest("DELETE", fmt.Sprintf("/teams/%d?user_id=%s", teamID, userID), nil, nil)
 }

@@ -134,37 +134,81 @@ func main() {
 		Short: "Get a kagent resource",
 		Long:  `Get a kagent resource`,
 		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Fprintf(os.Stderr, "No resource type provided\n\n")
+			cmd.Help()
+			os.Exit(1)
+		},
+	}
+
+	getSessionCmd := &cobra.Command{
+		Use:   "session [session_id]",
+		Short: "Get a session or list all sessions",
+		Long:  `Get a session by ID or list all sessions`,
+		Run: func(cmd *cobra.Command, args []string) {
 			client := autogen_client.New(cfg.APIURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
 			}
-			resourceType := ""
 			resourceName := ""
 			if len(args) > 0 {
-				resourceType = args[0]
-			} else {
-				fmt.Fprintf(os.Stderr, "No resource type provided\n")
-				os.Exit(1)
+				resourceName = args[0]
 			}
-			if len(args) > 1 {
-				resourceName = args[1]
-			}
-			switch strings.TrimSuffix(strings.ToLower(resourceType), "s") {
-			case "session":
-				cli.GetSessionCmd(cfg, resourceName)
-			case "run":
-				cli.GetRunCmd(cfg, resourceName)
-			case "agent":
-				cli.GetAgentCmd(cfg, resourceName)
-			case "tool":
-				cli.GetToolCmd(cfg)
-			default:
-				fmt.Fprintf(os.Stderr, "Invalid resource type: %s\n", resourceType)
-				os.Exit(1)
-			}
+			cli.GetSessionCmd(cfg, resourceName)
 		},
 	}
+
+	getRunCmd := &cobra.Command{
+		Use:   "run [run_id]",
+		Short: "Get a run or list all runs",
+		Long:  `Get a run by ID or list all runs`,
+		Run: func(cmd *cobra.Command, args []string) {
+			client := autogen_client.New(cfg.APIURL)
+			if err := cli.CheckServerConnection(client); err != nil {
+				pf := cli.NewPortForward(ctx, cfg)
+				defer pf.Stop()
+			}
+			resourceName := ""
+			if len(args) > 0 {
+				resourceName = args[0]
+			}
+			cli.GetRunCmd(cfg, resourceName)
+		},
+	}
+
+	getAgentCmd := &cobra.Command{
+		Use:   "agent [agent_name]",
+		Short: "Get an agent or list all agents",
+		Long:  `Get an agent by name or list all agents`,
+		Run: func(cmd *cobra.Command, args []string) {
+			client := autogen_client.New(cfg.APIURL)
+			if err := cli.CheckServerConnection(client); err != nil {
+				pf := cli.NewPortForward(ctx, cfg)
+				defer pf.Stop()
+			}
+			resourceName := ""
+			if len(args) > 0 {
+				resourceName = args[0]
+			}
+			cli.GetAgentCmd(cfg, resourceName)
+		},
+	}
+
+	getToolCmd := &cobra.Command{
+		Use:   "tool",
+		Short: "Get tools",
+		Long:  `List all available tools`,
+		Run: func(cmd *cobra.Command, args []string) {
+			client := autogen_client.New(cfg.APIURL)
+			if err := cli.CheckServerConnection(client); err != nil {
+				pf := cli.NewPortForward(ctx, cfg)
+				defer pf.Stop()
+			}
+			cli.GetToolCmd(cfg)
+		},
+	}
+
+	getCmd.AddCommand(getSessionCmd, getRunCmd, getAgentCmd, getToolCmd)
 
 	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd)
 

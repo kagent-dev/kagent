@@ -14,7 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
-func CheckServerConnection(client *autogen_client.Client) error {
+func CheckServerConnection(client autogen_client.Client) error {
 	// Only check if we have a valid client
 	if client == nil {
 		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
