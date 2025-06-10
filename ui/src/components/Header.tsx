@@ -76,13 +76,7 @@ export function Header() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/tools/new" className="gap-2 cursor-pointer w-full">
-                    <Wrench className="h-4 w-4" />
-                    New Tool
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
+                  <Link href="/servers" className="gap-2 cursor-pointer w-full">
                     <Server className="h-4 w-4" />
                     New Tool Server
                   </Link>
@@ -228,13 +222,7 @@ export function Header() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/tools/new" className="gap-2 cursor-pointer w-full">
-                      <Wrench className="h-4 w-4" />
-                      New Tool
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
+                    <Link href="/servers" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
                       New Tool Server
                     </Link>
