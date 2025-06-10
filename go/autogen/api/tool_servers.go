@@ -4,6 +4,7 @@ type ToolServerConfig struct {
 	//ONEOF
 	*StdioMcpServerConfig
 	*SseMcpServerConfig
+	*StreamableHttpServerConfig
 }
 
 func (c *ToolServerConfig) ToConfig() (map[string]interface{}, error) {
@@ -15,16 +16,22 @@ func (c *ToolServerConfig) FromConfig(config map[string]interface{}) error {
 }
 
 type StdioMcpServerConfig struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
+	Command            string            `json:"command"`
+	Args               []string          `json:"args,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
+	ReadTimeoutSeconds uint8             `json:"read_timeout_seconds,omitempty"`
 }
 
 type SseMcpServerConfig struct {
 	URL            string                 `json:"url"`
 	Headers        map[string]interface{} `json:"headers,omitempty"`
-	Timeout        int                    `json:"timeout,omitempty"`
-	SseReadTimeout int                    `json:"sse_read_timeout,omitempty"`
+	Timeout        *float64               `json:"timeout,omitempty"`
+	SseReadTimeout *float64               `json:"sse_read_timeout,omitempty"`
+}
+
+type StreamableHttpServerConfig struct {
+	SseMcpServerConfig `json:",inline"`
+	TerminateOnClose   bool `json:"terminate_on_close,omitempty"`
 }
 
 type MCPToolConfig struct {

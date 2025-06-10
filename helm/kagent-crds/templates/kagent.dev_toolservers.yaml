@@ -84,7 +84,7 @@ spec:
                             rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
                               && has(self.valueFrom))
                         type: array
-                      sse_read_timeout:
+                      sseReadTimeout:
                         type: string
                       timeout:
                         type: string
@@ -142,8 +142,64 @@ spec:
                             rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
                               && has(self.valueFrom))
                         type: array
+                      readTimeoutSeconds:
+                        default: 10
+                        description: Default value is 10 seconds
+                        type: integer
                     required:
                     - command
+                    type: object
+                  streamableHttp:
+                    properties:
+                      headers:
+                        x-kubernetes-preserve-unknown-fields: true
+                      headersFrom:
+                        items:
+                          description: ValueRef represents a configuration value
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                                valueRef:
+                                  description: |-
+                                    The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+                                    or a reference to a resource in a different namespace in the form "namespace/name".
+                                    If namespace is not provided, the default namespace is used.
+                                  type: string
+                              required:
+                              - key
+                              - type
+                              type: object
+                          required:
+                          - name
+                          type: object
+                          x-kubernetes-validations:
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
+                        type: array
+                      sseReadTimeout:
+                        type: string
+                      terminateOnClose:
+                        type: boolean
+                      timeout:
+                        type: string
+                      url:
+                        type: string
+                    required:
+                    - url
                     type: object
                 type: object
               description:
