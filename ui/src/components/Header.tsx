@@ -28,16 +28,16 @@ export function Header() {
   };
 
   return (
-    <nav className="py-4 md:py-8 border-b bg-background z-50 relative">
+    <nav className="py-4 md:py-8 border-b">
       <div className="max-w-6xl mx-auto px-4 md:px-6">
-        <div className="flex justify-between items-center min-h-[3.5rem] md:min-h-[4.5rem]">
+        <div className="flex justify-between items-center">
           <Link href="/">
             <KAgentLogoWithText className="h-5" />
           </Link>
           
           {/* Mobile menu button */}
           <button 
-            className="md:hidden p-2 focus:outline-none z-50 relative"
+            className="md:hidden p-2 focus:outline-none"
             onClick={toggleMenu}
             aria-label="Toggle menu"
           >
@@ -52,7 +52,6 @@ export function Header() {
                 Home
               </Link>
             </Button>
-
 
             {/* Create Dropdown */}
             <DropdownMenu>
@@ -77,7 +76,13 @@ export function Header() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/servers" className="gap-2 cursor-pointer w-full">
+                  <Link href="/tools/new" className="gap-2 cursor-pointer w-full">
+                    <Wrench className="h-4 w-4" />
+                    New Tool
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
                     <Server className="h-4 w-4" />
                     New Tool Server
                   </Link>
@@ -133,7 +138,6 @@ export function Header() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-
             {/* Other Links */}
             <Button variant="link" className="text-secondary-foreground" asChild>
               <Link href="https://github.com/kagent-dev/kagent" target="_blank">Contribute</Link>
@@ -145,136 +149,118 @@ export function Header() {
             <ThemeToggle />
           </div>
         </div>
-        
-        {/* Mobile menu and overlay */}
+
+        {/* Mobile menu */}
         {isMenuOpen && (
-          <>
-            {/* Overlay to prevent background interaction */}
-            <div className="fixed inset-0 bg-black/30 z-40 md:hidden animate-in fade-in" onClick={toggleMenu} aria-hidden="true" />
-            <div 
-              className="md:hidden fixed left-0 right-0 top-[60px] sm:top-[72px] z-50 bg-background shadow-lg rounded-b-lg animate-in fade-in slide-in-from-top-4 duration-200 mx-auto max-w-2xl"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Mobile navigation menu"
-              style={{ maxHeight: 'calc(100dvh - 60px)', overflowY: 'auto' }}
-            >
-              <div className="flex flex-col divide-y divide-border">
-                {/* Mobile Home Link */}
-                <Button variant="ghost" className="text-secondary-foreground justify-start px-4 py-3 gap-2 w-full hover:bg-accent" asChild>
-                  <Link href="/" onClick={handleMobileLinkClick}>
-                    <HomeIcon className="h-4 w-4" />
-                    Home
-                  </Link>
-                </Button>
+          <div className="md:hidden pt-4 pb-2 animate-in fade-in slide-in-from-top duration-300">
+            <div className="flex flex-col space-y-1">
+              {/* Mobile Home Link */}
+              <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-2" asChild>
+                <Link href="/" onClick={handleMobileLinkClick}>
+                  <HomeIcon className="h-4 w-4" />
+                  Home
+                </Link>
+              </Button>
 
-                {/* Mobile View Dropdown */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="text-secondary-foreground justify-start px-4 py-3 gap-1 w-full hover:bg-accent">
-                      <Eye className="h-4 w-4" />
-                      View
-                      <ChevronDown className="h-4 w-4 ml-auto" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent 
-                    align="start" 
-                    className="w-[calc(100%-2rem)] mx-4 mt-1 rounded-lg border shadow-lg"
-                    sideOffset={4}
-                  >
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/agents" className="gap-2 cursor-pointer w-full py-2">
-                        <KagentLogo className="h-4 w-4 text-primary" />
-                        My Agents
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/models" className="gap-2 cursor-pointer w-full py-2">
-                        <Brain className="h-4 w-4" />
-                        Models
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/tools" className="gap-2 cursor-pointer w-full py-2">
-                        <Hammer className="h-4 w-4" />
-                        Tools
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/servers" className="gap-2 cursor-pointer w-full py-2">
-                        <Server className="h-4 w-4" />
-                        Tool Servers
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/memories" className="gap-2 cursor-pointer w-full py-2">
-                        <Database className="h-4 w-4" />
-                        Memory
-                      </Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              {/* Mobile View Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-1 w-full">
+                    <Eye className="h-4 w-4" />
+                    View
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/agents" className="gap-2 cursor-pointer w-full">
+                      <KagentLogo className="h-4 w-4 text-primary" />
+                      My Agents
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/models" className="gap-2 cursor-pointer w-full">
+                      <Brain className="h-4 w-4" />
+                      Models
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/tools" className="gap-2 cursor-pointer w-full">
+                      <Hammer className="h-4 w-4" />
+                      Tools
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/servers" className="gap-2 cursor-pointer w-full">
+                      <Server className="h-4 w-4" />
+                      Tool Servers
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/memories" className="gap-2 cursor-pointer w-full">
+                      <Database className="h-4 w-4" />
+                      Memory
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-                {/* Mobile Create Dropdown */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="text-secondary-foreground justify-start px-4 py-3 gap-1 w-full hover:bg-accent">
-                      <Plus className="h-4 w-4" />
-                      Create
-                      <ChevronDown className="h-4 w-4 ml-auto" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent 
-                    align="start" 
-                    className="w-[calc(100%-2rem)] mx-4 mt-1 rounded-lg border shadow-lg"
-                    sideOffset={4}
-                  >
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/agents/new" className="gap-2 cursor-pointer w-full py-2">
-                        <KagentLogo className="h-4 w-4 text-primary" />
-                        New Agent
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/models/new" className="gap-2 cursor-pointer w-full py-2">
-                        <Brain className="h-4 w-4" />
-                        New Model
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/tools/new" className="gap-2 cursor-pointer w-full py-2">
-                        <Wrench className="h-4 w-4" />
-                        New Tool
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/servers/new" className="gap-2 cursor-pointer w-full py-2">
-                        <Server className="h-4 w-4" />
-                        New Tool Server
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/memories/new" className="gap-2 cursor-pointer w-full py-2">
-                        <Database className="h-4 w-4" />
-                        New Memory
-                      </Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                
-                {/* Mobile Other Links */}
-                <Button variant="ghost" className="text-secondary-foreground justify-start px-4 py-3 hover:bg-accent" asChild>
-                  <Link href="https://github.com/kagent-dev/kagent" target="_blank" onClick={handleMobileLinkClick}>Contribute</Link>
-                </Button>
-                <Button variant="ghost" className="text-secondary-foreground justify-start px-4 py-3 hover:bg-accent" asChild>
-                  <Link href="https://discord.gg/Fu3k65f2k3" target="_blank" onClick={handleMobileLinkClick}>Community</Link>
-                </Button>
+              {/* Mobile Create Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-1 w-full">
+                    <Plus className="h-4 w-4" />
+                    Create
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/agents/new" className="gap-2 cursor-pointer w-full">
+                      <KagentLogo className="h-4 w-4 text-primary" />
+                      New Agent
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/models/new" className="gap-2 cursor-pointer w-full">
+                      <Brain className="h-4 w-4" />
+                      New Model
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/tools/new" className="gap-2 cursor-pointer w-full">
+                      <Wrench className="h-4 w-4" />
+                      New Tool
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
+                      <Server className="h-4 w-4" />
+                      New Tool Server
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/memories/new" className="gap-2 cursor-pointer w-full">
+                      <Database className="h-4 w-4" />
+                      New Memory
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-                <div className="flex items-center justify-end p-4">
-                  <ThemeToggle />
-                </div>
+              {/* Mobile Other Links */}
+              <Button variant="ghost" className="text-secondary-foreground justify-start px-1" asChild>
+                <Link href="https://github.com/kagent-dev/kagent" target="_blank" onClick={handleMobileLinkClick}>Contribute</Link>
+              </Button>
+              <Button variant="ghost" className="text-secondary-foreground justify-start px-1" asChild>
+                <Link href="https://discord.gg/Fu3k65f2k3" target="_blank" onClick={handleMobileLinkClick}>Community</Link>
+              </Button>
+
+              <div className="flex items-center justify-end py-2">
+                <ThemeToggle />
               </div>
             </div>
-          </>
+          </div>
         )}
       </div>
     </nav>
