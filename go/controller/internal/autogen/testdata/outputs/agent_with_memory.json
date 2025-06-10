@@ -55,7 +55,7 @@
               "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
               "version": 1
             },
-            "name": "agent_with_memory",
+            "name": "test__NS__agent_with_memory",
             "reflect_on_tool_use": false,
             "system_message": "You are an assistant with access to long-term memory.",
             "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
@@ -71,7 +71,7 @@
         "component_type": "termination",
         "component_version": 0,
         "config": {
-          "source": "agent_with_memory"
+          "source": "test__NS__agent_with_memory"
         },
         "description": "",
         "label": "",
@@ -80,7 +80,7 @@
       }
     },
     "description": "An agent with vector memory",
-    "label": "agent-with-memory",
+    "label": "test/agent-with-memory",
     "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
     "version": 1
   },

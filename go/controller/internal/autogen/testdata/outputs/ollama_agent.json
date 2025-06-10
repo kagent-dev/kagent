@@ -49,7 +49,7 @@
               "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
               "version": 1
             },
-            "name": "ollama_agent",
+            "name": "test__NS__ollama_agent",
             "reflect_on_tool_use": false,
             "system_message": "You are a helpful AI assistant running locally via Ollama.",
             "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
@@ -65,7 +65,7 @@
         "component_type": "termination",
         "component_version": 0,
         "config": {
-          "source": "ollama_agent"
+          "source": "test__NS__ollama_agent"
         },
         "description": "",
         "label": "",
@@ -74,7 +74,7 @@
       }
     },
     "description": "An agent using Ollama local model",
-    "label": "ollama-agent",
+    "label": "test/ollama-agent",
     "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
     "version": 1
   },

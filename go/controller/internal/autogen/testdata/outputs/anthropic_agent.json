@@ -35,7 +35,7 @@
               "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
               "version": 1
             },
-            "name": "anthropic_agent",
+            "name": "test__NS__anthropic_agent",
             "reflect_on_tool_use": false,
             "system_message": "You are Claude, an AI assistant created by Anthropic.",
             "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
@@ -51,7 +51,7 @@
         "component_type": "termination",
         "component_version": 0,
         "config": {
-          "source": "anthropic_agent"
+          "source": "test__NS__anthropic_agent"
         },
         "description": "",
         "label": "",
@@ -60,7 +60,7 @@
       }
     },
     "description": "An agent using Anthropic Claude",
-    "label": "anthropic-agent",
+    "label": "test/anthropic-agent",
     "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
     "version": 1
   },

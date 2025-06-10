@@ -36,7 +36,7 @@
               "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
               "version": 1
             },
-            "name": "agent_with_tools",
+            "name": "test__NS__agent_with_tools",
             "reflect_on_tool_use": false,
             "system_message": "You are a helpful assistant with access to tools.",
             "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
@@ -90,7 +90,7 @@
         "component_type": "termination",
         "component_version": 0,
         "config": {
-          "source": "agent_with_tools"
+          "source": "test__NS__agent_with_tools"
         },
         "description": "",
         "label": "",
@@ -99,7 +99,7 @@
       }
     },
     "description": "An agent with builtin tools",
-    "label": "agent-with-tools",
+    "label": "test/agent-with-tools",
     "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
     "version": 1
   },
