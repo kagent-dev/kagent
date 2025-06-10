@@ -10,19 +10,21 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/autogen/api"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
-	reconcileLog = ctrl.Log.WithName("reconcile")
+	reconcileLog = ctrl.Log.WithName("reconciler")
 )
 
 type AutogenReconciler interface {
@@ -35,10 +37,11 @@ type AutogenReconciler interface {
 }
 
 type autogenReconciler struct {
-	translator ApiTranslator
+	autogenTranslator ApiTranslator
+	a2aReconciler     a2a.A2AReconciler
 
 	kube          client.Client
-	autogenClient *autogen_client.Client
+	autogenClient autogen_client.Client
 
 	defaultModelConfig types.NamespacedName
 	upsertLock         sync.Mutex
@@ -47,14 +50,16 @@ type autogenReconciler struct {
 func NewAutogenReconciler(
 	translator ApiTranslator,
 	kube client.Client,
-	autogenClient *autogen_client.Client,
+	autogenClient autogen_client.Client,
 	defaultModelConfig types.NamespacedName,
+	a2aReconciler a2a.A2AReconciler,
 ) AutogenReconciler {
 	return &autogenReconciler{
-		translator:         translator,
+		autogenTranslator:  translator,
 		kube:               kube,
 		autogenClient:      autogenClient,
 		defaultModelConfig: defaultModelConfig,
+		a2aReconciler:      a2aReconciler,
 	}
 }
 
@@ -65,7 +70,7 @@ func (a *autogenReconciler) ReconcileAutogenAgent(ctx context.Context, req ctrl.
 
 	agent := &v1alpha1.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
-		if errors.IsNotFound(err) {
+		if k8s_errors.IsNotFound(err) {
 			return a.handleAgentDeletion(req)
 		}
 
@@ -89,9 +94,12 @@ func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
 	// 	"agents", agents)
 	// }
 
+	// remove a2a handler if it exists
+	a.a2aReconciler.ReconcileAutogenAgentDeletion(req.Namespace, req.Name)
+
 	// TODO(sbx0r): temporary mock on GlobalUserID.
 	//              This block will be removed after resolving previous TODO
-	team, err := a.autogenClient.GetTeam(req.Name, GlobalUserID)
+	team, err := a.autogenClient.GetTeam(req.Name, common.GetGlobalUserID())
 	if err != nil {
 		return fmt.Errorf("failed to get agent on agent deletion %s/%s: %w",
 			req.Namespace, req.Name, err)
@@ -300,7 +308,7 @@ func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req 
 	toolServer := &v1alpha1.ToolServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, toolServer); err != nil {
 		// if the tool server is not found, we can ignore it
-		if errors.IsNotFound(err) {
+		if k8s_errors.IsNotFound(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to get tool server %s: %v", req.Name, err)
@@ -431,7 +439,7 @@ func (a *autogenReconciler) reconcileMemoryStatus(ctx context.Context, memory *v
 func (a *autogenReconciler) reconcileTeams(ctx context.Context, teams ...*v1alpha1.Team) error {
 	errs := map[types.NamespacedName]error{}
 	for _, team := range teams {
-		autogenTeam, err := a.translator.TranslateGroupChatForTeam(ctx, team)
+		autogenTeam, err := a.autogenTranslator.TranslateGroupChatForTeam(ctx, team)
 		if err != nil {
 			errs[types.NamespacedName{Name: team.Name, Namespace: team.Namespace}] = fmt.Errorf("failed to translate team %s: %v", team.Name, err)
 			continue
@@ -452,9 +460,13 @@ func (a *autogenReconciler) reconcileTeams(ctx context.Context, teams ...*v1alph
 func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1alpha1.Agent) error {
 	errs := map[types.NamespacedName]error{}
 	for _, agent := range agents {
-		autogenTeam, err := a.translator.TranslateGroupChatForAgent(ctx, agent)
+		autogenTeam, err := a.autogenTranslator.TranslateGroupChatForAgent(ctx, agent)
 		if err != nil {
 			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf("failed to translate agent %s: %v", agent.Name, err)
+			continue
+		}
+		if err := a.reconcileA2A(ctx, autogenTeam, agent); err != nil {
+			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf("failed to reconcile A2A for agent %s: %v", agent.Name, err)
 			continue
 		}
 		if err := a.upsertTeam(autogenTeam); err != nil {
@@ -471,7 +483,7 @@ func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1al
 }
 
 func (a *autogenReconciler) reconcileToolServer(ctx context.Context, server *v1alpha1.ToolServer) (int, error) {
-	toolServer, err := a.translator.TranslateToolServer(ctx, server)
+	toolServer, err := a.autogenTranslator.TranslateToolServer(ctx, server)
 	if err != nil {
 		return 0, fmt.Errorf("failed to translate tool server %s: %v", server.Name, err)
 	}
@@ -500,7 +512,7 @@ func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
 	}
 
 	// delete if team exists
-	existingTeam, err := a.autogenClient.GetTeam(team.Component.Label, GlobalUserID)
+	existingTeam, err := a.autogenClient.GetTeam(team.Component.Label, common.GetGlobalUserID())
 	if err != nil {
 		return fmt.Errorf("failed to get existing team %s: %v", team.Component.Label, err)
 	}
@@ -517,28 +529,28 @@ func (a *autogenReconciler) upsertToolServer(toolServer *autogen_client.ToolServ
 	defer a.upsertLock.Unlock()
 
 	// delete if toolServer exists
-	existingToolServer, err := a.autogenClient.GetToolServerByLabel(toolServer.Component.Label, GlobalUserID)
+	existingToolServer, err := a.autogenClient.GetToolServerByLabel(toolServer.Component.Label, common.GetGlobalUserID())
 	if err != nil && !strings.Contains(err.Error(), "not found") {
 		return 0, fmt.Errorf("failed to get existing toolServer %s: %v", toolServer.Component.Label, err)
 	}
 	if existingToolServer != nil {
 		toolServer.Id = existingToolServer.Id
-		err = a.autogenClient.UpdateToolServer(toolServer, GlobalUserID)
+		err = a.autogenClient.UpdateToolServer(toolServer, common.GetGlobalUserID())
 		if err != nil {
 			return 0, fmt.Errorf("failed to delete existing toolServer %s: %v", toolServer.Component.Label, err)
 		}
 	} else {
-		existingToolServer, err = a.autogenClient.CreateToolServer(toolServer, GlobalUserID)
+		existingToolServer, err = a.autogenClient.CreateToolServer(toolServer, common.GetGlobalUserID())
 		if err != nil {
 			return 0, fmt.Errorf("failed to create toolServer %s: %v", toolServer.Component.Label, err)
 		}
-		existingToolServer, err = a.autogenClient.GetToolServerByLabel(toolServer.Component.Label, GlobalUserID)
+		existingToolServer, err = a.autogenClient.GetToolServerByLabel(toolServer.Component.Label, common.GetGlobalUserID())
 		if err != nil {
 			return 0, fmt.Errorf("failed to get existing toolServer %s: %v", toolServer.Component.Label, err)
 		}
 	}
 
-	err = a.autogenClient.RefreshToolServer(existingToolServer.Id, GlobalUserID)
+	err = a.autogenClient.RefreshToolServer(existingToolServer.Id, common.GetGlobalUserID())
 	if err != nil {
 		return 0, fmt.Errorf("failed to refresh toolServer %s: %v", toolServer.Component.Label, err)
 	}
@@ -752,7 +764,7 @@ func (a *autogenReconciler) findAgentsUsingToolServer(ctx context.Context, req c
 }
 
 func (a *autogenReconciler) getDiscoveredMCPTools(serverID int) ([]*v1alpha1.MCPTool, error) {
-	allTools, err := a.autogenClient.ListTools(GlobalUserID)
+	allTools, err := a.autogenClient.ListTools(common.GetGlobalUserID())
 	if err != nil {
 		return nil, err
 	}
@@ -769,6 +781,14 @@ func (a *autogenReconciler) getDiscoveredMCPTools(serverID int) ([]*v1alpha1.MCP
 	}
 
 	return discoveredTools, nil
+}
+
+func (a *autogenReconciler) reconcileA2A(
+	ctx context.Context,
+	team *autogen_client.Team,
+	agent *v1alpha1.Agent,
+) error {
+	return a.a2aReconciler.ReconcileAutogenAgent(ctx, agent, team)
 }
 
 func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {

@@ -2,138 +2,124 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"strconv"
 
-	"github.com/abiosoft/ishell/v2"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
-func GetAgentCmd(c *ishell.Context) {
-	var resourceName string
-	if len(c.Args) > 0 {
-		resourceName = c.Args[0]
-	}
-	client := config.GetClient(c)
-	cfg := config.GetCfg(c)
+func GetAgentCmd(cfg *config.Config, resourceName string) {
+	client := autogen_client.New(cfg.APIURL)
 
 	if resourceName == "" {
 		agentList, err := client.ListTeams(cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get agents: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to get agents: %v\n", err)
 			return
 		}
 
 		if len(agentList) == 0 {
-			c.Println("No agents found")
+			fmt.Println("No agents found")
 			return
 		}
 
 		if err := printTeams(agentList); err != nil {
-			c.Printf("Failed to print agents: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to print agents: %v\n", err)
 			return
 		}
 	} else {
 		agent, err := client.GetTeam(resourceName, cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get agent %s: %v\n", resourceName, err)
+			fmt.Fprintf(os.Stderr, "Failed to get agent %s: %v\n", resourceName, err)
 			return
 		}
 		byt, _ := json.MarshalIndent(agent, "", "  ")
-		c.Println(string(byt))
+		fmt.Fprintln(os.Stdout, string(byt))
 	}
 }
 
-func GetRunCmd(c *ishell.Context) {
-	var resourceName string
-	if len(c.Args) > 0 {
-		resourceName = c.Args[0]
-	}
-	client := config.GetClient(c)
-	cfg := config.GetCfg(c)
+func GetRunCmd(cfg *config.Config, resourceName string) {
+	client := autogen_client.New(cfg.APIURL)
 	if resourceName == "" {
 		runList, err := client.ListRuns(cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get runs: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to get runs: %v\n", err)
 			return
 		}
 
 		if len(runList) == 0 {
-			c.Println("No runs found")
+			fmt.Println("No runs found")
 			return
 		}
 
 		if err := printRuns(runList); err != nil {
-			c.Printf("Failed to print runs: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to print runs: %v\n", err)
 			return
 		}
 	} else {
-		run, err := client.GetRun(resourceName)
+		// Convert run ID from string to integer
+		runID, err := strconv.Atoi(resourceName)
 		if err != nil {
-			c.Printf("Failed to get run %s: %v\n", resourceName, err)
+			fmt.Fprintf(os.Stderr, "Invalid run ID: %s, must be a number: %v\n", resourceName, err)
+			return
+		}
+
+		run, err := client.GetRun(runID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to get run %d: %v\n", runID, err)
 			return
 		}
 		byt, _ := json.MarshalIndent(run, "", "  ")
-		c.Println(string(byt))
+		fmt.Fprintln(os.Stdout, string(byt))
 	}
 }
 
-func GetSessionCmd(c *ishell.Context) {
-	var resourceName string
-	if len(c.Args) > 0 {
-		resourceName = c.Args[0]
-	}
-	client := config.GetClient(c)
-	cfg := config.GetCfg(c)
+func GetSessionCmd(cfg *config.Config, resourceName string) {
+	client := autogen_client.New(cfg.APIURL)
 	if resourceName == "" {
 		sessionList, err := client.ListSessions(cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get sessions: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to get sessions: %v\n", err)
 			return
 		}
 
 		if len(sessionList) == 0 {
-			c.Println("No sessions found")
+			fmt.Println("No sessions found")
 			return
 		}
 
 		if err := printSessions(sessionList); err != nil {
-			c.Printf("Failed to print sessions: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to print sessions: %v\n", err)
 			return
 		}
 	} else {
 		sessionID, err := strconv.Atoi(resourceName)
 		if err != nil {
-			c.Printf("Failed to convert session name to ID: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to convert session name to ID: %v\n", err)
 			return
 		}
-		session, err := client.GetSession(sessionID, cfg.UserID)
+		session, err := client.GetSessionById(sessionID, cfg.UserID)
 		if err != nil {
-			c.Printf("Failed to get session %s: %v\n", resourceName, err)
+			fmt.Fprintf(os.Stderr, "Failed to get session %s: %v\n", resourceName, err)
 			return
 		}
 		byt, _ := json.MarshalIndent(session, "", "  ")
-		c.Println(string(byt))
+		fmt.Fprintln(os.Stdout, string(byt))
 	}
 }
 
-func GetToolCmd(c *ishell.Context) {
-	var resourceName string
-	if len(c.Args) > 0 {
-		resourceName = c.Args[0]
+func GetToolCmd(cfg *config.Config) {
+	client := autogen_client.New(cfg.APIURL)
+	toolList, err := client.ListTools(cfg.UserID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get tools: %v\n", err)
+		return
 	}
-	client := config.GetClient(c)
-	cfg := config.GetCfg(c)
-	if resourceName == "" {
-		toolList, err := client.ListTools(cfg.UserID)
-		if err != nil {
-			c.Printf("Failed to get tools: %v\n", err)
-			return
-		}
-		if err := printTools(toolList); err != nil {
-			c.Printf("Failed to print tools: %v\n", err)
-			return
-		}
+	if err := printTools(toolList); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to print tools: %v\n", err)
+		return
 	}
 }
 
@@ -142,7 +128,7 @@ func printTools(tools []*autogen_client.Tool) error {
 	rows := make([][]string, len(tools))
 	for i, tool := range tools {
 		rows[i] = []string{
-			strconv.Itoa(i),
+			strconv.Itoa(i + 1),
 			strconv.Itoa(tool.Id),
 			tool.Component.Provider,
 			tool.Component.Label,
@@ -156,7 +142,6 @@ func printRuns(runs []*autogen_client.Run) error {
 	headers := []string{"#", "ID", "CONTENT", "MESSAGES", "STATUS", "CREATED"}
 	rows := make([][]string, len(runs))
 	for i, run := range runs {
-
 		contentStr := "[N/A]" // Default content if type assertion fails or content is nil
 		if run.Task.Content != nil {
 			if content, ok := run.Task.Content.(string); ok {
@@ -171,8 +156,8 @@ func printRuns(runs []*autogen_client.Run) error {
 		}
 
 		rows[i] = []string{
-			strconv.Itoa(i),
-			run.ID,
+			strconv.Itoa(i + 1),
+			strconv.Itoa(run.ID),
 			contentStr,
 			strconv.Itoa(len(run.Messages)),
 			run.Status,
@@ -189,7 +174,7 @@ func printTeams(teams []*autogen_client.Team) error {
 	rows := make([][]string, len(teams))
 	for i, team := range teams {
 		rows[i] = []string{
-			strconv.Itoa(i),
+			strconv.Itoa(i + 1),
 			team.Component.Label,
 			strconv.Itoa(team.Id),
 			team.CreatedAt,
@@ -204,7 +189,7 @@ func printSessions(sessions []*autogen_client.Session) error {
 	rows := make([][]string, len(sessions))
 	for i, session := range sessions {
 		rows[i] = []string{
-			strconv.Itoa(i),
+			strconv.Itoa(i + 1),
 			strconv.Itoa(session.ID),
 			session.Name,
 			strconv.Itoa(session.TeamID),

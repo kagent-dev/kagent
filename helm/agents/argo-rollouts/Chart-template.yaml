@@ -1,0 +1,5 @@
+apiVersion: v2
+name: argo-rollouts-agent
+description: A Argo Rollouts Agent for kagent
+type: application
+version: ${VERSION}

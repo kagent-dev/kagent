@@ -1,7 +1,7 @@
 const helpers = require('./tests/chai-exec');
 
 describe("Application mysql, version v1", () => {
-  let cluster = process.env.CLUSTER1;
+  let cluster = process.env.CLUSTER_CTX;
   it('mysql-v1 pods are ready in ' + cluster, () => helpers.checkDeployment({ 
     context: cluster, 
     namespace: 'default', 
@@ -15,7 +15,7 @@ describe("Application mysql, version v1", () => {
 });
 
 describe("Application neo4j-db, version v1", () => {
-  let cluster = process.env.CLUSTER1;
+  let cluster = process.env.CLUSTER_CTX;
   it('neo4j-db-v1 pods are ready in ' + cluster, () => helpers.checkDeployment({ 
     context: cluster, 
     namespace: 'default', 
@@ -29,7 +29,7 @@ describe("Application neo4j-db, version v1", () => {
 });
 
 describe("Application backend, version v1", () => {
-  let cluster = process.env.CLUSTER1;
+  let cluster = process.env.CLUSTER_CTX;
   it('backend-v1 pods are ready in ' + cluster, () => helpers.checkDeployment({ 
     context: cluster, 
     namespace: 'default', 
@@ -43,7 +43,7 @@ describe("Application backend, version v1", () => {
 });
 
 describe("Application backend, version v2", () => {
-  let cluster = process.env.CLUSTER1;
+  let cluster = process.env.CLUSTER_CTX;
   it('backend-v2 pods are ready in ' + cluster, () => helpers.checkDeployment({ 
     context: cluster, 
     namespace: 'default', 
@@ -60,7 +60,7 @@ describe("Application backend, version v2", () => {
 });
 
 describe("Application backend, version v3", () => {
-  let cluster = process.env.CLUSTER1;
+  let cluster = process.env.CLUSTER_CTX;
   it('backend-v3 pods are ready in ' + cluster, () => helpers.checkDeployment({ 
     context: cluster, 
     namespace: 'default', 
@@ -74,7 +74,7 @@ describe("Application backend, version v3", () => {
 });
 
 describe("Application frontend, version v1", () => {
-  let cluster = process.env.CLUSTER1;
+  let cluster = process.env.CLUSTER_CTX;
   it('frontend-v1 pods are ready in ' + cluster, () => helpers.checkDeployment({ 
     context: cluster, 
     namespace: 'default', 

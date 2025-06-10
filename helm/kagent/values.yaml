@@ -20,7 +20,7 @@ providers:
       host: host.docker.internal:11434
   anthropic:
     provider: Anthropic
-    model:  "claude-3-sonnet-20240229"
+    model: "claude-3-sonnet-20240229"
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
     apiKey: ""
@@ -38,10 +38,18 @@ providers:
 
 controller:
   loglevel: "info"
+
+  # -- Namespaces the controller should watch.
+  # If empty, the controller will watch ONLY release namespace.
+  # @default -- [] (watches release namespace)
+  watchNamespaces: []
+  #  - watch-ns-1
+  #  - watch-ns-2
+
   image:
     registry: cr.kagent.dev
     repository: kagent-dev/kagent/controller
-    tag: ""  # Will default to global, then Chart version
+    tag: "" # Will default to global, then Chart version
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -50,13 +58,13 @@ controller:
     limits:
       cpu: 500m
       memory: 512Mi
-  env: {} # Additional environment variables for the controller can be added here
+  env: [] # Additional environment variables for the controller can be added here
 
 app:
   image:
     registry: cr.kagent.dev
     repository: kagent-dev/kagent/app
-    tag: ""  # Will default to global, then Chart version
+    tag: "" # Will default to global, then Chart version
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -65,13 +73,13 @@ app:
     limits:
       cpu: 1000m
       memory: 1Gi
-  env: {} # Additional environment variables for the app can be added here
+  env: [] # Additional environment variables for the app can be added here
 
 ui:
   image:
     registry: cr.kagent.dev
     repository: kagent-dev/kagent/ui
-    tag: ""  # Will default to global, then Chart version
+    tag: "" # Will default to global, then Chart version
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -80,8 +88,7 @@ ui:
     limits:
       cpu: 1000m
       memory: 1Gi
-  env: {} # Additional environment variables for the ui can be added here
-  
+  env: [] # Additional environment variables for the ui can be added here
 
 service:
   type: ClusterIP
@@ -92,10 +99,17 @@ service:
     app:
       port: 8081
       targetPort: 8081
+    controller:
+      port: 8083
+      targetPort: 8083
 
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
+
+# -- Override the namespace
+# @default -- `.Release.Namespace`
+namespaceOverride: ""
 
 podAnnotations: {}
 
@@ -110,35 +124,50 @@ securityContext: {}
   # runAsNonRoot: true
   # runAsUser: 1000
 
-contrib:
-  agents:
-    k8s:
-      enabled: true
-    istio:
-      enabled: true
-    helm:
-      enabled: true
-    promql:
-      enabled: true
-    observability:
-      enabled: true
-      prometheus:
-        url: ""
-        username: ""
-        password: ""
-      grafana:
-        url: ""
-        username: ""
-        password: ""
-        apiKey: ""
-    argoRolloutsConversion:
-      enabled: true
-
 otel:
   tracing:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://localhost:4317
+        endpoint: http://host.docker.internal:4317
         timeout: 10
         insecure: true
+
+k8s-agent:
+  enabled: true
+
+kgateway-agent:
+  enabled: true
+
+istio-agent:
+  enabled: true
+
+promql-agent:
+  enabled: true
+
+observability-agent:
+  enabled: true
+  prometheus:
+    url: ""
+    username: ""
+    password: ""
+  grafana:
+    url: ""
+    username: ""
+    password: ""
+    apiKey: ""
+
+argo-rollouts-agent:
+  enabled: true
+
+helm-agent:
+  enabled: true
+
+cilium-policy-agent:
+  enabled: true
+
+cilium-manager-agent:
+  enabled: true
+
+cilium-debug-agent:
+  enabled: true

@@ -10,10 +10,12 @@ import (
 )
 
 type Config struct {
-	APIURL    string `mapstructure:"api_url"`
-	WSURL     string `mapstructure:"ws_url"`
-	UserID    string `mapstructure:"user_id"`
-	Namespace string `mapstructure:"namespace"`
+	APIURL       string `mapstructure:"api_url"`
+	UserID       string `mapstructure:"user_id"`
+	Namespace    string `mapstructure:"namespace"`
+	A2AURL       string `mapstructure:"a2a_url"`
+	OutputFormat string `mapstructure:"output_format"`
+	Verbose      bool   `mapstructure:"verbose"`
 }
 
 func Init() error {
@@ -36,10 +38,10 @@ func Init() error {
 
 	// Set default values
 	viper.SetDefault("api_url", "http://localhost:8081/api")
-	viper.SetDefault("ws_url", "ws://localhost:8081/api/ws")
 	viper.SetDefault("user_id", "admin@kagent.dev")
 	viper.SetDefault("output_format", "table")
 	viper.SetDefault("namespace", "kagent")
+	viper.SetDefault("a2a_url", "http://localhost:8083/api/a2a")
 
 	viper.MustBindEnv("USER_ID")
 

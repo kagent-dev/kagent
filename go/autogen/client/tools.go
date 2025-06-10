@@ -4,13 +4,13 @@ import (
 	"fmt"
 )
 
-func (c *Client) ListTools(userID string) ([]*Tool, error) {
+func (c *client) ListTools(userID string) ([]*Tool, error) {
 	var tools []*Tool
 	err := c.doRequest("GET", fmt.Sprintf("/tools/?user_id=%s", userID), nil, &tools)
 	return tools, err
 }
 
-func (c *Client) GetTool(provider string, userID string) (*Tool, error) {
+func (c *client) GetTool(provider string, userID string) (*Tool, error) {
 	allTools, err := c.ListTools(userID)
 	if err != nil {
 		return nil, err

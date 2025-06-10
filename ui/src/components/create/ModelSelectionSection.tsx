@@ -13,7 +13,10 @@ interface ModelSelectionSectionProps {
 export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedModel, error, isSubmitting, onBlur }: ModelSelectionSectionProps) => {
   return (
     <>
-      <label className="text-sm mb-2 block">Model</label>
+      <label className="text-base mb-2 block font-bold">Model</label>
+      <p className="text-xs mb-2 block text-muted-foreground">
+        This is the model that will be used to generate the agent's responses.
+      </p>
       <Select 
         value={selectedModel?.name || ""} 
         disabled={isSubmitting || allModels.length === 0} 

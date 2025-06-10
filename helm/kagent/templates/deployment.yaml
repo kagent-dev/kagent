@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "kagent.fullname" . }}
+  namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
@@ -33,6 +34,8 @@ spec:
             - {{ include "kagent.defaultModelConfigName" . | quote }}
             - -zap-log-level
             - {{ .Values.controller.loglevel }}
+            - -watch-namespaces
+            - {{ include "kagent.watchNamespaces" . }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.global.tag .Values.controller.image.tag .Chart.Version }}"
@@ -48,20 +51,16 @@ spec:
           {{- with .Values.controller.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.ports.controller.targetPort }}
+              protocol: TCP
         - name: app
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ coalesce .Values.global.tag .Values.app.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
           env:
-            {{- $model := index .Values.providers .Values.providers.default  }}
-            {{- if and (ne $model.apiKeySecretRef "") $model.enabled }}
-            - name: {{ $model.apiKeySecretKey }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $model.apiKeySecretRef }}
-                  key: {{ $model.apiKeySecretKey }}
-            {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
@@ -70,10 +69,6 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
-            - name: KAGENT_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
           {{- with .Values.app.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -96,7 +91,7 @@ spec:
           imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
-              value: "http://{{ include "kagent.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/api"
+              value: "http://{{ include "kagent.fullname" . }}.{{ include "kagent.namespace" . }}.svc.cluster.local/api"
           {{- with .Values.ui.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}

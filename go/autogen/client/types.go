@@ -1,7 +1,11 @@
 package client
 
 import (
+	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 )
@@ -55,6 +59,9 @@ type ModelsUsage struct {
 }
 
 func (m *ModelsUsage) Add(other *ModelsUsage) {
+	if other == nil {
+		return
+	}
 	m.PromptTokens += other.PromptTokens
 	m.CompletionTokens += other.CompletionTokens
 }
@@ -63,12 +70,7 @@ func (m *ModelsUsage) String() string {
 	return fmt.Sprintf("Prompt Tokens: %d, Completion Tokens: %d", m.PromptTokens, m.CompletionTokens)
 }
 
-type TaskMessage struct {
-	Source      string       `json:"source"`
-	ModelsUsage *ModelsUsage `json:"models_usage"`
-	Content     string       `json:"content"`
-	Type        string       `json:"type"`
-}
+type TaskMessageMap map[string]interface{}
 
 type RunMessage struct {
 	CreatedAt   *string                `json:"created_at,omitempty"`
@@ -96,7 +98,7 @@ type SessionRuns struct {
 }
 
 type Run struct {
-	ID           string        `json:"id"`
+	ID           int           `json:"id"`
 	SessionID    int           `json:"session_id"`
 	CreatedAt    string        `json:"created_at"`
 	Status       string        `json:"status"`
@@ -119,8 +121,8 @@ type TeamResult struct {
 }
 
 type TaskResult struct {
-	Messages   []TaskMessage `json:"messages"`
-	StopReason string        `json:"stop_reason"`
+	Messages   []TaskMessageMap `json:"messages"`
+	StopReason string           `json:"stop_reason"`
 }
 
 // APIResponse is the common response wrapper for all API responses
@@ -131,11 +133,13 @@ type APIResponse struct {
 }
 
 type Session struct {
-	ID      int    `json:"id"`
-	UserID  string `json:"user_id"`
-	Version string `json:"version"`
-	TeamID  int    `json:"team_id"`
-	Name    string `json:"name"`
+	ID        int    `json:"id"`
+	UserID    string `json:"user_id"`
+	Version   string `json:"version"`
+	TeamID    int    `json:"team_id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type CreateSession struct {
@@ -151,4 +155,69 @@ type ProviderModels map[string][]ModelInfo
 type ModelInfo struct {
 	Name            string `json:"name"`
 	FunctionCalling bool   `json:"function_calling"`
+}
+
+type SseEvent struct {
+	Event string `json:"event"`
+	Data  []byte `json:"data"`
+}
+
+var (
+	NotFoundError = errors.New("not found")
+)
+
+func streamSseResponse(r io.ReadCloser) chan *SseEvent {
+	scanner := bufio.NewScanner(r)
+	ch := make(chan *SseEvent)
+	go func() {
+		defer close(ch)
+		defer r.Close()
+		currentEvent := &SseEvent{}
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if bytes.HasPrefix(line, []byte("event:")) {
+				currentEvent.Event = string(bytes.TrimPrefix(line, []byte("event:")))
+			}
+			if bytes.HasPrefix(line, []byte("data:")) {
+				currentEvent.Data = bytes.TrimPrefix(line, []byte("data:"))
+				ch <- currentEvent
+				currentEvent = &SseEvent{}
+			}
+		}
+	}()
+	return ch
+}
+
+// FeedbackIssueType represents the category of feedback issue
+type FeedbackIssueType string
+
+const (
+	FeedbackIssueTypeInstructions FeedbackIssueType = "instructions" // Did not follow instructions
+	FeedbackIssueTypeFactual      FeedbackIssueType = "factual"      // Not factually correct
+	FeedbackIssueTypeIncomplete   FeedbackIssueType = "incomplete"   // Incomplete response
+	FeedbackIssueTypeTool         FeedbackIssueType = "tool"         // Should have run the tool
+)
+
+// FeedbackSubmission defines the request payload for submitting feedback
+// and also serves as the response object when listing feedback.
+type FeedbackSubmission struct {
+	// ID is the unique identifier for the feedback, present in responses.
+	ID int `json:"id,omitempty"`
+	// CreatedAt is the timestamp of feedback creation, present in responses.
+	CreatedAt string `json:"created_at,omitempty"`
+	// UpdatedAt is the timestamp of the last update, present in responses.
+	UpdatedAt string `json:"updated_at,omitempty"`
+	// Version of the feedback object, present in responses.
+	Version string `json:"version,omitempty"`
+
+	// UserID is the identifier for the user submitting the feedback.
+	UserID string `json:"user_id,omitempty"`
+	// IsPositive indicates if the feedback is positive. Required for request.
+	IsPositive bool `json:"is_positive"`
+	// FeedbackText is the textual content of the feedback. Required for request.
+	FeedbackText string `json:"feedback_text"`
+	// IssueType categorizes the feedback if it's negative. Optional.
+	IssueType *FeedbackIssueType `json:"issue_type,omitempty"`
+	// MessageID is the ID of the message this feedback pertains to.
+	MessageID int `json:"message_id,omitempty"`
 }

@@ -1,4 +1,4 @@
-import { Component, RunStatus, ToolConfig } from "@/types/datamodel";
+import { Component, ToolConfig } from "@/types/datamodel";
 
 export interface CreateAgentFormData {
   name: string;
@@ -23,16 +23,6 @@ export interface CreateSessionRequest {
   name?: string;
   user_id: string;
   team_id: string;
-}
-
-export interface CreateRunRequest {
-  user_id: string;
-  session_id?: number;
-}
-
-export interface CreateRunResponse {
-  run_id: string;
-  status: RunStatus;
 }
 
 export interface BaseResponse<T> {
@@ -135,4 +125,37 @@ export interface CreateMemoryRequest {
   provider: Pick<Provider, "type">;
   apiKey: string;
   pinecone?: PineconeConfigPayload;
+}
+
+export interface UpdateMemoryRequest {
+  name: string;
+  pinecone?: PineconeConfigPayload;
+}
+
+/**
+ * Feedback issue types
+ */
+export enum FeedbackIssueType {
+  INSTRUCTIONS = "instructions", // Did not follow instructions
+  FACTUAL = "factual", // Not factually correct
+  INCOMPLETE = "incomplete", // Incomplete response
+  TOOL = "tool", // Should have run the tool
+  OTHER = "other", // Other
+}
+
+/**
+* Feedback data structure that will be sent to the API
+*/
+export interface FeedbackData {
+  // Whether the feedback is positive
+  isPositive: boolean;
+
+  // The feedback text provided by the user
+  feedbackText: string;
+
+  // The type of issue for negative feedback
+  issueType?: FeedbackIssueType;
+
+  // ID of the message this feedback pertains to
+  messageId: number;
 }

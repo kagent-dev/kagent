@@ -30,20 +30,33 @@ interface ValidationErrors {
   memory?: string;
 }
 
-// Inner component that uses useSearchParams, wrapped in Suspense
-function AgentPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { models, tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
+interface AgentPageContentProps {
+  isEditMode: boolean;
+  agentId: string | null;
+}
 
-  // Determine if in edit mode
-  const isEditMode = searchParams.get("edit") === "true";
-  const agentId = searchParams.get("id");
+const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
+
+# Instructions
+    - If user question is unclear, ask for clarification before running any tools
+    - Always be helpful and friendly
+    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
+    - If you are unable to help, or something goes wrong, refer the user to https://kagent.dev for more information or support.
+
+# Response format:
+    - ALWAYS format your response as Markdown
+    - Your response will include a summary of actions you took and an explanation of the result
+    - If you created any artifacts such as files or resources, you will include those in your response as well`
+
+// Inner component that uses useSearchParams, wrapped in Suspense
+function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
+  const router = useRouter();
+  const { models, tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
 
   // Basic form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState(isEditMode ? "" : DEFAULT_SYSTEM_PROMPT);
 
   // Default to the first model
   type SelectedModelType = Pick<ModelConfig, 'name' | 'model'>;
@@ -92,6 +105,11 @@ function AgentPageContent() {
                 model: agentResponse.model,
                 name: agent.spec.modelConfig,
               });
+              
+              // Set selected memories if they exist
+              if (agent.spec.memory && Array.isArray(agent.spec.memory)) {
+                setSelectedMemories(agent.spec.memory);
+              }
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
               toast.error("Failed to extract agent data from team structure");
@@ -219,27 +237,33 @@ function AgentPageContent() {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-xl font-bold">
                   <KagentLogo className="h-5 w-5" />
                   Basic Information
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <label className="text-sm mb-2 block">Agent Name</label>
+                  <label className="text-base mb-2 block font-bold">Agent Name</label>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    This is the name of the agent that will be displayed in the UI and used to identify the agent.
+                  </p>
                   <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     onBlur={() => validateField('name', name)}
                     className={`${errors.name ? "border-red-500" : ""}`}
                     placeholder="Enter agent name..."
-                    disabled={isSubmitting || isLoading}
+                    disabled={isSubmitting || isLoading || isEditMode}
                   />
                   {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
                 </div>
 
                 <div>
-                  <label className="text-sm mb-2 block">Description</label>
+                  <label className="text-base mb-2 block font-bold">Description</label>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    This is a description of the agent. It's for your reference only and it's not going to be used by the agent.
+                  </p>
                   <Textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -278,6 +302,9 @@ function AgentPageContent() {
                   <Settings2 className="h-5 w-5" />
                   Memory
                 </CardTitle>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    The memories that the agent will use to answer the user's questions.
+                  </p>
               </CardHeader>
               <CardContent>
                 <MemorySelectionSection
@@ -335,9 +362,17 @@ function AgentPageContent() {
 
 // Main component that wraps the content in a Suspense boundary
 export default function AgentPage() {
+  // Determine if in edit mode
+  const searchParams = useSearchParams();
+  const isEditMode = searchParams.get("edit") === "true";
+  const agentId = searchParams.get("id");
+  
+  // Create a key based on the edit mode and agent ID
+  const formKey = isEditMode ? `edit-${agentId}` : 'create';
+  
   return (
     <Suspense fallback={<LoadingState />}>
-      <AgentPageContent />
+      <AgentPageContent key={formKey} isEditMode={isEditMode} agentId={agentId} />
     </Suspense>
   );
 }

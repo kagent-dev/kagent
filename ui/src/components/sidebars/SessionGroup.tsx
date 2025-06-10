@@ -1,19 +1,20 @@
-import { SessionWithRuns } from "@/types/datamodel";
-import RunItem from "./RunItem";
+import { Session } from "@/types/datamodel";
+import ChatItem from "@/components/sidebars/ChatItem";
 import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub } from "../ui/sidebar";
 import { Collapsible } from "@radix-ui/react-collapsible";
 import { ChevronRight } from "lucide-react";
 import { CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 
-interface SessionGroupProps {
+interface ChatGroupProps {
   title: string;
-  sessions: SessionWithRuns[];
+  sessions: Session[];
   onDeleteSession: (sessionId: number) => Promise<void>;
+  onDownloadSession: (sessionId: number) => Promise<void>;
   agentId?: number;
 }
 
 // The sessions are grouped by today, yesterday, and older
-const SessionGroup = ({ title, sessions, onDeleteSession, agentId }: SessionGroupProps) => {
+const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentId }: ChatGroupProps) => {
   return (
     <SidebarGroup>
       <SidebarMenu>
@@ -27,12 +28,8 @@ const SessionGroup = ({ title, sessions, onDeleteSession, agentId }: SessionGrou
             </CollapsibleTrigger>
             <CollapsibleContent>
               <SidebarMenuSub>
-                {sessions.map((sessionWithRuns) => (
-                  <div key={sessionWithRuns.session.id} className="py-2.5">
-                    {sessionWithRuns.runs.map((run) => (
-                      <RunItem key={run.id} sessionId={sessionWithRuns.session.id!} agentId={agentId} run={run} onDelete={onDeleteSession} />
-                    ))}
-                  </div>
+                {sessions.map((session) => (
+                  <ChatItem key={session.id} sessionId={session.id!} agentId={agentId} onDelete={onDeleteSession} sessionName={session.name} onDownload={onDownloadSession} />
                 ))}
               </SidebarMenuSub>
             </CollapsibleContent>
@@ -43,4 +40,4 @@ const SessionGroup = ({ title, sessions, onDeleteSession, agentId }: SessionGrou
   );
 };
 
-export default SessionGroup;
+export default ChatGroup;

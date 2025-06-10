@@ -16,7 +16,7 @@ from pydantic.fields import FieldInfo
 LOGLEVEL = os.getenv("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
 
-TOOL_DIRS = ["istio", "k8s", "prometheus", "docs", "helm", "argo", "grafana", "datetime"]
+TOOL_DIRS = ["istio", "k8s", "prometheus", "docs", "helm", "argo", "grafana", "datetime", "cilium"]
 
 
 def create_dummy_args(model_fields: dict[str, FieldInfo]):

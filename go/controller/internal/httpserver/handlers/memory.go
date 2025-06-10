@@ -223,3 +223,53 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 	log.Info("Memory retrieved successfully")
 	RespondWithJSON(w, http.StatusOK, memoryResponse)
 }
+
+type UpdateMemoryRequest struct {
+	Name           string                   `json:"name"`
+	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
+}
+
+func (h *MemoryHandler) HandleUpdateMemory(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("memory-handler").WithValues("operation", "update")
+
+	configName, err := GetPathParam(r, "memoryName")
+	if err != nil {
+		log.Error(err, "Failed to get config name from path")
+		w.RespondWithError(errors.NewBadRequestError("Failed to get config name from path", err))
+		return
+	}
+	log = log.WithValues("memoryName", configName)
+
+	log.Info("Received request to update memory")
+
+	var req UpdateMemoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Error(err, "Failed to decode request body")
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+
+	existingMemory := &v1alpha1.Memory{}
+	err = h.KubeClient.Get(r.Context(), types.NamespacedName{
+		Name:      configName,
+		Namespace: common.GetResourceNamespace(),
+	}, existingMemory)
+	if err != nil {
+		log.Error(err, "Failed to get memory")
+		w.RespondWithError(errors.NewInternalServerError("Failed to get memory", err))
+		return
+	}
+
+	if req.PineconeParams != nil {
+		existingMemory.Spec.Pinecone = req.PineconeParams
+	}
+
+	if err := h.KubeClient.Update(r.Context(), existingMemory); err != nil {
+		log.Error(err, "Failed to update memory")
+		w.RespondWithError(errors.NewInternalServerError("Failed to update memory", err))
+		return
+	}
+
+	log.Info("Memory updated successfully")
+	RespondWithJSON(w, http.StatusOK, existingMemory)
+}

@@ -1,0 +1,14 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: check-kubernetes-cluster-fixed
+  namespace: kagent
+spec:
+  config:
+    stdio:
+      args:
+      - check-kubernetes-cluster-fixed@0.0.7
+      command: npx
+      env:
+        CONTEXT: kind-kagent
+  description: Check Kubernetes Cluster Fixed

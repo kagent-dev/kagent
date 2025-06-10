@@ -25,15 +25,68 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;GeminiVertexAI;AnthropicVertexAI
 type ModelProvider string
 
 const (
-	Anthropic   ModelProvider = "Anthropic"
-	AzureOpenAI ModelProvider = "AzureOpenAI"
-	OpenAI      ModelProvider = "OpenAI"
-	Ollama      ModelProvider = "Ollama"
+	Anthropic         ModelProvider = "Anthropic"
+	AzureOpenAI       ModelProvider = "AzureOpenAI"
+	OpenAI            ModelProvider = "OpenAI"
+	Ollama            ModelProvider = "Ollama"
+	GeminiVertexAI    ModelProvider = "GeminiVertexAI"
+	AnthropicVertexAI ModelProvider = "AnthropicVertexAI"
 )
+
+type BaseVertexAIConfig struct {
+	// The project ID
+	// +required
+	ProjectID string `json:"projectID"`
+
+	// The project location
+	// +required
+	Location string `json:"location,omitempty"`
+
+	// Temperature
+	// +optional
+	Temperature string `json:"temperature,omitempty"`
+
+	// Top-p sampling parameter
+	// +optional
+	TopP string `json:"topP,omitempty"`
+
+	// Top-k sampling parameter
+	// +optional
+	TopK string `json:"topK,omitempty"`
+
+	// Stop sequences
+	// +optional
+	StopSequences []string `json:"stopSequences,omitempty"`
+}
+
+// GeminiVertexAIConfig contains Gemini Vertex AI-specific configuration options
+type GeminiVertexAIConfig struct {
+	BaseVertexAIConfig `json:",inline"`
+
+	// Maximum output tokens
+	// +optional
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+
+	// Candidate count
+	// +optional
+	CandidateCount int `json:"candidateCount,omitempty"`
+
+	// Response mime type
+	// +optional
+	ResponseMimeType string `json:"responseMimeType,omitempty"`
+}
+
+type AnthropicVertexAIConfig struct {
+	BaseVertexAIConfig `json:",inline"`
+
+	// Maximum tokens to generate
+	// +optional
+	MaxTokens int `json:"maxTokens,omitempty"`
+}
 
 // AnthropicConfig contains Anthropic-specific configuration options
 type AnthropicConfig struct {
@@ -152,6 +205,9 @@ type OllamaConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.anthropic must be nil if the provider is not Anthropic",rule="!(has(self.anthropic) && self.provider != 'Anthropic')"
 // +kubebuilder:validation:XValidation:message="provider.azureOpenAI must be nil if the provider is not AzureOpenAI",rule="!(has(self.azureOpenAI) && self.provider != 'AzureOpenAI')"
 // +kubebuilder:validation:XValidation:message="provider.ollama must be nil if the provider is not Ollama",rule="!(has(self.ollama) && self.provider != 'Ollama')"
+// +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
+// +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
+
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
@@ -166,6 +222,15 @@ type ModelConfigSpec struct {
 	// The key in the secret that contains the API key
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey"`
+
+	// +optional
+	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
+
+	// ModelInfo contains information about the model.
+	// This field is required if the model is not one of the
+	// pre-defined autogen models. That list can be found here:
+	// +optional
+	ModelInfo *ModelInfo `json:"modelInfo,omitempty"`
 
 	// OpenAI-specific configuration
 	// +optional
@@ -182,6 +247,32 @@ type ModelConfigSpec struct {
 	// Ollama-specific configuration
 	// +optional
 	Ollama *OllamaConfig `json:"ollama,omitempty"`
+
+	// Gemini-specific configuration
+	// +optional
+	GeminiVertexAI *GeminiVertexAIConfig `json:"geminiVertexAI,omitempty"`
+
+	// Anthropic-specific configuration
+	// +optional
+	AnthropicVertexAI *AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+}
+
+// Model Configurations
+// This had to be created because the autogen_api.ModelInfo JSON tags are not
+// compatible with the kubernetes api.
+type ModelInfo struct {
+	// +optional
+	Vision bool `json:"vision"`
+	// +optional
+	FunctionCalling bool `json:"functionCalling"`
+	// +optional
+	JSONOutput bool `json:"jsonOutput"`
+	// +optional
+	Family string `json:"family"`
+	// +optional
+	StructuredOutput bool `json:"structuredOutput"`
+	// +optional
+	MultipleSystemMessages bool `json:"multipleSystemMessages"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.
@@ -194,6 +285,7 @@ type ModelConfigStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider"
 // +kubebuilder:printcolumn:name="Model",type="string",JSONPath=".spec.model"
+// +kubebuilder:resource:shortName=mc
 
 // ModelConfig is the Schema for the modelconfigs API.
 type ModelConfig struct {

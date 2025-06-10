@@ -2,10 +2,12 @@ package api
 
 // Model Configurations
 type ModelInfo struct {
-	Vision          bool   `json:"vision"`
-	FunctionCalling bool   `json:"function_calling"`
-	JSONOutput      bool   `json:"json_output"`
-	Family          string `json:"family"`
+	Vision                 bool   `json:"vision"`
+	FunctionCalling        bool   `json:"function_calling"`
+	JSONOutput             bool   `json:"json_output"`
+	Family                 string `json:"family"`
+	StructuredOutput       bool   `json:"structured_output"`
+	MultipleSystemMessages bool   `json:"multiple_system_messages"`
 }
 
 type OpenAICreateArgumentsConfig struct {
@@ -24,7 +26,13 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
+type BaseClientConfig struct {
+	// Base OpenAI fields
+	DefaultHeaders map[string]string `json:"default_headers,omitempty"`
+}
+
 type BaseOpenAIClientConfig struct {
+	BaseClientConfig
 	// Base OpenAI fields
 	Model             string         `json:"model"`
 	APIKey            string         `json:"api_key,omitempty"`
@@ -60,7 +68,6 @@ type AzureOpenAIClientConfig struct {
 	AzureDeployment string `json:"azure_deployment,omitempty"`
 	APIVersion      string `json:"api_version,omitempty"`
 	AzureADToken    string `json:"azure_ad_token,omitempty"`
-	Stream          bool   `json:"stream,omitempty"`
 }
 
 func (c *AzureOpenAIClientConfig) ToConfig() (map[string]interface{}, error) {
@@ -81,14 +88,14 @@ type AnthropicCreateArguments struct {
 }
 
 type BaseAnthropicClientConfiguration struct {
-	APIKey            string            `json:"api_key,omitempty"`
-	BaseURL           string            `json:"base_url,omitempty"`
-	Model             string            `json:"model"`
-	ModelCapabilities *ModelInfo        `json:"model_capabilities,omitempty"`
-	ModelInfo         *ModelInfo        `json:"model_info,omitempty"`
-	Timeout           float64           `json:"timeout,omitempty"`
-	MaxRetries        int               `json:"max_retries,omitempty"`
-	DefaultHeaders    map[string]string `json:"default_headers,omitempty"`
+	APIKey            string     `json:"api_key,omitempty"`
+	BaseURL           string     `json:"base_url,omitempty"`
+	Model             string     `json:"model"`
+	ModelCapabilities *ModelInfo `json:"model_capabilities,omitempty"`
+	ModelInfo         *ModelInfo `json:"model_info,omitempty"`
+	Timeout           float64    `json:"timeout,omitempty"`
+	MaxRetries        int        `json:"max_retries,omitempty"`
+	BaseClientConfig
 	AnthropicCreateArguments
 }
 
@@ -124,5 +131,48 @@ func (c *OllamaClientConfiguration) ToConfig() (map[string]interface{}, error) {
 }
 
 func (c *OllamaClientConfiguration) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
+
+type BaseVertexAIConfig struct {
+	Model       string                 `json:"model"`
+	ProjectID   string                 `json:"project"`
+	Location    string                 `json:"location"`
+	Credentials map[string]interface{} `json:"credentials,omitempty"`
+	ModelInfo   *ModelInfo             `json:"model_info,omitempty"`
+
+	Temperature   *float64  `json:"temperature,omitempty"`
+	TopP          *float64  `json:"topP,omitempty"`
+	TopK          *float64  `json:"topK,omitempty"`
+	StopSequences *[]string `json:"stopSequences,omitempty"`
+}
+
+type GeminiVertexAIConfig struct {
+	BaseVertexAIConfig
+
+	MaxOutputTokens  *int    `json:"max_output_tokens,omitempty"`
+	CandidateCount   *int    `json:"candidate_count,omitempty"`
+	ResponseMimeType *string `json:"response_mime_type,omitempty"`
+}
+
+type AnthropicVertexAIConfig struct {
+	BaseVertexAIConfig
+
+	MaxTokens *int `json:"max_tokens,omitempty"`
+}
+
+func (c *GeminiVertexAIConfig) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *GeminiVertexAIConfig) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
+
+func (c *AnthropicVertexAIConfig) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *AnthropicVertexAIConfig) FromConfig(config map[string]interface{}) error {
 	return fromConfig(c, config)
 }

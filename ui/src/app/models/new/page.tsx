@@ -16,7 +16,8 @@ import {
     OllamaConfigPayload
 } from "@/lib/types";
 import { toast } from "sonner";
-import { isResourceNameValid } from "@/lib/utils";
+import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
+import { OLLAMA_DEFAULT_TAG } from "@/lib/constants"
 import { getSupportedModelProviders } from "@/app/actions/providers";
 import { getModels, ProviderModelsResponse } from "@/app/actions/models";
 import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
@@ -52,14 +53,11 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const providerParams: Record<string, any> = {};
   const numericKeys = new Set([
-    'max_tokens',
-    'top_k',
+    'maxTokens',
+    'topK',
     'seed',
     'n',
     'timeout',
-    'temperature',
-    'frequency_penalty',
-    'presence_penalty'
   ]);
 
   const booleanKeys = new Set([
@@ -114,13 +112,14 @@ function ModelPageContent() {
   const [providerModelsData, setProviderModelsData] = useState<ProviderModelsResponse | null>(null);
   const [selectedCombinedModel, setSelectedCombinedModel] = useState<string | undefined>(undefined);
   const [selectedModelSupportsFunctionCalling, setSelectedModelSupportsFunctionCalling] = useState<boolean | null>(null);
-
+  const [modelTag, setModelTag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [errors, setErrors] = useState<ValidationErrors>({});
-
+  const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
+  const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -184,16 +183,34 @@ function ModelPageContent() {
           const provider = providers.find(p => p.type === modelData.providerName);
           setSelectedProvider(provider || null);
 
-          const providerFormKey = provider ? getProviderFormKey(provider.type as BackendModelProviderType) : undefined;
-          if (providerFormKey && modelData.model) {
-            setSelectedCombinedModel(`${providerFormKey}::${modelData.model}`);
-          }
-
           setApiKey("");
 
-          const requiredKeys = provider?.requiredParams || [];
-          const fetchedParams = modelData.modelParams || {};
+          const providerFormKey = provider ? getProviderFormKey(provider.type as BackendModelProviderType) : undefined;
+          let modelName = modelData.model;
+          let extractedTag;
 
+          if (modelData.providerName === 'Ollama' && modelName.includes(':')) {
+            const [name, tag] = modelName.split(':');
+            modelName = name;
+            extractedTag = tag;
+          }
+
+          if (providerFormKey && modelData.model) {
+            setSelectedCombinedModel(`${providerFormKey}::${modelName}`);
+          }
+
+          if (!modelData.apiKeySecretRef) {
+            setIsApiKeyNeeded(false);
+          } else {
+            setIsApiKeyNeeded(true);
+          }
+
+          const fetchedParams = modelData.modelParams || {};
+          if (provider?.type === 'Ollama') {
+            setModelTag(fetchedParams.modelTag || extractedTag || 'latest');
+          }
+
+          const requiredKeys = provider?.requiredParams || [];
           const initialRequired: ModelParam[] = requiredKeys.map((key, index) => {
             const fetchedValue = fetchedParams[key];
             const displayValue = (fetchedValue === null || fetchedValue === undefined) ? "" : String(fetchedValue);
@@ -264,14 +281,29 @@ function ModelPageContent() {
       if (parts.length === 2) {
         const providerKey = parts[0];
         const modelName = parts[1];
-        const baseName = `${providerKey}-${modelName}`.toLowerCase();
-        const validName = baseName.replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-        if (isResourceNameValid(validName)) {
+        const nameParts = [providerKey, modelName];
+
+        const isOllama = selectedProvider?.type === "Ollama";
+        if (isOllama && modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
+          nameParts.push(modelTag);
+        }
+
+        const validName = createRFC1123ValidName(nameParts);
+        if (validName && isResourceNameValid(validName)) {
           setName(validName);
         }
       }
     }
-  }, [selectedCombinedModel, isEditMode, isEditingName]);
+  }, [selectedCombinedModel, isEditMode, isEditingName, modelTag]);
+
+  useEffect(() => {
+    if (!isApiKeyNeeded) {
+      setApiKey("");
+      if (errors.apiKey) {
+        setErrors(prev => ({ ...prev, apiKey: undefined }));
+      }
+    }
+  }, [isApiKeyNeeded]);
 
   const validateForm = () => {
     const newErrors: ValidationErrors = { requiredParams: {} };
@@ -279,8 +311,8 @@ function ModelPageContent() {
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
     const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
-    if (!isEditMode && !isOllamaNow && !apiKey.trim()) {
-      newErrors.apiKey = "API key is required for new models (except Ollama)";
+    if (!isEditMode && !isOllamaNow && isApiKeyNeeded && !apiKey.trim()) {
+      newErrors.apiKey = "API key is required for new models (except for Ollama or when you don't need an API key)";
     }
 
     requiredParams.forEach(param => {
@@ -366,14 +398,24 @@ function ModelPageContent() {
     setIsSubmitting(true);
     setErrors({});
 
+    const finalApiKey = isApiKeyNeeded ? apiKey.trim() : "";
+
+    let finalModelName = modelName;
+    if (finalSelectedProvider.type === 'Ollama') {
+      const tag = modelTag.trim();
+      if (tag && tag !== OLLAMA_DEFAULT_TAG) {
+        finalModelName = `${modelName}:${tag}`;
+      }
+    }
+
     const payload: CreateModelConfigPayload = {
       name: name.trim(),
       provider: {
         name: finalSelectedProvider.name,
         type: finalSelectedProvider.type,
       },
-      model: modelName,
-      apiKey: apiKey.trim(),
+      model: finalModelName,
+      apiKey: finalApiKey,
     };
 
     const providerParams = processModelParams(requiredParams, optionalParams);
@@ -405,7 +447,7 @@ function ModelPageContent() {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
-          apiKey: apiKey.trim() ? apiKey.trim() : null,
+          apiKey: finalApiKey ? finalApiKey : null,
           openAI: payload.openAI,
           anthropic: payload.anthropic,
           azureOpenAI: payload.azureOpenAI,
@@ -478,6 +520,8 @@ function ModelPageContent() {
             selectedModelSupportsFunctionCalling={selectedModelSupportsFunctionCalling}
             loadingError={loadingError}
             isEditMode={isEditMode}
+            modelTag={modelTag}
+            onModelTagChange={setModelTag}
           />
 
           <AuthSection
@@ -491,18 +535,25 @@ function ModelPageContent() {
             onApiKeyChange={setApiKey}
             onToggleShowApiKey={() => setShowApiKey(!showApiKey)}
             selectedProvider={selectedProvider}
+            isApiKeyNeeded={isApiKeyNeeded}
+            onApiKeyNeededChange={setIsApiKeyNeeded}
           />
 
-          <ParamsSection
-            selectedProvider={selectedProvider}
-            requiredParams={requiredParams}
-            optionalParams={optionalParams}
-            errors={errors}
-            isSubmitting={isSubmitting}
-            isLoading={isLoading}
-            onRequiredParamChange={handleRequiredParamChange}
-            onOptionalParamChange={handleOptionalParamChange}
-          />
+          {selectedProvider && selectedCombinedModel && (
+            <ParamsSection
+              selectedProvider={selectedProvider}
+              requiredParams={requiredParams}
+              optionalParams={optionalParams}
+              errors={errors}
+              isSubmitting={isSubmitting}
+              isLoading={isLoading}
+              onRequiredParamChange={handleRequiredParamChange}
+              onOptionalParamChange={handleOptionalParamChange}
+              isExpanded={isParamsSectionExpanded}
+              onToggleExpand={() => setIsParamsSectionExpanded(!isParamsSectionExpanded)}
+              title="Custom parameters"
+            />
+          )}
         </div>
 
         <div className="flex justify-end pt-6">
@@ -535,4 +586,4 @@ export default function ModelPage() {
       <ModelPageContent />
     </React.Suspense>
   );
-} 
+}

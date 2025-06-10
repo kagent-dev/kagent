@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isAgentTool, isBuiltinTool, isMcpTool, isSameTool } from "@/lib/toolUtils";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isAgentTool, isBuiltinTool, isMcpTool, isSameTool, isMcpProvider } from "@/lib/toolUtils";
 import { Label } from "@/components/ui/label";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
@@ -77,8 +77,29 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     }
   };
 
-  const handleRemoveTool = (tool: Tool) => {
-    const updatedTools = selectedTools.filter((t) => getToolIdentifier(t) !== getToolIdentifier(tool));
+  const handleRemoveTool = (parentToolIdentifier: string, mcpToolNameToRemove?: string) => {
+    let updatedTools: Tool[];
+
+    if (mcpToolNameToRemove) {
+      updatedTools = selectedTools.map(tool => {
+        if (getToolIdentifier(tool) === parentToolIdentifier && isMcpTool(tool) && tool.mcpServer) {
+          const newToolNames = tool.mcpServer.toolNames.filter(name => name !== mcpToolNameToRemove);
+          if (newToolNames.length === 0) {
+            return null; 
+          }
+          return {
+            ...tool,
+            mcpServer: {
+              ...tool.mcpServer,
+              toolNames: newToolNames,
+            },
+          };
+        }
+        return tool;
+      }).filter(Boolean) as Tool[];
+    } else {
+      updatedTools = selectedTools.filter(t => getToolIdentifier(t) !== parentToolIdentifier);
+    }
     setSelectedTools(updatedTools);
   };
 
@@ -212,49 +233,94 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
 
   const renderSelectedTools = () => (
     <div className="space-y-2">
-      {selectedTools.map((agentTool: Tool) => {
-        const displayName = getToolDisplayName(agentTool);
-        const displayDescription = getToolDescription(agentTool);
-        const toolIdentifier = getToolIdentifier(agentTool);
+      {selectedTools.flatMap((agentTool: Tool) => {
+        const parentToolIdentifier = getToolIdentifier(agentTool);
 
-        const Icon = FunctionSquare;
-        let iconColor = "text-yellow-500";
-        if (isMcpTool(agentTool)) {
-          iconColor = "text-blue-400";
-        }
+        if (isMcpTool(agentTool) && agentTool.mcpServer && agentTool.mcpServer.toolNames && agentTool.mcpServer.toolNames.length > 0) {
+          return agentTool.mcpServer.toolNames.map((mcpToolName) => {
+            const toolIdentifierForDisplay = `${parentToolIdentifier}::${mcpToolName}`;
+            const displayName = mcpToolName;
 
-        return (
-          <Card key={toolIdentifier}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center text-xs">
-                  <div className="inline-flex space-x-2 items-center">
-                    {isAgentTool(agentTool) ? (
-                      <KagentLogo className={`h-4 w-4 ${iconColor}`} />
-                    ) : (
-                      <Icon className={`h-4 w-4 ${iconColor}`} />
-                    )}
-                    <div className="inline-flex flex-col space-y-1">
-                      <span className="">{displayName}</span>
-                      <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
+            let displayDescription = "Description not available.";
+            const mcpToolDef = allTools.find(def =>
+              isMcpProvider(def.provider) &&
+              (def.config as ToolConfig & { tool?: { name: string, description?: string } })?.tool?.name === mcpToolName
+            );
+
+            if (mcpToolDef) {
+              const toolConfig = (mcpToolDef.config as ToolConfig & { tool?: { name: string, description?: string } });
+              displayDescription = toolConfig?.tool?.description || displayDescription;
+            }
+
+            const Icon = FunctionSquare;
+            const iconColor = "text-blue-400";
+
+            return (
+              <Card key={toolIdentifierForDisplay}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center text-xs">
+                      <div className="inline-flex space-x-2 items-center">
+                        <Icon className={`h-4 w-4 ${iconColor}`} />
+                        <div className="inline-flex flex-col space-y-1">
+                          <span className="">{displayName}</span>
+                          <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier, mcpToolName)} disabled={isSubmitting}>
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-                </div>
+                </CardContent>
+              </Card>
+            );
+          });
+        } else {
+          const displayName = getToolDisplayName(agentTool);
+          const displayDescription = getToolDescription(agentTool);
 
-                <div className="flex items-center gap-2">
-                  {!isMcpTool(agentTool) && !isAgentTool(agentTool) && (
-                    <Button variant="outline" size="sm" onClick={() => openConfigDialog(agentTool)} disabled={isSubmitting}>
-                      <Settings2 className="h-4 w-4" />
+          let CurrentIcon: React.ElementType;
+          let currentIconColor: string;
+
+          if (isAgentTool(agentTool)) {
+            CurrentIcon = KagentLogo;
+            currentIconColor = "text-green-500";
+          } else {
+            CurrentIcon = FunctionSquare;
+            currentIconColor = "text-yellow-500";
+          }
+
+          return [( // flatMap expects an array
+            <Card key={parentToolIdentifier}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center text-xs">
+                    <div className="inline-flex space-x-2 items-center">
+                      <CurrentIcon className={`h-4 w-4 ${currentIconColor}`} />
+                      <div className="inline-flex flex-col space-y-1">
+                        <span className="">{displayName}</span>
+                        <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!isMcpTool(agentTool) && !isAgentTool(agentTool) && (
+                      <Button variant="outline" size="sm" onClick={() => openConfigDialog(agentTool)} disabled={isSubmitting}>
+                        <Settings2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
+                      <X className="h-4 w-4" />
                     </Button>
-                  )}
-                  <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(agentTool)} disabled={isSubmitting}>
-                    <X className="h-4 w-4" />
-                  </Button>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        );
+              </CardContent>
+            </Card>
+          )];
+        }
       })}
     </div>
   );

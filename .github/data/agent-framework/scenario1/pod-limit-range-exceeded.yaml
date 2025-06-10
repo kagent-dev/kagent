@@ -5,12 +5,12 @@ metadata:
 spec:
   description: Pod exceeds namespace LimitRange, pod cannot be created
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 I see backend-v3 pods failing to create due to limit range.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`. And you have my permission to keep trying out things until you fix the environment and all tests pass.
   steps:
     - run: |
-        kubectl apply --context ${CLUSTER1} -f - <<EOF
+        kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
         apiVersion: v1
         kind: LimitRange
         metadata:
@@ -22,5 +22,5 @@ spec:
               memory: 100Mi
             type: Container
         EOF
-        kubectl patch deployment backend-v3 --context ${CLUSTER1} -p '{"spec":{"template":{"spec":{"containers":[{"name":"backend","resources":{"requests":{"memory":"200Mi"}}}]}}}}'
-        kubectl --context ${CLUSTER1} delete rs -l "app=backend,version=v3"
+        kubectl patch deployment backend-v3 --context ${CLUSTER_CTX} -p '{"spec":{"template":{"spec":{"containers":[{"name":"backend","resources":{"requests":{"memory":"200Mi"}}}]}}}}'
+        kubectl --context ${CLUSTER_CTX} delete rs -l "app=backend,version=v3"

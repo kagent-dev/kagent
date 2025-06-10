@@ -31,8 +31,17 @@ export interface FunctionCall {
 }
 
 export interface FunctionExecutionResult {
-  call_id: string;
   content: string;
+}
+
+export interface ToolCallExecutionEvent extends BaseMessageConfig {
+  content: Array<{
+    content: string;
+    name: string;
+    call_id: string;
+    is_error: boolean;
+  }>;
+  type: "ToolCallExecutionEvent";
 }
 
 export interface BaseMessageConfig {
@@ -41,8 +50,33 @@ export interface BaseMessageConfig {
   metadata?: Record<string, string>;
 }
 
+export interface BaseAgentEvent extends BaseMessageConfig {}
+
+export interface MemoryQueryEventContent {
+  content: string;
+  mime_type: string;
+}
+export interface MemoryQueryEvent extends BaseAgentEvent {
+  content: MemoryQueryEventContent[];
+  type: "MemoryQueryEvent";
+}
+
+export interface CompletionMessage extends BaseMessageConfig {
+  type: "completion";
+  status: string;
+}
+
 export interface TextMessageConfig extends BaseMessageConfig {
   content: string;
+}
+
+export interface ErrorMessageConfig extends BaseMessageConfig {
+  data: {
+    task_result: TaskResult;
+    usage: string;
+    duration: number;
+  };
+  type: "error";
 }
 
 export interface MultiModalMessageConfig extends BaseMessageConfig {
@@ -58,15 +92,22 @@ export interface HandoffMessageConfig extends BaseMessageConfig {
   target: string;
 }
 
-export interface ToolCallMessageConfig extends BaseMessageConfig {
+export interface ToolCallRequestEvent extends BaseMessageConfig {
   content: FunctionCall[];
+  type: "ToolCallRequestEvent";
 }
 
-export interface ToolCallResultMessageConfig extends BaseMessageConfig {
-  content: FunctionExecutionResult[];
+export interface ToolCallSummaryMessage extends BaseMessageConfig {
+  content: string;
+  type: "ToolCallSummaryMessage";
 }
 
-export type AgentMessageConfig = TextMessageConfig | MultiModalMessageConfig | StopMessageConfig | HandoffMessageConfig | ToolCallMessageConfig | ToolCallResultMessageConfig;
+export interface ModelClientStreamingChunkEvent extends BaseAgentEvent { 
+  content: string;
+  type: "ModelClientStreamingChunkEvent";
+}
+
+export type AgentMessageConfig = TextMessageConfig | MultiModalMessageConfig | StopMessageConfig | HandoffMessageConfig | ToolCallRequestEvent | ToolCallExecutionEvent | ToolCallSummaryMessage | MemoryQueryEvent | ModelClientStreamingChunkEvent;
 
 // Tool Configs
 export interface FunctionToolConfig {
@@ -302,20 +343,10 @@ export interface Team extends DBModel {
 
 export interface Session extends DBModel {
   name: string;
-  team_id?: number;
-}
-
-// Runtime Types
-export interface SessionRuns {
-  runs: Run[];
-}
-
-export interface WebSocketMessage {
-  type: "message" | "result" | "completion" | "input_request" | "error" | "llm_call_event" | "system" | "message_chunk";
-  data?: AgentMessageConfig | TaskResult;
-  status?: RunStatus;
-  error?: string;
-  timestamp?: string;
+  team_id: number;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskResult {
@@ -323,33 +354,12 @@ export interface TaskResult {
   stop_reason?: string;
 }
 
-export interface TeamResult {
+export interface TaskResultMessage {
   task_result: TaskResult;
   usage: string;
   duration: number;
 }
 
-export interface Run {
-  id: string;
-  created_at: string;
-  updated_at?: string;
-  status: RunStatus;
-  task: AgentMessageConfig;
-  team_result: TeamResult | null;
-  messages: Message[];
-  error_message?: string;
-}
-
-export interface GetSessionRunsResponse {
-  runs: Run[];
-}
-
-export type RunStatus = "created" | "active" | "awaiting_input" | "timeout" | "complete" | "error" | "stopped";
-
-export interface SessionWithRuns {
-  session: Session;
-  runs: Run[];
-}
 
 export interface ResourceMetadata {
   name: string;
