@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -250,7 +251,7 @@ func main() {
 	)
 
 	// wait for autogen to become ready on port 8081 before starting the manager
-	if err := waitForAutogenReady(setupLog, autogenClient, time.Minute*5, time.Second*5); err != nil {
+	if err := waitForAutogenReady(context.Background(), setupLog, autogenClient, time.Minute*5, time.Second*5); err != nil {
 		setupLog.Error(err, "failed to wait for autogen to become ready")
 		os.Exit(1)
 	}
@@ -371,13 +372,14 @@ func main() {
 }
 
 func waitForAutogenReady(
+	ctx context.Context,
 	log logr.Logger,
 	client autogen_client.Client,
 	timeout, interval time.Duration,
 ) error {
 	log.Info("waiting for autogen to become ready")
 	return waitForReady(func() error {
-		version, err := client.GetVersion()
+		version, err := client.GetVersion(ctx)
 		if err != nil {
 			log.Error(err, "autogen is not ready")
 			return err
