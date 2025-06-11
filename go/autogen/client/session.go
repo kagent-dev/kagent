@@ -1,24 +1,25 @@
 package client
 
 import (
+	"context"
 	"fmt"
 )
 
 func (c *client) ListSessions(userID string) ([]*Session, error) {
 	var sessions []*Session
-	err := c.doRequest("GET", fmt.Sprintf("/sessions/?user_id=%s", userID), nil, &sessions)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/sessions/?user_id=%s", userID), nil, &sessions)
 	return sessions, err
 }
 
 func (c *client) CreateSession(session *CreateSession) (*Session, error) {
 	var result Session
-	err := c.doRequest("POST", "/sessions/", session, &result)
+	err := c.doRequest(context.Background(), "POST", "/sessions/", session, &result)
 	return &result, err
 }
 
 func (c *client) GetSessionById(sessionID int, userID string) (*Session, error) {
 	var session Session
-	err := c.doRequest("GET", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), nil, &session)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), nil, &session)
 	return &session, err
 }
 
@@ -39,14 +40,14 @@ func (c *client) GetSession(sessionLabel string, userID string) (*Session, error
 
 func (c *client) InvokeSession(sessionID int, userID string, task string) (*TeamResult, error) {
 	var result TeamResult
-	err := c.doRequest("POST", fmt.Sprintf("/sessions/%d/invoke?user_id=%s", sessionID, userID), struct {
+	err := c.doRequest(context.Background(), "POST", fmt.Sprintf("/sessions/%d/invoke?user_id=%s", sessionID, userID), struct {
 		Task string `json:"task"`
 	}{Task: task}, &result)
 	return &result, err
 }
 
 func (c *client) InvokeSessionStream(sessionID int, userID string, task string) (<-chan *SseEvent, error) {
-	resp, err := c.startRequest("POST", fmt.Sprintf("/sessions/%d/invoke/stream?user_id=%s", sessionID, userID), struct {
+	resp, err := c.startRequest(context.Background(), "POST", fmt.Sprintf("/sessions/%d/invoke/stream?user_id=%s", sessionID, userID), struct {
 		Task string `json:"task"`
 	}{Task: task})
 	if err != nil {
@@ -57,12 +58,12 @@ func (c *client) InvokeSessionStream(sessionID int, userID string, task string) 
 }
 
 func (c *client) DeleteSession(sessionID int, userID string) error {
-	return c.doRequest("DELETE", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), nil, nil)
+	return c.doRequest(context.Background(), "DELETE", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), nil, nil)
 }
 
 func (c *client) ListSessionRuns(sessionID int, userID string) ([]*Run, error) {
 	var runs SessionRuns
-	err := c.doRequest("GET", fmt.Sprintf("/sessions/%d/runs/?user_id=%s", sessionID, userID), nil, &runs)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/sessions/%d/runs/?user_id=%s", sessionID, userID), nil, &runs)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +77,6 @@ func (c *client) ListSessionRuns(sessionID int, userID string) ([]*Run, error) {
 
 func (c *client) UpdateSession(sessionID int, userID string, session *Session) (*Session, error) {
 	var updatedSession Session
-	err := c.doRequest("PUT", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), session, &updatedSession)
+	err := c.doRequest(context.Background(), "PUT", fmt.Sprintf("/sessions/%d?user_id=%s", sessionID, userID), session, &updatedSession)
 	return &updatedSession, err
 }

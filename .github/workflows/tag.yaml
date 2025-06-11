@@ -107,4 +107,4 @@ jobs:
       with:
         files: |
           go/bin/kagent-*
-          helm/kagent-*.tgz
+          kagent-*.tgz
