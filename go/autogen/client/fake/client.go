@@ -1,6 +1,7 @@
 package fake
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -352,7 +353,7 @@ func (m *InMemoryAutogenClient) GetToolServerByLabel(toolServerLabel string, use
 	return toolServer, nil
 }
 
-func (m *InMemoryAutogenClient) GetVersion() (string, error) {
+func (m *InMemoryAutogenClient) GetVersion(_ context.Context) (string, error) {
 	return "1.0.0-inmemory", nil
 }
 

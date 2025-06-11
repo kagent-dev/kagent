@@ -20,7 +20,9 @@ func CheckServerConnection(client autogen_client.Client) error {
 		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
 	}
 
-	_, err := client.GetVersion()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	_, err := client.GetVersion(ctx)
 	if err != nil {
 		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
 	}
@@ -61,7 +63,7 @@ func NewPortForward(ctx context.Context, cfg *config.Config) *portForward {
 func (p *portForward) Stop() {
 	p.cancel()
 	if err := p.cmd.Wait(); err != nil {
-		if !strings.Contains(err.Error(), "signal: killed") {
+		if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "exit status 1") {
 			fmt.Fprintf(os.Stderr, "Error waiting for port-forward to exit: %v\n", err)
 		}
 	}

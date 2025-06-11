@@ -110,43 +110,6 @@ spec:
     - `cilium-dbg bpf recorder update <id>` - Update PCAP recorder
     - `cilium-dbg bpf recorder delete <id>` - Delete PCAP recorder
 
-  skills:
-    - id: cilium-debugging
-      name: Cilium Debugging and Troubleshooting
-      description: Provides comprehensive debugging and troubleshooting for Cilium deployments, including endpoint inspection, BPF map analysis, policy validation, and diagnostic information collection.
-      tags:
-        - cilium
-        - debugging
-        - troubleshooting
-        - endpoints
-        - bpf
-        - networking
-        - kubernetes
-      examples:
-        - "Debug a connectivity issue between two pods using Cilium"
-        - "Investigate why a Cilium network policy is not working"
-        - "Help me understand the output of cilium-dbg endpoint list"
-        - "Collect and analyze Cilium debugging information"
-        - "Troubleshoot issues with Cilium's BPF maps"
-
-    - id: cilium-advanced-monitoring
-      name: Cilium Advanced Monitoring and Diagnostics
-      description: Offers expert guidance on monitoring Cilium's performance, analyzing metrics, examining traffic flows, and performing advanced diagnostics using pcap recorders and BPF observability.
-      tags:
-        - cilium
-        - monitoring
-        - metrics
-        - diagnostics
-        - observability
-        - pcap
-        - bpf
-      examples:
-        - "Set up a PCAP recorder to capture traffic for a specific endpoint"
-        - "Analyze Cilium metrics for performance bottlenecks"
-        - "Monitor real-time traffic using cilium-dbg monitor"
-        - "Check the health status of Cilium endpoints"
-        - "Verify encryption status between pods"
-
   tools:
     # Endpoint Management and Debugging Tools
     - type: Builtin
@@ -240,3 +203,38 @@ spec:
           - "Validate network policy implementation"
           - "Examine endpoint health and configuration"
           - "Investigate identity-related issues"
+      - id: cilium-debugging
+        name: Cilium Debugging and Troubleshooting
+        description: Provides comprehensive debugging and troubleshooting for Cilium deployments, including endpoint inspection, BPF map analysis, policy validation, and diagnostic information collection.
+        tags:
+          - cilium
+          - debugging
+          - troubleshooting
+          - endpoints
+          - bpf
+          - networking
+          - kubernetes
+        examples:
+          - "Debug a connectivity issue between two pods using Cilium"
+          - "Investigate why a Cilium network policy is not working"
+          - "Help me understand the output of cilium-dbg endpoint list"
+          - "Collect and analyze Cilium debugging information"
+          - "Troubleshoot issues with Cilium's BPF maps"
+
+      - id: cilium-advanced-monitoring
+        name: Cilium Advanced Monitoring and Diagnostics
+        description: Offers expert guidance on monitoring Cilium's performance, analyzing metrics, examining traffic flows, and performing advanced diagnostics using pcap recorders and BPF observability.
+        tags:
+          - cilium
+          - monitoring
+          - metrics
+          - diagnostics
+          - observability
+          - pcap
+          - bpf
+        examples:
+          - "Set up a PCAP recorder to capture traffic for a specific endpoint"
+          - "Analyze Cilium metrics for performance bottlenecks"
+          - "Monitor real-time traffic using cilium-dbg monitor"
+          - "Check the health status of Cilium endpoints"
+          - "Verify encryption status between pods"
