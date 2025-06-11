@@ -21,15 +21,21 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
   } else if (isMcpTool(typedTool)) {
     return tool as Tool;
   } else if (isAgentTool(typedTool)) {
-    const agentName = typedTool.agent.ref;
-    const foundAgent = allAgents.find(a => a.agent.metadata.name === agentName);
+    const agentRef = typedTool.agent.ref;
+    const foundAgent = allAgents.find(a => {
+      const aRef = k8sRefUtils.toRef(
+        a.agent.metadata.namespace || "",
+        a.agent.metadata.name,
+      )
+      return aRef === agentRef
+    });
     const description = foundAgent?.agent.spec.description;
     return {
       ...typedTool,
       type: "Agent",
       agent: {
         ...typedTool.agent,
-        ref: agentName,
+        ref: agentRef,
         description: description
       }
     } as Tool;

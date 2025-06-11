@@ -446,7 +446,7 @@ export function ModelConfigStep({
                                         <FormLabel>Configuration Namespace</FormLabel>
                                         <FormControl>
                                             <Input
-                                                placeholder="e.g., default"
+                                                placeholder="e.g. default"
                                                 {...field}
                                                 onChange={e => {
                                                     field.onChange(e);

@@ -298,7 +298,7 @@ export default function NewMemoryPage() {
                   <FormItem>
                     <FormLabel>Namespace</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., default" {...field} disabled={editMode} />
+                      <Input placeholder="e.g. default" {...field} disabled={editMode} />
                     </FormControl>
                     <FormDescription>
                       {editMode 

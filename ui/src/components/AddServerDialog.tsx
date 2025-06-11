@@ -489,7 +489,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
               </div>
               <Input 
                 id="server-namespace" 
-                placeholder="e.g., default" 
+                placeholder="e.g. default" 
                 value={serverNamespace}
                 onChange={(e) => setServerNamespace(e.target.value)}
                 className={!isResourceNameValid(serverNamespace) && serverNamespace ? "border-red-300" : ""}
