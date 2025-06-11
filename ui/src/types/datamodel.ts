@@ -360,7 +360,6 @@ export interface TaskResultMessage {
   duration: number;
 }
 
-
 export interface ResourceMetadata {
   name: string;
   namespace?: string;
@@ -400,6 +399,7 @@ export interface AgentResourceSpec {
   modelConfig: string;
   memory?: string[];
 }
+
 export interface Agent {
   metadata: ResourceMetadata;
   spec: AgentResourceSpec;
@@ -414,6 +414,8 @@ export interface AgentResponse {
 }
 
 export interface ToolServer {
+  id?: number;
+  user_id?: string;
   metadata: ResourceMetadata;
   spec: ToolServerSpec;
 }
@@ -437,4 +439,6 @@ export interface ToolServerWithTools {
   name: string;
   config: ToolServerConfiguration;
   discoveredTools: ToolComponent[];
+  id: number;
+  user_id: string;
 }

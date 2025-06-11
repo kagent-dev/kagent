@@ -4,11 +4,12 @@ import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
-import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
+import { ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { createServer, deleteServer, getServers } from "../actions/servers";
+import { createServer, deleteServer, getServers, updateServer } from "@/app/actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { EditServerDialog } from "@/components/EditServerDialog";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -22,6 +23,8 @@ export default function ServersPage() {
   const [showAddServer, setShowAddServer] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
   const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [serverToEdit, setServerToEdit] = useState<ToolServer | null>(null);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -158,16 +161,35 @@ export default function ServersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                           <DropdownMenuItem 
-                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                             onSelect={(e) => {
-                               e.preventDefault();
-                               setOpenDropdownMenu(null);
-                                setShowConfirmDelete(serverName);
-                             }}
-                           >
-                             <Trash2 className="h-4 w-4 mr-2" />
-                             Remove Server
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              const toolServer: ToolServer = {
+                                id: server.id,
+                                user_id: server.user_id,
+                                metadata: {
+                                  name: server.name,
+                                },
+                                spec: {
+                                  description: "", 
+                                  config: server.config,
+                                },
+                              };                              
+                              setServerToEdit(toolServer);
+                              setShowEditDialog(true);
+                            }}
+                          >
+                            Edit Server
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setOpenDropdownMenu(null);
+                              setShowConfirmDelete(serverName);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Remove Server
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -239,6 +261,24 @@ export default function ServersPage() {
         description="Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
         onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete)}
       />
+
+      {/* Edit server dialog */}
+      {serverToEdit && (
+        <EditServerDialog
+          open={showEditDialog}
+          onOpenChange={setShowEditDialog}
+          serverToEdit={serverToEdit}
+          onUpdateServer={async (updated) => {
+            const result = await updateServer(updated);
+            if (result.success) {
+              toast.success("Server updated successfully");
+              fetchServers();
+            } else {
+              toast.error(`Update failed: ${typeof result.error === "string" ? result.error : JSON.stringify(result.error)}`);
+            }
+          }}
+        />    
+      )}
     </div>
   );
 }
