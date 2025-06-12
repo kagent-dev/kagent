@@ -171,7 +171,7 @@ func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) 
 	}
 	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
     if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid agent metadata", err))
+		w.RespondWithError(errors.NewBadRequestError("Invalid Agent metadata", err))
 	}
 	if teamRef.Namespace == common.GetResourceNamespace() {
 		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",

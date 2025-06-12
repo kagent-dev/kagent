@@ -63,12 +63,20 @@ func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *ht
 	}
 
 	if toolServerRequest.Namespace == "" {
-		toolServerRequest.Namespace = "default"
+		toolServerRequest.Namespace = common.GetResourceNamespace()
+	}
+	toolRef, err := common.ParseRefString(toolServerRequest.Name, toolServerRequest.Namespace)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid ToolServer metadata", err))
+	}
+	if toolRef.Namespace == common.GetResourceNamespace() {
+		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
+			"namespace", toolRef.Namespace)
 	}
 
 	log = log.WithValues(
-		"toolServerName", toolServerRequest.Name,
-		"toolServerNamespace", toolServerRequest.Namespace,
+		"toolServerName", toolRef.Name,
+		"toolServerNamespace", toolRef.Namespace,
 	)
 
 	if err := h.KubeClient.Create(r.Context(), toolServerRequest); err != nil {

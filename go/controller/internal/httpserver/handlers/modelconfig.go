@@ -196,14 +196,14 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	modelConfigRef, err := common.ParseRefString(req.Ref, "default")
+	modelConfigRef, err := common.ParseRefString(req.Ref, common.GetResourceNamespace())
 	if err != nil {
 		log.Error(err, "Failed to parse Ref")
 		w.RespondWithError(errors.NewBadRequestError("Invalid Ref", err))
 		return
 	}
 	if !strings.Contains(req.Ref, "/") {
-		log.V(4).Info("No namespace provided in Ref, using default namespace",
+		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
 			"defaultNamespace", modelConfigRef.Namespace)
 	}
 
