@@ -71,6 +71,7 @@ export interface AzureOpenAIConfigPayload {
     apiVersion: string;
     azureDeployment?: string;
     azureAdToken?: string;
+    useDefaultAzureCredential?: boolean;
     temperature?: string;
     maxTokens?: number;
     topP?: string;

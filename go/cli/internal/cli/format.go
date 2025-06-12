@@ -20,9 +20,15 @@ const (
 // Map returns an iterator over the slice, applying the function f to each element.
 func Map[E any, F any](s iter.Seq[E], f func(E) F) iter.Seq[F] {
 	return func(yield func(F) bool) {
-		for v := range s {
+		next, stop := iter.Pull(s)
+		defer stop()
+		for {
+			v, ok := next()
+			if !ok {
+				break
+			}
 			if !yield(f(v)) {
-				return
+				break
 			}
 		}
 	}
@@ -30,9 +36,15 @@ func Map[E any, F any](s iter.Seq[E], f func(E) F) iter.Seq[F] {
 
 func Filter[E any](s iter.Seq[E], f func(E) bool) iter.Seq[E] {
 	return func(yield func(E) bool) {
-		for v := range s {
+		next, stop := iter.Pull(s)
+		defer stop()
+		for {
+			v, ok := next()
+			if !ok {
+				break
+			}
 			if f(v) && !yield(v) {
-				return
+				break
 			}
 		}
 	}

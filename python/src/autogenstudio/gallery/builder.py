@@ -182,6 +182,7 @@ def create_default_gallery() -> GalleryConfig:
         api_version="2024-06-01",
         azure_endpoint="https://{your-custom-endpoint}.openai.azure.com/",
         api_key="test",
+        use_default_azure_credential=True,
     )
     builder.add_model(
         az_model_client.dump_component(),

@@ -120,6 +120,9 @@ spec:
                   azureEndpoint:
                     description: Endpoint for the Azure OpenAI API
                     type: string
+                  useDefaultAzureCredential:
+                    description: Use DefaultAzureCredential for authentication
+                    type: boolean
                   maxTokens:
                     description: Maximum tokens to generate
                     type: integer
