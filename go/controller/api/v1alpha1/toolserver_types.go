@@ -27,9 +27,8 @@ type ToolServerSpec struct {
 }
 
 type ToolServerConfig struct {
-	Stdio          *StdioMcpServerConfig       `json:"stdio,omitempty"`
-	Sse            *SseMcpServerConfig         `json:"sse,omitempty"`
-	StreamableHttp *StreamableHttpServerConfig `json:"streamableHttp,omitempty"`
+	Stdio *StdioMcpServerConfig `json:"stdio,omitempty"`
+	Sse   *SseMcpServerConfig   `json:"sse,omitempty"`
 }
 
 type ValueSourceType string
@@ -66,30 +65,16 @@ type StdioMcpServerConfig struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	EnvFrom []ValueRef        `json:"envFrom,omitempty"`
-	// Default value is 10 seconds
-	// +kubebuilder:default:=10
-	ReadTimeoutSeconds uint8 `json:"readTimeoutSeconds,omitempty"`
-}
-
-type HttpToolServerConfig struct {
-	URL string `json:"url"`
-	// +kubebuilder:pruning:PreserveUnknownFields
-	// +kubebuilder:validation:Schemaless
-	Headers     map[string]AnyType `json:"headers,omitempty"`
-	HeadersFrom []ValueRef         `json:"headersFrom,omitempty"`
-	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
-	// +optional
-	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"`
 }
 
 type SseMcpServerConfig struct {
-	HttpToolServerConfig `json:",inline"`
-}
-
-type StreamableHttpServerConfig struct {
-	HttpToolServerConfig `json:",inline"`
-	TerminateOnClose     bool `json:"terminateOnClose,omitempty"`
+	URL string `json:"url"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Schemaless
+	Headers        map[string]AnyType `json:"headers,omitempty"`
+	HeadersFrom    []ValueRef         `json:"headersFrom,omitempty"`
+	Timeout        string             `json:"timeout,omitempty"`
+	SseReadTimeout string             `json:"sse_read_timeout,omitempty"`
 }
 
 // ToolServerStatus defines the observed state of ToolServer.
@@ -118,6 +103,11 @@ type Component struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
 	Config map[string]AnyType `json:"config,omitempty"`
+}
+
+type MCPToolServerParams struct {
+	Stdio *StdioMcpServerConfig `json:"stdio,omitempty"`
+	Sse   *SseMcpServerConfig   `json:"sse,omitempty"`
 }
 
 // +kubebuilder:object:root=true

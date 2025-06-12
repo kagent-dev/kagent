@@ -137,7 +137,7 @@ func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.Val
 	return string(value), nil
 }
 
-func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1alpha1.ToolServerConfig, namespace string) (string, api.ComponentConfig, error) {
+func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1alpha1.ToolServerConfig, namespace string) (string, *api.ToolServerConfig, error) {
 	switch {
 	case config.Stdio != nil:
 		env := make(map[string]string)
@@ -164,11 +164,12 @@ func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1
 			}
 		}
 
-		return "kagent.tool_servers.StdioMcpToolServer", &api.StdioMcpServerConfig{
-			Command:            config.Stdio.Command,
-			Args:               config.Stdio.Args,
-			Env:                env,
-			ReadTimeoutSeconds: 10,
+		return "kagent.tool_servers.StdioMcpToolServer", &api.ToolServerConfig{
+			StdioMcpServerConfig: &api.StdioMcpServerConfig{
+				Command: config.Stdio.Command,
+				Args:    config.Stdio.Args,
+				Env:     env,
+			},
 		}, nil
 	case config.Sse != nil:
 		headers, err := convertMapFromAnytype(config.Sse.Headers)
@@ -192,60 +193,22 @@ func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1
 			}
 		}
 
-		var timeout *float64
-		if config.Sse.Timeout != nil {
-			timeout = common.MakePtr(config.Sse.Timeout.Duration.Seconds())
+		timeout, err := convertDurationToSeconds(config.Sse.Timeout)
+		if err != nil {
+			return "", nil, err
 		}
-
-		var sseReadTimeout *float64
-		if config.Sse.SseReadTimeout != nil {
-			sseReadTimeout = common.MakePtr(config.Sse.SseReadTimeout.Duration.Seconds())
-		}
-
-		return "kagent.tool_servers.SseMcpToolServer", &api.SseMcpServerConfig{
-			URL:            config.Sse.URL,
-			Headers:        headers,
-			Timeout:        timeout,
-			SseReadTimeout: sseReadTimeout,
-		}, nil
-	case config.StreamableHttp != nil:
-
-		headers, err := convertMapFromAnytype(config.StreamableHttp.Headers)
+		sseReadTimeout, err := convertDurationToSeconds(config.Sse.SseReadTimeout)
 		if err != nil {
 			return "", nil, err
 		}
 
-		if len(config.StreamableHttp.HeadersFrom) > 0 {
-			for _, header := range config.StreamableHttp.HeadersFrom {
-				if header.ValueFrom != nil {
-					value, err := a.resolveValueSource(ctx, header.ValueFrom, namespace)
-
-					if err != nil {
-						return "", nil, fmt.Errorf("failed to resolve header %s: %v", header.Name, err)
-					}
-
-					headers[header.Name] = value
-				} else if header.Value != "" {
-					headers[header.Name] = header.Value
-				}
-			}
-		}
-
-		var timeout *float64
-		if config.StreamableHttp.Timeout != nil {
-			timeout = common.MakePtr(config.StreamableHttp.Timeout.Duration.Seconds())
-		}
-		var sseReadTimeout *float64
-		if config.StreamableHttp.SseReadTimeout != nil {
-			sseReadTimeout = common.MakePtr(config.StreamableHttp.SseReadTimeout.Duration.Seconds())
-		}
-
-		return "kagent.tool_servers.StreamableHttpMcpToolServer", &api.StreamableHttpServerConfig{
-			URL:              config.StreamableHttp.URL,
-			Headers:          headers,
-			Timeout:          timeout,
-			SseReadTimeout:   sseReadTimeout,
-			TerminateOnClose: config.StreamableHttp.TerminateOnClose,
+		return "kagent.tool_servers.SseMcpToolServer", &api.ToolServerConfig{
+			SseMcpServerConfig: &api.SseMcpServerConfig{
+				URL:            config.Sse.URL,
+				Headers:        headers,
+				Timeout:        timeout,
+				SseReadTimeout: sseReadTimeout,
+			},
 		}, nil
 	}
 
