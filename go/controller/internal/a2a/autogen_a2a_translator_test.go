@@ -152,7 +152,6 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		session, err := mockClient.CreateSession(&autogen_client.CreateSession{
 			Name:   sessionID,
 			UserID: "admin@kagent.dev",
-			TeamID: 123,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, sessionID, session.Name)
@@ -232,7 +231,6 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		createdSession, err := mockClient.GetSession(sessionID, "admin@kagent.dev")
 		require.NoError(t, err)
 		assert.Equal(t, sessionID, createdSession.Name)
-		assert.Equal(t, 123, createdSession.TeamID)
 	})
 
 	t.Run("should handle error when creating new session fails", func(t *testing.T) {
@@ -511,7 +509,6 @@ func TestTaskHandlerErrorHandling(t *testing.T) {
 		_, err := mockClient.CreateSession(&autogen_client.CreateSession{
 			Name:   sessionID,
 			UserID: "admin@kagent.dev",
-			TeamID: 123,
 		})
 		require.NoError(t, err)
 

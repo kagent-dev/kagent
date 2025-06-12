@@ -47,45 +47,6 @@ class MessageMeta(BaseModel):
     usage: Optional[List[dict]] = None
 
 
-class GalleryMetadata(BaseModel):
-    author: str
-    # created_at: datetime = Field(default_factory=datetime.now)
-    # updated_at: datetime = Field(default_factory=datetime.now)
-    version: str
-    description: Optional[str] = None
-    tags: Optional[List[str]] = None
-    license: Optional[str] = None
-    homepage: Optional[str] = None
-    category: Optional[str] = None
-    last_synced: Optional[datetime] = None
-
-    model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: v.isoformat(),
-        }
-    )
-
-
-class GalleryComponents(BaseModel):
-    agents: List[ComponentModel]
-    models: List[ComponentModel]
-    tools: List[ComponentModel]
-    terminations: List[ComponentModel]
-    teams: List[ComponentModel]
-
-
-class GalleryConfig(BaseModel):
-    id: str
-    name: str
-    url: Optional[str] = None
-    metadata: GalleryMetadata
-    components: GalleryComponents
-
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat(), SecretStr: lambda v: v.get_secret_value()}
-    )
-
-
 class EnvironmentVariable(BaseModel):
     name: str
     value: str
@@ -115,9 +76,3 @@ class Response(BaseModel):
     message: str
     status: bool
     data: Optional[Any] = None
-
-
-class SocketMessage(BaseModel):
-    connection_id: str
-    data: Dict[str, Any]
-    type: str

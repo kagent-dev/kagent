@@ -1,15 +1,11 @@
-from .db import BaseDBModel, Feedback, Gallery, Message, Run, RunStatus, Session, Settings, Team, Tool, ToolServer
+from .db import BaseDBModel, Feedback, Message, Run, RunStatus, Session, Settings, Team, Tool, ToolServer
 from .types import (
     EnvironmentVariable,
-    GalleryComponents,
-    GalleryConfig,
-    GalleryMetadata,
     LLMCallEventMessage,
     MessageConfig,
     MessageMeta,
     Response,
     SettingsConfig,
-    SocketMessage,
     TeamResult,
 )
 
@@ -24,16 +20,11 @@ __all__ = [
     "MessageMeta",
     "TeamResult",
     "Response",
-    "SocketMessage",
     "LLMCallEventMessage",
     "Tool",
-    "GalleryConfig",
-    "GalleryComponents",
-    "GalleryMetadata",
     "SettingsConfig",
     "Settings",
     "EnvironmentVariable",
-    "Gallery",
     "ToolServer",
     "Feedback",
 ]

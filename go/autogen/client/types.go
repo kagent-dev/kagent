@@ -136,7 +136,6 @@ type Session struct {
 	ID        int    `json:"id"`
 	UserID    string `json:"user_id"`
 	Version   string `json:"version"`
-	TeamID    int    `json:"team_id"`
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
@@ -144,7 +143,6 @@ type Session struct {
 
 type CreateSession struct {
 	UserID string `json:"user_id"`
-	TeamID int    `json:"team_id"`
 	Name   string `json:"name"`
 }
 
@@ -160,6 +158,12 @@ type ModelInfo struct {
 type SseEvent struct {
 	Event string `json:"event"`
 	Data  []byte `json:"data"`
+}
+
+// InvokeRequest represents the request payload for session invocation
+type InvokeRequest struct {
+	Task       string         `json:"task"`
+	TeamConfig *api.Component `json:"team_config"`
 }
 
 var (

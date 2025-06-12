@@ -57,11 +57,12 @@ type SwarmTeamConfig struct {
 
 type TerminationCondition struct {
 	// ONEOF: maxMessageTermination, textMentionTermination, orTermination
-	MaxMessageTermination  *MaxMessageTermination  `json:"maxMessageTermination,omitempty"`
-	TextMentionTermination *TextMentionTermination `json:"textMentionTermination,omitempty"`
-	TextMessageTermination *TextMessageTermination `json:"textMessageTermination,omitempty"`
-	StopMessageTermination *StopMessageTermination `json:"stopMessageTermination,omitempty"`
-	OrTermination          *OrTermination          `json:"orTermination,omitempty"`
+	MaxMessageTermination       *MaxMessageTermination       `json:"maxMessageTermination,omitempty"`
+	TextMentionTermination      *TextMentionTermination      `json:"textMentionTermination,omitempty"`
+	TextMessageTermination      *TextMessageTermination      `json:"textMessageTermination,omitempty"`
+	FinalTextMessageTermination *FinalTextMessageTermination `json:"finalTextMessageTermination,omitempty"`
+	StopMessageTermination      *StopMessageTermination      `json:"stopMessageTermination,omitempty"`
+	OrTermination               *OrTermination               `json:"orTermination,omitempty"`
 }
 
 type MaxMessageTermination struct {
@@ -73,6 +74,10 @@ type TextMentionTermination struct {
 }
 
 type TextMessageTermination struct {
+	Source string `json:"source"`
+}
+
+type FinalTextMessageTermination struct {
 	Source string `json:"source"`
 }
 
