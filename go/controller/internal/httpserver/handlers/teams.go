@@ -168,14 +168,12 @@ func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) 
 
 	if teamRequest.Namespace == "" {
 		teamRequest.Namespace = common.GetResourceNamespace()
+		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
+			"namespace", teamRequest.Namespace)
 	}
 	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
     if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid Agent metadata", err))
-	}
-	if teamRef.Namespace == common.GetResourceNamespace() {
-		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
-			"namespace", teamRef.Namespace)
 	}
 
 	log = log.WithValues(
@@ -229,14 +227,12 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 
 	if teamRequest.Namespace == "" {
 		teamRequest.Namespace = common.GetResourceNamespace()
+		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
+			"namespace", teamRequest.Namespace)
 	}
 	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
     if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid agent metadata", err))
-	}
-	if teamRef.Namespace == common.GetResourceNamespace() {
-		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
-			"namespace", teamRef.Namespace)
 	}
 
 	log = log.WithValues(
