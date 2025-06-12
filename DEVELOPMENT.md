@@ -11,8 +11,35 @@ When making changes to `kagent`, the most important thing is to figure out which
 
 ## How to run everything locally
 
-Running outside Kubernetes:
+Running outside Kubernetes is mostly meant for development/testing. You'll still need to set up the Kubernetes cluster.
 
+1. Create a cluster:
+
+```shell
+make create-kind-cluster
+```
+
+2. Set your providers API_KEY:
+
+```shell
+export OPENAI_API_KEY=your-openai-api-key
+#or
+export ANTHROPIC_API_KEY=your-anthropic-api-key
+```
+
+3. Build images, load them into kind cluster, and deploy everything using Helm:
+
+```shell
+make helm-install
+```
+
+4. Delete the kagent deployment (because we want to use the UI/backend/controller that we're running locally):
+
+```shell
+kubectl delete deploy kagent -n kagent
+```
+
+Now you can run the components locally:
 
 1. Run the backend from the `python` folder:
 
@@ -37,6 +64,12 @@ Set the `GIT_LFS_SKIP_SMUDGE=1` variable and then run sync command.
 npm install
 
 npm run dev
+```
+
+3. Run the controller locally, from the `go` folder:
+
+```bash
+go run controller/cmd/main.go
 ```
 
 ## How to run everything in Kubernetes
