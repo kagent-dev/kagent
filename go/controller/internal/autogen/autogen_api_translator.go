@@ -1303,8 +1303,8 @@ func (a *apiTranslator) getMemoryApiKey(ctx context.Context, memory *v1alpha1.Me
 }
 
 func (a *apiTranslator) getModelConfigGoogleApplicationCredentials(ctx context.Context, modelConfig *v1alpha1.ModelConfig) (map[string]interface{}, error) {
-	googleApplicationCredentialsSecret := &v1.Secret{}
-	err := fetchObjKube(
+	googleApplicationCredentialsSecret := &corev1.Secret{}
+	err := common.GetObject(
 		ctx,
 		a.kube,
 		googleApplicationCredentialsSecret,
