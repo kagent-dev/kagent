@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -134,6 +135,17 @@ func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.Val
 		return "", fmt.Errorf("key %s not found in Secret %s/%s", source.Key, secret.Namespace, secret.Name)
 	}
 	return string(value), nil
+}
+
+func convertDurationToSeconds(timeout string) (int, error) {
+	if timeout == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(timeout)
+	if err != nil {
+		return 0, err
+	}
+	return int(d.Seconds()), nil
 }
 
 func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1alpha1.ToolServerConfig, namespace string) (string, *api.ToolServerConfig, error) {

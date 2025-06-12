@@ -234,6 +234,7 @@ helm-install-provider: helm-version check-openai-key
 		--history-max 2    \
 		--timeout 5m       \
 		--wait \
+		--set service.type=LoadBalancer \
 		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set app.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
