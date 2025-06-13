@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
 import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { createServer, deleteServer, getServers } from "../actions/servers";
+import { createServer, deleteServer, getServers, updateServer } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
@@ -19,7 +19,15 @@ export default function ServersPage() {
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
 
   // Dialog states
-  const [showAddServer, setShowAddServer] = useState(false);
+  const [dialogState, setDialogState] = useState<{
+    isOpen: boolean;
+    mode: 'add' | 'edit';
+    serverData: ToolServer | null;
+  }>({
+    isOpen: false,
+    mode: 'add',
+    serverData: null
+  });
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
   const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
 
@@ -88,12 +96,49 @@ export default function ServersPage() {
       }
 
       toast.success("Server added successfully");
-      setShowAddServer(false);
+      setDialogState({ isOpen: false, mode: 'add', serverData: null });
       fetchServers();
     } catch (error) {
       console.error("Error adding server:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       toast.error(`Failed to add server: ${errorMessage}`);
+      throw error; // Re-throw to be caught by the dialog
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEditClick = (server: ToolServerWithTools) => {
+    // Convert ToolServerWithTools to ToolServer format
+    const serverToEdit: ToolServer = {
+      metadata: { name: server.name },
+      spec: {
+        description: "", // Default empty description since it's not available in ToolServerWithTools
+        config: server.config
+      }
+    };
+    setDialogState({
+      isOpen: true,
+      mode: 'edit',
+      serverData: serverToEdit
+    });
+  };
+
+  const handleEditServer = async (server: ToolServer) => {
+    if (!dialogState.serverData) return;
+    try {
+      setIsLoading(true);
+      const response = await updateServer(dialogState.serverData.metadata.name, server);
+      if (!response.success) {
+        throw new Error(response.error || "Failed to update server");
+      }
+      toast.success("Server updated successfully");
+      setDialogState({ isOpen: false, mode: 'add', serverData: null });
+      fetchServers();
+    } catch (error) {
+      console.error("Error updating server:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Failed to update server: ${errorMessage}`);
       throw error; // Re-throw to be caught by the dialog
     } finally {
       setIsLoading(false);
@@ -110,7 +155,7 @@ export default function ServersPage() {
           </Link>
         </div>
         {servers.length > 0 && (
-          <Button onClick={() => setShowAddServer(true)} variant="default">
+          <Button onClick={() => setDialogState({ isOpen: true, mode: 'add', serverData: null })} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add Server
           </Button>
@@ -158,16 +203,25 @@ export default function ServersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                           <DropdownMenuItem 
-                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                             onSelect={(e) => {
-                               e.preventDefault();
-                               setOpenDropdownMenu(null);
-                                setShowConfirmDelete(serverName);
-                             }}
-                           >
-                             <Trash2 className="h-4 w-4 mr-2" />
-                             Remove Server
+                          <DropdownMenuItem
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setOpenDropdownMenu(null);
+                              handleEditClick(server);
+                            }}
+                          >
+                            Edit Server
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setOpenDropdownMenu(null);
+                              setShowConfirmDelete(serverName);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Remove Server
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -213,18 +267,25 @@ export default function ServersPage() {
           <Server className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
           <h3 className="font-medium text-lg">No servers connected</h3>
           <p className="text-muted-foreground mt-1 mb-4">Add a tool server to discover and use tools.</p>
-          <Button onClick={() => setShowAddServer(true)} variant="default">
+          <Button onClick={() => setDialogState({ isOpen: true, mode: 'add', serverData: null })} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add Server
           </Button>
         </div>
       )}
 
-      {/* Add server dialog */}
+      {/* Server dialog for both add and edit */}
       <AddServerDialog 
-        open={showAddServer} 
-        onOpenChange={setShowAddServer} 
+        open={dialogState.isOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDialogState({ isOpen: false, mode: 'add', serverData: null });
+          }
+        }}
         onAddServer={handleAddServer}
+        onEditServer={handleEditServer}
+        mode={dialogState.mode}
+        initialServer={dialogState.serverData || undefined}
       />
 
       {/* Confirm delete dialog */}
