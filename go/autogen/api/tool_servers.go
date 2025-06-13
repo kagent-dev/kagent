@@ -1,49 +1,30 @@
 package api
 
-type StdioMcpServerConfig struct {
-	Command            string            `json:"command"`
-	Args               []string          `json:"args,omitempty"`
-	Env                map[string]string `json:"env,omitempty"`
-	ReadTimeoutSeconds uint8             `json:"read_timeout_seconds,omitempty"`
+type ToolServerConfig struct {
+	//ONEOF
+	*StdioMcpServerConfig
+	*SseMcpServerConfig
 }
 
-func (c *StdioMcpServerConfig) ToConfig() (map[string]interface{}, error) {
+func (c *ToolServerConfig) ToConfig() (map[string]interface{}, error) {
 	return toConfig(c)
 }
 
-func (c *StdioMcpServerConfig) FromConfig(config map[string]interface{}) error {
+func (c *ToolServerConfig) FromConfig(config map[string]interface{}) error {
 	return fromConfig(c, config)
+}
+
+type StdioMcpServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 type SseMcpServerConfig struct {
 	URL            string                 `json:"url"`
 	Headers        map[string]interface{} `json:"headers,omitempty"`
-	Timeout        *float64               `json:"timeout,omitempty"`
-	SseReadTimeout *float64               `json:"sse_read_timeout,omitempty"`
-}
-
-func (c *SseMcpServerConfig) ToConfig() (map[string]interface{}, error) {
-	return toConfig(c)
-}
-
-func (c *SseMcpServerConfig) FromConfig(config map[string]interface{}) error {
-	return fromConfig(c, config)
-}
-
-type StreamableHttpServerConfig struct {
-	URL              string                 `json:"url"`
-	Headers          map[string]interface{} `json:"headers,omitempty"`
-	Timeout          *float64               `json:"timeout,omitempty"`
-	SseReadTimeout   *float64               `json:"sse_read_timeout,omitempty"`
-	TerminateOnClose bool                   `json:"terminate_on_close,omitempty"`
-}
-
-func (c *StreamableHttpServerConfig) ToConfig() (map[string]interface{}, error) {
-	return toConfig(c)
-}
-
-func (c *StreamableHttpServerConfig) FromConfig(config map[string]interface{}) error {
-	return fromConfig(c, config)
+	Timeout        int                    `json:"timeout,omitempty"`
+	SseReadTimeout int                    `json:"sse_read_timeout,omitempty"`
 }
 
 type MCPToolConfig struct {
