@@ -251,16 +251,16 @@ export default function ServersPage() {
           <div className="space-y-2">
             <p>Are you sure you want to delete the server &apos;{showConfirmDelete}&apos;? This action cannot be undone.</p>
             {showConfirmDelete && isMcpServerUsedByAgents(showConfirmDelete, agents).length > 0 && (
-              <div className="mt-4">
-                <p className="font-medium text-amber-600">Warning: This server is currently being used by the following agents:</p>
+              <div className="mt-4 p-4 border border-amber-200 bg-amber-50 rounded-md">
+                <p className="font-medium text-amber-800">⚠️ Warning: This server is currently being used by the following agents:</p>
                 <ul className="list-disc list-inside mt-2 space-y-1">
                   {isMcpServerUsedByAgents(showConfirmDelete, agents).map((agent) => (
-                    <li key={agent.agent.metadata.name} className="text-sm">
+                    <li key={agent.agent.metadata.name} className="text-sm text-amber-700">
                       {agent.agent.metadata.name}
                     </li>
                   ))}
                 </ul>
-                <p className="mt-2 text-sm text-muted-foreground">Deleting this server will remove the tools from these agents and may affect their functionality.</p>
+                <p className="mt-2 text-sm text-amber-700">Deleting this server will remove the tools from these agents and may affect their functionality. Please ensure you want to proceed with this action.</p>
               </div>
             )}
           </div>
