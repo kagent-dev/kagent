@@ -1,10 +1,10 @@
 modelConfigRef: ""
 prometheus:
-  url: "prometheus.kagent:9090"
+  url: "prometheus.kagent:9090/api/v1"
   username: ""
   password: ""
 grafana:
-  url: "grafana.kagent:3000"
+  url: "grafana.kagent:3000/api"
   username: ""
   password: ""
   apiKey: ""
