@@ -97,7 +97,7 @@
                         },
                         "description": "",
                         "label": "",
-                        "provider": "autogen_agentchat.conditions.TextMessageTermination",
+                        "provider": "kagent.conditions.FinalTextMessageTermination",
                         "version": 1
                       }
                     },
@@ -128,7 +128,7 @@
         },
         "description": "",
         "label": "",
-        "provider": "autogen_agentchat.conditions.TextMessageTermination",
+        "provider": "kagent.conditions.FinalTextMessageTermination",
         "version": 1
       }
     },
