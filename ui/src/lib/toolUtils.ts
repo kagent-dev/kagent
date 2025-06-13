@@ -99,11 +99,16 @@ export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string =
   // Handle Component<ToolConfig> type
   if (typeof tool === "object" && "provider" in tool) {
     if (isMcpProvider(tool.provider)) {
-      // For MCP adapter components, use toolServer (from label) and tool name
+      // For MCP adapter components, use the same server identification logic
       const mcpConfig = tool.config as MCPToolConfig;
-      const toolServer = tool.label || mcpConfig.tool.name || "unknown"; // Prefer label as toolServer
-      const toolName = mcpConfig.tool.name || "unknown";
-      return `mcptool-${toolServer}-${toolName}`;
+      let toolServer = tool.label || "unknown";
+      
+      // Try to get the server URL from SSE config if available
+      if (mcpConfig.server_params && 'url' in mcpConfig.server_params) {
+        toolServer = mcpConfig.server_params.url;
+      }
+      
+      return `mcptool-${toolServer}`;
     }
 
     // For regular component tools (includes Builtin)
@@ -112,11 +117,9 @@ export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string =
 
   // Handle AgentTool types
   if (isMcpTool(tool) && tool.mcpServer) {
-    // For MCP agent tools, use toolServer and first tool name
-    const toolName = tool.mcpServer.toolNames[0] || "unknown";
-    // Ensure mcpServer and toolServer exist before accessing
+    // For MCP agent tools, use only the toolServer for identification
     const toolServer = tool.mcpServer?.toolServer || "unknown";
-    return `mcptool-${toolServer}-${toolName}`;
+    return `mcptool-${toolServer}`;
   } else if (isBuiltinTool(tool) && tool.builtin) {
     // For Builtin agent tools
     return `component-${tool.builtin.name}`;
@@ -157,10 +160,17 @@ export const isSameTool = (toolA?: Tool, toolB?: Tool): boolean => {
 export const componentToAgentTool = (component: Component<ToolConfig>): Tool => {
   if (isMcpProvider(component.provider)) {
     const mcpConfig = component.config as MCPToolConfig;
+    let toolServer = component.label || mcpConfig.tool.name || "unknown";
+    
+    // Try to get the server URL from SSE config if available
+    if (mcpConfig.server_params && 'url' in mcpConfig.server_params) {
+      toolServer = mcpConfig.server_params.url;
+    }
+    
     return {
       type: "McpServer",
       mcpServer: {
-        toolServer: component.label || mcpConfig.tool.name || "unknown",
+        toolServer,
         toolNames: [mcpConfig.tool.name || "unknown"]
       }
     };
@@ -218,4 +228,39 @@ export const getToolCategory = (tool: Component<ToolConfig>) => {
     return parts[1]; // e.g., kagent.builtin -> builtin
   }
   return "other"; // Default category
+};
+
+export const handleMcpToolOperation = (
+  tool: Tool,
+  operation: 'add' | 'remove',
+  toolServer: string,
+  toolNames: string[]
+): Tool | null => {
+  if (!isMcpTool(tool) || !tool.mcpServer || tool.mcpServer.toolServer !== toolServer) {
+    return tool;
+  }
+
+  if (operation === 'add') {
+    return {
+      ...tool,
+      mcpServer: {
+        ...tool.mcpServer,
+        toolNames: [...new Set([...tool.mcpServer.toolNames, ...toolNames])]
+      }
+    };
+  } else if (operation === 'remove') {
+    const newToolNames = tool.mcpServer.toolNames.filter(name => !toolNames.includes(name));
+    if (newToolNames.length === 0) {
+      return null;
+    }
+    return {
+      ...tool,
+      mcpServer: {
+        ...tool.mcpServer,
+        toolNames: newToolNames
+      }
+    };
+  }
+
+  return tool;
 };

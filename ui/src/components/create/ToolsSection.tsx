@@ -12,6 +12,8 @@ import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
 import { getTeams } from "@/app/actions/teams";
 import { Textarea } from "@/components/ui/textarea";
 import KagentLogo from "../kagent-logo";
+import { Badge } from "@/components/ui/badge";
+import { handleMcpToolOperation } from "@/lib/toolUtils";
 
 interface ToolsSectionProps {
   allTools: Component<ToolConfig>[];
@@ -82,18 +84,13 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
 
     if (mcpToolNameToRemove) {
       updatedTools = selectedTools.map(tool => {
-        if (getToolIdentifier(tool) === parentToolIdentifier && isMcpTool(tool) && tool.mcpServer) {
-          const newToolNames = tool.mcpServer.toolNames.filter(name => name !== mcpToolNameToRemove);
-          if (newToolNames.length === 0) {
-            return null; 
-          }
-          return {
-            ...tool,
-            mcpServer: {
-              ...tool.mcpServer,
-              toolNames: newToolNames,
-            },
-          };
+        if (getToolIdentifier(tool) === parentToolIdentifier) {
+          return handleMcpToolOperation(
+            tool,
+            'remove',
+            tool.mcpServer?.toolServer || '',
+            [mcpToolNameToRemove]
+          );
         }
         return tool;
       }).filter(Boolean) as Tool[];
@@ -293,7 +290,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
             currentIconColor = "text-yellow-500";
           }
 
-          return [( // flatMap expects an array
+          return [( 
             <Card key={parentToolIdentifier}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
