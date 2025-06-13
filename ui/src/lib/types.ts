@@ -22,7 +22,7 @@ export interface ModelConfig {
 export interface CreateSessionRequest {
   name?: string;
   user_id: string;
-  team_id: string;
+  team_id?: string;
 }
 
 export interface BaseResponse<T> {

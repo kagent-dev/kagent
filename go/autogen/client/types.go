@@ -139,11 +139,13 @@ type Session struct {
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	TeamID    *int   `json:"team_id"`
 }
 
 type CreateSession struct {
 	UserID string `json:"user_id"`
 	Name   string `json:"name"`
+	TeamID *int   `json:"team_id"`
 }
 
 // ProviderModels maps provider names to a list of their supported model names.
