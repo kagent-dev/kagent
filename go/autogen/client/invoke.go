@@ -1,6 +1,8 @@
 package client
 
 import (
+	"context"
+
 	"github.com/kagent-dev/kagent/go/autogen/api"
 )
 
@@ -15,14 +17,14 @@ type InvokeTaskResult struct {
 	Usage      string     `json:"usage"`
 }
 
-func (c *Client) InvokeTask(req *InvokeTaskRequest) (*InvokeTaskResult, error) {
+func (c *client) InvokeTask(req *InvokeTaskRequest) (*InvokeTaskResult, error) {
 	var invoke InvokeTaskResult
-	err := c.doRequest("POST", "/invoke", req, &invoke)
+	err := c.doRequest(context.Background(), "POST", "/invoke", req, &invoke)
 	return &invoke, err
 }
 
-func (c *Client) InvokeTaskStream(req *InvokeTaskRequest) (<-chan *SseEvent, error) {
-	resp, err := c.startRequest("POST", "/invoke/stream", req)
+func (c *client) InvokeTaskStream(req *InvokeTaskRequest) (<-chan *SseEvent, error) {
+	resp, err := c.startRequest(context.Background(), "POST", "/invoke/stream", req)
 	if err != nil {
 		return nil, err
 	}

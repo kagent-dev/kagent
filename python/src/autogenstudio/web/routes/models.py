@@ -6,6 +6,8 @@ from autogen_ext.models.openai._model_info import _MODEL_INFO as openai_models
 from autogen_ext.models.openai._model_info import _MODEL_POINTERS
 from fastapi import APIRouter
 
+from kagent.models.vertexai._model_info import _MODEL_INFO as vertexai_models
+
 router = APIRouter()
 
 
@@ -44,9 +46,19 @@ async def list_models() -> Dict[str, List[Dict[str, Any]]]:
 
     response_openai = [{"name": name, **props} for name, props in final_openai_models_map.items()]
 
+    response_vertexai = []
+    for model_name, model_data in vertexai_models.items():
+        response_vertexai.append(
+            {
+                "name": model_name,
+                "function_calling": model_data["function_calling"],
+            }
+        )
+
     return {
         "anthropic": response_anthropic,
         "ollama": response_ollama,
         "openAI": response_openai,
         "azureOpenAI": response_openai,
+        "vertexAI": response_vertexai,
     }

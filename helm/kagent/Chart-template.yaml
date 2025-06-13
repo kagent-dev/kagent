@@ -32,7 +32,15 @@ dependencies:
     version: ${VERSION}
     repository: file://../agents/helm
     condition: helm-agent.enabled
-  - name: cilium-crd-agent
+  - name: cilium-policy-agent
     version: ${VERSION}
-    repository: file://../agents/cilium-crd
-    condition: cilium-crd-agent.enabled
+    repository: file://../agents/cilium-policy
+    condition: cilium-policy-agent.enabled
+  - name: cilium-manager-agent
+    version: ${VERSION}
+    repository: file://../agents/cilium-manager
+    condition: cilium-manager-agent.enabled
+  - name: cilium-debug-agent
+    version: ${VERSION}
+    repository: file://../agents/cilium-debug
+    condition: cilium-debug-agent.enabled
