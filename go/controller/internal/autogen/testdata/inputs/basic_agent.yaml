@@ -1,0 +1,35 @@
+operation: translateAgent
+targetObject: basic-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha1
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecretRef: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        temperature: "0.7"
+        maxTokens: 1024
+        topP: "0.95"
+  - apiVersion: kagent.dev/v1alpha1
+    kind: Agent
+    metadata:
+      name: basic-agent
+      namespace: test
+    spec:
+      description: A basic test agent
+      systemMessage: You are a helpful assistant.
+      modelConfig: basic-model
+      tools: [] 

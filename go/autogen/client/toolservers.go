@@ -1,12 +1,14 @@
 package client
 
 import (
+	"context"
 	"fmt"
 )
 
-func (c *Client) CreateToolServer(toolServer *ToolServer, userID string) (*ToolServer, error) {
+func (c *client) CreateToolServer(toolServer *ToolServer, userID string) (*ToolServer, error) {
 	var server ToolServer
 	err := c.doRequest(
+		context.Background(),
 		"POST",
 		fmt.Sprintf("/toolservers/?user_id=%s", userID),
 		toolServer,
@@ -15,19 +17,19 @@ func (c *Client) CreateToolServer(toolServer *ToolServer, userID string) (*ToolS
 	return &server, err
 }
 
-func (c *Client) ListToolServers(userID string) ([]*ToolServer, error) {
+func (c *client) ListToolServers(userID string) ([]*ToolServer, error) {
 	var toolServers []*ToolServer
-	err := c.doRequest("GET", fmt.Sprintf("/toolservers/?user_id=%s", userID), nil, &toolServers)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/toolservers/?user_id=%s", userID), nil, &toolServers)
 	return toolServers, err
 }
 
-func (c *Client) GetToolServer(serverID int, userID string) (*ToolServer, error) {
+func (c *client) GetToolServer(serverID int, userID string) (*ToolServer, error) {
 	var toolServer *ToolServer
-	err := c.doRequest("GET", fmt.Sprintf("/toolservers/%d?user_id=%s", serverID, userID), nil, &toolServer)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/toolservers/%d?user_id=%s", serverID, userID), nil, &toolServer)
 	return toolServer, err
 }
 
-func (c *Client) GetToolServerByLabel(toolServerLabel, userID string) (*ToolServer, error) {
+func (c *client) GetToolServerByLabel(toolServerLabel, userID string) (*ToolServer, error) {
 	allServers, err := c.ListToolServers(userID)
 	if err != nil {
 		return nil, err
@@ -42,23 +44,24 @@ func (c *Client) GetToolServerByLabel(toolServerLabel, userID string) (*ToolServ
 	return nil, fmt.Errorf("tool server with label %s not found", toolServerLabel)
 }
 
-func (c *Client) DeleteToolServer(serverID *int, userID string) error {
-	return c.doRequest("DELETE", fmt.Sprintf("/toolservers/%d?user_id=%s", *serverID, userID), nil, nil)
+func (c *client) DeleteToolServer(serverID *int, userID string) error {
+	return c.doRequest(context.Background(), "DELETE", fmt.Sprintf("/toolservers/%d?user_id=%s", *serverID, userID), nil, nil)
 }
 
-func (c *Client) RefreshTools(serverID *int, userID string) error {
-	return c.doRequest("POST", fmt.Sprintf("/toolservers/%d/refresh?user_id=%s", *serverID, userID), nil, nil)
+func (c *client) RefreshTools(serverID *int, userID string) error {
+	return c.doRequest(context.Background(), "POST", fmt.Sprintf("/toolservers/%d/refresh?user_id=%s", *serverID, userID), nil, nil)
 }
 
-func (c *Client) ListToolsForServer(serverID *int, userID string) ([]*Tool, error) {
+func (c *client) ListToolsForServer(serverID *int, userID string) ([]*Tool, error) {
 	var tools []*Tool
-	err := c.doRequest("GET", fmt.Sprintf("/toolservers/%d/tools?user_id=%s", *serverID, userID), nil, &tools)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/toolservers/%d/tools?user_id=%s", *serverID, userID), nil, &tools)
 	return tools, err
 }
 
 // RefreshToolServer refreshes tools for a specific server
-func (c *Client) RefreshToolServer(serverID int, userID string) error {
+func (c *client) RefreshToolServer(serverID int, userID string) error {
 	return c.doRequest(
+		context.Background(),
 		"POST",
 		fmt.Sprintf("/toolservers/%d/refresh?user_id=%s", serverID, userID),
 		nil,
@@ -67,8 +70,8 @@ func (c *Client) RefreshToolServer(serverID int, userID string) error {
 }
 
 // CreateToolServer creates a new server
-func (c *Client) UpdateToolServer(server *ToolServer, userID string) error {
-	return c.doRequest("PUT", fmt.Sprintf(
+func (c *client) UpdateToolServer(server *ToolServer, userID string) error {
+	return c.doRequest(context.Background(), "PUT", fmt.Sprintf(
 		"/toolservers/%v?user_id=%s",
 		server.Id,
 		userID,

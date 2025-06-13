@@ -1,9 +1,12 @@
 package client
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
-func (c *Client) CreateFeedback(feedback *FeedbackSubmission) error {
-	err := c.doRequest("POST", "/feedback/", feedback, nil)
+func (c *client) CreateFeedback(feedback *FeedbackSubmission) error {
+	err := c.doRequest(context.Background(), "POST", "/feedback/", feedback, nil)
 	if err != nil {
 		return err
 	}
@@ -11,9 +14,9 @@ func (c *Client) CreateFeedback(feedback *FeedbackSubmission) error {
 	return nil
 }
 
-func (c *Client) ListFeedback(userID string) ([]*FeedbackSubmission, error) {
+func (c *client) ListFeedback(userID string) ([]*FeedbackSubmission, error) {
 	var response []*FeedbackSubmission
-	err := c.doRequest("GET", fmt.Sprintf("/feedback/?user_id=%s", userID), nil, &response)
+	err := c.doRequest(context.Background(), "GET", fmt.Sprintf("/feedback/?user_id=%s", userID), nil, &response)
 	if err != nil {
 		return nil, err
 	}
