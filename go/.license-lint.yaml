@@ -1,0 +1,23 @@
+# Configuration for license-lint
+# This file defines which licenses are allowed and which are restricted
+
+# List of allowed licenses
+allowed_licenses:
+  - Apache-2.0
+  - MIT
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
+  - MPL-2.0
+  - Unlicense
+  - CC0-1.0
+
+# List of restricted licenses
+restricted_licenses:
+  - AGPL-3.0
+  - GPL-2.0
+  - GPL-3.0
+  - LGPL-2.1
+  - LGPL-3.0
+  - SSPL-1.0
+  - BUSL-1.1
