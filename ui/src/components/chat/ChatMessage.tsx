@@ -44,7 +44,7 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
 
   const isErrorMessage = messageUtils.isErrorMessageContent(message);
   if (isErrorMessage) {
-    content = message.data.task_result.stop_reason || "An error occurred";
+    content = message.data.task_result?.stop_reason || "An error occurred";
   }
 
   // Filter out system messages
