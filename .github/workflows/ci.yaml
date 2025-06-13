@@ -67,12 +67,23 @@ jobs:
         with:
           cluster_name: kagent
 
+      # This allows us to not rely on port-forwarding which is flaky
+      - name: Setup Metallb
+        run: |
+          bash scripts/kind/setup-metallb.sh
+
       - name: Install Kagent
         env:
-          OPENAI_API_KEY: fake-key
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           make helm-install
           kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
+
+      - name: Run e2e tests
+        run: |
+          export GW_IP=$(kubectl get svc -n kagent kagent -o jsonpath='{.items[*].status.loadBalancer.ingress[*].ip}')
+          cd go
+          echo "What pods are running in the cluster?" | go run cli/cmd/kagent/main.go --api-url "http://${GW_IP}:8081/api" invoke -a k8s-agent -t -
 
   go-unit-tests:
     runs-on: ubuntu-latest

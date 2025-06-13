@@ -38,18 +38,14 @@ func (c *client) GetSession(sessionLabel string, userID string) (*Session, error
 	return nil, NotFoundError
 }
 
-func (c *client) InvokeSession(sessionID int, userID string, task string) (*TeamResult, error) {
+func (c *client) InvokeSession(sessionID int, userID string, request *InvokeRequest) (*TeamResult, error) {
 	var result TeamResult
-	err := c.doRequest(context.Background(), "POST", fmt.Sprintf("/sessions/%d/invoke?user_id=%s", sessionID, userID), struct {
-		Task string `json:"task"`
-	}{Task: task}, &result)
+	err := c.doRequest(context.Background(), "POST", fmt.Sprintf("/sessions/%d/invoke?user_id=%s", sessionID, userID), request, &result)
 	return &result, err
 }
 
-func (c *client) InvokeSessionStream(sessionID int, userID string, task string) (<-chan *SseEvent, error) {
-	resp, err := c.startRequest(context.Background(), "POST", fmt.Sprintf("/sessions/%d/invoke/stream?user_id=%s", sessionID, userID), struct {
-		Task string `json:"task"`
-	}{Task: task})
+func (c *client) InvokeSessionStream(sessionID int, userID string, request *InvokeRequest) (<-chan *SseEvent, error) {
+	resp, err := c.startRequest(context.Background(), "POST", fmt.Sprintf("/sessions/%d/invoke/stream?user_id=%s", sessionID, userID), request)
 	if err != nil {
 		return nil, err
 	}

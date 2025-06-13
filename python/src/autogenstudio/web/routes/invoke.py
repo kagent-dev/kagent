@@ -92,7 +92,7 @@ def format_message(message: Any) -> dict:
                 ToolCallSummaryMessage,
             ),
         ):
-            return message.model_dump()
+            return message.model_dump(exclude={"created_at"})
 
         elif isinstance(message, TeamResult):
             return format_team_result(message)

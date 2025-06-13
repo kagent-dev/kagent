@@ -104,7 +104,6 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 					session, err = a.autogenClient.CreateSession(&autogen_client.CreateSession{
 						Name:   *sessionID,
 						UserID: common.GetGlobalUserID(),
-						TeamID: autogenTeam.Id,
 					})
 					if err != nil {
 						return "", fmt.Errorf("failed to create session: %w", err)
@@ -113,7 +112,10 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 					return "", fmt.Errorf("failed to get session: %w", err)
 				}
 			}
-			resp, err := a.autogenClient.InvokeSession(session.ID, common.GetGlobalUserID(), task)
+			resp, err := a.autogenClient.InvokeSession(session.ID, common.GetGlobalUserID(), &autogen_client.InvokeRequest{
+				Task:       task,
+				TeamConfig: autogenTeam.Component,
+			})
 			if err != nil {
 				return "", fmt.Errorf("failed to invoke task: %w", err)
 			}

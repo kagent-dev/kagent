@@ -73,6 +73,13 @@ spec:
                 type: object
               terminationCondition:
                 properties:
+                  finalTextMessageTermination:
+                    properties:
+                      source:
+                        type: string
+                    required:
+                    - source
+                    type: object
                   maxMessageTermination:
                     description: 'ONEOF: maxMessageTermination, textMentionTermination,
                       orTermination'

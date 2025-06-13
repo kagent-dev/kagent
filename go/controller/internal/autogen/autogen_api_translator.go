@@ -137,6 +137,17 @@ func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.Val
 	return string(value), nil
 }
 
+func convertDurationToSeconds(timeout string) (int, error) {
+	if timeout == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(timeout)
+	if err != nil {
+		return 0, err
+	}
+	return int(d.Seconds()), nil
+}
+
 func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1alpha1.ToolServerConfig, namespace string) (string, *api.ToolServerConfig, error) {
 	switch {
 	case config.Stdio != nil:
@@ -213,17 +224,6 @@ func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1
 	}
 
 	return "", nil, fmt.Errorf("unsupported tool server config")
-}
-
-func convertDurationToSeconds(timeout string) (int, error) {
-	if timeout == "" {
-		return 0, nil
-	}
-	d, err := time.ParseDuration(timeout)
-	if err != nil {
-		return 0, err
-	}
-	return int(d.Seconds()), nil
 }
 
 func NewAutogenApiTranslator(
@@ -490,7 +490,7 @@ func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha
 			ModelConfig:          agent.Spec.ModelConfig,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
-				TextMessageTermination: &v1alpha1.TextMessageTermination{
+				FinalTextMessageTermination: &v1alpha1.FinalTextMessageTermination{
 					Source: convertToPythonIdentifier(agent.Name),
 				},
 			},
@@ -799,8 +799,11 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 	if terminationCondition.TextMessageTermination != nil {
 		conditionsSet++
 	}
+	if terminationCondition.FinalTextMessageTermination != nil {
+		conditionsSet++
+	}
 	if conditionsSet != 1 {
-		return nil, fmt.Errorf("exactly one termination condition must be set")
+		return nil, fmt.Errorf("exactly one termination condition must be set, got %d", conditionsSet)
 	}
 
 	switch {
@@ -832,6 +835,16 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 			//ComponentVersion: 1,
 			Config: api.MustToConfig(&api.TextMessageTerminationConfig{
 				Source: terminationCondition.TextMessageTermination.Source,
+			}),
+		}, nil
+	case terminationCondition.FinalTextMessageTermination != nil:
+		return &api.Component{
+			Provider:      "kagent.conditions.FinalTextMessageTermination",
+			ComponentType: "termination",
+			Version:       1,
+			//ComponentVersion: 1,
+			Config: api.MustToConfig(&api.FinalTextMessageTerminationConfig{
+				Source: terminationCondition.FinalTextMessageTermination.Source,
 			}),
 		}, nil
 	case terminationCondition.OrTermination != nil:
