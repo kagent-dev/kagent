@@ -299,7 +299,7 @@ def serve(
 
     LOGLEVEL = os.getenv("LOGLEVEL", "INFO").upper()
     logging.basicConfig(level=LOGLEVEL)
-    
+
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     if tracing_enabled:
         logging.info("Enabling tracing")
