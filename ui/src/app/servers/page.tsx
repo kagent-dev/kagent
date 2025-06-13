@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
-import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
+import { getToolDescription, getToolDisplayName, getToolIdentifier, isMcpServerUsedByAgents } from "@/lib/toolUtils";
+import { ToolServer, ToolServerWithTools, AgentResponse } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
+import { getTeams } from "../actions/teams";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
@@ -15,6 +16,7 @@ import { toast } from "sonner";
 export default function ServersPage() {
   // State for servers and tools
   const [servers, setServers] = useState<ToolServerWithTools[]>([]);
+  const [agents, setAgents] = useState<AgentResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
 
@@ -25,11 +27,11 @@ export default function ServersPage() {
 
   // Fetch data on component mount
   useEffect(() => {
-    fetchServers();
+    fetchData();
   }, []);
 
-  // Fetch servers
-  const fetchServers = async () => {
+  // Fetch servers and agents
+  const fetchData = async () => {
     try {
       setIsLoading(true);
 
@@ -40,15 +42,23 @@ export default function ServersPage() {
 
         // Initially expand all servers
         const serverNames = serversResponse.data.map((server) => server.name).filter((name): name is string => name !== undefined);
-
         setExpandedServers(new Set(serverNames));
       } else {
         console.error("Failed to fetch servers:", serversResponse);
         toast.error(serversResponse.error || "Failed to fetch servers data.");
       }
+
+      // Fetch agents
+      const agentsResponse = await getTeams();
+      if (agentsResponse.success && agentsResponse.data) {
+        setAgents(agentsResponse.data);
+      } else {
+        console.error("Failed to fetch agents:", agentsResponse);
+        toast.error(agentsResponse.error || "Failed to fetch agents data.");
+      }
     } catch (error) {
-      console.error("Error fetching servers:", error);
-      toast.error("An error occurred while fetching servers.");
+      console.error("Error fetching data:", error);
+      toast.error("An error occurred while fetching data.");
     } finally {
       setIsLoading(false);
     }
@@ -63,7 +73,7 @@ export default function ServersPage() {
 
       if (response.success) {
         toast.success("Server deleted successfully");
-        fetchServers();
+        fetchData();
       } else {
         toast.error(response.error || "Failed to delete server");
       }
@@ -74,6 +84,11 @@ export default function ServersPage() {
       setIsLoading(false);
       setShowConfirmDelete(null);
     }
+  };
+
+  // Handle server deletion request
+  const handleDeleteRequest = (serverName: string) => {
+    setShowConfirmDelete(serverName);
   };
 
   // Handle adding a new server
@@ -89,7 +104,7 @@ export default function ServersPage() {
 
       toast.success("Server added successfully");
       setShowAddServer(false);
-      fetchServers();
+      fetchData();
     } catch (error) {
       console.error("Error adding server:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -163,7 +178,7 @@ export default function ServersPage() {
                              onSelect={(e) => {
                                e.preventDefault();
                                setOpenDropdownMenu(null);
-                                setShowConfirmDelete(serverName);
+                               handleDeleteRequest(serverName);
                              }}
                            >
                              <Trash2 className="h-4 w-4 mr-2" />
@@ -230,14 +245,28 @@ export default function ServersPage() {
       {/* Confirm delete dialog */}
       <ConfirmDialog
         open={showConfirmDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setShowConfirmDelete(null);
-          }
-        }}
+        onOpenChange={(open) => !open && setShowConfirmDelete(null)}
         title="Delete Server"
-        description="Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
-        onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete)}
+        description={
+          <div className="space-y-2">
+            <p>Are you sure you want to delete the server &apos;{showConfirmDelete}&apos;? This action cannot be undone.</p>
+            {showConfirmDelete && isMcpServerUsedByAgents(showConfirmDelete, agents).length > 0 && (
+              <div className="mt-4 p-4 border border-amber-200 bg-amber-50 rounded-md">
+                <p className="font-medium text-amber-800">⚠️ Warning: This server is currently being used by the following agents:</p>
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  {isMcpServerUsedByAgents(showConfirmDelete, agents).map((agent) => (
+                    <li key={agent.agent.metadata.name} className="text-sm text-amber-700">
+                      {agent.agent.metadata.name}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-sm text-amber-700">Deleting this server will remove the tools from these agents and may affect their functionality. Please ensure you want to proceed with this action.</p>
+              </div>
+            )}
+          </div>
+        }
+        confirmLabel="Delete"
+        onConfirm={() => showConfirmDelete && handleDeleteServer(showConfirmDelete)}
       />
     </div>
   );
