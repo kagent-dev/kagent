@@ -111,14 +111,6 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		memorySpec.Pinecone = req.PineconeParams
 	}
 
-	apiKey := req.APIKey
-	_, err = CreateSecret(h.KubeClient, memorySpec.APIKeySecretRef, common.GetResourceNamespace(), map[string]string{memorySpec.APIKeySecretKey: apiKey})
-	if err != nil {
-		log.Error(err, "Failed to create memory API key secret")
-		w.RespondWithError(errors.NewInternalServerError("Failed to create memory API key secret", err))
-		return
-	}
-	log.V(1).Info("Successfully created memory API key secret")
 	memory := &v1alpha1.Memory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
@@ -132,6 +124,33 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		w.RespondWithError(errors.NewInternalServerError("Failed to create memory", err))
 		return
 	}
+
+	apiKey := req.APIKey
+	blockOwnerDeletion := true
+	controller := true
+	ownerRef := &metav1.OwnerReference{
+		APIVersion:         v1alpha1.GroupVersion.String(),
+		Kind:               "Memory",
+		Name:               memory.Name,
+		UID:                memory.UID,
+		BlockOwnerDeletion: &blockOwnerDeletion,
+		Controller:         &controller,
+	}
+
+	_, err = CreateSecret(r.Context(), h.KubeClient, memorySpec.APIKeySecretRef, common.GetResourceNamespace(), map[string]string{memorySpec.APIKeySecretKey: apiKey}, ownerRef)
+	if err != nil {
+		log.Error(err, "Failed to create/update memory API key secret")
+		if cleanupErr := h.KubeClient.Delete(r.Context(), memory); cleanupErr != nil {
+			log.Error(cleanupErr, "Failed to cleanup Memory after secret creation failure")
+		}
+		if k8serrors.IsAlreadyExists(err) {
+			w.RespondWithError(errors.NewConflictError("Memory API key secret already exists", err))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to create/update memory API key secret", err))
+		return
+	}
+	log.V(1).Info("Successfully created/updated memory API key secret")
 
 	log.Info("Memory created successfully")
 	RespondWithJSON(w, http.StatusCreated, memory)
