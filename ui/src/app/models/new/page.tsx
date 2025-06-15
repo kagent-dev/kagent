@@ -434,34 +434,36 @@ function ModelPageContent() {
 
     // Add provider-specific configuration
     if (finalSelectedProvider.type === 'OpenAI' && requiredParams) {
+      const params = processModelParams(requiredParams, optionalParams);
       payload.openAI = {
-        temperature: requiredParams.temperature,
-        maxTokens: requiredParams.maxTokens ? parseInt(requiredParams.maxTokens) : undefined,
-        topP: requiredParams.topP,
-        frequencyPenalty: requiredParams.frequencyPenalty ? parseFloat(requiredParams.frequencyPenalty) : undefined,
-        presencePenalty: requiredParams.presencePenalty ? parseFloat(requiredParams.presencePenalty) : undefined,
+        temperature: params.temperature,
+        maxTokens: params.maxTokens,
+        topP: params.topP,
+        frequencyPenalty: params.frequencyPenalty,
+        presencePenalty: params.presencePenalty,
       };
     } else if (finalSelectedProvider.type === 'AzureOpenAI' && requiredParams) {
+      const params = processModelParams(requiredParams, optionalParams);
       payload.azureOpenAI = {
-        endpoint: requiredParams.endpoint,
-        apiVersion: requiredParams.apiVersion,
-        temperature: requiredParams.temperature,
-        maxTokens: requiredParams.maxTokens ? parseInt(requiredParams.maxTokens) : undefined,
-        topP: requiredParams.topP,
-        frequencyPenalty: requiredParams.frequencyPenalty ? parseFloat(requiredParams.frequencyPenalty) : undefined,
-        presencePenalty: requiredParams.presencePenalty ? parseFloat(requiredParams.presencePenalty) : undefined,
+        azureEndpoint: params.endpoint,
+        apiVersion: params.apiVersion,
+        temperature: params.temperature,
+        maxTokens: params.maxTokens,
+        topP: params.topP,
       };
     } else if (finalSelectedProvider.type === 'Anthropic' && requiredParams) {
+      const params = processModelParams(requiredParams, optionalParams);
       payload.anthropic = {
-        temperature: requiredParams.temperature,
-        maxTokens: requiredParams.maxTokens ? parseInt(requiredParams.maxTokens) : undefined,
-        topP: requiredParams.topP,
-        topK: requiredParams.topK ? parseInt(requiredParams.topK) : undefined,
+        temperature: params.temperature,
+        maxTokens: params.maxTokens,
+        topP: params.topP,
+        topK: params.topK,
       };
     } else if (finalSelectedProvider.type === 'Ollama' && requiredParams) {
+      const params = processModelParams(requiredParams, optionalParams);
       payload.ollama = {
-        host: requiredParams.host,
-        options: optionalParams,
+        host: params.host,
+        options: Object.fromEntries(optionalParams.map(param => [param.key, param.value])),
       };
     } else if ((finalSelectedProvider.type === 'GeminiVertexAI' || finalSelectedProvider.type === 'AnthropicVertexAI')) {
       const vertexAIConfig = {
@@ -483,7 +485,16 @@ function ModelPageContent() {
     try {
       let response;
       if (isEditMode && modelId) {
-        response = await updateModelConfig(modelId, payload as UpdateModelConfigPayload);
+        const updatePayload: UpdateModelConfigPayload = {
+          provider: payload.provider,
+          model: payload.model,
+          apiKey: finalApiKey ? finalApiKey : null,
+          openAI: payload.openAI,
+          anthropic: payload.anthropic,
+          azureOpenAI: payload.azureOpenAI,
+          ollama: payload.ollama,
+        };
+        response = await updateModelConfig(modelId, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }
