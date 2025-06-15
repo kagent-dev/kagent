@@ -37,10 +37,12 @@ import {
 import { getSupportedMemoryProviders } from '@/app/actions/providers'
 import { createMemory, getMemory, updateMemory } from '@/app/actions/memories'
 import { Provider, CreateMemoryRequest, PineconeConfigPayload } from '@/lib/types'
+import { k8sRefUtils } from '@/lib/k8sUtils'
 
 // Base schema
 const baseFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
+  namespace: z.string().optional(),
   providerType: z.string().min(1, "Provider is required"),
   apiKey: z.string().min(1, "API Key is required").or(z.literal('')), // Allow empty API key in edit mode
   // Generic object to hold dynamic provider parameters
@@ -68,9 +70,10 @@ const createRefinedSchema = (selectedProvider: Provider | null, isEditing: boole
 export default function NewMemoryPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const editMode = searchParams.has('edit')
-  const memoryNameToEdit = searchParams.get('edit')
-  
+  const editMode = searchParams.get('edit') === "true"; 
+  const memoryNameToEdit = searchParams.get('name')
+  const memoryNamespaceToEdit = searchParams.get('namespace')
+
   const [providers, setProviders] = useState<Provider[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
@@ -104,6 +107,7 @@ export default function NewMemoryPage() {
     resolver: zodResolver(currentSchema),
     defaultValues: {
       name: '',
+      namespace: '',
       providerType: '',
       apiKey: '',
       providerParams: {
@@ -126,7 +130,8 @@ export default function NewMemoryPage() {
           
           // If in edit mode, load the memory details after providers are loaded
           if (editMode && memoryNameToEdit) {
-            await loadMemoryForEditing(memoryNameToEdit, response.data)
+            const memoryRef = k8sRefUtils.toRef(memoryNamespaceToEdit || "", memoryNameToEdit)
+            await loadMemoryForEditing(memoryRef, response.data)
           }
         } else {
           throw new Error(response.error || 'Failed to load providers')
@@ -136,20 +141,21 @@ export default function NewMemoryPage() {
       }
     }
     loadProviders()
-  }, [editMode, memoryNameToEdit])
+  }, [editMode, memoryNameToEdit, memoryNamespaceToEdit])
 
-  const loadMemoryForEditing = async (memoryName: string, availableProviders: Provider[]) => {
+  const loadMemoryForEditing = async (memoryRef: string, availableProviders: Provider[]) => {
     try {
       setIsLoading(true)
-      const memory = await getMemory(memoryName)
-      
+      const memory = await getMemory(memoryRef)
+      const memoryRespRef = k8sRefUtils.fromRef(memory.ref)
       // Find the correct provider
       const provider = availableProviders.find(p => p.type === memory.providerName)
       if (provider) {
         setSelectedProvider(provider)
         
         // Set form values
-        form.setValue('name', memory.name)
+        form.setValue('name', memoryRespRef.name)
+        form.setValue('namespace', memoryRespRef.namespace)
         form.setValue('providerType', provider.type)
         // We don't need to set API key in edit mode as the field will be hidden
         form.setValue('apiKey', '')
@@ -182,7 +188,7 @@ export default function NewMemoryPage() {
 
     // Base data for the request
     const memoryData: CreateMemoryRequest = {
-      name: values.name,
+      ref: k8sRefUtils.toRef(values.namespace || "", values.name),
       provider: { type: values.providerType },
       apiKey: values.apiKey,
     }
@@ -279,6 +285,25 @@ export default function NewMemoryPage() {
                       {editMode 
                         ? "Memory name cannot be changed when editing." 
                         : "A unique name for this memory configuration."}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="namespace"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Namespace</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. default" {...field} disabled={editMode} />
+                    </FormControl>
+                    <FormDescription>
+                      {editMode 
+                        ? "Memory namespace cannot be changed when editing."
+                        : "A namespace for this memory configuration."}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

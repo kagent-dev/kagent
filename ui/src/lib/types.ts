@@ -9,8 +9,7 @@ export interface CreateAgentFormData {
 }
 
 export interface ModelConfig {
-  name: string;
-  namespace: string;
+  ref: string;
   providerName: string;
   model: string;
   apiKeySecretRef: string;
@@ -22,7 +21,7 @@ export interface ModelConfig {
 export interface CreateSessionRequest {
   name?: string;
   user_id: string;
-  team_id: string;
+  team_id?: string;
 }
 
 export interface BaseResponse<T> {
@@ -91,7 +90,7 @@ export interface VertexAIConfigPayload {
 }
 
 export interface CreateModelConfigPayload {
-  name: string;
+  ref: string;
   provider: Pick<Provider, "name" | "type">;
   model: string;
   apiKey: string;
@@ -114,8 +113,7 @@ export interface UpdateModelConfigPayload {
 }
 
 export interface MemoryResponse {
-  name: string;
-  namespace: string;
+  ref: string;
   providerName: string;
   apiKeySecretRef: string;
   apiKeySecretKey: string;
@@ -132,14 +130,14 @@ export interface PineconeConfigPayload {
 }
 
 export interface CreateMemoryRequest {
-  name: string;
+  ref: string;
   provider: Pick<Provider, "type">;
   apiKey: string;
   pinecone?: PineconeConfigPayload;
 }
 
 export interface UpdateMemoryRequest {
-  name: string;
+  ref: string;
   pinecone?: PineconeConfigPayload;
 }
 

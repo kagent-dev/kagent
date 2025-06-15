@@ -18,6 +18,8 @@ class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "get_secret_value") and callable(obj.get_secret_value):
             return obj.get_secret_value()
+        if isinstance(obj, datetime):
+            return obj.isoformat()
         return super().default(obj)
 
 

@@ -74,9 +74,7 @@ func ChatCmd(c *ishell.Context) {
 		return
 	}
 
-	existingSessions := slices.Collect(Filter(slices.Values(sessions), func(session *autogen_client.Session) bool {
-		return session.TeamID == team.Id
-	}))
+	existingSessions := slices.Collect(Filter(slices.Values(sessions), func(session *autogen_client.Session) bool { return true }))
 
 	existingSessionNames := slices.Collect(Map(slices.Values(existingSessions), func(session *autogen_client.Session) string {
 		return session.Name
@@ -105,7 +103,6 @@ func ChatCmd(c *ishell.Context) {
 		session, err = client.CreateSession(&autogen_client.CreateSession{
 			UserID: cfg.UserID,
 			Name:   sessionName,
-			TeamID: team.Id,
 		})
 		if err != nil {
 			c.Printf("Failed to create session: %v\n", err)
@@ -142,13 +139,10 @@ func ChatCmd(c *ishell.Context) {
 
 		usage := &autogen_client.ModelsUsage{}
 
-		// title := getThinkingVerb()
-		// s := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
-		// s.Suffix = " " + title
-		// s.Start()
-		// defer s.Stop()
-
-		ch, err := client.InvokeSessionStream(session.ID, cfg.UserID, task)
+		ch, err := client.InvokeSessionStream(session.ID, cfg.UserID, &autogen_client.InvokeRequest{
+			Task:       task,
+			TeamConfig: team.Component,
+		})
 		if err != nil {
 			c.Printf("Failed to invoke session: %v\n", err)
 			return

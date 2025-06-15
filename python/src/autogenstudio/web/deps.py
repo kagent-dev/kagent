@@ -8,12 +8,12 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, status
 
 from ..database import DatabaseManager
+from ..sessionmanager import SessionManager
 from ..teammanager import TeamManager
 from .auth import AuthConfig, AuthManager, AuthMiddleware
 from .auth.dependencies import get_auth_manager
 from .config import settings
 from .managers.connection import WebSocketManager
-from ..sessionmanager import SessionManager
 
 logger = logging.getLogger(__name__)
 

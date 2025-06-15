@@ -11,6 +11,7 @@ from autogen_agentchat.messages import (
     ChatMessage,
     HandoffMessage,
     MemoryQueryEvent,
+    MessageFactory,
     ModelClientStreamingChunkEvent,
     MultiModalMessage,
     StopMessage,
@@ -19,7 +20,7 @@ from autogen_agentchat.messages import (
     ToolCallRequestEvent,
     ToolCallSummaryMessage,
 )
-from autogen_core import CancellationToken
+from autogen_core import CancellationToken, ComponentModel
 from autogen_core import Image as AGImage
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -39,8 +40,6 @@ from ..teammanager import TeamManager
 from ..web.managers.run_context import RunContext
 from ..web.routes.invoke import format_message, format_team_result
 
-# from .run_context import RunContext
-
 logger = logging.getLogger(__name__)
 
 
@@ -49,6 +48,7 @@ class SessionManager:
 
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
+        self.message_factory = MessageFactory()
 
         self._cancel_message = TeamResult(
             task_result=TaskResult(
@@ -65,43 +65,103 @@ class SessionManager:
             duration=0,
         ).model_dump()
 
+    def _convert_message_config_to_chat_message(self, raw_messages: list[dict]) -> list[BaseChatMessage]:
+        """Convert MessageConfig to appropriate BaseChatMessage type using MessageFactory"""
+
+        messages = []
+        for message_config in raw_messages:
+            message = self.message_factory.create(message_config)
+            if isinstance(message, BaseChatMessage):
+                messages.append(message)
+
+        return messages
+
+    async def _get_session_messages(self, session_id: int) -> Sequence[BaseChatMessage]:
+        """Get all previous messages for a session and convert them to BaseChatMessage format"""
+        messages_response = self.db_manager.get(
+            Message, filters={"session_id": session_id}, order="asc", return_json=False
+        )
+
+        if not messages_response.status or not messages_response.data:
+            return []
+
+        chat_messages: list[dict] = []
+        for message in messages_response.data:
+            chat_messages.append(message.config)
+
+        return self._convert_message_config_to_chat_message(chat_messages)
+
+    def _prepare_task_with_history(
+        self,
+        task: str | BaseChatMessage | Sequence[BaseChatMessage] | None,
+        previous_messages: Sequence[BaseChatMessage],
+    ) -> str | BaseChatMessage | Sequence[BaseChatMessage] | None:
+        """Combine previous messages with current task for team execution"""
+        if not previous_messages:
+            return task
+
+        # If we have previous messages, combine them with the current task
+        if isinstance(task, str):
+            return list(previous_messages) + [TextMessage(source="user", content=task)]
+        elif isinstance(task, ChatMessage):
+            return list(previous_messages) + [task]
+        elif isinstance(task, list):
+            return list(previous_messages) + list(task)
+        else:
+            return list(previous_messages)
+
     async def start(
-        self, user_id: str, run_id: int, task: str | ChatMessage | Sequence[ChatMessage] | None
+        self,
+        user_id: str,
+        run_id: int,
+        task: str,
+        team_config: Union[ComponentModel, dict],
     ) -> TeamResult:
         """Start a run"""
 
         with RunContext.populate_context(run_id=run_id):
             team_manager = TeamManager()
-            # cancellation_token = CancellationToken()
-            # final_result = None
 
             try:
-                # Update run with task and status
+                # Get run and session info
                 run = await self._get_run(run_id)
                 if run is None:
                     raise ValueError(f"Run {run_id} not found")
+
+                if run.session_id is None:
+                    raise ValueError(f"Run {run_id} has no session_id")
+
                 session = await self._get_session(run.session_id)
                 if session is None:
                     raise ValueError(f"Session {run.session_id} not found")
-                team = await self._get_team(session.team_id)
-                if team is None:
-                    raise ValueError(f"Team {session.team_id} not found")
+
+                # Get previous messages for the session
+                previous_messages = await self._get_session_messages(run.session_id)
 
                 await self._update_run(run_id, RunStatus.ACTIVE)
-                result = await team_manager.run(task, team.component, state=session.team_state)
-                if team_manager._team:
-                    state = await team_manager._team.save_state()
-                    await self._update_session_state(session.id, state)
+
+                # Prepare task with message history
+                prepared_task = self._prepare_task_with_history(task, previous_messages)
+                result = await team_manager.run(prepared_task, team_config)
+
+                # Remove n messages from result, where n is len(previous_messages)
+                result.task_result.messages = result.task_result.messages[len(previous_messages) :]
                 for message in result.task_result.messages:
                     await self._save_message(user_id, run_id, message)
-                await self._update_run(run_id, RunStatus.COMPLETE, team_result=result.model_dump())
+                await self._update_run(
+                    run_id, RunStatus.COMPLETE, team_result=result.model_dump(exclude={"created_at"})
+                )
                 return result
             except Exception as e:
                 await self._update_run(run_id, RunStatus.ERROR, error=str(e))
                 raise e
 
     async def start_stream(
-        self, user_id: str, run_id: int, task: str | ChatMessage | Sequence[ChatMessage] | None
+        self,
+        user_id: str,
+        run_id: int,
+        task: str,
+        team_config: Union[ComponentModel, dict],
     ) -> AsyncGenerator[dict, None]:
         """Start streaming task execution with proper run management"""
 
@@ -109,28 +169,41 @@ class SessionManager:
             team_manager = TeamManager()
             cancellation_token = CancellationToken()
             final_result = None
-            session: Optional[Session] = None
+
             try:
-                # Update run with task and status
+                # Get run and session info
                 run = await self._get_run(run_id)
                 if run is None:
                     raise ValueError(f"Run {run_id} not found")
+
+                if run.session_id is None:
+                    raise ValueError(f"Run {run_id} has no session_id")
+
                 session = await self._get_session(run.session_id)
                 if session is None:
                     raise ValueError(f"Session {run.session_id} not found")
-                team = await self._get_team(session.team_id)
-                if team is None:
-                    raise ValueError(f"Team {session.team_id} not found")
+
+                # Get previous messages for the session
+                previous_messages = await self._get_session_messages(run.session_id)
 
                 await self._update_run(run_id, RunStatus.ACTIVE)
 
+                # Prepare task with message history
+                prepared_task: str | BaseChatMessage | Sequence[BaseChatMessage] | None = (
+                    self._prepare_task_with_history(task, previous_messages)
+                )
+                # ignore first  n messages from result, where n is len(previous_messages)
+                num_previous_messages = len(previous_messages)
                 async for message in team_manager.run_stream(
-                    task=task,
-                    team_config=team.component,
+                    task=prepared_task,
+                    team_config=team_config,
                     cancellation_token=cancellation_token,
-                    state=session.team_state,
                 ):
+                    if num_previous_messages > 0:
+                        num_previous_messages -= 1
+                        continue
                     if isinstance(message, TeamResult):
+                        message.task_result.messages = message.task_result.messages[num_previous_messages:]
                         formatted_message = format_team_result(message)
                         yield formatted_message
                         final_result = formatted_message
@@ -181,15 +254,6 @@ class SessionManager:
                 ).model_dump()
                 await self._update_run(run_id, RunStatus.ERROR, team_result=error_result, error=str(e))
                 yield {"type": "error", "data": error_result}
-                # Save team state to session
-                if team_manager._team and session:
-                    state = await team_manager._team.save_state()
-                    await self._update_session_state(session.id, state)
-            finally:
-                # Save team state to session
-                if team_manager._team and session:
-                    state = await team_manager._team.save_state()
-                    await self._update_session_state(session.id, state)
 
     async def _save_message(
         self, user_id: str, run_id: int, message: Union[BaseAgentEvent | BaseChatMessage, BaseChatMessage]
@@ -197,11 +261,11 @@ class SessionManager:
         """Save a message to the database"""
 
         run = await self._get_run(run_id)
-        if run:
+        if run and run.session_id is not None:
             db_message = Message(
                 session_id=run.session_id,
                 run_id=run_id,
-                config=self._convert_images_in_dict(message.model_dump()),
+                config=self._convert_images_in_dict(message.model_dump(exclude={"created_at"})),
                 user_id=user_id,
             )
             response = self.db_manager.upsert(db_message, return_json=False)
@@ -221,13 +285,6 @@ class SessionManager:
             if error:
                 run.error_message = error
             self.db_manager.upsert(run)
-
-    async def _update_session_state(self, session_id: int, team_state: dict) -> None:
-        """Update session state"""
-        session = await self._get_session(session_id)
-        if session:
-            session.team_state = team_state
-            self.db_manager.upsert(session)
 
     def _convert_images_in_dict(self, obj: Any) -> Any:
         """Recursively find and convert Image objects in dictionaries and lists"""
@@ -263,18 +320,6 @@ class SessionManager:
             Optional[Session]: Session object if found, None otherwise
         """
         response = self.db_manager.get(Session, filters={"id": session_id}, return_json=False)
-        return response.data[0] if response.status and response.data else None
-
-    async def _get_team(self, team_id: int) -> Optional[Team]:
-        """Get team from database
-
-        Args:
-            team_id: id of the team to retrieve
-
-        Returns:
-            Optional[Team]: Team object if found, None otherwise
-        """
-        response = self.db_manager.get(Team, filters={"id": team_id}, return_json=False)
         return response.data[0] if response.status and response.data else None
 
     async def _update_run_status(self, run_id: int, status: RunStatus, error: Optional[str] = None) -> None:

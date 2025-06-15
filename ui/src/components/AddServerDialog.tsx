@@ -35,6 +35,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const [error, setError] = useState<string | null>(null);
   const [serverName, setServerName] = useState("");
   const [userEditedName, setUserEditedName] = useState(false);
+  const [serverNamespace, setServerNamespace] = useState("");
 
   // Command structure fields
   const [commandType, setCommandType] = useState("npx");
@@ -349,6 +350,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     const newServer: ToolServer = {
       metadata: {
         name: finalServerName,
+        namespace: serverNamespace.trim() || ''
       },
 
       spec: {
@@ -466,6 +468,34 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
               />
               {!isResourceNameValid(serverName) && serverName && (
                 <p className="text-xs text-red-500">Name must conform to RFC 1123 subdomain format</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="server-namespace">Server Namespace</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="inline-flex">
+                        <InfoIcon className="h-4 w-4 text-gray-400" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs text-xs">Must be lowercase alphanumeric characters, &apos;-&apos; or &apos;.&apos;, and must start and end with an alphanumeric character</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <Input 
+                id="server-namespace" 
+                placeholder="e.g. default" 
+                value={serverNamespace}
+                onChange={(e) => setServerNamespace(e.target.value)}
+                className={!isResourceNameValid(serverNamespace) && serverNamespace ? "border-red-300" : ""}
+              />
+              {!isResourceNameValid(serverNamespace) && serverNamespace && (
+                <p className="text-xs text-red-500">Namespace must conform to RFC 1123 subdomain format</p>
               )}
             </div>
 

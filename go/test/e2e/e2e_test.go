@@ -52,38 +52,38 @@ func TestE2E(t *testing.T) {
 	// Initialize fresh test start time for unique sessions on each run
 	testStartTime := time.Now().String()
 
-	createOrFetchAgentSession := func(agentName string) *autogen_client.Session {
+	createOrFetchAgentSession := func(agentName string) (*autogen_client.Session, *autogen_client.Team) {
 		agentTeam, err := agentClient.GetTeam(agentName, GlobalUserID)
 		require.NoError(t, err)
 
 		require.NotNil(t, agentTeam, fmt.Sprintf("Agent with label %s not found", agentName))
 
-		apiTestTeam := agentTeam
-
 		// reuse existing sessions if available
 		existingSessions, err := agentClient.ListSessions(GlobalUserID)
 		require.NoError(t, err)
 		for _, session := range existingSessions {
-			if session.TeamID == apiTestTeam.Id && session.UserID == GlobalUserID {
-				return session
+			if session.UserID == GlobalUserID {
+				return session, agentTeam
 			}
 		}
 
 		sess, err := agentClient.CreateSession(&autogen_client.CreateSession{
 			UserID: GlobalUserID,
-			TeamID: apiTestTeam.Id,
 			Name:   fmt.Sprintf("e2e-test-%s-%s", agentName, testStartTime),
 		})
 		require.NoError(t, err)
 
-		return sess
+		return sess, agentTeam
 	}
 
 	// Helper function to run an interactive session with an agent
 	runAgentInteraction := func(agentLabel, prompt string) string {
-		sess := createOrFetchAgentSession(agentLabel)
+		sess, team := createOrFetchAgentSession(agentLabel)
 
-		result, err := agentClient.InvokeSession(sess.ID, GlobalUserID, prompt+`\nComplete the task without asking for confirmation, even if the task involves creating or deleting namespaces or other critical resources.`)
+		result, err := agentClient.InvokeSession(sess.ID, GlobalUserID, &autogen_client.InvokeRequest{
+			Task:       prompt + `\nComplete the task without asking for confirmation, even if the task involves creating or deleting namespaces or other critical resources.`,
+			TeamConfig: team.Component,
+		})
 		require.NoError(t, err)
 
 		return result.TaskResult.Messages[len(result.TaskResult.Messages)-1]["content"].(string)
@@ -97,7 +97,7 @@ func TestE2E(t *testing.T) {
 	}
 
 	// Helper to check if a resource exists
-	resourceExists := func(namespace, kind, name string, obj client.Object) bool {
+	resourceExists := func(namespace, name string, obj client.Object) bool {
 		err := k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, obj)
 		return err == nil
 	}
@@ -144,7 +144,7 @@ func TestE2E(t *testing.T) {
 		// Verify pod exists and has correct label
 		pod := &corev1.Pod{}
 		require.Eventually(t, func() bool {
-			if !resourceExists(namespace, "Pod", podName, pod) {
+			if !resourceExists(namespace, podName, pod) {
 				return false
 			}
 			return pod.Labels["app"] == "nginx"
@@ -192,7 +192,7 @@ func TestE2E(t *testing.T) {
 		// Verify the deployment exists
 		deployment := &appsv1.Deployment{}
 		require.Eventually(t, func() bool {
-			return resourceExists(namespace, "Deployment", deploymentName, deployment)
+			return resourceExists(namespace, deploymentName, deployment)
 		}, 60*time.Second, 1*time.Second, "Deployment should exist after Helm release install")
 
 		// Verify the deployment has the correct replica count
@@ -209,7 +209,7 @@ func TestE2E(t *testing.T) {
 
 		// Verify the deployment is removed
 		require.Eventually(t, func() bool {
-			return !resourceExists(namespace, "Deployment", deploymentName, deployment)
+			return !resourceExists(namespace, deploymentName, deployment)
 		}, 60*time.Second, 1*time.Second, "Deployment should be removed after Helm release uninstall")
 
 		// Delete namespace
@@ -238,7 +238,7 @@ func TestE2E(t *testing.T) {
 		// Verify namespace exists with correct label
 		ns := &corev1.Namespace{}
 		require.Eventually(t, func() bool {
-			if !resourceExists("", "Namespace", namespace, ns) {
+			if !resourceExists("", namespace, ns) {
 				return false
 			}
 			return ns.Labels["istio-injection"] == "enabled"
@@ -256,7 +256,7 @@ func TestE2E(t *testing.T) {
 		// Verify istiod deployment exists
 		istiod := &appsv1.Deployment{}
 		require.Eventually(t, func() bool {
-			return resourceExists("istio-system", "Deployment", "istiod", istiod)
+			return resourceExists("istio-system", "istiod", istiod)
 		}, 120*time.Second, 1*time.Second, "istiod deployment should exist")
 
 		// Deploy a simple application
@@ -266,7 +266,7 @@ func TestE2E(t *testing.T) {
 		// Verify deployment exists with correct replica count
 		deployment := &appsv1.Deployment{}
 		require.Eventually(t, func() bool {
-			if !resourceExists(namespace, "Deployment", deploymentName, deployment) {
+			if !resourceExists(namespace, deploymentName, deployment) {
 				return false
 			}
 			return *deployment.Spec.Replicas == int32(2)
@@ -279,7 +279,7 @@ func TestE2E(t *testing.T) {
 		// Verify service exists
 		service := &corev1.Service{}
 		require.Eventually(t, func() bool {
-			if !resourceExists(namespace, "Service", serviceName, service) {
+			if !resourceExists(namespace, serviceName, service) {
 				return false
 			}
 			return service.Spec.Type == corev1.ServiceTypeClusterIP && len(service.Spec.Ports) > 0 && service.Spec.Ports[0].Port == 80

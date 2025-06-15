@@ -1,0 +1,55 @@
+operation: translateAgent
+targetObject: agent-with-cross-ns-resources
+namespace: test-agent
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test-model
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: pinecone-secret
+      namespace: test-memory
+    data:
+      api-key: cGluZWNvbmUtYXBpLWtleQ==  # base64 encoded "pinecone-api-key"
+  - apiVersion: kagent.dev/v1alpha1
+    kind: ModelConfig
+    metadata:
+      name: cross-ns-model
+      namespace: test-model
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecretRef: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha1
+    kind: Memory
+    metadata:
+      name: cross-ns-memory
+      namespace: test-memory
+    spec:
+      provider: Pinecone
+      apiKeySecretRef: pinecone-secret
+      apiKeySecretKey: api-key
+      pinecone:
+        indexHost: "https://test-index.pinecone.io"
+        topK: 5
+        namespace: "test-namespace"
+        recordFields: ["content", "metadata"]
+        scoreThreshold: "0.7"
+  - apiVersion: kagent.dev/v1alpha1
+    kind: Agent
+    metadata:
+      name: agent-with-cross-ns-resources
+      namespace: test-agent
+    spec:
+      description: An agent with vector memory and model from different namespaces
+      systemMessage: You are an assistant with access to cross-namespace resources.
+      modelConfig: test-model/cross-ns-model
+      memory:
+        - test-memory/cross-ns-memory
+      tools: []

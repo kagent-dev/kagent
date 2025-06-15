@@ -1,6 +1,6 @@
 # api/routes/sessions.py
 import json
-from typing import Dict
+from typing import Dict, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -12,6 +12,7 @@ from ...datamodel import Message, MessageConfig, Response, Run, RunStatus, Sessi
 from ...sessionmanager import SessionManager
 from ..deps import get_db, get_session_manager
 from .invoke import format_team_result
+from autogen_core import ComponentModel
 
 router = APIRouter()
 
@@ -140,6 +141,7 @@ async def list_session_runs(session_id: int, user_id: str, db: DatabaseManager =
 
 class InvokeRequest(BaseModel):
     task: str
+    team_config: Union[ComponentModel, dict]
 
 
 @router.post("/{session_id}/invoke")
@@ -152,7 +154,7 @@ async def invoke(
 ) -> Response:
     try:
         run = _create_run(session_id, user_id, db, request.task)
-        result: TeamResult = await session_mgr.start(user_id, run.id, request.task)
+        result: TeamResult = await session_mgr.start(user_id, run.id, request.task, request.team_config)
         response = Response(status=True, data=format_team_result(result), message="Run executed successfully")
         return response
 
@@ -191,7 +193,7 @@ async def stream(
             # Create a new run
             run = _create_run(session_id, user_id, db, request.task)
             # Start the run
-            async for event in session_mgr.start_stream(user_id, run.id, request.task):
+            async for event in session_mgr.start_stream(user_id, run.id, request.task, request.team_config):
                 if "task_result" in event:
                     yield f"event: task_result\ndata: {json.dumps(event)}\n\n"
                 else:

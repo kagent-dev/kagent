@@ -48,6 +48,18 @@ func (c *TextMessageTerminationConfig) FromConfig(config map[string]interface{})
 	return fromConfig(c, config)
 }
 
+type FinalTextMessageTerminationConfig struct {
+	Source string `json:"source,omitempty"`
+}
+
+func (c *FinalTextMessageTerminationConfig) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *FinalTextMessageTerminationConfig) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
+
 type MaxMessageTerminationConfig struct {
 	MaxMessages int `json:"max_messages"`
 }
