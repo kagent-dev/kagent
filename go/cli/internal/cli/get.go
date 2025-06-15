@@ -185,14 +185,13 @@ func printTeams(teams []*autogen_client.Team) error {
 }
 
 func printSessions(sessions []*autogen_client.Session) error {
-	headers := []string{"#", "ID", "NAME", "TEAM"}
+	headers := []string{"#", "ID", "NAME"}
 	rows := make([][]string, len(sessions))
 	for i, session := range sessions {
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
 			strconv.Itoa(session.ID),
 			session.Name,
-			strconv.Itoa(session.TeamID),
 		}
 	}
 

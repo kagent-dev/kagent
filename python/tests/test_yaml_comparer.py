@@ -1,4 +1,5 @@
 import pytest
+
 from ._yaml_comparer import YAMLComparer
 
 

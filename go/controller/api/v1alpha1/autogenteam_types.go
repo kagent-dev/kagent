@@ -26,9 +26,11 @@ const (
 
 // TeamSpec defines the desired state of Team.
 type TeamSpec struct {
+	// Each Participant can either be a reference to the name of an Agent in the same namespace as the referencing Team, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
 	Participants []string `json:"participants"`
 	Description  string   `json:"description"`
-	ModelConfig  string   `json:"modelConfig"`
+	// Can either be a reference to the name of a ModelConfig in the same namespace as the referencing Team, or a reference to the name of a ModelConfig in a different namespace in the form <namespace>/<name>
+	ModelConfig string `json:"modelConfig"`
 	// +kubebuilder:validation:Optional
 	RoundRobinTeamConfig *RoundRobinTeamConfig `json:"roundRobinTeamConfig"`
 	// +kubebuilder:validation:Optional
@@ -57,11 +59,12 @@ type SwarmTeamConfig struct {
 
 type TerminationCondition struct {
 	// ONEOF: maxMessageTermination, textMentionTermination, orTermination
-	MaxMessageTermination  *MaxMessageTermination  `json:"maxMessageTermination,omitempty"`
-	TextMentionTermination *TextMentionTermination `json:"textMentionTermination,omitempty"`
-	TextMessageTermination *TextMessageTermination `json:"textMessageTermination,omitempty"`
-	StopMessageTermination *StopMessageTermination `json:"stopMessageTermination,omitempty"`
-	OrTermination          *OrTermination          `json:"orTermination,omitempty"`
+	MaxMessageTermination       *MaxMessageTermination       `json:"maxMessageTermination,omitempty"`
+	TextMentionTermination      *TextMentionTermination      `json:"textMentionTermination,omitempty"`
+	TextMessageTermination      *TextMessageTermination      `json:"textMessageTermination,omitempty"`
+	FinalTextMessageTermination *FinalTextMessageTermination `json:"finalTextMessageTermination,omitempty"`
+	StopMessageTermination      *StopMessageTermination      `json:"stopMessageTermination,omitempty"`
+	OrTermination               *OrTermination               `json:"orTermination,omitempty"`
 }
 
 type MaxMessageTermination struct {
@@ -73,6 +76,10 @@ type TextMentionTermination struct {
 }
 
 type TextMessageTermination struct {
+	Source string `json:"source"`
+}
+
+type FinalTextMessageTermination struct {
 	Source string `json:"source"`
 }
 
@@ -116,4 +123,9 @@ type TeamList struct {
 
 func init() {
 	SchemeBuilder.Register(&Team{}, &TeamList{})
+}
+
+
+func (t *Team) GetModelConfigName() string {
+	return t.Spec.ModelConfig
 }

@@ -2,8 +2,10 @@ from typing import Dict
 
 from autogen_core.models import ModelInfo
 
+from .types import ModelInfoDict
+
 # https://ai.google.dev/gemini-api/docs/models
-_MODEL_INFO: Dict[str, ModelInfo] = {
+_MODEL_INFO: ModelInfoDict = {
     "gemini-2.5-flash-preview-05-20": {
         "vision": False,
         "function_calling": True,

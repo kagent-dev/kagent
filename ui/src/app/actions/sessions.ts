@@ -65,7 +65,7 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
       },
       body: JSON.stringify({
         user_id: session.user_id,
-        team_id: Number(session.team_id),
+        team_id: session.team_id ? Number(session.team_id) : undefined,
         name: session.name,
       }),
     });

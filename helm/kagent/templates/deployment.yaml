@@ -35,7 +35,7 @@ spec:
             - -zap-log-level
             - {{ .Values.controller.loglevel }}
             - -watch-namespaces
-            - {{ include "kagent.watchNamespaces" . }}
+            - "{{ include "kagent.watchNamespaces" . }}"
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.global.tag .Values.controller.image.tag .Chart.Version }}"

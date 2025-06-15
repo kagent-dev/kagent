@@ -33,6 +33,7 @@ type AgentSpec struct {
 	Description string `json:"description,omitempty"`
 	// +kubebuilder:validation:MinLength=1
 	SystemMessage string `json:"systemMessage,omitempty"`
+	// Can either be a reference to the name of a ModelConfig in the same namespace as the referencing Agent, or a reference to the name of a ModelConfig in a different namespace in the form <namespace>/<name>
 	// +optional
 	ModelConfig string `json:"modelConfig,omitempty"`
 	// Whether to stream the response from the model.
@@ -41,6 +42,7 @@ type AgentSpec struct {
 	Stream *bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
+	// Can either be a reference to the name of a Memory in the same namespace as the referencing Agent, or a reference to the name of a Memory in a different namespace in the form <namespace>/<name>
 	// +optional
 	Memory []string `json:"memory,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
@@ -147,4 +149,9 @@ type AgentList struct {
 
 func init() {
 	SchemeBuilder.Register(&Agent{}, &AgentList{})
+}
+
+
+func (a *Agent) GetModelConfigName() string {
+	return a.Spec.ModelConfig
 }
