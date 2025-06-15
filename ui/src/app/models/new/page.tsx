@@ -24,8 +24,6 @@ import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendMo
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
-import { VertexAIConfigSection } from '@/components/models/new/VertexAIConfigSection';
-import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ValidationErrors {
   name?: string;
@@ -440,59 +438,32 @@ function ModelPageContent() {
       apiKey: finalApiKey,
     };
 
-    // Add provider-specific configuration
-    if (finalSelectedProvider.type === 'OpenAI' && requiredParams) {
-      const params = processModelParams(requiredParams, optionalParams);
-      payload.openAI = {
-        temperature: params.temperature,
-        maxTokens: params.maxTokens,
-        topP: params.topP,
-        frequencyPenalty: params.frequencyPenalty,
-        presencePenalty: params.presencePenalty,
-      };
-    } else if (finalSelectedProvider.type === 'AzureOpenAI' && requiredParams) {
-      const params = processModelParams(requiredParams, optionalParams);
-      payload.azureOpenAI = {
-        azureEndpoint: params.endpoint,
-        apiVersion: params.apiVersion,
-        temperature: params.temperature,
-        maxTokens: params.maxTokens,
-        topP: params.topP,
-      };
-    } else if (finalSelectedProvider.type === 'Anthropic' && requiredParams) {
-      const params = processModelParams(requiredParams, optionalParams);
-      payload.anthropic = {
-        temperature: params.temperature,
-        maxTokens: params.maxTokens,
-        topP: params.topP,
-        topK: params.topK,
-      };
-    } else if (finalSelectedProvider.type === 'Ollama' && requiredParams) {
-      const params = processModelParams(requiredParams, optionalParams);
-      payload.ollama = {
-        host: params.host,
-        options: Object.fromEntries(optionalParams.map(param => [param.key, param.value])),
-      };
-    } else if ((finalSelectedProvider.type === 'GeminiVertexAI' || finalSelectedProvider.type === 'AnthropicVertexAI')) {
-      const vertexAIConfig = {
-        projectID: projectId.trim(),
-        location: location.trim(),
-        temperature: requiredParams.find(p => p.key === 'temperature')?.value,
-        topP: requiredParams.find(p => p.key === 'topP')?.value,
-        topK: requiredParams.find(p => p.key === 'topK')?.value,
-        stopSequences: requiredParams.find(p => p.key === 'stopSequences')?.value?.split(',').map(s => s.trim()),
-      };
+    const providerParams = processModelParams(requiredParams, optionalParams);
 
-      if (finalSelectedProvider.type === 'GeminiVertexAI') {
-        payload.geminiVertexAI = vertexAIConfig;
-      } else {
-        payload.anthropicVertexAI = vertexAIConfig;
-      }
+    const providerType = finalSelectedProvider.type;
+    switch (providerType) {
+      case 'OpenAI':
+        payload.openAI = providerParams as OpenAIConfigPayload;
+        break;
+      case 'Anthropic':
+        payload.anthropic = providerParams as AnthropicConfigPayload;
+        break;
+      case 'AzureOpenAI':
+        payload.azureOpenAI = providerParams as AzureOpenAIConfigPayload;
+        break;
+      case 'Ollama':
+        payload.ollama = providerParams as OllamaConfigPayload;
+        break;
+      default:
+        console.error("Unsupported provider type during payload construction:", providerType);
+        toast.error("Internal error: Unsupported provider type.");
+        setIsSubmitting(false);
+        return;
     }
 
     try {
       let response;
-      if (isEditMode && modelConfigName) {
+      if (isEditMode && modelId) {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
@@ -502,8 +473,7 @@ function ModelPageContent() {
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
         };
-        const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
-        response = await updateModelConfig(modelConfigRef, updatePayload);
+        response = await updateModelConfig(modelId, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }

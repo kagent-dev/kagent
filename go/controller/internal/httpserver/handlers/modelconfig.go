@@ -181,7 +181,6 @@ func getStructJSONKeys(structType reflect.Type) []string {
 }
 
 type CreateModelConfigRequest struct {
-
 	Name                  string                            `json:"name"`
 	Provider              Provider                          `json:"provider"`
 	Model                 string                            `json:"model"`
