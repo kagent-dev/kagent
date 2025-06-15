@@ -1,0 +1,47 @@
+linters:
+  enable:
+    - gofmt
+    - golint
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - unused
+    - misspell
+    - gosec
+    - unconvert
+    - goconst
+    - gocyclo
+    - dupl
+    - goimports
+    - revive
+
+run:
+  deadline: 5m
+  skip-dirs:
+    - vendor
+    - test
+    - autogen
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - dupl
+        - gosec
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - disableStutteringCheck 
