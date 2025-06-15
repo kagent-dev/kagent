@@ -10,6 +10,7 @@ import { isResourceNameValid } from "@/lib/utils";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   description?: string;
   systemPrompt?: string;
   model?: string;
@@ -20,6 +21,7 @@ interface ValidationErrors {
 
 export interface AgentFormData {
   name: string;
+  namespace: string;
   description: string;
   systemPrompt: string;
   model: Partial<ModelConfig>;
@@ -125,6 +127,12 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
     if (data.name !== undefined && !isResourceNameValid(data.name)) {
       errors.name = `Agent name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
+    }
+
+    if (data.namespace !== undefined && data.namespace.trim()) {
+      if (!isResourceNameValid(data.namespace)) {
+        errors.namespace = `Agent namespace can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
+      }
     }
 
     if (data.description !== undefined && !data.description.trim()) {

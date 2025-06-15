@@ -18,10 +18,10 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
         This is the model that will be used to generate the agent's responses.
       </p>
       <Select 
-        value={selectedModel?.name || ""} 
+        value={selectedModel?.ref || ""} 
         disabled={isSubmitting || allModels.length === 0} 
         onValueChange={(value) => {
-          const model = allModels.find((m) => m.name === value);
+          const model = allModels.find((m) => m.ref === value);
           if (model) {
             setSelectedModel(model);
             if (onBlur) {
@@ -35,8 +35,8 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
         </SelectTrigger>
         <SelectContent>
           {allModels.map((model, idx) => (
-            <SelectItem key={`${idx}_${model.name}`} value={model.name}>
-              {model.model} ({model.name})
+            <SelectItem key={`${idx}_${model.ref}`} value={model.ref}>
+              {model.model} ({model.ref})
             </SelectItem>
           ))}
         </SelectContent>

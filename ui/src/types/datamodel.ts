@@ -410,7 +410,10 @@ export interface AgentResponse {
   agent: Agent;
   component: Component<TeamConfig>;
   model: string;
-  provider: string;
+  modelProvider: string;
+  modelConfigRef: string;
+  memoryRefs: string[];
+  tools: Tool[];
 }
 
 export interface ToolServer {
@@ -434,7 +437,7 @@ export interface ToolComponent {
 }
 
 export interface ToolServerWithTools {
-  name: string;
+  ref: string;
   config: ToolServerConfiguration;
   discoveredTools: ToolComponent[];
 }

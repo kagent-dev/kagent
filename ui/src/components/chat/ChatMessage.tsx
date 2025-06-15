@@ -10,6 +10,11 @@ import { useState } from "react";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
 
+function convertToUserFriendlyName(name: string): string {
+  name = name.replace(/__NS__/g, "/");
+  return name.replace(/_/g, "-");
+}
+
 interface ChatMessageProps {
   message: AgentMessageConfig & { id?: number };
   allMessages: AgentMessageConfig[];
@@ -39,7 +44,7 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
 
   const isErrorMessage = messageUtils.isErrorMessageContent(message);
   if (isErrorMessage) {
-    content = message.data.task_result.stop_reason || "An error occurred";
+    content = message.data.task_result?.stop_reason || "An error occurred";
   }
 
   // Filter out system messages
@@ -65,18 +70,31 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
     setIsPositiveFeedback(isPositive);
     setFeedbackDialogOpen(true);
   };
+
+  const formattedSource = convertToUserFriendlyName(source);
   
   const messageBorderColor = isErrorMessage ? "border-l-red-500" : source === "user" ? "border-l-blue-500" : "border-l-violet-500";
   return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${messageBorderColor}`}>
     <div className="flex flex-col gap-1 w-full">
       {source !== "user" ? <div className="flex items-center gap-1">
         <KagentLogo className="w-4 h-4" />
-        <div className="text-xs font-bold">{source}</div>
-      </div> : <div className="text-xs font-bold">{source}</div>}
+        <div className="text-xs font-bold">{formattedSource}</div>
+      </div> : <div className="text-xs font-bold">{formattedSource}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
       
       {source !== "user" && messageId !== undefined && (
-        <div className="flex mt-2 justify-end gap-2">
+        <div className="flex mt-2 justify-end items-center gap-2">
+           {message.metadata?.created_at && (
+            <div className="text-xs text-muted-foreground">
+              {new Date(Number(message.metadata.created_at) * 1000).toLocaleString()}
+              {message.metadata.duration != null && (
+                <>
+                  <span className="mx-1">-</span>
+                  {Number(message.metadata.duration).toFixed(2)}s
+                </>
+              )}
+            </div>
+          )}
           <button 
             onClick={() => handleFeedback(true)}
             className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"

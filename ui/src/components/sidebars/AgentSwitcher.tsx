@@ -8,6 +8,7 @@ import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/c
 import { AgentResponse } from "@/types/datamodel";
 import KagentLogo from "../kagent-logo";
 import { useRouter } from "next/navigation";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface AgentSwitcherProps {
   currentAgent: AgentResponse;
@@ -25,6 +26,11 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
     return null;
   }
 
+  const selectedTeamRef = k8sRefUtils.toRef(
+    selectedTeam.agent.metadata.namespace || "",
+    selectedTeam.agent.metadata.name
+  );
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -35,8 +41,8 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
                 <KagentLogo className="w-4 h-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{selectedTeam.agent.metadata.name}</span>
-                <span className="truncate text-xs">{selectedTeam.provider} ({selectedTeam.model})</span>
+                <span className="truncate font-semibold">{selectedTeamRef}</span>
+                <span className="truncate text-xs">{selectedTeam.modelProvider} ({selectedTeam.model})</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>
@@ -44,15 +50,16 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
           <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg" align="start" side={isMobile ? "bottom" : "right"} sideOffset={4}>
             <DropdownMenuLabel className="text-xs text-muted-foreground">Agents</DropdownMenuLabel>
             {agentResponses.map(({ id, agent}, index) => {
+              const agentRef = k8sRefUtils.toRef(agent.metadata.namespace || "", agent.metadata.name)
               return (
                 <DropdownMenuItem
-                  key={agent.metadata.name}
+                  key={agentRef}
                   onClick={() => {
                     router.push(`/agents/${id}/chat`);
                   }}
                   className="gap-2 p-2"
                 >
-                  {agent.metadata.name}
+                  {agentRef}
                   <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
                 </DropdownMenuItem>
               );
