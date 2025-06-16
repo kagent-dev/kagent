@@ -13,9 +13,9 @@ description = "kagent is a tool for building and deploying agent-based applicati
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "autogen-core @ git+https://github.com/EItanya/autogen@disable-runtime-tracing-env#subdirectory=python/packages/autogen-core",
-  "autogen-agentchat @ git+https://github.com/EItanya/autogen@disable-runtime-tracing-env#subdirectory=python/packages/autogen-agentchat",
-  "autogen-ext[anthropic,azure,mcp,ollama,openai] @ git+https://github.com/EItanya/autogen@disable-runtime-tracing-env#subdirectory=python/packages/autogen-ext",
+  "autogen-core @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-core",
+  "autogen-agentchat @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-agentchat",
+  "autogen-ext[anthropic,azure,mcp,ollama,openai] @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-ext",
   "openai>=1.72.0",
   "tiktoken==0.8.0",
   "python-dotenv>=1.1.0",
@@ -29,7 +29,6 @@ dependencies = [
   "opentelemetry-exporter-otlp-proto-grpc>=1.32.0",
   "opentelemetry-instrumentation-openai>= 0.39.0",
   "opentelemetry-instrumentation-httpx >= 0.52.0",
-  "opentelemetry-instrumentation-fastapi>=0.52.0",
   "anthropic[vertex]>=0.49.0",
   "pinecone>=6.0.2",
   "loguru>=0.7.3",
@@ -37,7 +36,7 @@ dependencies = [
   "sqlmodel>=0.0.24",
   "alembic>=1.11.0",
   "fastapi>=0.103.1",
-  "playwright>=1.48.0",
+  "playwright>=1.52.0",
   "html2text>=2025.4.15",
   "bs4>=0.0.2",
   "magika>=0.6.2",
@@ -45,6 +44,7 @@ dependencies = [
   "websockets>=11.0",
   "google-genai>=1.18.0",
   "google-auth>=2.40.2",
+  "h11>=0.16.0",
 ]
 
 [project.optional-dependencies]

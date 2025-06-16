@@ -24,9 +24,17 @@ RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
 RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-DOCKER_BUILDER ?= docker
-DOCKER_BUILD_ARGS ?=
+
+# Local architecture detection to build for the current platform
+LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+
+# Docker buildx configuration
+DOCKER_BUILDER ?= docker buildx
+DOCKER_BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --pull --load --platform linux/$(LOCALARCH)
 KIND_CLUSTER_NAME ?= kagent
+
+BUILDX_NO_DEFAULT_ATTESTATIONS=1
+BUILDX_BUILDER_NAME=kagent-builder
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -34,25 +42,28 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
-TOOLS_BUN_VERSION ?= 1.2.12
+TOOLS_BUN_VERSION ?= 1.2.16
 TOOLS_K9S_VERSION ?= 0.50.4
 TOOLS_KIND_VERSION ?= 0.27.0
-TOOLS_NODE_VERSION ?= 22.15.0
-TOOLS_ISTIO_VERSION ?= 1.26.0
-TOOLS_ARGO_CD_VERSION ?= 3.0.0
+TOOLS_NODE_VERSION ?= 22.16.0
+TOOLS_ISTIO_VERSION ?= 1.26.1
+TOOLS_ARGO_CD_VERSION ?= 3.0.6
 TOOLS_KUBECTL_VERSION ?= 1.33.4
+TOOLS_HELM_VERSION ?= 3.18.3
+TOOLS_PYTHON_VERSION ?= 3.12
 
 # build args
-TOOLS_IMAGE_BUILD_ARGS =  --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
+TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_K9S_VERSION=$(TOOLS_K9S_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KIND_VERSION=$(TOOLS_KIND_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ARGO_CD_VERSION=$(TOOLS_ARGO_CD_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KUBECTL_VERSION=$(TOOLS_KUBECTL_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_HELM_VERSION=$(TOOLS_HELM_VERSION)
 
 HELM_ACTION=upgrade --install
 
@@ -77,6 +88,11 @@ check-openai-key:
 		echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
 		exit 1; \
 	fi
+
+.PHONY: buildx-create
+buildx-create:
+	docker buildx inspect $(BUILDX_BUILDER_NAME) || \
+	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use || true
 
 .PHONY: build-all  # build all all using buildx
 build-all: BUILDER_NAME ?= kagent-builder
@@ -104,12 +120,22 @@ use-kind-cluster:
 delete-kind-cluster:
 	kind delete cluster --name $(KIND_CLUSTER_NAME)
 
+PHONY: clean
+clean: prune-kind-cluster
+clean: prune-docker-images
+
 .PHONY: prune-kind-cluster
 prune-kind-cluster:
 	echo "Pruning dangling docker images from kind  ..."
-	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images --filter dangling=true --no-trunc --quiet || :
-	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images --filter dangling=true --no-trunc --quiet | \
-	awk '{print $3}' | xargs -r docker exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
+	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images --no-trunc --quiet | \
+	grep '<none>' | awk '{print $3}' | xargs -r -n1 docker exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
+
+.PHONY: prune-docker-images
+prune-docker-images:
+	echo "Pruning dangling docker images ..."
+	docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
+	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $2}' | xargs -r docker rmi || :
+	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
 build: build-controller build-ui build-app
@@ -138,7 +164,7 @@ controller-manifests:
 	cp go/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
-build-controller: controller-manifests
+build-controller: buildx-create controller-manifests
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: release-controller
@@ -147,7 +173,7 @@ release-controller: DOCKER_BUILDER = docker buildx
 release-controller: build-controller
 
 .PHONY: build-ui
-build-ui:
+build-ui: buildx-create
 	# Build the combined UI and backend image
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 
@@ -157,7 +183,7 @@ release-ui: DOCKER_BUILDER = docker buildx
 release-ui: build-ui
 
 .PHONY: build-app
-build-app:
+build-app: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
 
 .PHONY: release-app
@@ -292,3 +318,11 @@ open-dev-container:
 	@echo "Opening dev container..."
 	devcontainer build .
 	@devcontainer open .
+
+.PHONY: report/image-cve
+report/image-cve:
+	make -C go govulncheck
+	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
+	grype docker:$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
+	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
+	grype docker:$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv

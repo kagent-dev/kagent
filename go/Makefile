@@ -46,8 +46,8 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: govulncheck
 govulncheck:
-	go install golang.org/x/vuln/cmd/govulncheck@latest
-	govulncheck ./...
+	$(call go-install-tool,bin/govulncheck,golang.org/x/vuln/cmd/govulncheck,latest)
+	./bin/govulncheck-latest ./...
 
 ##@ Build
 
@@ -87,7 +87,7 @@ bin/kagent-windows-amd64.exe.sha256: bin/kagent-windows-amd64.exe
 
 .PHONY: clean
 clean:
-	rm -f bin/* && mkdir -p bin
+	rm -f bin/kagent* && mkdir -p bin
 
 .PHONY: build
 build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-darwin-amd64.sha256 bin/kagent-darwin-arm64.sha256 bin/kagent-windows-amd64.exe.sha256

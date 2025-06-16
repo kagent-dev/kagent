@@ -2,6 +2,7 @@
 import json
 from typing import Dict, Union
 
+from autogen_core import ComponentModel
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -12,7 +13,6 @@ from ...datamodel import Message, MessageConfig, Response, Run, RunStatus, Sessi
 from ...sessionmanager import SessionManager
 from ..deps import get_db, get_session_manager
 from .invoke import format_team_result
-from autogen_core import ComponentModel
 
 router = APIRouter()
 

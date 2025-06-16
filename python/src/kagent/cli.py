@@ -289,7 +289,6 @@ def serve(
 
     from opentelemetry import trace
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.openai import OpenAIInstrumentor
     from opentelemetry.sdk.resources import Resource
@@ -310,7 +309,6 @@ def serve(
         trace.set_tracer_provider(tracer_provider)
         HTTPXClientInstrumentor().instrument()
         OpenAIInstrumentor().instrument()
-        FastAPIInstrumentor().instrument()
 
     ui(host=host, port=port)
 

@@ -96,7 +96,7 @@ tests:
           value: 8081
       - equal:
           path: spec.template.spec.containers[2].ports[0].containerPort
-          value: 80
+          value: 8080
 
   - it: should include namespace environment variable for controller
     asserts:

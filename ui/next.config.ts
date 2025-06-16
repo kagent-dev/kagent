@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
   serverRuntimeConfig: {
     trustProxy: true,
   },
+  experimental: { swcPlugins: [] },
+  compiler: { removeConsole: true },
 };
 
 export default nextConfig;
