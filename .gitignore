@@ -199,3 +199,5 @@ go/bin/
 ## Helm
 *.tgz
 /tmp/
+/reports/*.csv
+/reports/*.txt

@@ -5,13 +5,14 @@ FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:late
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 RUN apk update \
-    && apk add curl openssl unzip bash git ca-certificates  \
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor \
     && update-ca-certificates \
     && rm -rf /var/cache/apk/*
 
 ARG TOOLS_BUN_VERSION
 ARG TARGETARCH
 
+ENV DO_NOT_TRACK=1
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV BUN_INSTALL=/usr/local/bun
@@ -32,14 +33,15 @@ WORKDIR /app/ui
 
 #copy the package.json
 COPY package*.json .
-RUN --mount=type=cache,target=/cache/bun,rw             \
-    bun install
+RUN bun install                   \
+    && bun pm ls --all            \
+    && bun pm hash
 
 #copy the rest of the files
 COPY . .
-RUN --mount=type=cache,target=/cache/bun,rw             \
-    bun install                                      \
-    && bun run build  --no-lint                         \
+RUN export NEXT_TELEMETRY_DEBUG=1 \
+    && bun install                \
+    && bun run build  --no-lint   \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: final
@@ -48,26 +50,26 @@ FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 RUN apk update \
-    && apk add curl bash openssl ca-certificates nginx supervisor \
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor \
     && update-ca-certificates \
     && rm -rf /var/cache/apk/*
-
 
 ARG TOOLS_BUN_VERSION
 ENV BUN_INSTALL=/usr/local/bun
 ENV PATH=$BUN_INSTALL/bin:$PATH
 # Install Bun in native arch for running (uses official install script)
 # brew install oven-sh/bun/bun
-RUN --mount=type=cache,target=/cache/bun,rw \
-    mkdir -p $BUN_INSTALL  \
+RUN mkdir -p $BUN_INSTALL  \
     && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
     && bun --version
 
-RUN mkdir -p /app/ui /run/nginx /var/lib/nginx/tmp/     \
+RUN mkdir -p /app/ui/public /run/nginx/ /var/lib/nginx/tmp/ /var/lib/nginx/logs/  \
     && addgroup -g 1001    nginx                        \
     && adduser  -u 1001 -G nginx -s /bin/bash -D nextjs \
     && adduser  -u 1002 -G nginx -s /bin/bash -D nginx  \
-    && chown    -vR nextjs:nginx /app/ui
+    && chown    -vR nextjs:nginx /app/ui                \
+    && chown    -vR nextjs:nginx /run/nginx             \
+    && chown    -vR nextjs:nginx /var/lib/nginx/
 
 WORKDIR /app
 COPY conf/nginx.conf /etc/nginx/nginx.conf
@@ -85,9 +87,13 @@ RUN chown -R nextjs:nginx /app/ui && \
     chmod -R 755 /app
 
 EXPOSE 80
+ARG VERSION
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
 LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
 LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
+LABEL org.opencontainers.image.version="$VERSION"
+
+USER nextjs
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

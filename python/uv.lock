@@ -1099,7 +1099,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-openai", specifier = ">=0.39.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.32.0" },
     { name = "pinecone", specifier = ">=6.0.2" },
-    { name = "playwright", specifier = ">=1.48.0" },
+    { name = "playwright", specifier = ">=1.52.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.25.3" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
