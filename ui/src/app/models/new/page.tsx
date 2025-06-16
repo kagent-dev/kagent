@@ -24,9 +24,11 @@ import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendMo
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   selectedCombinedModel?: string;
   apiKey?: string;
   requiredParams?: Record<string, string>;
@@ -99,9 +101,11 @@ function ModelPageContent() {
   const searchParams = useSearchParams();
 
   const isEditMode = searchParams.get("edit") === "true";
-  const modelId = searchParams.get("id");
+  const modelConfigName = searchParams.get("name");
+  const modelConfigNamespace = searchParams.get("namespace");
 
   const [name, setName] = useState("");
+  const [namespace, setNamespace] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [apiKey, setApiKey] = useState("");
@@ -168,17 +172,21 @@ function ModelPageContent() {
   useEffect(() => {
     let isMounted = true;
     const fetchModelData = async () => {
-      if (isEditMode && modelId && providers.length > 0 && providerModelsData) {
+      if (isEditMode && modelConfigName && providers.length > 0 && providerModelsData) {
         try {
           if (!isLoading) setIsLoading(true);
-          const response = await getModelConfig(modelId);
+          const response = await getModelConfig(
+            k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName)
+          );
           if (!isMounted) return;
 
           if (!response.success || !response.data) {
             throw new Error(response.error || "Failed to fetch model");
           }
           const modelData = response.data;
-          setName(modelData.name);
+          const modelRef = k8sRefUtils.fromRef(modelData.ref);
+          setName(modelRef.name);
+          setNamespace(modelRef.namespace);
 
           const provider = providers.find(p => p.type === modelData.providerName);
           setSelectedProvider(provider || null);
@@ -243,7 +251,7 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelId, providers, providerModelsData]);
+  }, [isEditMode, modelConfigName, providers, providerModelsData]);
 
   useEffect(() => {
     if (selectedProvider) {
@@ -409,7 +417,7 @@ function ModelPageContent() {
     }
 
     const payload: CreateModelConfigPayload = {
-      name: name.trim(),
+      ref: k8sRefUtils.toRef(namespace, name),
       provider: {
         name: finalSelectedProvider.name,
         type: finalSelectedProvider.type,
@@ -443,7 +451,7 @@ function ModelPageContent() {
 
     try {
       let response;
-      if (isEditMode && modelId) {
+      if (isEditMode && modelConfigName) {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
@@ -453,7 +461,8 @@ function ModelPageContent() {
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
         };
-        response = await updateModelConfig(modelId, updatePayload);
+        const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
+        response = await updateModelConfig(modelConfigRef, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }
@@ -499,11 +508,13 @@ function ModelPageContent() {
           <BasicInfoSection
             name={name}
             isEditingName={isEditingName}
+            namespace={namespace}
             errors={errors}
             isSubmitting={isSubmitting}
             isLoading={isLoading}
             onNameChange={setName}
             onToggleEditName={() => setIsEditingName(!isEditingName)}
+            onNamespaceChange={setNamespace}
             providers={providers}
             providerModelsData={providerModelsData}
             selectedCombinedModel={selectedCombinedModel}

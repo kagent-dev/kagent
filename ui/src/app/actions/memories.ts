@@ -11,8 +11,8 @@ export async function listMemories(): Promise<MemoryResponse[]> {
   }))
 }
 
-export async function getMemory(name: string): Promise<MemoryResponse> {
-  return fetchApi<MemoryResponse>(`/memories/${name}`)
+export async function getMemory(ref: string): Promise<MemoryResponse> {
+  return fetchApi<MemoryResponse>(`/memories/${ref}`)
 }
 
 export async function createMemory(
@@ -27,15 +27,15 @@ export async function createMemory(
 export async function updateMemory(
   memoryData: UpdateMemoryRequest
 ): Promise<MemoryResponse> {
-  return fetchApi<MemoryResponse>(`/memories/${memoryData.name}`, {
+  return fetchApi<MemoryResponse>(`/memories/${memoryData.ref}`, {
     method: 'PUT',
     body: JSON.stringify(memoryData),
   })
 }
 
 
-export async function deleteMemory(name: string): Promise<void> {
-  await fetchApi<void>(`/memories/${name}`, {
+export async function deleteMemory(ref: string): Promise<void> {
+  await fetchApi<void>(`/memories/${ref}`, {
     method: 'DELETE',
   })
 } 

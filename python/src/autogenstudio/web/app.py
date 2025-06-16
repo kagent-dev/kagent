@@ -17,17 +17,14 @@ from .deps import cleanup_managers, init_auth_manager, init_managers, register_a
 from .initialization import AppInitializer
 from .routes import (
     feedback,
-    gallery,
     invoke,
     models,
     runs,
     sessions,
-    settingsroute,
     teams,
     tool_servers,
     tools,
     validation,
-    ws,
 )
 
 # Initialize application
@@ -128,27 +125,6 @@ api.include_router(
     tools.router,
     prefix="/tools",
     tags=["tools"],
-    responses={404: {"description": "Not found"}},
-)
-
-api.include_router(
-    settingsroute.router,
-    prefix="/settings",
-    tags=["settings"],
-    responses={404: {"description": "Not found"}},
-)
-
-api.include_router(
-    gallery.router,
-    prefix="/gallery",
-    tags=["gallery"],
-    responses={404: {"description": "Not found"}},
-)
-# Include authentication routes
-api.include_router(
-    authroutes.router,
-    prefix="/auth",
-    tags=["auth"],
     responses={404: {"description": "Not found"}},
 )
 

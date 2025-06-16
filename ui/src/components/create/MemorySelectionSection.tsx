@@ -37,15 +37,15 @@ export function MemorySelectionSection({
   error,
 }: MemorySelectionSectionProps) {
   const [open, setOpen] = React.useState(false);
-  const handleSelect = (memoryName: string) => {
-    const newSelection = selectedMemories.includes(memoryName)
-      ? selectedMemories.filter((name) => name !== memoryName)
-      : [...selectedMemories, memoryName];
+  const handleSelect = (memoryRef: string) => {
+    const newSelection = selectedMemories.includes(memoryRef)
+      ? selectedMemories.filter((ref) => ref !== memoryRef)
+      : [...selectedMemories, memoryRef];
     onSelectionChange(newSelection);
   };
 
-  const handleRemove = (memoryName: string) => {
-    const newSelection = selectedMemories.filter((name) => name !== memoryName);
+  const handleRemove = (memoryRef: string) => {
+    const newSelection = selectedMemories.filter((ref) => ref !== memoryRef);
     onSelectionChange(newSelection);
   };
 
@@ -67,18 +67,18 @@ export function MemorySelectionSection({
               {selectedMemories.length === 0 && (
                 <span className="text-muted-foreground">Select memories...</span>
               )}
-              {selectedMemories.map((name) => (
+              {selectedMemories.map((ref) => (
                 <Badge
-                  key={name}
+                  key={ref}
                   variant="secondary"
                   className="flex items-center gap-1 whitespace-nowrap"
                 >
-                  {name}
+                  {ref}
                   <X
                     className="h-3 w-3 cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleRemove(name);
+                      handleRemove(ref);
                     }}
                   />
                 </Badge>
@@ -95,22 +95,22 @@ export function MemorySelectionSection({
               <CommandGroup>
                 {availableMemories.map((memory) => (
                   <CommandItem
-                    key={memory.name}
-                    value={memory.name}
+                    key={memory.ref}
+                    value={memory.ref}
                     onSelect={() => {
-                       handleSelect(memory.name);
+                       handleSelect(memory.ref);
                     }}
                     disabled={disabled}
                   >
                     <Check
                       className={cn(
                         "mr-2 h-4 w-4",
-                        selectedMemories.includes(memory.name)
+                        selectedMemories.includes(memory.ref)
                           ? "opacity-100"
                           : "opacity-0"
                       )}
                     />
-                     {memory.name}
+                     {memory.ref}
                   </CommandItem>
                 ))}
               </CommandGroup>

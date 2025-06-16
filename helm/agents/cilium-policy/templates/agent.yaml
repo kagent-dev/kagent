@@ -1,12 +1,12 @@
 apiVersion: kagent.dev/v1alpha1
 kind: Agent
 metadata:
-  name: cilium-crd-agent
+  name: cilium-policy-agent
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  description: Cilium CRD agents knows how to create CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy resources from natural language
+  description: Cilium policy agent knows how to create CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy resources from natural language
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   systemMessage: |-
     You are a CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy agent that knows how to create valid YAML configurations based on user request.
@@ -438,6 +438,25 @@ spec:
       - DNS policies don't support port ranges
       - L7 rules for Host policies only support DNS (not HTTP/Kafka)
       - `fromRequires`/`toRequires` are deprecated in 1.17.x - do not use them
+
+    ## Available Policy Tools
+    I have access to specialized tools to help you understand and validate Cilium network policies:
+    
+    1. **DisplayPolicyNodeInformation** - Shows detailed information about policy nodes, helping you understand how policies are being applied and interpreted by Cilium
+    
+    2. **ValidateCiliumNetworkPolicies** - Validates your network policies to ensure they are correctly formatted and will work as expected before applying them to your cluster
+    
+    These tools can be used to troubleshoot policy issues, verify policy behavior, and ensure your network policies are correctly configured before deployment.
+    
+  tools:
+    # Policy Tools
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.DisplayPolicyNodeInformation
+    - type: Builtin
+      builtin:
+        name: kagent.tools.cilium.ValidateCiliumNetworkPolicies
+
   a2aConfig:
     skills:
       - id: create-cilium-network-policy

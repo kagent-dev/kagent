@@ -126,11 +126,19 @@ class TeamManager:
                 if isinstance(message, TaskResult):
                     yield TeamResult(task_result=message, usage="", duration=time.time() - start_time)
                 else:
+                    if hasattr(message, "metadata"):
+                        timestamp = time.time()
+                        message.metadata["duration"] = str(timestamp - start_time)
+                        message.metadata["created_at"] = str(timestamp)
                     yield message
 
                 # Check for any LLM events
                 while not llm_event_logger.events.empty():
                     event = await llm_event_logger.events.get()
+                    if hasattr(event, "metadata"):
+                        timestamp = time.time()
+                        event.metadata["duration"] = str(timestamp - start_time)
+                        event.metadata["created_at"] = str(timestamp)
                     yield event
         finally:
             # Cleanup - remove our handler

@@ -55,6 +55,8 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 	// If session is set invoke within a session.
 	if cfg.Session != "" {
 		session, err := client.GetSession(cfg.Session, cfg.Config.UserID)
+		var team *autogen_client.Team
+
 		if err != nil {
 			if errors.Is(err, autogen_client.NotFoundError) {
 				if cfg.Agent == "" {
@@ -62,15 +64,10 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 					return
 				}
 				// If the session is not found, create it
-				team, err := client.GetTeam(cfg.Agent, cfg.Config.UserID)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error getting team: %v\n", err)
-					return
-				}
+
 				session, err = client.CreateSession(&autogen_client.CreateSession{
 					Name:   cfg.Session,
 					UserID: cfg.Config.UserID,
-					TeamID: team.Id,
 				})
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error creating session: %v\n", err)
@@ -82,16 +79,28 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 			}
 		}
 
+		team, err = client.GetTeam(cfg.Agent, cfg.Config.UserID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting team: %v\n", err)
+			return
+		}
+
 		if cfg.Stream {
 			usage := &autogen_client.ModelsUsage{}
-			ch, err := client.InvokeSessionStream(session.ID, cfg.Config.UserID, task)
+			ch, err := client.InvokeSessionStream(session.ID, cfg.Config.UserID, &autogen_client.InvokeRequest{
+				Task:       task,
+				TeamConfig: team.Component,
+			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
 				return
 			}
 			StreamEvents(ch, usage, cfg.Config.Verbose)
 		} else {
-			result, err := client.InvokeSession(session.ID, cfg.Config.UserID, task)
+			result, err := client.InvokeSession(session.ID, cfg.Config.UserID, &autogen_client.InvokeRequest{
+				Task:       task,
+				TeamConfig: team.Component,
+			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
 				return

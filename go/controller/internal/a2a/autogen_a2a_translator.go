@@ -69,18 +69,23 @@ func (a *autogenA2ATranslator) translateCardForAgent(
 	if a2AConfig == nil {
 		return nil, nil
 	}
+
+	agentRef := common.GetObjectRef(agent)
+
 	skills := a2AConfig.Skills
 	if len(skills) == 0 {
-		return nil, fmt.Errorf("no skills found for agent %s", agent.Name)
+		return nil, fmt.Errorf("no skills found for agent %s", agentRef)
 	}
+
 	var convertedSkills []server.AgentSkill
 	for _, skill := range skills {
 		convertedSkills = append(convertedSkills, server.AgentSkill(skill))
 	}
+
 	return &server.AgentCard{
-		Name:        agent.Name,
+		Name:        agentRef,
 		Description: common.MakePtr(agent.Spec.Description),
-		URL:         fmt.Sprintf("%s/%s", a.a2aBaseUrl, agent.Namespace+"/"+agent.Name),
+		URL:         fmt.Sprintf("%s/%s", a.a2aBaseUrl, agentRef),
 		//Provider:           nil,
 		Version: fmt.Sprintf("%v", agent.Generation),
 		//DocumentationURL:   nil,
@@ -104,7 +109,6 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 					session, err = a.autogenClient.CreateSession(&autogen_client.CreateSession{
 						Name:   *sessionID,
 						UserID: common.GetGlobalUserID(),
-						TeamID: autogenTeam.Id,
 					})
 					if err != nil {
 						return "", fmt.Errorf("failed to create session: %w", err)
@@ -113,7 +117,10 @@ func (a *autogenA2ATranslator) makeHandlerForTeam(
 					return "", fmt.Errorf("failed to get session: %w", err)
 				}
 			}
-			resp, err := a.autogenClient.InvokeSession(session.ID, common.GetGlobalUserID(), task)
+			resp, err := a.autogenClient.InvokeSession(session.ID, common.GetGlobalUserID(), &autogen_client.InvokeRequest{
+				Task:       task,
+				TeamConfig: autogenTeam.Component,
+			})
 			if err != nil {
 				return "", fmt.Errorf("failed to invoke task: %w", err)
 			}
