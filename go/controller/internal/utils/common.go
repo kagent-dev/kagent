@@ -86,6 +86,7 @@ func validateDNS1123Subdomain(value, fieldName string) error {
 }
 
 type EmptyReferenceError struct{}
+
 func (e *EmptyReferenceError) Error() string {
 	return "empty reference string"
 }

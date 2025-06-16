@@ -151,7 +151,6 @@ func init() {
 	SchemeBuilder.Register(&Agent{}, &AgentList{})
 }
 
-
 func (a *Agent) GetModelConfigName() string {
 	return a.Spec.ModelConfig
 }

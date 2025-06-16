@@ -93,7 +93,7 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 		memoryRefs := make([]string, 0, len(team.Spec.Memory))
 		for _, memory := range team.Spec.Memory {
 			memoryRef, err := common.ParseRefString(memory, team.Namespace)
-			if err != nil  {
+			if err != nil {
 				log.Error(err, "Failed to parse memory reference", "memoryRef", memory)
 				continue
 			}
@@ -172,7 +172,7 @@ func (h *TeamsHandler) HandleUpdateTeam(w ErrorResponseWriter, r *http.Request) 
 			"namespace", teamRequest.Namespace)
 	}
 	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
-    if err != nil {
+	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid Agent metadata", err))
 	}
 
@@ -231,7 +231,7 @@ func (h *TeamsHandler) HandleCreateTeam(w ErrorResponseWriter, r *http.Request) 
 			"namespace", teamRequest.Namespace)
 	}
 	teamRef, err := common.ParseRefString(teamRequest.Name, teamRequest.Namespace)
-    if err != nil {
+	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid agent metadata", err))
 	}
 
@@ -366,7 +366,7 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 	memoryRefs := make([]string, 0, len(team.Spec.Memory))
 	for _, memory := range team.Spec.Memory {
 		memoryRef, err := common.ParseRefString(memory, team.Namespace)
-		if err != nil  {
+		if err != nil {
 			log.Error(err, "Failed to parse memory reference", "memoryRef", memory)
 			continue
 		}

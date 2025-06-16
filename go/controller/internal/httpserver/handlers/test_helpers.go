@@ -14,16 +14,16 @@ import (
 
 func setupScheme() *runtime.Scheme {
 	s := scheme.Scheme
-	
+
 	s.AddKnownTypes(schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha1"},
 		&v1alpha1.Agent{},
 		&v1alpha1.AgentList{},
 		&v1alpha1.ModelConfig{},
 		&v1alpha1.ModelConfigList{},
 	)
-	
+
 	metav1.AddToGroupVersion(s, schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha1"})
-	
+
 	return s
 }
 

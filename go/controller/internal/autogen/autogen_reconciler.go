@@ -587,7 +587,7 @@ func (a *autogenReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.R
 	var agents []*v1alpha1.Agent
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
-		agentNamespaced, err := common.ParseRefString(agent.Spec.ModelConfig, agent.Namespace);
+		agentNamespaced, err := common.ParseRefString(agent.Spec.ModelConfig, agent.Namespace)
 
 		if err != nil {
 			reconcileLog.Error(err, "failed to parse Agent ModelConfig",
@@ -668,7 +668,7 @@ func (a *autogenReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
 		for _, memory := range agent.Spec.Memory {
-			memoryNamespaced, err := common.ParseRefString(memory, agent.Namespace);
+			memoryNamespaced, err := common.ParseRefString(memory, agent.Namespace)
 
 			if err != nil {
 				reconcileLog.Error(err, "failed to parse Agent Memory",
@@ -700,7 +700,7 @@ func (a *autogenReconciler) findTeamsUsingAgent(ctx context.Context, req ctrl.Re
 	for i := range teamsList.Items {
 		team := &teamsList.Items[i]
 		for _, participant := range team.Spec.Participants {
-			participantNamespaced, err := common.ParseRefString(participant, team.Namespace);
+			participantNamespaced, err := common.ParseRefString(participant, team.Namespace)
 
 			if err != nil {
 				reconcileLog.Error(err, "failed to parse Team participant",
@@ -768,7 +768,7 @@ func (a *autogenReconciler) findTeamsUsingApiKeySecret(ctx context.Context, req 
 					"model", model.Name,
 					"namespace", model.Namespace,
 				)
-            default:
+			default:
 				reconcileLog.Error(err, "failed to parse ModelConfig APIKeySecretRef",
 					"errorDetails", e.Error(),
 					"model", model.Name,
