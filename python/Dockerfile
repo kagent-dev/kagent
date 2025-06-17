@@ -47,8 +47,6 @@ ARG TOOLS_ARGO_CD_VERSION
 
 WORKDIR /app/python/downloads
 
-RUN mkdir -p /app/python/downloads /app/python/bin/
-
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$TARGETARCH/kubectl" \
     && chmod +x kubectl
 
