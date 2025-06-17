@@ -24,9 +24,13 @@ RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
 RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-DOCKER_BUILDER ?= docker
-DOCKER_BUILD_ARGS ?= --progress=plain
+
+DOCKER_BUILDER ?= docker buildx
+DOCKER_BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --pull --load
 KIND_CLUSTER_NAME ?= kagent
+
+BUILDX_NO_DEFAULT_ATTESTATIONS=1
+BUILDX_BUILDER_NAME=kagent-builder
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -80,6 +84,11 @@ check-openai-key:
 		echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
 		exit 1; \
 	fi
+
+.PHONY: buildx-create
+buildx-create:
+	docker buildx inspect $(BUILDX_BUILDER_NAME) || \
+	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use || true
 
 .PHONY: build-all  # build all all using buildx
 build-all: BUILDER_NAME ?= kagent-builder
@@ -151,7 +160,7 @@ controller-manifests:
 	cp go/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
-build-controller: controller-manifests
+build-controller: buildx-create controller-manifests
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: release-controller
@@ -160,7 +169,7 @@ release-controller: DOCKER_BUILDER = docker buildx
 release-controller: build-controller
 
 .PHONY: build-ui
-build-ui:
+build-ui: buildx-create
 	# Build the combined UI and backend image
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 
@@ -170,7 +179,7 @@ release-ui: DOCKER_BUILDER = docker buildx
 release-ui: build-ui
 
 .PHONY: build-app
-build-app:
+build-app: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
 
 .PHONY: release-app
