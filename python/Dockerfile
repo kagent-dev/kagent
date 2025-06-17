@@ -4,7 +4,7 @@ FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-RUN export apk update && apk add  \
+RUN apk update && apk add  \
     curl openssl unzip bash git ca-certificates uv nodejs-22 npm \
     && rm -rf /var/cache/apk/*
 
