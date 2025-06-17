@@ -44,6 +44,7 @@ dependencies = [
   "websockets>=11.0",
   "google-genai>=1.18.0",
   "google-auth>=2.40.2",
+  "h11>=0.16.0",
 ]
 
 [project.optional-dependencies]
