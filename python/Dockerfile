@@ -20,16 +20,11 @@ ENV UV_LINK_MODE=copy
 ENV UV_CACHE_DIR=/app/python/.cache/uv
 ENV UV_PROJECT_ENVIRONMENT="/app/python/.venv"
 
-ENV BUN_INSTALL=/usr/local/bun
-ENV BUN_INSTALL_CACHE_DIR=/app/python/.cache/bun
-ENV PATH=$BUN_INSTALL/bin:/app/python/bin/:$PATH
-
 RUN addgroup -g 1001 pythongroup                       && \
     adduser  -u 1001 -G pythongroup -s /bin/bash -D python -h /app/python/  && \
     mkdir    -p /app/python/bin                        && \
     mkdir    -p /app/python/downloads                  && \
     mkdir    -p /app/python/.cache/uv                  && \
-    mkdir    -p /app/python/.cache/bun                 && \
     mkdir    -p /app/python/.autogenstudio/configs     && \
     chown    -vR 1001:1001 /app
 
