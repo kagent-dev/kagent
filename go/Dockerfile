@@ -34,8 +34,11 @@ FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
+ARG VERSION
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
-LABEL org.opencontainers.image.description="Kagent controller is the controller for the Kagent app."
+LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
+LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
+LABEL org.opencontainers.image.version="$VERSION"
 
 ENTRYPOINT ["/manager"]
