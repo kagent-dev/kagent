@@ -28,6 +28,7 @@ const (
 	APIPathProviders   = "/api/providers"
 	APIPathModels      = "/api/models"
 	APIPathMemories    = "/api/memories"
+	APIPathNamespaces  = "/api/namespaces"
 	APIPathA2A         = "/api/a2a"
 	APIPathFeedback    = "/api/feedback"
 )
@@ -165,6 +166,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
+
+	// Namespaces
+	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
 
 	// Feedback
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)

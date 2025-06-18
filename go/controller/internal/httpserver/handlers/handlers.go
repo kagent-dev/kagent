@@ -20,6 +20,7 @@ type Handlers struct {
 	Invoke      *InvokeHandler
 	Memory      *MemoryHandler
 	Feedback    *FeedbackHandler
+	Namespaces  *NamespacesHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -49,5 +50,6 @@ func NewHandlers(kubeClient client.Client, autogenClient autogen_client.Client, 
 		Invoke:      NewInvokeHandler(base),
 		Memory:      NewMemoryHandler(base),
 		Feedback:    NewFeedbackHandler(base),
+		Namespaces:  NewNamespacesHandler(base),
 	}
 }
