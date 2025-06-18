@@ -83,6 +83,7 @@ RUN echo "Installing dependencies..."                   \
     && find . | grep playwright | grep node | tee | xargs rm -rf      # remove cve playwtite node from venv
 
 ENV UV_OFFLINE=1
+ENV PATH="/app/python/bin:$PATH"
 
 # Generate configs
 RUN mkdir -p /app/python/.autogenstudio/configs                  \
