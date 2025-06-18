@@ -69,6 +69,8 @@ COPY --from=tools-builder --chown=python:pythongroup /app/python/downloads/istio
 COPY --from=tools-builder --chown=python:pythongroup /app/python/downloads/helm                  /app/python/bin/helm
 COPY --from=tools-builder --chown=python:pythongroup /app/python/downloads/kubectl-argo-rollouts /app/python/bin/kubectl-argo-rollouts
 
+ENV PATH=$PATH:/app/python/bin
+
 COPY --chown=python:pythongroup pyproject.toml  .
 COPY --chown=python:pythongroup .python-version .
 COPY --chown=python:pythongroup uv.lock .
