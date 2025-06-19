@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ import (
 
 func TestToolServersHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
-	
+
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
@@ -96,12 +97,14 @@ func TestToolServersHandler(t *testing.T) {
 					Description: "Test tool server 2",
 					Config: v1alpha1.ToolServerConfig{
 						Sse: &v1alpha1.SseMcpServerConfig{
-							URL: "https://example.com/sse",
-							Headers: map[string]v1alpha1.AnyType{
-								"Authorization": {RawMessage: []byte(`"Bearer token"`)},
+							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
+								URL: "https://example.com/sse",
+								Headers: map[string]v1alpha1.AnyType{
+									"Authorization": {RawMessage: []byte(`"Bearer token"`)},
+								},
+								Timeout:        &metav1.Duration{Duration: 30 * time.Second},
+								SseReadTimeout: &metav1.Duration{Duration: 60 * time.Second},
 							},
-							Timeout:        "30s",
-							SseReadTimeout: "60s",
 						},
 					},
 				},
@@ -206,22 +209,24 @@ func TestToolServersHandler(t *testing.T) {
 					Description: "Test SSE tool server",
 					Config: v1alpha1.ToolServerConfig{
 						Sse: &v1alpha1.SseMcpServerConfig{
-							URL: "https://example.com/sse",
-							Headers: map[string]v1alpha1.AnyType{
-								"Authorization": {RawMessage: []byte(`"Bearer token"`)},
-							},
-							HeadersFrom: []v1alpha1.ValueRef{
-								{
-									Name: "X-API-Key",
-									ValueFrom: &v1alpha1.ValueSource{
-										Type:     v1alpha1.SecretValueSource,
-										ValueRef: "api-secret",
-										Key:      "api-key",
+							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
+								URL: "https://example.com/sse",
+								Headers: map[string]v1alpha1.AnyType{
+									"Authorization": {RawMessage: []byte(`"Bearer token"`)},
+								},
+								HeadersFrom: []v1alpha1.ValueRef{
+									{
+										Name: "X-API-Key",
+										ValueFrom: &v1alpha1.ValueSource{
+											Type:     v1alpha1.SecretValueSource,
+											ValueRef: "api-secret",
+											Key:      "api-key",
+										},
 									},
 								},
+								Timeout:        &metav1.Duration{Duration: 30 * time.Second},
+								SseReadTimeout: &metav1.Duration{Duration: 60 * time.Second},
 							},
-							Timeout:        "30s",
-							SseReadTimeout: "60s",
 						},
 					},
 				},

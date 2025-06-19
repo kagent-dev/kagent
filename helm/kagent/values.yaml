@@ -95,7 +95,7 @@ service:
   ports:
     ui:
       port: 80
-      targetPort: 80
+      targetPort: 8080
     app:
       port: 8081
       targetPort: 8081

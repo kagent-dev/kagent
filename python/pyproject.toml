@@ -36,7 +36,7 @@ dependencies = [
   "sqlmodel>=0.0.24",
   "alembic>=1.11.0",
   "fastapi>=0.103.1",
-  "playwright>=1.48.0",
+  "playwright>=1.52.0",
   "html2text>=2025.4.15",
   "bs4>=0.0.2",
   "magika>=0.6.2",
@@ -44,6 +44,7 @@ dependencies = [
   "websockets>=11.0",
   "google-genai>=1.18.0",
   "google-auth>=2.40.2",
+  "h11>=0.16.0",
 ]
 
 [project.optional-dependencies]
