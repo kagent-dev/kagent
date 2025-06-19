@@ -608,7 +608,7 @@ func (a *apiTranslator) translateAssistantAgent(
 				ComponentType: "tool",
 				Version:       1,
 				Config: api.MustToConfig(&api.TeamToolConfig{
-					Name:        toolAgentRef,
+					Name:        common.ConvertToPythonIdentifier(toolAgentRef),
 					Description: toolAgent.Spec.Description,
 					Team:        autogenTool.Component,
 				}),
