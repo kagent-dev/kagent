@@ -99,11 +99,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: build/tool-server
 build/tool-server:
 	go mod tidy -v
-	go build -ldflags "$(LDFLAGS)" -o bin/tools-local ./tools/cmd/tool-server
+	go build -ldflags "$(LDFLAGS)" -o bin/tool-server-local ./tools/cmd/tool-server
 
 .PHONY: run/tool-server
 run/tool-server: build/tool-server ## Run the tool server from your host.
-	go run ./tools/cmd/tool-server/main.go
+	./bin/tool-server-local
 
 ifndef ignore-not-found
   ignore-not-found = false

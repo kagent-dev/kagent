@@ -29,7 +29,7 @@ spec:
       containers:
         - name: tool-server
           command:
-            - tool-server
+            - /tool-server
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.global.tag .Values.controller.image.tag .Chart.Version }}"
@@ -42,12 +42,11 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
-          {{- with .Values.controller.env }}
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            - name: KAGENT_TOOLS_PORT
+              value: ":{{ .Values.service.ports.tools.targetPort }}"
           ports:
-            - name: http
-              containerPort: {{ .Values.service.ports.controller.targetPort }}
+            - name: mcp
+              containerPort: {{ .Values.service.ports.tools.targetPort }}
               protocol: TCP
         - name: controller
           args:

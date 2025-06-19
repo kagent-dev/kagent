@@ -29,7 +29,7 @@ var e error
 func main() {
 	port := os.Getenv("KAGENT_TOOLS_PORT")
 	if port == "" {
-		port = ":8080" // Default port if not set
+		port = ":8084" // Default port if not set
 	}
 
 	// Create MCP server
