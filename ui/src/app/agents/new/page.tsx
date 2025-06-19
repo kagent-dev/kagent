@@ -278,7 +278,6 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                       validateField('namespace', value);
                     }}
                     disabled={isSubmitting || isLoading || isEditMode}
-                    placeholder="Select namespace..."
                   />
                 </div>
 

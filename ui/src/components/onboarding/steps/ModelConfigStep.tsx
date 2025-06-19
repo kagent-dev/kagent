@@ -449,7 +449,6 @@ export function ModelConfigStep({
                                             <NamespaceCombobox
                                                 value={field.value || ""}
                                                 onValueChange={field.onChange}
-                                                placeholder="Select namespace..."
                                             />
                                         </FormControl>
                                         <FormDescription>A kubernetes namespace for your ModelConfig</FormDescription>

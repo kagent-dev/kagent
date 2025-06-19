@@ -92,7 +92,6 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
               value={namespace}
               onValueChange={onNamespaceChange}
               disabled={isSubmitting || isLoading || isEditMode}
-              placeholder="Select namespace..."
             />
           </div>
         </div>

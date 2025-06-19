@@ -85,7 +85,6 @@ export function AgentSetupStep({ initialData, onNext, onBack }: AgentSetupStepPr
                                     <NamespaceCombobox
                                         value={field.value || ""}
                                         onValueChange={field.onChange}
-                                        placeholder="Select namespace..."
                                     />
                                 </FormControl>
                                 <FormDescription>A kubernetes namespace for your agent.</FormDescription>

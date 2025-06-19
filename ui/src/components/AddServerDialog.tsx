@@ -491,7 +491,6 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
               <NamespaceCombobox
                 value={serverNamespace}
                 onValueChange={setServerNamespace}
-                placeholder="Select namespace..."
               />
             </div>
 

@@ -303,7 +303,6 @@ export default function NewMemoryPage() {
                         value={field.value || ""}
                         onValueChange={field.onChange}
                         disabled={editMode}
-                        placeholder="Select namespace..."
                       />
                     </FormControl>
                     <FormDescription>
