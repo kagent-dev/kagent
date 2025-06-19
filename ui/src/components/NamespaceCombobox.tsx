@@ -24,6 +24,8 @@ interface NamespaceComboboxProps {
   onValueChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  // callback to handle errors in case the parent component wants to handle an error
+  onError?: (error: string | null) => void;
 }
 
 export function NamespaceCombobox({
@@ -31,6 +33,7 @@ export function NamespaceCombobox({
   onValueChange,
   placeholder = "Select namespace...",
   disabled = false,
+  onError,
 }: NamespaceComboboxProps) {
   const [open, setOpen] = useState(false);
   const [namespaces, setNamespaces] = useState<NamespaceResponse[]>([]);
@@ -45,12 +48,18 @@ export function NamespaceCombobox({
       
       if (response.success) {
         setNamespaces(response.data || []);
+        setError(null);
+        onError?.(null);
       } else {
-        setError(response.error || 'Failed to load namespaces');
+        const errorMsg = response.error || 'Failed to load namespaces';
+        setError(errorMsg);
+        onError?.(errorMsg);
       }
     } catch (err) {
       console.error('Failed to load namespaces:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load namespaces');
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load namespaces';
+      setError(errorMsg);
+      onError?.(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -69,7 +78,10 @@ export function NamespaceCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full justify-between"
+          className={cn(
+            "w-full justify-between",
+            error && "border-red-500 focus:border-red-500 focus:ring-red-500",
+          )}
           disabled={disabled || loading}
         >
           {loading ? (
