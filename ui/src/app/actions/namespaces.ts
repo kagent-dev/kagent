@@ -6,7 +6,6 @@ import { BaseResponse } from '@/lib/types';
 // TODO(infocus7): move to datamodel or another type file
 export interface NamespaceResponse {
   name: string;
-  labels?: Record<string, string>;
   status: string;
 }
 

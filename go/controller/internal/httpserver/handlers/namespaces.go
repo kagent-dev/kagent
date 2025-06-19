@@ -10,9 +10,8 @@ import (
 )
 
 type NamespaceResponse struct {
-	Name   string            `json:"name"`
-	Labels map[string]string `json:"labels,omitempty"`
-	Status string            `json:"status"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 // NamespacesHandler handles namespace-related requests
@@ -49,7 +48,6 @@ func (h *NamespacesHandler) HandleListNamespaces(w ErrorResponseWriter, r *http.
 		for _, ns := range namespaceList.Items {
 			namespaces = append(namespaces, NamespaceResponse{
 				Name:   ns.Name,
-				Labels: ns.Labels,
 				Status: string(ns.Status.Phase),
 			})
 		}
@@ -67,16 +65,14 @@ func (h *NamespacesHandler) HandleListNamespaces(w ErrorResponseWriter, r *http.
 		if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Name: watchedNS}, namespace); err != nil {
 			if client.IgnoreNotFound(err) != nil {
 				log.Error(err, "Failed to get namespace", "namespace", watchedNS)
-				continue // Skip this namespace but continue with others
+				continue // Skip this namespace
 			}
-			// Namespace not found, skip it
 			log.Info("Watched namespace not found", "namespace", watchedNS)
 			continue
 		}
 
 		namespaces = append(namespaces, NamespaceResponse{
 			Name:   namespace.Name,
-			Labels: namespace.Labels,
 			Status: string(namespace.Status.Phase),
 		})
 	}
