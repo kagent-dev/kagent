@@ -40,10 +40,11 @@ var defaultModelConfig = types.NamespacedName{
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	BindAddr      string
-	AutogenClient autogen_client.Client
-	KubeClient    client.Client
-	A2AHandler    a2a.A2AHandlerMux
+	BindAddr          string
+	AutogenClient     autogen_client.Client
+	KubeClient        client.Client
+	A2AHandler        a2a.A2AHandlerMux
+	WatchedNamespaces []string
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -59,7 +60,7 @@ func NewHTTPServer(config ServerConfig) *HTTPServer {
 	return &HTTPServer{
 		config:   config,
 		router:   mux.NewRouter(),
-		handlers: handlers.NewHandlers(config.KubeClient, config.AutogenClient, defaultModelConfig),
+		handlers: handlers.NewHandlers(config.KubeClient, config.AutogenClient, defaultModelConfig, config.WatchedNamespaces),
 	}
 }
 

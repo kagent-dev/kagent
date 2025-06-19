@@ -215,6 +215,9 @@ func main() {
 		})
 	}
 
+	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
+	watchNamespacesList := filterValidNamespaces(strings.Split(watchNamespaces, ","))
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -223,7 +226,7 @@ func main() {
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
 		Cache: cache.Options{
-			DefaultNamespaces: configureNamespaceWatching(watchNamespaces),
+			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
 		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
@@ -354,10 +357,11 @@ func main() {
 	}
 
 	httpServer := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		BindAddr:      httpServerAddr,
-		AutogenClient: autogenClient,
-		KubeClient:    kubeClient,
-		A2AHandler:    a2aHandler,
+		BindAddr:          httpServerAddr,
+		AutogenClient:     autogenClient,
+		KubeClient:        kubeClient,
+		A2AHandler:        a2aHandler,
+		WatchedNamespaces: watchNamespacesList,
 	})
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")
@@ -406,8 +410,7 @@ func waitForReady(f func() error, timeout, interval time.Duration) error {
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces
 // based on the provided configuration. It returns the list of namespaces being watched,
 // or nil if watching all namespaces.
-func configureNamespaceWatching(watchNamespaces string) map[string]cache.Config {
-	watchNamespacesList := filterValidNamespaces(strings.Split(watchNamespaces, ","))
+func configureNamespaceWatching(watchNamespacesList []string) map[string]cache.Config {
 	if len(watchNamespacesList) == 0 {
 		setupLog.Info("Watching all namespaces (no valid namespaces specified)")
 		return map[string]cache.Config{"": {}}
