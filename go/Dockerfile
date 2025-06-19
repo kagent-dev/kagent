@@ -16,6 +16,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
      go mod download
 
 # Copy the go source
+COPY tools tools
 COPY autogen autogen
 COPY controller controller
 
@@ -27,6 +28,14 @@ COPY controller controller
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw         \
     --mount=type=cache,target=/root/.cache/go-build,rw    \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager controller/cmd/main.go
+
+RUN --mount=type=cache,target=/root/go/pkg/mod,rw         \
+    --mount=type=cache,target=/root/.cache/go-build,rw    \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o tool-server tools/cmd/tool-server
+
+RUN --mount=type=cache,target=/root/go/pkg/mod,rw         \
+    --mount=type=cache,target=/root/.cache/go-build,rw    \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o tool-client tools/cmd/tool-client
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details

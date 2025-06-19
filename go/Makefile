@@ -96,8 +96,14 @@ build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-da
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./controller/cmd/main.go
 
+.PHONY: build/tool-server
+build/tool-server:
+	go mod tidy -v
+	go build -ldflags "$(LDFLAGS)" -o bin/tools-local ./tools/cmd/tool-server
 
-##@ Deployment
+.PHONY: run/tool-server
+run/tool-server: build/tool-server ## Run the tool server from your host.
+	go run ./tools/cmd/tool-server/main.go
 
 ifndef ignore-not-found
   ignore-not-found = false
