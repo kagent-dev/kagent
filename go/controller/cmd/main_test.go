@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -88,7 +89,13 @@ func TestConfigureNamespaceWatching(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := configureNamespaceWatching(tt.watchNamespace)
+			watchNamespaces := strings.Split(strings.TrimSpace(tt.watchNamespace), ",")
+			if tt.watchNamespace == "" {
+				watchNamespaces = []string{}
+			}
+			filteredNamespaces := filterValidNamespaces(watchNamespaces)
+
+			result := configureNamespaceWatching(filteredNamespaces)
 
 			// For the "watch all" case
 			if tt.expectedWatchAll {

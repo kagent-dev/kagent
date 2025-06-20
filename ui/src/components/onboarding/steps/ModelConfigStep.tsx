@@ -24,6 +24,7 @@ import { PROVIDERS_INFO, isValidProviderInfoKey } from '@/lib/providers';
 import { OLLAMA_DEFAULT_TAG, OLLAMA_DEFAULT_HOST } from '@/lib/constants';
 import { k8sRefUtils } from '@/lib/k8sUtils';
 import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
 const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
 const modelConfigSchema = z.object({
@@ -445,13 +446,9 @@ export function ModelConfigStep({
                                     <FormItem>
                                         <FormLabel>Configuration Namespace</FormLabel>
                                         <FormControl>
-                                            <Input
-                                                placeholder="e.g. default"
-                                                {...field}
-                                                onChange={e => {
-                                                    field.onChange(e);
-                                                    if (e.target.value !== lastAutoGenName) {}
-                                                }}
+                                            <NamespaceCombobox
+                                                value={field.value || ""}
+                                                onValueChange={field.onChange}
                                             />
                                         </FormControl>
                                         <FormDescription>A kubernetes namespace for your ModelConfig</FormDescription>

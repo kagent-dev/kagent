@@ -38,6 +38,7 @@ import { getSupportedMemoryProviders } from '@/app/actions/providers'
 import { createMemory, getMemory, updateMemory } from '@/app/actions/memories'
 import { Provider, CreateMemoryRequest, PineconeConfigPayload } from '@/lib/types'
 import { k8sRefUtils } from '@/lib/k8sUtils'
+import { NamespaceCombobox } from '@/components/NamespaceCombobox'
 
 // Base schema
 const baseFormSchema = z.object({
@@ -298,7 +299,11 @@ export default function NewMemoryPage() {
                   <FormItem>
                     <FormLabel>Namespace</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. default" {...field} disabled={editMode} />
+                      <NamespaceCombobox
+                        value={field.value || ""}
+                        onValueChange={field.onChange}
+                        disabled={editMode}
+                      />
                     </FormControl>
                     <FormDescription>
                       {editMode 

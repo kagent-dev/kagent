@@ -24,7 +24,7 @@ import (
 
 func TestMemoryHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
-	
+
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
