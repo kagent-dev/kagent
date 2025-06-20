@@ -151,6 +151,13 @@ export interface SseMcpServerConfig {
   sseReadTimeout?: string;
 }
 
+export interface StreamableHttpMcpServerConfig {
+  url: string;
+  headers?: Record<string, any>;
+  timeout?: string;
+  sseReadTimeout?: string;
+}
+
 export interface BuiltInToolConfig {
   [key: string]: any;
 }
@@ -286,7 +293,7 @@ export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig;
 
 export type ToolConfig = FunctionToolConfig | MCPToolConfig | BuiltInToolConfig;
 
-export type ToolServerConfig = StdioMcpServerConfig | SseMcpServerConfig;
+export type ToolServerConfig = StdioMcpServerConfig | SseMcpServerConfig | StreamableHttpMcpServerConfig;
 
 export type ChatCompletionContextConfig = UnboundedChatCompletionContextConfig;
 
@@ -429,6 +436,7 @@ export interface ToolServerSpec {
 export interface ToolServerConfiguration {
   stdio?: StdioMcpServerConfig;
   sse?: SseMcpServerConfig;
+  streamableHttp?: StreamableHttpMcpServerConfig;
 }
 
 export interface ToolComponent {
