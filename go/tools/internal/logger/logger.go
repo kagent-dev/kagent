@@ -51,7 +51,7 @@ func Get() *zap.Logger {
 // LogExecCommand logs information about an exec command being executed
 func LogExecCommand(command string, args []string, caller string) {
 	logger := Get()
-	logger.Info("executing command",
+	logger.Info("!!",
 		zap.String("command", command),
 		zap.Strings("args", args),
 		zap.String("caller", caller),
@@ -63,7 +63,7 @@ func LogExecCommandResult(command string, args []string, output string, err erro
 	logger := Get()
 
 	if err != nil {
-		logger.Error("command execution failed",
+		logger.Error("KO",
 			zap.String("command", command),
 			zap.Strings("args", args),
 			zap.String("error", err.Error()),
@@ -71,7 +71,7 @@ func LogExecCommandResult(command string, args []string, output string, err erro
 			zap.String("caller", caller),
 		)
 	} else {
-		logger.Info("command execution successful",
+		logger.Info("OK",
 			zap.String("command", command),
 			zap.Strings("args", args),
 			zap.String("output", output),
