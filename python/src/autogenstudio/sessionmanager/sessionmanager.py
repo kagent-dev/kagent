@@ -141,7 +141,7 @@ class SessionManager:
                 # Prepare task with message history
                 prepared_task = self._prepare_task_with_history(task, previous_messages)
                 # Trace the run
-                attributes = {"run_id": run_id, "user_id": user_id}
+                attributes = {"run_id": run_id, "user_id": user_id, "session_id": run.session_id}
                 result: TeamResult = await team_manager.run(prepared_task, team_config, attributes=attributes)
 
                 # Remove n messages from result, where n is len(previous_messages)
@@ -195,7 +195,7 @@ class SessionManager:
                 # ignore first  n messages from result, where n is len(previous_messages)
                 num_previous_messages = len(previous_messages)
                 # Trace the run_stream
-                attributes = {"run_id": run_id, "user_id": user_id}
+                attributes = {"run_id": run_id, "user_id": user_id, "session_id": run.session_id}
                 async for message in team_manager.run_stream(
                     task=prepared_task,
                     team_config=team_config,
