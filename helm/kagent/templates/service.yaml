@@ -20,5 +20,9 @@ spec:
       targetPort: {{ .Values.service.ports.controller.targetPort }}
       protocol: TCP
       name: controller
+    - port: {{ .Values.service.ports.tools.port }}
+      targetPort: {{ .Values.service.ports.tools.targetPort }}
+      protocol: TCP
+      name: tools
   selector:
     {{- include "kagent.selectorLabels" . | nindent 4 }}

@@ -1089,7 +1089,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "magika", specifier = ">=0.6.2" },
     { name = "markitdown", extras = ["all"], specifier = ">=0.1.1" },
-    { name = "mcp", specifier = ">=1.2.0" },
+    { name = "mcp", specifier = ">=1.8.1" },
     { name = "nbclient", marker = "extra == 'jupyter-executor'", specifier = ">=0.10.2" },
     { name = "numpy", specifier = ">=2.2.4" },
     { name = "openai", specifier = ">=1.72.0" },

@@ -27,7 +27,8 @@ var (
 		"kagent.tools.k8s.GenerateResourceTool",
 	}
 	toolsProvidersRequiringOpenaiApiKey = []string{
-		"kagent.tools.docs.QueryTool",
+		"query-documentation",
+		"kagent/kagent-querydoc",
 	}
 
 	log = ctrllog.Log.WithName("autogen")
@@ -169,7 +170,7 @@ func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1
 			Command:            config.Stdio.Command,
 			Args:               config.Stdio.Args,
 			Env:                env,
-			ReadTimeoutSeconds: 10,
+			ReadTimeoutSeconds: 30,
 		}, nil
 	case config.Sse != nil:
 		headers, err := convertMapFromAnytype(config.Sse.Headers)
@@ -532,6 +533,7 @@ func (a *apiTranslator) translateAssistantAgent(
 
 	tools := []*api.Component{}
 	for _, tool := range agent.Spec.Tools {
+		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.Builtin != nil:
 			autogenTool, err := a.translateBuiltinTool(
@@ -545,6 +547,10 @@ func (a *apiTranslator) translateAssistantAgent(
 			}
 			tools = append(tools, autogenTool)
 		case tool.McpServer != nil:
+			if toolNeedsOpenaiApiKey(tool.McpServer.ToolServer) && modelConfig.Spec.Provider != v1alpha1.OpenAI {
+				log.V(1).Info("Skipping tool that requires OpenAI API key", "tool", tool.McpServer.ToolServer, "modelProvider", modelConfig.Spec.Provider)
+				continue
+			}
 			for _, toolName := range tool.McpServer.ToolNames {
 				autogenTool, err := translateToolServerTool(
 					ctx,

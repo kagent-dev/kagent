@@ -1,0 +1,13 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: context7-mcp-latest
+  namespace: kagent
+spec:
+  config:
+    stdio:
+      args:
+        - '-y'
+        - '@upstash/context7-mcp@latest'
+      command: npx
+  description: 'context7 MCP with documentation'

@@ -1,0 +1,17 @@
+# Official MCP Server for GitHub Copilot
+# https://github.com/github/github-mcp-server
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: api.githubcopilot.com
+  namespace: kagent
+spec:
+  config:
+    streamableHttp:
+      headers:
+        Authorization: "Bearer TOKEN"
+      sseReadTimeout: 5m0s
+      timeout: 15s
+      url: https://api.githubcopilot.com/mcp/
+  description: |
+    GitHub Copilot is an AI-powered code completion tools

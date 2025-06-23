@@ -13,3 +13,6 @@ env/
 .coverage
 htmlcov/
 workspace/
+
+#exclude tools from the build
+src/kagent/tools/

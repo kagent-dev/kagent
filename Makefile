@@ -2,6 +2,7 @@
 DOCKER_REGISTRY ?= ghcr.io
 BASE_IMAGE_REGISTRY ?= cgr.dev
 DOCKER_REPO ?= kagent-dev/kagent
+HELM_REPO ?= oci://ghcr.io/kagent-dev
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
@@ -10,20 +11,28 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-di
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
+TOOLS_IMAGE_NAME ?= tools
+DOCS_IMAGE_NAME ?= tools-querydoc
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
+TOOLS_IMAGE_TAG ?= $(VERSION)
+DOCS_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+TOOLS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(TOOLS_IMAGE_NAME):$(TOOLS_IMAGE_TAG)
+DOCS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(DOCS_IMAGE_NAME):$(DOCS_IMAGE_TAG)
 
 # Retagged image variables for kind loading; the Helm chart uses these
 RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
 RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+RETAGGED_TOOLS_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(TOOLS_IMAGE_NAME):$(TOOLS_IMAGE_TAG)
+RETAGGED_DOCS_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(DOCS_IMAGE_NAME):$(DOCS_IMAGE_TAG)
 
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
@@ -48,7 +57,8 @@ TOOLS_KIND_VERSION ?= 0.27.0
 TOOLS_NODE_VERSION ?= 22.16.0
 TOOLS_ISTIO_VERSION ?= 1.26.1
 TOOLS_ARGO_CD_VERSION ?= 3.0.6
-TOOLS_KUBECTL_VERSION ?= 1.33.4
+TOOLS_ARGO_ROLLOUTS_VERSION ?= 1.8.3
+TOOLS_KUBECTL_VERSION ?= 1.33.2
 TOOLS_HELM_VERSION ?= 3.18.3
 TOOLS_PYTHON_VERSION ?= 3.12
 
@@ -62,6 +72,7 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSIO
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ARGO_CD_VERSION=$(TOOLS_ARGO_CD_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ARGO_ROLLOUTS_VERSION=$(TOOLS_ARGO_ROLLOUTS_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KUBECTL_VERSION=$(TOOLS_KUBECTL_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_HELM_VERSION=$(TOOLS_HELM_VERSION)
 
@@ -138,7 +149,7 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: build-controller build-ui build-app
+build: build-controller build-ui build-app build-tools
 
 .PHONY: build-cli
 build-cli:
@@ -167,10 +178,20 @@ controller-manifests:
 build-controller: buildx-create controller-manifests
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
+.PHONY: build-tools
+build-tools: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(TOOLS_IMG) -f go/tools/Dockerfile ./go
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCS_IMG)  -f contrib/memory/doc2vec/Dockerfile contrib/memory/doc2vec
+
 .PHONY: release-controller
 release-controller: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
 release-controller: DOCKER_BUILDER = docker buildx
 release-controller: build-controller
+
+.PHONY: release-tools
+release-tools: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
+release-tools: DOCKER_BUILDER = docker buildx
+release-tools: build-tools
 
 .PHONY: build-ui
 build-ui: buildx-create
@@ -197,16 +218,20 @@ kind-load-docker-images: retag-docker-images
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_TOOLS_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_DOCS_IMG)
 
 .PHONY: retag-docker-images
 retag-docker-images: build
 	docker tag $(CONTROLLER_IMG) $(RETAGGED_CONTROLLER_IMG)
 	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
 	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
+	docker tag $(TOOLS_IMG) $(RETAGGED_TOOLS_IMG)
+	docker tag $(DOCS_IMG) $(RETAGGED_DOCS_IMG)
 
 .PHONY: helm-cleanup
 helm-cleanup:
-	rm -f *.tgz
+	rm -f ./dist/*.tgz
 
 .PHONY: helm-test
 helm-test: helm-version
@@ -219,33 +244,33 @@ helm-test: helm-version
 .PHONY: helm-agents
 helm-agents:
 	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
-	helm package helm/agents/k8s
+	helm package -d dist helm/agents/k8s
 	VERSION=$(VERSION) envsubst < helm/agents/kgateway/Chart-template.yaml > helm/agents/kgateway/Chart.yaml
-	helm package helm/agents/kgateway
+	helm package -d dist helm/agents/kgateway
 	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
-	helm package helm/agents/istio
+	helm package -d dist helm/agents/istio
 	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
-	helm package helm/agents/promql
+	helm package -d dist helm/agents/promql
 	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
-	helm package helm/agents/observability
+	helm package -d dist helm/agents/observability
 	VERSION=$(VERSION) envsubst < helm/agents/helm/Chart-template.yaml > helm/agents/helm/Chart.yaml
-	helm package helm/agents/helm
+	helm package -d dist helm/agents/helm
 	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
-	helm package helm/agents/argo-rollouts
+	helm package -d dist helm/agents/argo-rollouts
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-policy/Chart-template.yaml > helm/agents/cilium-policy/Chart.yaml
-	helm package helm/agents/cilium-policy
+	helm package -d dist helm/agents/cilium-policy
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-debug/Chart-template.yaml > helm/agents/cilium-debug/Chart.yaml
-	helm package helm/agents/cilium-debug
+	helm package -d dist helm/agents/cilium-debug
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
-	helm package helm/agents/cilium-manager
+	helm package -d dist helm/agents/cilium-manager
 
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
-	helm package helm/kagent-crds
-	helm package helm/kagent
+	helm package -d dist helm/kagent-crds
+	helm package -d dist helm/kagent
 
 .PHONY: helm-install-provider
 helm-install-provider: helm-version check-openai-key
@@ -290,20 +315,20 @@ helm-uninstall:
 
 .PHONY: helm-publish
 helm-publish: helm-version
-	helm push kagent-crds-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
-	helm push kagent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
-	helm push helm-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push istio-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push promql-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push observability-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push argo-rollouts-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push cilium-policy-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push cilium-manager-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push cilium-debug-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
-	helm push kgateway-agent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/agents
+	helm push ./dist/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
+	helm push ./dist/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
+	helm push ./dist/helm-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./dist/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./dist/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./dist/observability-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./dist/argo-rollouts-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./dist/cilium-policy-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./dist/cilium-manager-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./dist/cilium-debug-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./dist/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 .PHONY: kagent-cli-install
-kagent-cli-install: build-cli-local kind-load-docker-images helm-version
+kagent-cli-install: clean build-cli-local kind-load-docker-images helm-version
 kagent-cli-install:
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local install
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local dashboard
@@ -311,7 +336,7 @@ kagent-cli-install:
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
-	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80
+	kubectl port-forward -n kagent service/kagent 8082:80 8084:8084
 
 .PHONY: open-dev-container
 open-dev-container:

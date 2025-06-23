@@ -11,6 +11,7 @@ import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
 
 function convertToUserFriendlyName(name: string): string {
+  if (!name) return "Unknown Source";
   name = name.replace(/__NS__/g, "/");
   return name.replace(/_/g, "-");
 }

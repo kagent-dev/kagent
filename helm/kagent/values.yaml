@@ -60,6 +60,21 @@ controller:
       memory: 512Mi
   env: [] # Additional environment variables for the controller can be added here
 
+tools:
+  loglevel: "debug"
+  image:
+    registry: cr.kagent.dev
+    repository: kagent-dev/kagent/tools
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
 app:
   image:
     registry: cr.kagent.dev
@@ -102,6 +117,12 @@ service:
     controller:
       port: 8083
       targetPort: 8083
+    tools:
+      port: 8084
+      targetPort: 8084
+    querydoc:
+      port: 8085
+      targetPort: 8085
 
 imagePullSecrets: []
 nameOverride: ""

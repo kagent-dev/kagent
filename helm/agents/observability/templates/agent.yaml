@@ -76,30 +76,26 @@ spec:
     - If you created any artifacts such as files or resources, you will include those in your response as well
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetAvailableAPIResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.prometheus.QueryTool
-        config:
-          base_url: {{ .Values.prometheus.url | default "prometheus.kagent:9090" | quote }}
-          username: {{ .Values.prometheus.username | default "" | quote }}
-          password: {{ .Values.prometheus.password | default "" | quote }}
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent/kagent-querydoc
+        toolNames:
+          - query-documentation
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent/kagent-tool-server
+        toolNames:
+        - k8s_GetResources
+        - k8s_GetAvailableAPIResources
     - type: Agent
       agent:
         ref: promql-agent
-    - type: Builtin
-      builtin:
-        name: kagent.tools.grafana.DashboardManagementTool
-        config:
-          base_url: {{ .Values.grafana.url | default "grafana.kagent:3000" | quote }}
-          username: {{ .Values.grafana.username | default "" | quote }}
-          password: {{ .Values.grafana.password | default "" | quote }}
-          api_key: {{ .Values.grafana.apiKey | default "" | quote }}
+      ## TODO  - grafana.DashboardManagementTool
+      # config:
+      #   base_url: {{ .Values.grafana.url | default "grafana.kagent:3000" | quote }}
+      #   username: {{ .Values.grafana.username | default "" | quote }}
+      #   password: {{ .Values.grafana.password | default "" | quote }}
+      #   api_key: {{ .Values.grafana.apiKey | default "" | quote }}
   a2aConfig:
     skills:
       - id: prometheus-monitoring-querying
