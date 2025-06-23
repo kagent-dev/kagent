@@ -3,7 +3,7 @@ from mcp.server.fastmcp import FastMCP
 
 app = typer.Typer()
 
-mcp = FastMCP("MCP Tools")
+mcp = FastMCP("KAgent")
 
 @app.command()
 def serve(

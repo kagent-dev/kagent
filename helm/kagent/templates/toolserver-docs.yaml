@@ -7,8 +7,6 @@ metadata:
 spec:
   config:
     streamableHttp:
-{{/*      headers:*/}}
-{{/*        Authorization: "Bearer TOKEN"*/}}
       sseReadTimeout: 5m0s
       timeout: 30s
       url: {{ printf "http://localhost:%v/mcp" .Values.service.ports.querydoc.targetPort }}
