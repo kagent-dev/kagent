@@ -430,29 +430,6 @@ func (k *K8sTool) handleKubectlDescribeTool(ctx context.Context, request mcp.Cal
 	return k.runKubectlCommand(ctx, args)
 }
 
-// Fallback to kubectl command for logs operations
-func (k *K8sTool) handleKubectlLogsTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	podName := mcp.ParseString(request, "pod_name", "")
-	namespace := mcp.ParseString(request, "namespace", "")
-	container := mcp.ParseString(request, "container", "")
-	tailLines := mcp.ParseString(request, "tail_lines", "50")
-
-	if podName == "" {
-		return mcp.NewToolResultError("pod_name parameter is required"), nil
-	}
-
-	args := []string{"logs", podName}
-	if namespace != "" {
-		args = append(args, "-n", namespace)
-	}
-	if container != "" {
-		args = append(args, "-c", container)
-	}
-	args = append(args, "--tail="+tailLines)
-
-	return k.runKubectlCommand(ctx, args)
-}
-
 func (k *K8sTool) runKubectlCommand(ctx context.Context, args []string) (*mcp.CallToolResult, error) {
 	result, err := common.RunCommand("kubectl", args)
 	if err != nil {

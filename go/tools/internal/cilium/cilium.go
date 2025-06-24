@@ -1373,23 +1373,4 @@ func RegisterCiliumDbgTools(s *server.MCPServer) {
 		mcp.WithString("id", mcp.Description("The id to update the PCAP recorder with")),
 		mcp.WithString("node_name", mcp.Description("The name of the node to update the PCAP recorder on")),
 	), handleUpdatePCAPRecorder)
-
-	s.AddTool(mcp.NewTool("cilium_UpdateService",
-		mcp.WithDescription("Update a service in the cluster"),
-		mcp.WithString("backend_weights", mcp.Description("The backend weights to update the service with")),
-		mcp.WithString("backends", mcp.Description("The backends to update the service with"), mcp.Required()),
-		mcp.WithString("frontend", mcp.Description("The frontend to update the service with"), mcp.Required()),
-		mcp.WithString("id", mcp.Description("The ID of the service to update"), mcp.Required()),
-		mcp.WithString("k8s_cluster_internal", mcp.Description("Whether to update the k8s cluster internal flag")),
-		mcp.WithString("k8s_ext_traffic_policy", mcp.Description("The k8s ext traffic policy to update the service with")),
-		mcp.WithString("k8s_external", mcp.Description("Whether to update the k8s external flag")),
-		mcp.WithString("k8s_host_port", mcp.Description("Whether to update the k8s host port flag")),
-		mcp.WithString("k8s_int_traffic_policy", mcp.Description("The k8s int traffic policy to update the service with")),
-		mcp.WithString("k8s_load_balancer", mcp.Description("Whether to update the k8s load balancer flag")),
-		mcp.WithString("k8s_node_port", mcp.Description("Whether to update the k8s node port flag")),
-		mcp.WithString("local_redirect", mcp.Description("Whether to update the local redirect flag")),
-		mcp.WithString("protocol", mcp.Description("The protocol to update the service with")),
-		mcp.WithString("states", mcp.Description("The states to update the service with")),
-		mcp.WithString("node_name", mcp.Description("The name of the node to update the service on")),
-	), handleUpdateService)
 }
