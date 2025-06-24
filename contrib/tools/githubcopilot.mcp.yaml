@@ -4,7 +4,6 @@ apiVersion: kagent.dev/v1alpha1
 kind: ToolServer
 metadata:
   name: api.githubcopilot.com
-  namespace: kagent
 spec:
   config:
     streamableHttp:
