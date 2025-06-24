@@ -33,7 +33,7 @@ func (c *client) GetTeam(teamLabel string, userID string) (*Team, error) {
 		}
 	}
 
-	return nil, nil
+	return nil, NotFoundError
 }
 
 func (c *client) DeleteTeam(teamID int, userID string) error {
