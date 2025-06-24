@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
+	"strings"
 	"syscall"
 
 	"github.com/kagent-dev/kagent/go/tools/internal/argo"
@@ -20,78 +21,110 @@ import (
 	"github.com/kagent-dev/kagent/go/tools/internal/logger"
 	"github.com/kagent-dev/kagent/go/tools/internal/prometheus"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
 
-var mutex sync.Mutex
-var serverInstance *server.SSEServer
-var e error
+var (
+	port  int
+	stdio bool
+	tools []string
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "tool-server",
+	Short: "KAgent tool server",
+	Run:   run,
+}
+
+var toolMap = map[string]func(*server.MCPServer){
+	"common":     common.RegisterCommonTools,
+	"k8s":        k8s.RegisterK8sTools,
+	"datetime":   datetime.RegisterDateTimeTools,
+	"prometheus": prometheus.RegisterPrometheusTools,
+	"helm":       helm.RegisterHelmTools,
+	"istio":      istio.RegisterIstioTools,
+	"argo":       argo.RegisterArgoTools,
+	"cilium":     cilium.RegisterCiliumTools,
+	"grafana":    grafana.RegisterGrafanaTools,
+}
+
+func init() {
+	availableTools := []string{}
+	for tool := range toolMap {
+		availableTools = append(tools, tool)
+	}
+
+	rootCmd.Flags().IntVarP(&port, "port", "p", 8084, "Port to run the server on")
+	rootCmd.Flags().BoolVar(&stdio, "stdio", false, "Use stdio for communication instead of HTTP")
+	rootCmd.Flags().StringSliceVar(&tools, "tools", availableTools, "List of tools to register. If empty, all tools are registered.")
+}
 
 func main() {
-	// Initialize structured logging
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+
+func run(cmd *cobra.Command, args []string) {
 	logger.Init()
 	log := logger.Get()
 	defer logger.Sync()
 
-	port := os.Getenv("KAGENT_TOOLS_PORT")
-	if port == "" {
-		port = ":8084" // Default port if not set
-	}
-	log.Info("Running KAgent Tools Server", zap.String("port", port))
-
-	// Create MCP server
-	StartToolsServer(port)
-
-	// Wait for shutdown signal
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-	StopToolsServer()
-}
-
-func StartToolsServer(addr string) {
-	serverInstance, e = RunSSEServer(addr)
-	if e != nil {
-		if errors.Is(e, http.ErrServerClosed) {
-			// Server was closed gracefully, no need to panic
-			logger.Get().Info("Tools server closed gracefully")
-			return
-		}
-		logger.Get().Error("Failed to start tools server",
-			zap.String("error", e.Error()))
-		panic(e)
-	}
-}
-
-func StopToolsServer() {
-	if serverInstance != nil {
-		if err := serverInstance.Shutdown(context.Background()); err != nil {
-			logger.Get().Error("Failed to shutdown server gracefully",
-				zap.String("error", err.Error()))
-			panic(err)
-		}
-		serverInstance = nil
-	}
-}
-
-func RunSSEServer(addr string) (*server.SSEServer, error) {
 	mcp := server.NewMCPServer(
 		"kagent-tools",
 		"1.0.0",
 	)
-	RegisterMCP(mcp)
-	srv := server.NewSSEServer(mcp)
-	return srv, srv.Start(addr)
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+
+	// Register tools
+	registerMCP(mcp, tools)
+
+	if stdio {
+		log.Info("Running KAgent Tools Server STDIO: ", zap.String("tools", strings.Join(tools, ",")))
+		stdioServer := server.NewStdioServer(mcp)
+		go func() {
+			if err := stdioServer.Listen(context.Background(), os.Stdin, os.Stdout); err != nil {
+				log.Info("Stdio server stopped", zap.Error(err))
+			}
+		}()
+
+		<-signalChan
+		log.Info("Shutting down...")
+		// For stdio, closing stdin or terminating the process is enough.
+
+	} else {
+		addr := fmt.Sprintf(":%d", port)
+		log.Info("Running KAgent Tools Server", zap.String("port", addr))
+		sseServer := server.NewSSEServer(mcp)
+
+		go func() {
+			if err := sseServer.Start(addr); err != nil {
+				if !errors.Is(err, http.ErrServerClosed) {
+					log.Error("Failed to start SSE server", zap.Error(err))
+				} else {
+					log.Info("SSE server closed gracefully.")
+				}
+			}
+		}()
+
+		<-signalChan
+		log.Info("Shutting down server...")
+		if err := sseServer.Shutdown(context.Background()); err != nil {
+			log.Error("Failed to shutdown server gracefully", zap.Error(err))
+		}
+	}
 }
 
-func RegisterMCP(mcp *server.MCPServer) {
-	// Register tools
-	common.RegisterCommonTools(mcp)
-	k8s.RegisterK8sTools(mcp)
-	datetime.RegisterDateTimeTools(mcp)
-	prometheus.RegisterPrometheusTools(mcp)
-	helm.RegisterHelmTools(mcp)
-	istio.RegisterIstioTools(mcp)
-	argo.RegisterArgoTools(mcp)
-	cilium.RegisterCiliumTools(mcp)
-	grafana.RegisterGrafanaTools(mcp)
+func registerMCP(mcp *server.MCPServer, enabledTools []string) {
+	for _, toolName := range enabledTools {
+		if registerFunc, ok := toolMap[strings.ToLower(toolName)]; ok {
+			registerFunc(mcp)
+		} else {
+			logger.Get().Warn("Unknown tool specified", zap.String("tool", toolName))
+		}
+	}
 }
