@@ -1,5 +1,6 @@
-# Official MCP Server for GitHub Copilot
-# https://github.com/github/github-mcp-server
+## Official MCP Server for GitHub Copilot
+## https://github.com/github/github-mcp-server
+## This file defines a ToolServer for GitHub Copilot using the MCP protocol.
 apiVersion: kagent.dev/v1alpha1
 kind: ToolServer
 metadata:
@@ -8,9 +9,25 @@ spec:
   config:
     streamableHttp:
       headers:
-        Authorization: "Bearer TOKEN"
+        - name: Authorization
+          valueFrom:
+            key: token
+            type: Secret
+            valueRef:
+              secretName: github-copilot-token  # Change to your secret name
       sseReadTimeout: 5m0s
-      timeout: 15s
+      timeout: 30s
       url: https://api.githubcopilot.com/mcp/
   description: |
     GitHub Copilot is an AI-powered code completion tools
+---
+# Secret for GitHub Copilot Token - this should be created in the same namespace as the ToolServer
+# The token should be base64 encoded before placing it in the secret.
+# Note: Replace "example-token" with your actual GitHub Copilot token.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-copilot-token-example
+type: Opaque
+data:
+  token: ""  # Replace with your actual token, base64 encoded "Bearer <example-token"
