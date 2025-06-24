@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
     trustProxy: true,
   },
   experimental: { swcPlugins: [] },
-  compiler: { removeConsole: true },
+  compiler: { removeConsole: process.env.NODE_ENV === "production" },
 };
 
 export default nextConfig;
