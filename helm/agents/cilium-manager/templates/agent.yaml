@@ -336,33 +336,33 @@ spec:
         toolServer: kagent/kagent-tool-server
         toolNames:
         # Installation and Configuration Tools
-        - cilium_InstallCilium
-        - cilium_UpgradeCilium
-        - cilium_CiliumStatusAndVersion
-        - cilium_GetDaemonStatus
+        - cilium_install_cilium
+        - cilium_upgrade_cilium
+        - cilium_status_and_version
+        - cilium_get_daemon_status
         # ClusterMesh Tools
-        - cilium_ConnectToRemoteCluster
-        - cilium_ToggleClusterMesh
-        - cilium_ShowClusterMeshStatus
+        - cilium_connect_to_remote_cluster
+        - cilium_toggle_cluster_mesh
+        - cilium_show_cluster_mesh_status
         # Feature Management Tools
-        - cilium_ShowFeaturesStatus
-        - cilium_ToggleHubble
+        - cilium_show_features_status
+        - cilium_toggle_hubble
         # BGP Tools
-        - cilium_ListBGPPeers
-        - cilium_ListBGPRoutes
+        - cilium_list_bgp_peers
+        - cilium_list_bgp_routes
         # Endpoint Management Tools
-        - cilium_GetEndpointsList
-        - cilium_GetEndpointDetails
+        - cilium_get_endpoints_list
+        - cilium_get_endpoint_details
         # Configuration Tools
-        - cilium_ShowConfigurationOptions
-        - cilium_ToggleConfigurationOption
+        - cilium_show_configuration_options
+        - cilium_toggle_configuration_option
         # Service Tools
-        - cilium_ListServices
-        - cilium_GetServiceInformation
-        - cilium_UpdateService
+        - cilium_list_services
+        - cilium_get_service_information
+        - cilium_update_service
         # Kubernetes Tools
-        - k8s_GetResources
-        - k8s_DescribeResource
+        - k8s_get_resources
+        - k8s_describe_resource
 
   a2aConfig:
     skills:

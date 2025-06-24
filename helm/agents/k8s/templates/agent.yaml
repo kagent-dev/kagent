@@ -127,24 +127,24 @@ spec:
       mcpServer:
         toolServer: kagent/kagent-tool-server
         toolNames:
-        - k8s_CheckServiceConnectivity
-        - k8s_PatchResource
-        - k8s_RemoveAnnotation
-        - k8s_AnnotateResource
-        - k8s_RemoveLabel
-        - k8s_LabelResource
-        - k8s_CreateResource
-        - k8s_CreateResourceFromURL
-        - k8s_GetEvents
-        - k8s_GetAvailableAPIResources
-        - k8s_GetClusterConfiguration
-        - k8s_DescribeResource
-        - k8s_DeleteResource
-        - k8s_GetResourceYAML
-        - k8s_ExecuteCommand
-        - k8s_ApplyManifest
-        - k8s_GetResources
-        - k8s_GetPodLogs
+        - k8s_check_service_connectivity
+        - k8s_patch_resource
+        - k8s_remove_annotation
+        - k8s_annotate_resource
+        - k8s_remove_label
+        - k8s_label_resource
+        - k8s_create_resource
+        - k8s_create_resource_from_url
+        - k8s_get_events
+        - k8s_get_available_api_resources
+        - k8s_get_cluster_configuration
+        - k8s_describe_resource
+        - k8s_delete_resource
+        - k8s_get_resource_yaml
+        - k8s_execute_command
+        - k8s_apply_manifest
+        - k8s_get_resources
+        - k8s_get_pod_logs
   a2aConfig:
     skills:
       - id: cluster-diagnostics

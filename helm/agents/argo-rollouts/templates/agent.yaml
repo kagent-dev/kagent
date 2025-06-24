@@ -120,13 +120,13 @@ spec:
     mcpServer:
       toolServer: kagent/kagent-tool-server
       toolNames:
-      - argo_VerifyArgoRolloutsControllerInstall
-      - k8s_GetResources
-      - k8s_GetResourceYAML
-      - k8s_CreateResource
-      - k8s_DeleteResource
-      - k8s_ApplyManifest
-      - k8s_DescribeResource
+      - argo_verify_argo_rollouts_controller_install
+      - k8s_get_resources
+      - k8s_get_resource_yaml
+      - k8s_create_resource
+      - k8s_delete_resource
+      - k8s_apply_manifest
+      - k8s_describe_resource
   a2aConfig:
     skills:
       - id: convert-deployment-to-rollout

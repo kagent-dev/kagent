@@ -76,7 +76,7 @@ func handleShellTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 }
 
 func RegisterCommonTools(s *server.MCPServer) {
-	s.AddTool(mcp.NewTool("Shell",
+	s.AddTool(mcp.NewTool("shell",
 		mcp.WithDescription("Execute a shell command"),
 		mcp.WithString("command",
 			mcp.Description("The shell command to execute"),

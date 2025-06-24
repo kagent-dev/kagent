@@ -701,7 +701,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		// Here you could register the pure-kubectl versions of the tools as a fallback
 		return
 	}
-	s.AddTool(mcp.NewTool("k8s_GetResources",
+	s.AddTool(mcp.NewTool("k8s_get_resources",
 		mcp.WithDescription("Get Kubernetes resources using kubectl with enhanced native client support"),
 		mcp.WithString("resource_type", mcp.Description("Type of resource (pod, service, deployment, etc.)"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("Name of specific resource (optional)")),
@@ -710,7 +710,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("output", mcp.Description("Output format (json, yaml, wide, etc.)")),
 	), k8sTool.handleKubectlGetEnhanced)
 
-	s.AddTool(mcp.NewTool("k8s_GetPodLogs",
+	s.AddTool(mcp.NewTool("k8s_get_pod_logs",
 		mcp.WithDescription("Get logs from a Kubernetes pod with enhanced native client support"),
 		mcp.WithString("pod_name", mcp.Description("Name of the pod"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace of the pod (default: default)")),
@@ -718,14 +718,14 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithNumber("tail_lines", mcp.Description("Number of lines to show from the end (default: 50)")),
 	), k8sTool.handleKubectlLogsEnhanced)
 
-	s.AddTool(mcp.NewTool("k8s_Scale",
+	s.AddTool(mcp.NewTool("k8s_scale",
 		mcp.WithDescription("Scale a Kubernetes deployment using native client"),
 		mcp.WithString("name", mcp.Description("Name of the deployment"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace of the deployment (default: default)")),
 		mcp.WithNumber("replicas", mcp.Description("Number of replicas"), mcp.Required()),
 	), k8sTool.handleScaleDeployment)
 
-	s.AddTool(mcp.NewTool("k8s_PatchResource",
+	s.AddTool(mcp.NewTool("k8s_patch_resource",
 		mcp.WithDescription("Patch a Kubernetes resource using strategic merge patch"),
 		mcp.WithString("resource_type", mcp.Description("Type of resource (deployment, service, etc.)"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("Name of the resource"), mcp.Required()),
@@ -733,45 +733,45 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("namespace", mcp.Description("Namespace of the resource (default: default)")),
 	), k8sTool.handlePatchResource)
 
-	s.AddTool(mcp.NewTool("k8s_ApplyManifest",
+	s.AddTool(mcp.NewTool("k8s_apply_manifest",
 		mcp.WithDescription("Apply a YAML manifest to the Kubernetes cluster"),
 		mcp.WithString("manifest", mcp.Description("YAML manifest content"), mcp.Required()),
 	), k8sTool.handleApplyManifest)
 
-	s.AddTool(mcp.NewTool("k8s_DeleteResource",
+	s.AddTool(mcp.NewTool("k8s_delete_resource",
 		mcp.WithDescription("Delete a Kubernetes resource using native client"),
 		mcp.WithString("resource_type", mcp.Description("Type of resource (pod, service, deployment, etc.)"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("Name of the resource"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace of the resource (default: default)")),
 	), k8sTool.handleDeleteResource)
 
-	s.AddTool(mcp.NewTool("k8s_CheckServiceConnectivity",
+	s.AddTool(mcp.NewTool("k8s_check_service_connectivity",
 		mcp.WithDescription("Check connectivity to a service using a temporary curl pod"),
 		mcp.WithString("service_name", mcp.Description("Service name to test (e.g., my-service.my-namespace.svc.cluster.local:80)"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace to run the check from (default: default)")),
 	), k8sTool.handleCheckServiceConnectivity)
 
-	s.AddTool(mcp.NewTool("k8s_GetEvents",
+	s.AddTool(mcp.NewTool("k8s_get_events",
 		mcp.WithDescription("Get Kubernetes cluster events using native client"),
 		mcp.WithString("namespace", mcp.Description("Namespace to query events from (optional, default: all namespaces)")),
 	), k8sTool.handleGetEvents)
 
-	s.AddTool(mcp.NewTool("k8s_ExecuteCommand",
+	s.AddTool(mcp.NewTool("k8s_execute_command",
 		mcp.WithDescription("Execute a command inside a Kubernetes pod"),
 		mcp.WithString("pod_name", mcp.Description("Name of the pod"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace of the pod (default: default)")),
 		mcp.WithString("command", mcp.Description("Command to execute"), mcp.Required()),
 	), k8sTool.handleExecCommand)
 
-	s.AddTool(mcp.NewTool("k8s_GetAvailableAPIResources",
+	s.AddTool(mcp.NewTool("k8s_get_available_api_resources",
 		mcp.WithDescription("Get all available API resources from the Kubernetes cluster"),
 	), k8sTool.handleGetAvailableAPIResources)
 
-	s.AddTool(mcp.NewTool("k8s_GetClusterConfiguration",
+	s.AddTool(mcp.NewTool("k8s_get_cluster_configuration",
 		mcp.WithDescription("Get the current kubectl cluster configuration"),
 	), k8sTool.handleGetClusterConfiguration)
 
-	s.AddTool(mcp.NewTool("k8s_Rollout",
+	s.AddTool(mcp.NewTool("k8s_rollout",
 		mcp.WithDescription("Perform rollout operations on Kubernetes resources (history, pause, restart, resume, status, undo)"),
 		mcp.WithString("action", mcp.Description("The rollout action to perform"), mcp.Required()),
 		mcp.WithString("resource_type", mcp.Description("The type of resource to rollout (e.g., deployment)"), mcp.Required()),
@@ -779,7 +779,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("namespace", mcp.Description("The namespace of the resource")),
 	), k8sTool.handleRollout)
 
-	s.AddTool(mcp.NewTool("k8s_LabelResource",
+	s.AddTool(mcp.NewTool("k8s_label_resource",
 		mcp.WithDescription("Add or update labels on a Kubernetes resource"),
 		mcp.WithString("resource_type", mcp.Description("The type of resource"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("The name of the resource"), mcp.Required()),
@@ -787,7 +787,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("namespace", mcp.Description("The namespace of the resource")),
 	), k8sTool.handleLabelResource)
 
-	s.AddTool(mcp.NewTool("k8s_AnnotateResource",
+	s.AddTool(mcp.NewTool("k8s_annotate_resource",
 		mcp.WithDescription("Add or update annotations on a Kubernetes resource"),
 		mcp.WithString("resource_type", mcp.Description("The type of resource"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("The name of the resource"), mcp.Required()),
@@ -795,7 +795,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("namespace", mcp.Description("The namespace of the resource")),
 	), k8sTool.handleAnnotateResource)
 
-	s.AddTool(mcp.NewTool("k8s_RemoveAnnotation",
+	s.AddTool(mcp.NewTool("k8s_remove_annotation",
 		mcp.WithDescription("Remove an annotation from a Kubernetes resource"),
 		mcp.WithString("resource_type", mcp.Description("The type of resource"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("The name of the resource"), mcp.Required()),
@@ -803,7 +803,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("namespace", mcp.Description("The namespace of the resource")),
 	), k8sTool.handleRemoveAnnotation)
 
-	s.AddTool(mcp.NewTool("k8s_RemoveLabel",
+	s.AddTool(mcp.NewTool("k8s_remove_label",
 		mcp.WithDescription("Remove a label from a Kubernetes resource"),
 		mcp.WithString("resource_type", mcp.Description("The type of resource"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("The name of the resource"), mcp.Required()),
@@ -811,7 +811,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("namespace", mcp.Description("The namespace of the resource")),
 	), k8sTool.handleRemoveLabel)
 
-	s.AddTool(mcp.NewTool("k8s_CreateResource",
+	s.AddTool(mcp.NewTool("k8s_create_resource",
 		mcp.WithDescription("Create a Kubernetes resource from YAML content"),
 		mcp.WithString("yaml_content", mcp.Description("YAML content of the resource"), mcp.Required()),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -841,13 +841,13 @@ func RegisterK8sTools(s *server.MCPServer) {
 		return mcp.NewToolResultText(result), nil
 	})
 
-	s.AddTool(mcp.NewTool("k8s_CreateResourceFromURL",
+	s.AddTool(mcp.NewTool("k8s_create_resource_from_url",
 		mcp.WithDescription("Create a Kubernetes resource from a URL pointing to a YAML manifest"),
 		mcp.WithString("url", mcp.Description("The URL of the manifest"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("The namespace to create the resource in")),
 	), k8sTool.handleCreateResourceFromURL)
 
-	s.AddTool(mcp.NewTool("k8s_GetResourceYAML",
+	s.AddTool(mcp.NewTool("k8s_get_resource_yaml",
 		mcp.WithDescription("Get the YAML representation of a Kubernetes resource"),
 		mcp.WithString("resource_type", mcp.Description("Type of resource"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("Name of the resource"), mcp.Required()),
@@ -874,14 +874,14 @@ func RegisterK8sTools(s *server.MCPServer) {
 		return mcp.NewToolResultText(result), nil
 	})
 
-	s.AddTool(mcp.NewTool("k8s_DescribeResource",
+	s.AddTool(mcp.NewTool("k8s_describe_resource",
 		mcp.WithDescription("Describe a Kubernetes resource in detail"),
 		mcp.WithString("resource_type", mcp.Description("Type of resource (deployment, service, pod, node, etc.)"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("Name of the resource"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace of the resource (optional)")),
 	), k8sTool.handleKubectlDescribeTool)
 
-	s.AddTool(mcp.NewTool("k8s_GenerateResourceTool",
+	s.AddTool(mcp.NewTool("k8s_generate_resource_tool",
 		mcp.WithDescription("Generate a Kubernetes resource YAML from a description"),
 		mcp.WithString("resource_description", mcp.Description("Detailed description of the resource to generate"), mcp.Required()),
 		mcp.WithString("resource_type", mcp.Description("Type of resource to generate (deployment, service, configmap, etc.)"), mcp.Required()),

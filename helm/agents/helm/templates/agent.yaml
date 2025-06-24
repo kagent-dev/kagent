@@ -154,15 +154,15 @@ spec:
       mcpServer:
         toolServer: kagent/kagent-tool-server
         toolNames:
-        - helm_ListReleases
-        - helm_GetRelease
-        - helm_Upgrade
-        - helm_Uninstall
-        - helm_RepoAdd
-        - helm_RepoUpdate
-        - k8s_GetResources
-        - k8s_GetAvailableAPIResources
-        - k8s_ApplyManifest
+        - helm_list_releases
+        - helm_get_release
+        - helm_upgrade
+        - helm_uninstall
+        - helm_repo_add
+        - helm_repo_update
+        - k8s_get_resources
+        - k8s_get_available_api_resources
+        - k8s_apply_manifest
   a2aConfig:
     skills:
       - id: helm-release-management

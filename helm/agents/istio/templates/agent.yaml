@@ -200,26 +200,26 @@ spec:
       mcpServer:
         toolServer: kagent/kagent-tool-server
         toolNames:
-        - k8s_CreateResource
-        - k8s_CreateResourceFromURL
-        - k8s_DeleteResource
-        - k8s_DescribeResource
-        - k8s_GetResources
-        - k8s_PatchResource
-        - k8s_GenerateResourceTool
-        - istio_ZTunnelConfig
-        - istio_WaypointStatus
-        - istio_ListWaypoints
-        - istio_GenerateWaypoint
-        - istio_DeleteWaypoint
-        - istio_ApplyWaypoint
-        - istio_RemoteClusters
-        - istio_ProxyStatus
-        - istio_GenerateManifest
-        - istio_InstallIstio
-        - istio_AnalyzeClusterConfiguration
-        - istio_ProxyConfig
-        - istio_Version
+        - k8s_create_resource
+        - k8s_create_resource_from_url
+        - k8s_delete_resource
+        - k8s_describe_resource
+        - k8s_get_resources
+        - k8s_patch_resource
+        - k8s_generate_resource_tool
+        - istio_ztunnel_config
+        - istio_waypoint_status
+        - istio_list_waypoints
+        - istio_generate_waypoint
+        - istio_delete_waypoint
+        - istio_apply_waypoint
+        - istio_remote_clusters
+        - istio_proxy_status
+        - istio_generate_manifest
+        - istio_install_istio
+        - istio_analyze_cluster_configuration
+        - istio_proxy_config
+        - istio_version
   a2aConfig:
     skills:
       - id: istio-service-mesh-configuration

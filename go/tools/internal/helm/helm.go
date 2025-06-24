@@ -217,7 +217,7 @@ func handleHelmRepoUpdate(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 // Register Helm tools
 func RegisterHelmTools(s *server.MCPServer) {
-	s.AddTool(mcp.NewTool("helm_ListReleases",
+	s.AddTool(mcp.NewTool("helm_list_releases",
 		mcp.WithDescription("List Helm releases in a namespace"),
 		mcp.WithString("namespace", mcp.Description("The namespace to list releases from")),
 		mcp.WithString("all_namespaces", mcp.Description("List releases from all namespaces")),
@@ -231,14 +231,14 @@ func RegisterHelmTools(s *server.MCPServer) {
 		mcp.WithString("output", mcp.Description("The output format (e.g., 'json', 'yaml', 'table')")),
 	), handleHelmListReleases)
 
-	s.AddTool(mcp.NewTool("helm_GetRelease",
+	s.AddTool(mcp.NewTool("helm_get_release",
 		mcp.WithDescription("Get extended information about a Helm release"),
 		mcp.WithString("name", mcp.Description("The name of the release"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("The namespace of the release"), mcp.Required()),
 		mcp.WithString("resource", mcp.Description("The resource to get (all, hooks, manifest, notes, values)")),
 	), handleHelmGetRelease)
 
-	s.AddTool(mcp.NewTool("helm_Upgrade",
+	s.AddTool(mcp.NewTool("helm_upgrade",
 		mcp.WithDescription("Upgrade or install a Helm release"),
 		mcp.WithString("name", mcp.Description("The name of the release"), mcp.Required()),
 		mcp.WithString("chart", mcp.Description("The chart to install or upgrade to"), mcp.Required()),
@@ -251,7 +251,7 @@ func RegisterHelmTools(s *server.MCPServer) {
 		mcp.WithString("wait", mcp.Description("Wait for the upgrade to complete")),
 	), handleHelmUpgradeRelease)
 
-	s.AddTool(mcp.NewTool("helm_Uninstall",
+	s.AddTool(mcp.NewTool("helm_uninstall",
 		mcp.WithDescription("Uninstall a Helm release"),
 		mcp.WithString("name", mcp.Description("The name of the release to uninstall"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("The namespace of the release"), mcp.Required()),
@@ -259,13 +259,13 @@ func RegisterHelmTools(s *server.MCPServer) {
 		mcp.WithString("wait", mcp.Description("Wait for the uninstall to complete")),
 	), handleHelmUninstall)
 
-	s.AddTool(mcp.NewTool("helm_RepoAdd",
+	s.AddTool(mcp.NewTool("helm_repo_add",
 		mcp.WithDescription("Add a Helm repository"),
 		mcp.WithString("name", mcp.Description("The name of the repository"), mcp.Required()),
 		mcp.WithString("url", mcp.Description("The URL of the repository"), mcp.Required()),
 	), handleHelmRepoAdd)
 
-	s.AddTool(mcp.NewTool("helm_RepoUpdate",
+	s.AddTool(mcp.NewTool("helm_repo_update",
 		mcp.WithDescription("Update information of available charts locally from chart repositories"),
 	), handleHelmRepoUpdate)
 }

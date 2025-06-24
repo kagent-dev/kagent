@@ -211,21 +211,21 @@ spec:
       mcpServer:
         toolServer: kagent/kagent-tool-server
         toolNames:
-        - k8s_CheckServiceConnectivity
-        - k8s_PatchResource
-        - k8s_CreateResource
-        - k8s_CreateResourceFromURL
-        - k8s_DeleteResource
-        - k8s_GetResourceYAML
-        - k8s_ApplyManifest
-        - k8s_GetResources
-        - k8s_GetPodLogs
-        - helm_ListReleases
-        - helm_GetRelease
-        - helm_Upgrade
-        - helm_Uninstall
-        - helm_RepoAdd
-        - helm_RepoUpdate
+        - k8s_check_service_connectivity
+        - k8s_patch_resource
+        - k8s_create_resource
+        - k8s_create_resource_from_url
+        - k8s_delete_resource
+        - k8s_get_resource_yaml
+        - k8s_apply_manifest
+        - k8s_get_resources
+        - k8s_get_pod_logs
+        - helm_list_releases
+        - helm_get_release
+        - helm_upgrade
+        - helm_uninstall
+        - helm_repo_add
+        - helm_repo_update
   a2aConfig:
     skills:
       - id: kgateway-installation-management

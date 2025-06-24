@@ -120,26 +120,26 @@ spec:
     mcpServer:
       toolServer: kagent/kagent-tool-server
       toolNames:
-      - cilium_ManageEndpointConfig
-      - cilium_GetEndpointHealth
-      - cilium_GetEndpointLogs
-      - cilium_ListIdentities
-      - cilium_GetIdentityDetails
-      - cilium_RequestDebuggingInformation
-      - cilium_DisplayEncryptionState
-      - cilium_FlushIPsecState
-      - cilium_ListEnvoyConfig
-      - cilium_FQDNCache
-      - cilium_ListIPAddresses
-      - cilium_ShowIPCacheInformation
-      - cilium_ListBPFMapEvents
-      - cilium_ListMetrics
-      - cilium_ListClusterNodes
-      - cilium_ListNodeIds
-      - cilium_ListPCAPRecorders
-      - cilium_GetPCAPRecorder
-      - cilium_UpdatePCAPRecorder
-      - cilium_DeletePCAPRecorder
+      - cilium_manage_endpoint_config
+      - cilium_get_endpoint_health
+      - cilium_get_endpoint_logs
+      - cilium_list_identities
+      - cilium_get_identity_details
+      - cilium_request_debugging_information
+      - cilium_display_encryption_state
+      - cilium_flush_ipsec_state
+      - cilium_list_envoy_config
+      - cilium_fqdn_cache
+      - cilium_list_ip_addresses
+      - cilium_show_ip_cache_information
+      - cilium_list_bpf_map_events
+      - cilium_list_metrics
+      - cilium_list_cluster_nodes
+      - cilium_list_node_ids
+      - cilium_list_pcap_recorders
+      - cilium_get_pcap_recorder
+      - cilium_update_pcap_recorder
+      - cilium_delete_pcap_recorder
   a2aConfig:
     skills:
       - id: advanced-cilium-debugging

@@ -344,44 +344,44 @@ func handleCheckPluginLogs(ctx context.Context, request mcp.CallToolRequest) (*m
 }
 
 func RegisterArgoTools(s *server.MCPServer) {
-	s.AddTool(mcp.NewTool("argo_VerifyArgoRolloutsControllerInstall",
+	s.AddTool(mcp.NewTool("argo_verify_argo_rollouts_controller_install",
 		mcp.WithDescription("Verify that the Argo Rollouts controller is installed and running"),
 		mcp.WithString("namespace", mcp.Description("The namespace where Argo Rollouts is installed")),
 		mcp.WithString("label", mcp.Description("The label of the Argo Rollouts controller pods")),
 	), handleVerifyArgoRolloutsControllerInstall)
 
-	s.AddTool(mcp.NewTool("argo_VerifyKubectlPluginInstall",
+	s.AddTool(mcp.NewTool("argo_verify_kubectl_plugin_install",
 		mcp.WithDescription("Verify that the kubectl Argo Rollouts plugin is installed"),
 	), handleVerifyKubectlPluginInstall)
 
-	s.AddTool(mcp.NewTool("argo_PromoteRollout",
+	s.AddTool(mcp.NewTool("argo_promote_rollout",
 		mcp.WithDescription("Promote a paused rollout to the next step"),
 		mcp.WithString("rollout_name", mcp.Description("The name of the rollout to promote"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("The namespace of the rollout")),
 		mcp.WithString("full", mcp.Description("Promote the rollout to the final step")),
 	), handlePromoteRollout)
 
-	s.AddTool(mcp.NewTool("argo_PauseRollout",
+	s.AddTool(mcp.NewTool("argo_pause_rollout",
 		mcp.WithDescription("Pause a rollout"),
 		mcp.WithString("rollout_name", mcp.Description("The name of the rollout to pause"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("The namespace of the rollout")),
 	), handlePauseRollout)
 
-	s.AddTool(mcp.NewTool("argo_SetRolloutImage",
+	s.AddTool(mcp.NewTool("argo_set_rollout_image",
 		mcp.WithDescription("Set the image of a rollout"),
 		mcp.WithString("rollout_name", mcp.Description("The name of the rollout to set the image for"), mcp.Required()),
 		mcp.WithString("container_image", mcp.Description("The container image to set for the rollout"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("The namespace of the rollout")),
 	), handleSetRolloutImage)
 
-	s.AddTool(mcp.NewTool("argo_VerifyGatewayPlugin",
+	s.AddTool(mcp.NewTool("argo_verify_gateway_plugin",
 		mcp.WithDescription("Verify the installation status of the Argo Rollouts Gateway API plugin"),
 		mcp.WithString("version", mcp.Description("The version of the plugin to check")),
 		mcp.WithString("namespace", mcp.Description("The namespace for the plugin resources")),
 		mcp.WithString("should_install", mcp.Description("Whether to install the plugin if not found")),
 	), handleVerifyGatewayPlugin)
 
-	s.AddTool(mcp.NewTool("argo_CheckPluginLogs",
+	s.AddTool(mcp.NewTool("argo_check_plugin_logs",
 		mcp.WithDescription("Check the logs of the Argo Rollouts Gateway API plugin"),
 		mcp.WithString("namespace", mcp.Description("The namespace of the plugin resources")),
 		mcp.WithString("timeout", mcp.Description("Timeout for log collection in seconds")),

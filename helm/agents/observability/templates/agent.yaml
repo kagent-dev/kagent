@@ -85,8 +85,8 @@ spec:
       mcpServer:
         toolServer: kagent/kagent-tool-server
         toolNames:
-        - k8s_GetResources
-        - k8s_GetAvailableAPIResources
+        - k8s_get_resources
+        - k8s_get_available_api_resources
     - type: Agent
       agent:
         ref: promql-agent

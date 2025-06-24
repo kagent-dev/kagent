@@ -459,8 +459,8 @@ spec:
         toolServer: kagent/kagent-tool-server
         toolNames:
         # Policy Tools
-        - cilium_DisplayPolicyNodeInformation
-        - cilium_ValidateCiliumNetworkPolicies
+        - cilium_display_policy_node_information
+        - cilium_validate_cilium_network_policies
   a2aConfig:
     skills:
       - id: create-cilium-network-policy
