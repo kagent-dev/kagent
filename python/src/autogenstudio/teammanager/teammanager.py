@@ -14,6 +14,7 @@ from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
 from autogen_agentchat.teams import BaseGroupChat
 from autogen_core import EVENT_LOGGER_NAME, CancellationToken, ComponentModel
 from autogen_core.logging import LLMCallEvent
+from opentelemetry import trace
 
 from ..datamodel.types import EnvironmentVariable, LLMCallEventMessage, TeamResult
 from ..web.managers.run_context import RunContext
@@ -105,6 +106,7 @@ class TeamManager:
         state: Optional[dict] = None,
         input_func: Optional[Callable] = None,
         cancellation_token: Optional[CancellationToken] = None,
+        attributes: Optional[dict] = None,
     ) -> AsyncGenerator[Union[BaseAgentEvent | BaseChatMessage | LLMCallEvent, BaseChatMessage, TeamResult], None]:
         """Stream team execution results"""
         start_time = time.time()
@@ -118,28 +120,29 @@ class TeamManager:
 
         try:
             team = await self._create_team(team_config, input_func, state)
+            tracer = trace.get_tracer("autogen-core")
+            with tracer.start_as_current_span("run_stream", attributes=attributes):
+                async for message in team.run_stream(task=task, cancellation_token=cancellation_token):
+                    if cancellation_token and cancellation_token.is_cancelled():
+                        break
 
-            async for message in team.run_stream(task=task, cancellation_token=cancellation_token):
-                if cancellation_token and cancellation_token.is_cancelled():
-                    break
+                    if isinstance(message, TaskResult):
+                        yield TeamResult(task_result=message, usage="", duration=time.time() - start_time)
+                    else:
+                        if hasattr(message, "metadata"):
+                            timestamp = time.time()
+                            message.metadata["duration"] = str(timestamp - start_time)
+                            message.metadata["created_at"] = str(timestamp)
+                        yield message
 
-                if isinstance(message, TaskResult):
-                    yield TeamResult(task_result=message, usage="", duration=time.time() - start_time)
-                else:
-                    if hasattr(message, "metadata"):
-                        timestamp = time.time()
-                        message.metadata["duration"] = str(timestamp - start_time)
-                        message.metadata["created_at"] = str(timestamp)
-                    yield message
-
-                # Check for any LLM events
-                while not llm_event_logger.events.empty():
-                    event = await llm_event_logger.events.get()
-                    if hasattr(event, "metadata"):
-                        timestamp = time.time()
-                        event.metadata["duration"] = str(timestamp - start_time)
-                        event.metadata["created_at"] = str(timestamp)
-                    yield event
+                    # Check for any LLM events
+                    while not llm_event_logger.events.empty():
+                        event = await llm_event_logger.events.get()
+                        if hasattr(event, "metadata"):
+                            timestamp = time.time()
+                            event.metadata["duration"] = str(timestamp - start_time)
+                            event.metadata["created_at"] = str(timestamp)
+                        yield event
         finally:
             # Cleanup - remove our handler
             if llm_event_logger in logger.handlers:
@@ -158,6 +161,7 @@ class TeamManager:
         state: Optional[dict] = None,
         input_func: Optional[Callable] = None,
         cancellation_token: Optional[CancellationToken] = None,
+        attributes: Optional[dict] = None,
     ) -> TeamResult:
         """Run team synchronously"""
         start_time = time.time()
@@ -165,7 +169,9 @@ class TeamManager:
 
         try:
             team = await self._create_team(team_config, input_func, state)
-            result = await team.run(task=task, cancellation_token=cancellation_token)
+            tracer = trace.get_tracer("autogen-core")
+            with tracer.start_as_current_span("run", attributes=attributes):
+                result = await team.run(task=task, cancellation_token=cancellation_token)
 
             return TeamResult(task_result=result, usage="", duration=time.time() - start_time)
 
