@@ -16,6 +16,10 @@ func runCiliumCli(args ...string) (string, error) {
 	return common.RunCommand("cilium", args)
 }
 
+func runCiliumCliWithContext(ctx context.Context, args ...string) (string, error) {
+	return common.RunCommandWithContext(ctx, "cilium", args)
+}
+
 func handleCiliumStatusAndVersion(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	status, err := runCiliumCli("status")
 	if err != nil {
@@ -335,11 +339,15 @@ func RegisterCiliumTools(s *server.MCPServer) {
 // -- Debug Tools --
 
 func getCiliumPodName(nodeName string) (string, error) {
+	return getCiliumPodNameWithContext(context.Background(), nodeName)
+}
+
+func getCiliumPodNameWithContext(ctx context.Context, nodeName string) (string, error) {
 	args := []string{"get", "pod", "-l", "k8s-app=cilium", "-o", "name", "-n", "kube-system"}
 	if nodeName != "" {
 		args = append(args, "--field-selector", "spec.nodeName="+nodeName)
 	}
-	podName, err := common.RunCommand("kubectl", args)
+	podName, err := common.RunCommandWithContext(ctx, "kubectl", args)
 	if err != nil {
 		return "", fmt.Errorf("failed to get cilium pod name: %v", err)
 	}
@@ -350,14 +358,18 @@ func getCiliumPodName(nodeName string) (string, error) {
 }
 
 func runCiliumDbgCommand(command, nodeName string) (string, error) {
-	podName, err := getCiliumPodName(nodeName)
+	return runCiliumDbgCommandWithContext(context.Background(), command, nodeName)
+}
+
+func runCiliumDbgCommandWithContext(ctx context.Context, command, nodeName string) (string, error) {
+	podName, err := getCiliumPodNameWithContext(ctx, nodeName)
 	if err != nil {
 		return "", err
 	}
 	cmdParts := strings.Fields(command)
 	args := []string{"exec", "-it", podName, "-n", "kube-system", "--", "cilium-dbg"}
 	args = append(args, cmdParts...)
-	return common.RunCommand("kubectl", args)
+	return common.RunCommandWithContext(ctx, "kubectl", args)
 }
 
 func handleGetEndpointDetails(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

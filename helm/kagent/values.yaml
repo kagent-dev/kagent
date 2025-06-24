@@ -147,11 +147,11 @@ securityContext: {}
 
 otel:
   tracing:
-    enabled: false
+    enabled: true
     exporter:
       otlp:
         endpoint: http://host.docker.internal:4317
-        timeout: 10
+        timeout: 15
         insecure: true
 
 k8s-agent:

@@ -431,7 +431,7 @@ func (k *K8sTool) handleKubectlDescribeTool(ctx context.Context, request mcp.Cal
 }
 
 func (k *K8sTool) runKubectlCommand(ctx context.Context, args []string) (*mcp.CallToolResult, error) {
-	result, err := common.RunCommand("kubectl", args)
+	result, err := common.RunCommandWithContext(ctx, "kubectl", args)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
