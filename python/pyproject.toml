@@ -45,6 +45,7 @@ dependencies = [
   "google-genai>=1.18.0",
   "google-auth>=2.40.2",
   "h11>=0.16.0",
+  "protobuf >= 5.29.5",
 ]
 
 [project.optional-dependencies]

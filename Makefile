@@ -347,9 +347,11 @@ open-dev-container:
 	@devcontainer open .
 
 .PHONY: report/image-cve
-report/image-cve:
+report/image-cve: build
 	make -C go govulncheck
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype docker:$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype docker:$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
+	grype docker:$(TOOLS_IMG)      -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/tools-cve.csv
+	grype docker:$(DOCS_IMG)       -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/doc2vec-cve.csv

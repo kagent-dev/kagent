@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/kagent-dev/kagent/go/tools/internal/logger"
+
 	"github.com/kagent-dev/kagent/go/tools/internal/argo"
 	"github.com/kagent-dev/kagent/go/tools/internal/cilium"
 	"github.com/kagent-dev/kagent/go/tools/internal/common"
@@ -18,7 +20,6 @@ import (
 	"github.com/kagent-dev/kagent/go/tools/internal/helm"
 	"github.com/kagent-dev/kagent/go/tools/internal/istio"
 	"github.com/kagent-dev/kagent/go/tools/internal/k8s"
-	"github.com/kagent-dev/kagent/go/tools/internal/logger"
 	"github.com/kagent-dev/kagent/go/tools/internal/prometheus"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
@@ -37,27 +38,10 @@ var rootCmd = &cobra.Command{
 	Run:   run,
 }
 
-var toolMap = map[string]func(*server.MCPServer){
-	"common":     common.RegisterCommonTools,
-	"k8s":        k8s.RegisterK8sTools,
-	"datetime":   datetime.RegisterDateTimeTools,
-	"prometheus": prometheus.RegisterPrometheusTools,
-	"helm":       helm.RegisterHelmTools,
-	"istio":      istio.RegisterIstioTools,
-	"argo":       argo.RegisterArgoTools,
-	"cilium":     cilium.RegisterCiliumTools,
-	"grafana":    grafana.RegisterGrafanaTools,
-}
-
 func init() {
-	availableTools := []string{}
-	for tool := range toolMap {
-		availableTools = append(tools, tool)
-	}
-
 	rootCmd.Flags().IntVarP(&port, "port", "p", 8084, "Port to run the server on")
 	rootCmd.Flags().BoolVar(&stdio, "stdio", false, "Use stdio for communication instead of HTTP")
-	rootCmd.Flags().StringSliceVar(&tools, "tools", availableTools, "List of tools to register. If empty, all tools are registered.")
+	rootCmd.Flags().StringSliceVar(&tools, "tools", []string{}, "List of tools to register. If empty, all tools are registered.")
 }
 
 func main() {
@@ -69,7 +53,6 @@ func main() {
 
 func run(cmd *cobra.Command, args []string) {
 	logger.Init()
-	log := logger.Get()
 	defer logger.Sync()
 
 	mcp := server.NewMCPServer(
@@ -84,47 +67,73 @@ func run(cmd *cobra.Command, args []string) {
 	registerMCP(mcp, tools)
 
 	if stdio {
-		log.Info("Running KAgent Tools Server STDIO: ", zap.String("tools", strings.Join(tools, ",")))
+		logger.Get().Info("Running KAgent Tools Server STDIO: ", zap.String("tools", strings.Join(tools, ",")))
 		stdioServer := server.NewStdioServer(mcp)
 		go func() {
 			if err := stdioServer.Listen(context.Background(), os.Stdin, os.Stdout); err != nil {
-				log.Info("Stdio server stopped", zap.Error(err))
+				logger.Get().Info("Stdio server stopped", zap.Error(err))
 			}
 		}()
 
 		<-signalChan
-		log.Info("Shutting down...")
+		logger.Get().Info("Shutting down...")
 		// For stdio, closing stdin or terminating the process is enough.
 
 	} else {
 		addr := fmt.Sprintf(":%d", port)
-		log.Info("Running KAgent Tools Server", zap.String("port", addr))
+		logger.Get().Info("Running KAgent Tools Server", zap.String("port", addr), zap.String("tools", strings.Join(tools, ",")))
 		sseServer := server.NewSSEServer(mcp)
 
 		go func() {
 			if err := sseServer.Start(addr); err != nil {
 				if !errors.Is(err, http.ErrServerClosed) {
-					log.Error("Failed to start SSE server", zap.Error(err))
+					logger.Get().Error("Failed to start SSE server", zap.Error(err))
 				} else {
-					log.Info("SSE server closed gracefully.")
+					logger.Get().Info("SSE server closed gracefully.")
 				}
 			}
 		}()
 
 		<-signalChan
-		log.Info("Shutting down server...")
+		logger.Get().Info("Shutting down server...")
 		if err := sseServer.Shutdown(context.Background()); err != nil {
-			log.Error("Failed to shutdown server gracefully", zap.Error(err))
+			logger.Get().Error("Failed to shutdown server gracefully", zap.Error(err))
 		}
 	}
 }
 
-func registerMCP(mcp *server.MCPServer, enabledTools []string) {
-	for _, toolName := range enabledTools {
-		if registerFunc, ok := toolMap[strings.ToLower(toolName)]; ok {
+func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
+
+	var toolProviderMap = map[string]func(*server.MCPServer){
+		"common":     common.RegisterCommonTools,
+		"k8s":        k8s.RegisterK8sTools,
+		"datetime":   datetime.RegisterDateTimeTools,
+		"prometheus": prometheus.RegisterPrometheusTools,
+		"helm":       helm.RegisterHelmTools,
+		"istio":      istio.RegisterIstioTools,
+		"argo":       argo.RegisterArgoTools,
+		"cilium":     cilium.RegisterCiliumTools,
+		"grafana":    grafana.RegisterGrafanaTools,
+	}
+
+	// If no tools specified, register all tools
+	if len(enabledToolProviders) == 0 {
+		logger.Get().Info("No specific tools provided, registering all tools")
+		for toolProvider, registerFunc := range toolProviderMap {
+			logger.Get().Info("Registering tools", zap.String("provider", toolProvider))
+			registerFunc(mcp)
+		}
+		return
+	}
+
+	// Register only the specified tools
+	logger.Get().Info("provider list", zap.Strings("tools", enabledToolProviders))
+	for _, toolProviderName := range enabledToolProviders {
+		if registerFunc, ok := toolProviderMap[strings.ToLower(toolProviderName)]; ok {
+			logger.Get().Info("Registering tool", zap.String("provider", toolProviderName))
 			registerFunc(mcp)
 		} else {
-			logger.Get().Warn("Unknown tool specified", zap.String("tool", toolName))
+			logger.Get().Error("Unknown tool specified", zap.String("provider", toolProviderName))
 		}
 	}
 }

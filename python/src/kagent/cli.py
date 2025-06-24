@@ -5,6 +5,7 @@ app = typer.Typer()
 
 mcp = FastMCP("KAgent")
 
+
 @app.command()
 def serve(
     host: str = "127.0.0.1",
