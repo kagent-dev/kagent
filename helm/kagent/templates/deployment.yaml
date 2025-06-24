@@ -115,6 +115,9 @@ spec:
         - name: tools
           command:
             - /tool-server
+          args:
+          - "--port"
+          - "{{ .Values.service.ports.tools.targetPort }}"
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.tools.image.registry }}/{{ .Values.tools.image.repository }}:{{ coalesce .Values.global.tag .Values.tools.image.tag .Chart.Version }}"
@@ -127,10 +130,6 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
-            - name: KAGENT_LOG_LEVEL
-              value: {{ .Values.tools.loglevel }}
-            - name: PORT
-              value: ":{{ .Values.service.ports.tools.targetPort }}"
           ports:
             - name: mcp
               containerPort: {{ .Values.service.ports.tools.targetPort }}
