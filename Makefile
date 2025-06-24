@@ -112,7 +112,10 @@ create-kind-cluster:
 
 .PHONY: use-kind-cluster
 use-kind-cluster:
-	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > ~/.kube/config
+	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
+
+	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config
+	
 	kubectl create namespace kagent || true
 	kubectl config set-context --current --namespace kagent || true
 
