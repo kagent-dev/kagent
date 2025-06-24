@@ -13,7 +13,6 @@ import (
 	"github.com/kagent-dev/kagent/go/tools/internal/logger"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"go.uber.org/zap"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -697,8 +696,8 @@ func RegisterK8sTools(s *server.MCPServer) {
 	k8sTool, err := NewK8sTool()
 	if err != nil {
 		// Log the error and proceed without native tool implementations
-		logger.Get().Warn("Failed to initialize Kubernetes client, falling back to kubectl commands",
-			zap.String("error", err.Error()))
+		logger.Get().Info("Failed to initialize Kubernetes client, falling back to kubectl commands",
+			"level", "warn", "error", err.Error())
 		// Here you could register the pure-kubectl versions of the tools as a fallback
 		return
 	}

@@ -1,48 +1,22 @@
 package logger
 
 import (
-	"os"
-
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"github.com/go-logr/logr"
+	"github.com/go-logr/stdr"
 )
 
-var globalLogger *zap.Logger
+var globalLogger logr.Logger
 
 // Init initializes the global logger with appropriate configuration
 func Init() {
-	config := zap.NewProductionConfig()
-
-	// Set log level from environment variable
-	logLevel := os.Getenv("KAGENT_LOG_LEVEL")
-	if logLevel != "" {
-		var level zapcore.Level
-		if err := level.UnmarshalText([]byte(logLevel)); err == nil {
-			config.Level = zap.NewAtomicLevelAt(level)
-		}
-	}
-
-	// Configure for better readability in development
-	if os.Getenv("KAGENT_ENV") == "development" {
-		config.Development = true
-		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	}
-
-	// Add caller information for better debugging
-	config.EncoderConfig.CallerKey = "caller"
-	config.EncoderConfig.TimeKey = "timestamp"
-	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-
-	var err error
-	globalLogger, err = config.Build()
-	if err != nil {
-		panic("failed to initialize logger: " + err.Error())
-	}
+	// Set log level from environment variable (not directly supported by stdr, but can be extended)
+	// For now, just use stdr with default settings
+	globalLogger = stdr.New(nil)
 }
 
 // Get returns the global logger instance
-func Get() *zap.Logger {
-	if globalLogger == nil {
+func Get() logr.Logger {
+	if globalLogger.GetSink() == nil {
 		Init()
 	}
 	return globalLogger
@@ -51,10 +25,10 @@ func Get() *zap.Logger {
 // LogExecCommand logs information about an exec command being executed
 func LogExecCommand(command string, args []string, caller string) {
 	logger := Get()
-	logger.Info("!!",
-		zap.String("command", command),
-		zap.Strings("args", args),
-		zap.String("caller", caller),
+	logger.Info("executing command",
+		"command", command,
+		"args", args,
+		"caller", caller,
 	)
 }
 
@@ -63,27 +37,22 @@ func LogExecCommandResult(command string, args []string, output string, err erro
 	logger := Get()
 
 	if err != nil {
-		logger.Error("KO",
-			zap.String("command", command),
-			zap.Strings("args", args),
-			zap.String("error", err.Error()),
-			zap.Float64("duration_seconds", duration),
-			zap.String("caller", caller),
+		logger.Error(err, "command execution failed",
+			"command", command,
+			"args", args,
+			"duration_seconds", duration,
+			"caller", caller,
 		)
 	} else {
-		logger.Info("OK",
-			zap.String("command", command),
-			zap.Strings("args", args),
-			zap.String("output", output),
-			zap.Float64("duration_seconds", duration),
-			zap.String("caller", caller),
+		logger.Info("command execution successful",
+			"command", command,
+			"args", args,
+			"output", output,
+			"duration_seconds", duration,
+			"caller", caller,
 		)
 	}
 }
 
-// Sync flushes any buffered log entries
-func Sync() {
-	if globalLogger != nil {
-		globalLogger.Sync()
-	}
-}
+// Sync is a no-op for logr/stdr
+func Sync() {}

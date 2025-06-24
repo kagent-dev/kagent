@@ -23,7 +23,6 @@ import (
 	"github.com/kagent-dev/kagent/go/tools/internal/prometheus"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 )
 
 var (
@@ -67,11 +66,11 @@ func run(cmd *cobra.Command, args []string) {
 	registerMCP(mcp, tools)
 
 	if stdio {
-		logger.Get().Info("Running KAgent Tools Server STDIO: ", zap.String("tools", strings.Join(tools, ",")))
+		logger.Get().Info("Running KAgent Tools Server STDIO:", "tools", strings.Join(tools, ","))
 		stdioServer := server.NewStdioServer(mcp)
 		go func() {
 			if err := stdioServer.Listen(context.Background(), os.Stdin, os.Stdout); err != nil {
-				logger.Get().Info("Stdio server stopped", zap.Error(err))
+				logger.Get().Info("Stdio server stopped", "error", err)
 			}
 		}()
 
@@ -81,13 +80,13 @@ func run(cmd *cobra.Command, args []string) {
 
 	} else {
 		addr := fmt.Sprintf(":%d", port)
-		logger.Get().Info("Running KAgent Tools Server", zap.String("port", addr), zap.String("tools", strings.Join(tools, ",")))
+		logger.Get().Info("Running KAgent Tools Server", "port", addr, "tools", strings.Join(tools, ","))
 		sseServer := server.NewSSEServer(mcp)
 
 		go func() {
 			if err := sseServer.Start(addr); err != nil {
 				if !errors.Is(err, http.ErrServerClosed) {
-					logger.Get().Error("Failed to start SSE server", zap.Error(err))
+					logger.Get().Error(err, "Failed to start SSE server")
 				} else {
 					logger.Get().Info("SSE server closed gracefully.")
 				}
@@ -97,7 +96,7 @@ func run(cmd *cobra.Command, args []string) {
 		<-signalChan
 		logger.Get().Info("Shutting down server...")
 		if err := sseServer.Shutdown(context.Background()); err != nil {
-			logger.Get().Error("Failed to shutdown server gracefully", zap.Error(err))
+			logger.Get().Error(err, "Failed to shutdown server gracefully")
 		}
 	}
 }
@@ -120,20 +119,20 @@ func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
 	if len(enabledToolProviders) == 0 {
 		logger.Get().Info("No specific tools provided, registering all tools")
 		for toolProvider, registerFunc := range toolProviderMap {
-			logger.Get().Info("Registering tools", zap.String("provider", toolProvider))
+			logger.Get().Info("Registering tools", "provider", toolProvider)
 			registerFunc(mcp)
 		}
 		return
 	}
 
 	// Register only the specified tools
-	logger.Get().Info("provider list", zap.Strings("tools", enabledToolProviders))
+	logger.Get().Info("provider list", "tools", enabledToolProviders)
 	for _, toolProviderName := range enabledToolProviders {
 		if registerFunc, ok := toolProviderMap[strings.ToLower(toolProviderName)]; ok {
-			logger.Get().Info("Registering tool", zap.String("provider", toolProviderName))
+			logger.Get().Info("Registering tool", "provider", toolProviderName)
 			registerFunc(mcp)
 		} else {
-			logger.Get().Error("Unknown tool specified", zap.String("provider", toolProviderName))
+			logger.Get().Error(nil, "Unknown tool specified", "provider", toolProviderName)
 		}
 	}
 }
