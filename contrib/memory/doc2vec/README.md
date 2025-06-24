@@ -239,7 +239,7 @@ kubectl apply -f service.yaml
 
 ## Using the MCP Server
 
-The server implements a tool called `query-documentation` that can be used to query documentation.
+The server implements a tool called `query_Docs` that can be used to query documentation.
 
 ### Tool Parameters
 

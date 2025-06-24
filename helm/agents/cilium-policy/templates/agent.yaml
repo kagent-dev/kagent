@@ -453,7 +453,7 @@ spec:
       mcpServer:
         toolServer: kagent/kagent-querydoc
         toolNames:
-          - query-documentation
+          - query_Docs
     - type: McpServer
       mcpServer:
         toolServer: kagent/kagent-tool-server
