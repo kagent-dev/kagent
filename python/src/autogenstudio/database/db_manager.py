@@ -1,6 +1,6 @@
 import json
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Optional, Union
 
@@ -19,6 +19,10 @@ class CustomJSONEncoder(json.JSONEncoder):
         if hasattr(obj, "get_secret_value") and callable(obj.get_secret_value):
             return obj.get_secret_value()
         if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, timedelta):
+            return obj.total_seconds()
+        if isinstance(obj, date):
             return obj.isoformat()
         return super().default(obj)
 

@@ -44,7 +44,7 @@
                 "component_version": 0,
                 "config": {
                   "description": "A provider agent with vector memory",
-                  "name": "test-provider/provider-agent",
+                  "name": "test_provider__NS__provider_agent",
                   "team": {
                     "component_type": "team",
                     "component_version": 0,

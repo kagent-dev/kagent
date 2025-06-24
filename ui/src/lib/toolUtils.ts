@@ -199,8 +199,10 @@ export const findComponentForAgentTool = (
 
 export const SSE_MCP_TOOL_PROVIDER_NAME = "autogen_ext.tools.mcp.SseMcpToolAdapter";
 export const STDIO_MCP_TOOL_PROVIDER_NAME = "autogen_ext.tools.mcp.StdioMcpToolAdapter";
+export const STREAMABLE_HTTP_MCP_TOOL_PROVIDER_NAME = "autogen_ext.tools.mcp.StreamableHttpMcpToolAdapter";
+
 export function isMcpProvider(provider: string): boolean {
-  return provider === SSE_MCP_TOOL_PROVIDER_NAME || provider === STDIO_MCP_TOOL_PROVIDER_NAME;
+  return provider === SSE_MCP_TOOL_PROVIDER_NAME || provider === STDIO_MCP_TOOL_PROVIDER_NAME || provider === STREAMABLE_HTTP_MCP_TOOL_PROVIDER_NAME;
 }
 
 // Extract category from tool identifier

@@ -44,7 +44,7 @@
                 "component_version": 0,
                 "config": {
                   "description": "A specialist agent for math problems",
-                  "name": "test/specialist-agent",
+                  "name": "test__NS__specialist_agent",
                   "team": {
                     "component_type": "team",
                     "component_version": 0,

@@ -6,11 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Terminal, Globe, Loader2, ChevronDown, ChevronUp, PlusCircle, Trash2, Code, InfoIcon, AlertCircle } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { SseMcpServerConfig, StdioMcpServerConfig, ToolServer } from "@/types/datamodel";
+import { SseMcpServerConfig, StdioMcpServerConfig, StreamableHttpMcpServerConfig, ToolServer } from "@/types/datamodel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { isResourceNameValid } from "@/lib/utils";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
+import { Checkbox } from "./ui/checkbox";
 
 interface AddServerDialogProps {
   open: boolean;
@@ -37,6 +38,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const [serverName, setServerName] = useState("");
   const [userEditedName, setUserEditedName] = useState(false);
   const [serverNamespace, setServerNamespace] = useState("");
+  const [useStreamableHttp, setUseStreamableHttp] = useState(false);
 
   // Command structure fields
   const [commandType, setCommandType] = useState("npx");
@@ -299,7 +301,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     setIsSubmitting(true);
     setError(null); // Clear any previous errors
 
-    let params: StdioMcpServerConfig | SseMcpServerConfig;
+    let params: StdioMcpServerConfig | SseMcpServerConfig | StreamableHttpMcpServerConfig;
     if (activeTab === "command") {
       // Create StdioServerParameters
       params = {
@@ -358,7 +360,8 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
         description: "",
         config: {
           stdio: typeof params === "object" && "command" in params ? params : undefined,
-          sse: typeof params === "object" && "url" in params ? params : undefined,
+          sse: !useStreamableHttp && typeof params === "object" && "url" in params ? params : undefined,
+          streamableHttp: useStreamableHttp && typeof params === "object" && "url" in params ? params : undefined,
         },
       },
     };
@@ -423,6 +426,10 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     
     // Return the original error if no specific formatting is needed
     return errorMsg;
+  };
+
+  const handleUseStreamableHttpChange = (checked: boolean) => {
+    setUseStreamableHttp(checked);
   };
 
   return (
@@ -620,6 +627,14 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   <Label htmlFor="url">Server URL</Label>
                   <Input id="url" placeholder="e.g., https://example.com/mcp-endpoint" value={url} onChange={(e) => setUrl(e.target.value)} />
                   <p className="text-xs text-muted-foreground">Enter the URL of the MCP server endpoint</p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox id="use-streamable-http" checked={useStreamableHttp} onCheckedChange={handleUseStreamableHttpChange} />
+                    <Label htmlFor="use-streamable-http">Use Streamable HTTP</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Use Streamable HTTP to connect to the MCP server, instead of SSE</p>
                 </div>
 
                 <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced} className="border rounded-md p-2">
