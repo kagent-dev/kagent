@@ -81,9 +81,11 @@ jobs:
 
       - name: Run e2e tests
         run: |
-          export GW_IP=$(kubectl get svc -n kagent kagent -o jsonpath='{.items[*].status.loadBalancer.ingress[*].ip}')
+          export GW_IP=$(kubectl get svc -n kagent kagent -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          export KAGENT_A2A_URL="http://${GW_IP}:8083/api/a2a"
           cd go
-          echo "What pods are running in the cluster?" | go run cli/cmd/kagent/main.go --api-url "http://${GW_IP}:8081/api" invoke -a kagent/k8s-agent -t -
+          go test -v -timeout 30s -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
+
 
   go-unit-tests:
     runs-on: ubuntu-latest
