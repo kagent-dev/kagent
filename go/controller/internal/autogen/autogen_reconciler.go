@@ -106,11 +106,9 @@ func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
 			req.Namespace, req.Name, err)
 	}
 
-	if team != nil {
-		if err = a.autogenClient.DeleteTeam(team.Id, team.UserID); err != nil {
-			return fmt.Errorf("failed to delete agent %s: %w",
-				req.NamespacedName.String(), err)
-		}
+	if err = a.autogenClient.DeleteTeam(team.Id, team.UserID); err != nil {
+		return fmt.Errorf("failed to delete agent %s: %w",
+			req.NamespacedName.String(), err)
 	}
 
 	reconcileLog.Info("Agent was deleted", "namespace", req.Namespace, "name", req.Name)
@@ -134,7 +132,8 @@ func (a *autogenReconciler) handleExistingAgent(ctx context.Context, agent *v1al
 			"newGeneration", agent.Generation)
 	}
 
-	if err := a.reconcileAgents(ctx, agent); err != nil {
+	err := a.reconcileAgents(ctx, agent)
+	if err != nil {
 		return fmt.Errorf("failed to reconcile agent %s/%s: %w",
 			req.Namespace, req.Name, err)
 	}
@@ -145,7 +144,7 @@ func (a *autogenReconciler) handleExistingAgent(ctx context.Context, agent *v1al
 			req.Namespace, req.Name, err)
 	}
 
-	return a.reconcileAgentStatus(ctx, agent, a.reconcileTeams(ctx, teams...))
+	return a.reconcileTeams(ctx, teams...)
 }
 
 func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha1.Agent, err error) error {
@@ -472,28 +471,33 @@ func (a *autogenReconciler) reconcileTeams(ctx context.Context, teams ...*v1alph
 }
 
 func (a *autogenReconciler) reconcileAgents(ctx context.Context, agents ...*v1alpha1.Agent) error {
-	errs := map[types.NamespacedName]error{}
+	var multiErr *multierror.Error
 	for _, agent := range agents {
-		autogenTeam, err := a.autogenTranslator.TranslateGroupChatForAgent(ctx, agent)
-		if err != nil {
-			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf(
-				"failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
-			continue
+		reconcileErr := a.reconcileAgent(ctx, agent)
+		// Append error but still try to reconcile the agent status
+		if reconcileErr != nil {
+			multiErr = multierror.Append(multiErr, fmt.Errorf(
+				"failed to reconcile agent %s/%s: %v", agent.Namespace, agent.Name, reconcileErr))
 		}
-		if err := a.reconcileA2A(ctx, autogenTeam, agent); err != nil {
-			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf(
-				"failed to reconcile A2A for agent %s/%s: %v", agent.Namespace, agent.Name, err)
-			continue
-		}
-		if err := a.upsertTeam(autogenTeam); err != nil {
-			errs[types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}] = fmt.Errorf(
-				"failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
-			continue
+		if err := a.reconcileAgentStatus(ctx, agent, reconcileErr); err != nil {
+			multiErr = multierror.Append(multiErr, fmt.Errorf(
+				"failed to reconcile agent status %s/%s: %v", agent.Namespace, agent.Name, err))
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to reconcile agents: %v", errs)
+	return multiErr.ErrorOrNil()
+}
+
+func (a *autogenReconciler) reconcileAgent(ctx context.Context, agent *v1alpha1.Agent) error {
+	autogenTeam, err := a.autogenTranslator.TranslateGroupChatForAgent(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
+	}
+	if err := a.reconcileA2A(ctx, autogenTeam, agent); err != nil {
+		return fmt.Errorf("failed to reconcile A2A for agent %s/%s: %v", agent.Namespace, agent.Name, err)
+	}
+	if err := a.upsertTeam(autogenTeam); err != nil {
+		return fmt.Errorf("failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
 
 	return nil
@@ -530,7 +534,7 @@ func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
 
 	// delete if team exists
 	existingTeam, err := a.autogenClient.GetTeam(team.Component.Label, common.GetGlobalUserID())
-	if err != nil {
+	if err != nil && err != autogen_client.NotFoundError {
 		return fmt.Errorf("failed to get existing team %s: %v", team.Component.Label, err)
 	}
 	if existingTeam != nil {
