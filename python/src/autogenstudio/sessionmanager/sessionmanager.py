@@ -1,7 +1,5 @@
-import asyncio
 import logging
 import traceback
-from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Optional, Sequence, Union
 
 from autogen_agentchat.base import TaskResult
@@ -22,7 +20,7 @@ from autogen_agentchat.messages import (
 )
 from autogen_core import CancellationToken, ComponentModel
 from autogen_core import Image as AGImage
-from fastapi import WebSocket, WebSocketDisconnect
+from opentelemetry import trace
 
 from ..database import DatabaseManager
 from ..datamodel import (
@@ -142,7 +140,9 @@ class SessionManager:
 
                 # Prepare task with message history
                 prepared_task = self._prepare_task_with_history(task, previous_messages)
-                result = await team_manager.run(prepared_task, team_config)
+                # Trace the run
+                attributes = {"run_id": run_id, "user_id": user_id, "session_id": run.session_id}
+                result: TeamResult = await team_manager.run(prepared_task, team_config, attributes=attributes)
 
                 # Remove n messages from result, where n is len(previous_messages)
                 result.task_result.messages = result.task_result.messages[len(previous_messages) :]
@@ -194,10 +194,13 @@ class SessionManager:
                 )
                 # ignore first  n messages from result, where n is len(previous_messages)
                 num_previous_messages = len(previous_messages)
+                # Trace the run_stream
+                attributes = {"run_id": run_id, "user_id": user_id, "session_id": run.session_id}
                 async for message in team_manager.run_stream(
                     task=prepared_task,
                     team_config=team_config,
                     cancellation_token=cancellation_token,
+                    attributes=attributes,
                 ):
                     if num_previous_messages > 0:
                         num_previous_messages -= 1

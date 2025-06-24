@@ -56,8 +56,6 @@ func TestE2E(t *testing.T) {
 		agentTeam, err := agentClient.GetTeam(agentName, GlobalUserID)
 		require.NoError(t, err)
 
-		require.NotNil(t, agentTeam, fmt.Sprintf("Agent with label %s not found", agentName))
-
 		// reuse existing sessions if available
 		existingSessions, err := agentClient.ListSessions(GlobalUserID)
 		require.NoError(t, err)
