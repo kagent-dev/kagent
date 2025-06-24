@@ -27,64 +27,6 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kagent.fullname" . }}
       containers:
-        - name: tools
-          command:
-            - /tool-server
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.tools.image.registry }}/{{ .Values.tools.image.repository }}:{{ coalesce .Values.global.tag .Values.tools.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.tools.image.pullPolicy }}
-          resources:
-            {{- toYaml .Values.tools.resources | nindent 12 }}
-          env:
-            - name: KAGENT_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  apiVersion: v1
-                  fieldPath: metadata.namespace
-            - name: KAGENT_LOG_LEVEL
-              value: {{ .Values.tools.loglevel }}
-            - name: PORT
-              value: ":{{ .Values.service.ports.tools.targetPort }}"
-          ports:
-            - name: mcp
-              containerPort: {{ .Values.service.ports.tools.targetPort }}
-              protocol: TCP
-          readinessProbe:
-            tcpSocket:
-              port: mcp
-            initialDelaySeconds: 10
-            periodSeconds: 15
-        {{ if eq .Values.providers.default "openAI"}}
-        - name: querydoc
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.tools.image.registry }}/{{ .Values.tools.image.repository }}-querydoc:{{ coalesce .Values.global.tag .Values.tools.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.tools.image.pullPolicy }}
-          resources:
-            {{- toYaml .Values.tools.resources | nindent 12 }}
-          env:
-            - name: KAGENT_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  apiVersion: v1
-                  fieldPath: metadata.namespace
-            - name: KAGENT_LOG_LEVEL
-              value: {{ .Values.tools.loglevel }}
-            - name: MCP_PORT
-              value: "{{ .Values.service.ports.querydoc.targetPort }}"
-            - name: TRANSPORT_TYPE
-              value: "http"
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "kagent.fullname" . }}-openai
-                  key: OPENAI_API_KEY
-          ports:
-            - name: querydoc
-              containerPort: {{ .Values.service.ports.querydoc.targetPort }}
-              protocol: TCP
-        {{ end }}
         - name: controller
           args:
           {{/* #we need to pass the default model config name to the app otherwise helm upgrade will not allow provider type change due to validations */}}
@@ -116,7 +58,7 @@ spec:
           readinessProbe:
             tcpSocket:
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 15
         - name: app
           securityContext:
@@ -145,7 +87,7 @@ spec:
             httpGet:
               path: /api/version
               port: {{ .Values.service.ports.app.targetPort }}
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 15
         - name: ui
           securityContext:
@@ -168,5 +110,63 @@ spec:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 15
+        - name: tools
+          command:
+            - /tool-server
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.tools.image.registry }}/{{ .Values.tools.image.repository }}:{{ coalesce .Values.global.tag .Values.tools.image.tag .Chart.Version }}"
+          imagePullPolicy: {{ .Values.tools.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.tools.resources | nindent 12 }}
+          env:
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: KAGENT_LOG_LEVEL
+              value: {{ .Values.tools.loglevel }}
+            - name: PORT
+              value: ":{{ .Values.service.ports.tools.targetPort }}"
+          ports:
+            - name: mcp
+              containerPort: {{ .Values.service.ports.tools.targetPort }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 15
+            periodSeconds: 15
+        {{ if eq .Values.providers.default "openAI"}}
+        - name: querydoc
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.tools.image.registry }}/{{ .Values.tools.image.repository }}-querydoc:{{ coalesce .Values.global.tag .Values.tools.image.tag .Chart.Version }}"
+          imagePullPolicy: {{ .Values.tools.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.tools.resources | nindent 12 }}
+          env:
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: KAGENT_LOG_LEVEL
+              value: {{ .Values.tools.loglevel }}
+            - name: MCP_PORT
+              value: "{{ .Values.service.ports.querydoc.targetPort }}"
+            - name: TRANSPORT_TYPE
+              value: "http"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-openai
+                  key: OPENAI_API_KEY
+          ports:
+            - name: querydoc
+              containerPort: {{ .Values.service.ports.querydoc.targetPort }}
+              protocol: TCP
+        {{ end }}
