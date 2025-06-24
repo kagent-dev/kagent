@@ -1,4 +1,16 @@
-FROM node:20-slim AS base
+### STAGE 1: base image
+ARG BASE_IMAGE_REGISTRY=cgr.dev
+FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+RUN apk update \
+    && apk add --no-cache python3 make build-base curl bash openssl unzip ca-certificates nodejs npm sqlite-dev node-gyp \
+    && update-ca-certificates \
+    && rm -rf /var/cache/apk/*
+
+ARG TARGETARCH
+ARG VERSION
 
 WORKDIR /app
 
@@ -22,8 +34,13 @@ COPY package-lock.json /app/
 COPY tsconfig.json /app/
 COPY src/index.ts /app/src/
 
-RUN npm install typescript  \
-    && npm install          \
+RUN npm install typescript     \
+    && npm install             \
     && npm run build
+
+LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
+LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
+LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
+LABEL org.opencontainers.image.version="$VERSION"
 
 ENTRYPOINT ["node", "build/index.js"]
