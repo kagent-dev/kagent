@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/kagent-dev/kagent/go/internal/version"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
+	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/tools/internal/logger"
 
 	"github.com/kagent-dev/kagent/go/tools/internal/argo"
@@ -63,36 +65,41 @@ func run(cmd *cobra.Command, args []string) {
 
 	logger.Get().Info("Starting "+Name, "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
 
+	// Setup context with cancellation for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	mcp := server.NewMCPServer(
 		Name,
 		Version,
 	)
 
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-
 	// Register tools
 	registerMCP(mcp, tools)
 
+	// Create wait group for server goroutines
+	var wg sync.WaitGroup
+
+	// Setup signal handling
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+
+	// HTTP server reference (only used when not in stdio mode)
+	var sseServer *server.SSEServer
+
+	// Start server based on chosen mode
+	wg.Add(1)
 	if stdio {
-		logger.Get().Info("Running KAgent Tools Server STDIO:", "tools", strings.Join(tools, ","))
-		stdioServer := server.NewStdioServer(mcp)
 		go func() {
-			if err := stdioServer.Listen(context.Background(), os.Stdin, os.Stdout); err != nil {
-				logger.Get().Info("Stdio server stopped", "error", err)
-			}
+			defer wg.Done()
+			runStdioServer(ctx, mcp)
 		}()
-
-		<-signalChan
-		logger.Get().Info("Shutting down...")
-		// For stdio, closing stdin or terminating the process is enough.
-
 	} else {
-		addr := fmt.Sprintf(":%d", port)
-		logger.Get().Info("Running KAgent Tools Server", "port", addr, "tools", strings.Join(tools, ","))
-		sseServer := server.NewSSEServer(mcp)
-
+		sseServer = server.NewSSEServer(mcp)
 		go func() {
+			defer wg.Done()
+			addr := fmt.Sprintf(":%d", port)
+			logger.Get().Info("Running KAgent Tools Server", "port", addr, "tools", strings.Join(tools, ","))
 			if err := sseServer.Start(addr); err != nil {
 				if !errors.Is(err, http.ErrServerClosed) {
 					logger.Get().Error(err, "Failed to start SSE server")
@@ -101,12 +108,37 @@ func run(cmd *cobra.Command, args []string) {
 				}
 			}
 		}()
+	}
 
+	// Wait for termination signal
+	go func() {
 		<-signalChan
-		logger.Get().Info("Shutting down server...")
-		if err := sseServer.Shutdown(context.Background()); err != nil {
-			logger.Get().Error(err, "Failed to shutdown server gracefully")
+		logger.Get().Info("Received termination signal, shutting down server...")
+
+		// Cancel context to notify any context-aware operations
+		cancel()
+
+		// Gracefully shutdown HTTP server if running
+		if !stdio && sseServer != nil {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+
+			if err := sseServer.Shutdown(shutdownCtx); err != nil {
+				logger.Get().Error(err, "Failed to shutdown server gracefully")
+			}
 		}
+	}()
+
+	// Wait for all server operations to complete
+	wg.Wait()
+	logger.Get().Info("Server shutdown complete")
+}
+
+func runStdioServer(ctx context.Context, mcp *server.MCPServer) {
+	logger.Get().Info("Running KAgent Tools Server STDIO:", "tools", strings.Join(tools, ","))
+	stdioServer := server.NewStdioServer(mcp)
+	if err := stdioServer.Listen(ctx, os.Stdin, os.Stdout); err != nil {
+		logger.Get().Info("Stdio server stopped", "error", err)
 	}
 }
 

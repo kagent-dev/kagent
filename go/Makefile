@@ -105,7 +105,6 @@ build/tool-server:
 run/tool-server: build/tool-server ## Run the tool server from your host.
 	echo "Running tool server on http://localhost:8084/sse ..."
 	echo "Use:  npx @modelcontextprotocol/inspector to connect to the tool server"
-	./bin/tool-server-local --help
 	./bin/tool-server-local
 
 .PHONY: install
