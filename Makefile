@@ -338,7 +338,7 @@ kagent-cli-install:
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
-	kubectl port-forward -n kagent service/kagent 8082:80 8084:8084
+	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80 8084:8084
 
 .PHONY: open-dev-container
 open-dev-container:
