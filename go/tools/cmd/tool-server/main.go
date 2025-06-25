@@ -11,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/kagent-dev/kagent/go/tools/internal/logger"
-	"github.com/kagent-dev/kagent/go/tools/internal/telemetry"
 
 	"github.com/kagent-dev/kagent/go/tools/internal/argo"
 	"github.com/kagent-dev/kagent/go/tools/internal/cilium"
@@ -22,7 +21,6 @@ import (
 	"github.com/kagent-dev/kagent/go/tools/internal/istio"
 	"github.com/kagent-dev/kagent/go/tools/internal/k8s"
 	"github.com/kagent-dev/kagent/go/tools/internal/prometheus"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 )
@@ -56,18 +54,7 @@ func run(cmd *cobra.Command, args []string) {
 	logger.Init()
 	defer logger.Sync()
 
-	// Initialize OpenTelemetry if enabled
-	ctx := context.Background()
-	shutdown, err := telemetry.InitTelemetry(ctx)
-	if err != nil {
-		logger.Get().Error(err, "Failed to initialize telemetry")
-	} else {
-		defer shutdown()
-		logger.Get().Info("OpenTelemetry initialized successfully")
-	}
-
-	// Create instrumented MCP server
-	instrumentedMCP := telemetry.NewInstrumentedMCPServer(
+	mcp := server.NewMCPServer(
 		"kagent-tools",
 		"1.0.0",
 	)
@@ -75,13 +62,12 @@ func run(cmd *cobra.Command, args []string) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
-	// Register tools - the instrumented server implements the same interface
-	// as the regular MCP server, so we can pass it directly to the register functions
-	registerMCP(instrumentedMCP, tools)
+	// Register tools
+	registerMCP(mcp, tools)
 
 	if stdio {
 		logger.Get().Info("Running KAgent Tools Server STDIO:", "tools", strings.Join(tools, ","))
-		stdioServer := server.NewStdioServer(instrumentedMCP.MCPServer)
+		stdioServer := server.NewStdioServer(mcp)
 		go func() {
 			if err := stdioServer.Listen(context.Background(), os.Stdin, os.Stdout); err != nil {
 				logger.Get().Info("Stdio server stopped", "error", err)
@@ -95,7 +81,7 @@ func run(cmd *cobra.Command, args []string) {
 	} else {
 		addr := fmt.Sprintf(":%d", port)
 		logger.Get().Info("Running KAgent Tools Server", "port", addr, "tools", strings.Join(tools, ","))
-		sseServer := server.NewSSEServer(instrumentedMCP.MCPServer)
+		sseServer := server.NewSSEServer(mcp)
 
 		go func() {
 			if err := sseServer.Start(addr); err != nil {
@@ -115,29 +101,18 @@ func run(cmd *cobra.Command, args []string) {
 	}
 }
 
-// MCPServerInterface defines the interface that both regular and instrumented MCP servers implement
-type MCPServerInterface interface {
-	AddTool(tool mcp.Tool, handler server.ToolHandlerFunc)
-}
+func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
 
-func registerMCP(mcpServer MCPServerInterface, enabledToolProviders []string) {
-
-	var toolProviderMap = map[string]func(MCPServerInterface){
-		"common": func(s MCPServerInterface) { common.RegisterCommonTools(s.(*telemetry.InstrumentedMCPServer).MCPServer) },
-		"k8s":    func(s MCPServerInterface) { k8s.RegisterK8sTools(s.(*telemetry.InstrumentedMCPServer).MCPServer) },
-		"datetime": func(s MCPServerInterface) {
-			datetime.RegisterDateTimeTools(s.(*telemetry.InstrumentedMCPServer).MCPServer)
-		},
-		"prometheus": func(s MCPServerInterface) {
-			prometheus.RegisterPrometheusTools(s.(*telemetry.InstrumentedMCPServer).MCPServer)
-		},
-		"helm":   func(s MCPServerInterface) { helm.RegisterHelmTools(s.(*telemetry.InstrumentedMCPServer).MCPServer) },
-		"istio":  func(s MCPServerInterface) { istio.RegisterIstioTools(s.(*telemetry.InstrumentedMCPServer).MCPServer) },
-		"argo":   func(s MCPServerInterface) { argo.RegisterArgoTools(s.(*telemetry.InstrumentedMCPServer).MCPServer) },
-		"cilium": func(s MCPServerInterface) { cilium.RegisterCiliumTools(s.(*telemetry.InstrumentedMCPServer).MCPServer) },
-		"grafana": func(s MCPServerInterface) {
-			grafana.RegisterGrafanaTools(s.(*telemetry.InstrumentedMCPServer).MCPServer)
-		},
+	var toolProviderMap = map[string]func(*server.MCPServer){
+		"common":     common.RegisterCommonTools,
+		"k8s":        k8s.RegisterK8sTools,
+		"datetime":   datetime.RegisterDateTimeTools,
+		"prometheus": prometheus.RegisterPrometheusTools,
+		"helm":       helm.RegisterHelmTools,
+		"istio":      istio.RegisterIstioTools,
+		"argo":       argo.RegisterArgoTools,
+		"cilium":     cilium.RegisterCiliumTools,
+		"grafana":    grafana.RegisterGrafanaTools,
 	}
 
 	// If no tools specified, register all tools
@@ -145,7 +120,7 @@ func registerMCP(mcpServer MCPServerInterface, enabledToolProviders []string) {
 		logger.Get().Info("No specific tools provided, registering all tools")
 		for toolProvider, registerFunc := range toolProviderMap {
 			logger.Get().Info("Registering tools", "provider", toolProvider)
-			registerFunc(mcpServer)
+			registerFunc(mcp)
 		}
 		return
 	}
@@ -155,7 +130,7 @@ func registerMCP(mcpServer MCPServerInterface, enabledToolProviders []string) {
 	for _, toolProviderName := range enabledToolProviders {
 		if registerFunc, ok := toolProviderMap[strings.ToLower(toolProviderName)]; ok {
 			logger.Get().Info("Registering tool", "provider", toolProviderName)
-			registerFunc(mcpServer)
+			registerFunc(mcp)
 		} else {
 			logger.Get().Error(nil, "Unknown tool specified", "provider", toolProviderName)
 		}

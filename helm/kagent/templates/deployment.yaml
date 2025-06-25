@@ -68,7 +68,7 @@ spec:
           env:
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
-            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
@@ -134,7 +134,7 @@ spec:
                   fieldPath: metadata.namespace
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
-            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
@@ -176,7 +176,7 @@ spec:
                   key: OPENAI_API_KEY
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
-            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}

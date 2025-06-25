@@ -113,12 +113,12 @@ spec:
   tools:
   - type: McpServer
     mcpServer:
-      toolServer: kagent/kagent-querydoc
+      toolServer: kagent-querydoc
       toolNames:
-        - query_Docs
+        - query_docs
   - type: McpServer
     mcpServer:
-      toolServer: kagent/kagent-tool-server
+      toolServer: kagent-tool-server
       toolNames:
       - argo_verify_argo_rollouts_controller_install
       - k8s_get_resources

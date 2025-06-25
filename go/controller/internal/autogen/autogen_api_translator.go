@@ -27,7 +27,7 @@ var (
 		"kagent.tools.k8s.GenerateResourceTool",
 	}
 	toolsProvidersRequiringOpenaiApiKey = []string{
-		"query_Docs",
+		"query_docs",
 		"kagent/kagent-querydoc",
 	}
 

@@ -113,12 +113,12 @@ spec:
   tools:
   - type: McpServer
     mcpServer:
-      toolServer: kagent/kagent-querydoc
+      toolServer: kagent-querydoc
       toolNames:
-        - query_Docs
+        - query_docs
   - type: McpServer
     mcpServer:
-      toolServer: kagent/kagent-tool-server
+      toolServer: kagent-tool-server
       toolNames:
       - cilium_manage_endpoint_config
       - cilium_get_endpoint_health

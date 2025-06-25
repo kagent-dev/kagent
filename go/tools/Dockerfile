@@ -89,7 +89,7 @@ COPY --from=builder --chown=65532:65532 /workspace/tool-server           /tool-s
 ARG VERSION
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
-LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
+LABEL org.opencontainers.image.description="Kagent MCP tools server"
 LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 LABEL org.opencontainers.image.version="$VERSION"
 

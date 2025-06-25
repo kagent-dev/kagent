@@ -134,7 +134,7 @@ const server = new McpServer({
 
 // --- Define the MCP Tool ---
 server.tool(
-    "query_Docs",
+    "query_docs",
     "Query documentation stored in a sqlite-vec database using vector search.",
     {
         queryText: z.string().min(1).describe("The natural language query to search for."),
@@ -171,7 +171,7 @@ server.tool(
                 content: [{ type: "text", text: responseText }],
             };
         } catch (error: any) {
-            console.error("Error processing 'query_Docs' tool:", error);
+            console.error("Error processing 'query_docs' tool:", error);
             return {
                 content: [{ type: "text", text: `Error querying documentation: ${error.message}` }],
             };

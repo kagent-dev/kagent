@@ -139,7 +139,7 @@ go build -o kagent-tools .
 ./kagent-tools
 ```
 
-The server runs using stdio transport for MCP communication.
+The server runs using sse transport for MCP communication.
 
 ### Testing
 ```bash
@@ -183,7 +183,7 @@ This Go implementation provides feature parity with the original Python tools wh
 5. **Simplified Deployment**: No Python dependencies or virtual environments required
 
 ### Key Differences from Python Implementation
-- Uses native Go HTTP clients instead of Python requests/httpx
+- Uses native Go clients instead of Python requests/httpx
 - Implements simplified documentation query (full vector search would require additional Go libraries)
 - Uses Go's native JSON handling instead of Python's json module
 - Command execution uses Go's `os/exec` package instead of Python's subprocess
@@ -191,8 +191,8 @@ This Go implementation provides feature parity with the original Python tools wh
 ## Configuration
 
 Tools can be configured through environment variables:
-- `PROMETHEUS_URL`: Default Prometheus server URL
 - `KUBECONFIG`: Kubernetes configuration file path
+- `PROMETHEUS_URL`: Default Prometheus server URL
 - `GRAFANA_URL`: Default Grafana server URL
 - `GRAFANA_API_KEY`: Default Grafana API key
 
