@@ -19,7 +19,7 @@ interface ToolsSectionProps {
   setSelectedTools: (tools: Tool[]) => void;
   isSubmitting: boolean;
   onBlur?: () => void;
-  currentAgentName?: string;
+  currentAgentName: string;
 }
 
 export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
