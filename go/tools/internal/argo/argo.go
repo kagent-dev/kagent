@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -196,7 +196,7 @@ func getLatestVersion() string {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "0.5.0"
 	}
@@ -235,7 +235,7 @@ data:
 `, namespace, version, arch)
 
 	// Create temporary file
-	tmpFile, err := ioutil.TempFile("", "argo-gateway-config-*.yaml")
+	tmpFile, err := os.CreateTemp("", "argo-gateway-config-*.yaml")
 	if err != nil {
 		return GatewayPluginStatus{
 			Installed:    false,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"strings"
@@ -280,7 +279,7 @@ func (k *K8sTool) handleApplyManifest(ctx context.Context, request mcp.CallToolR
 	// This handler still uses kubectl apply, which is not ideal for native Go implementation.
 	// For a pure Go approach, we would parse the manifest and use the appropriate client to create/update resources.
 	// This is a complex task and for now we will keep the kubectl fallback.
-	tmpFile, err := ioutil.TempFile("", "manifest-*.yaml")
+	tmpFile, err := os.CreateTemp("", "manifest-*.yaml")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to create temp file: %v", err)), nil
 	}
