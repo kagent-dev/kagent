@@ -19,6 +19,7 @@ import { AgentFormData } from "@/components/AgentsProvider";
 import { Tool } from "@/types/datamodel";
 import { toast } from "sonner";
 import { listMemories } from "@/app/actions/memories";
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
 interface ValidationErrors {
   name?: string;
@@ -270,15 +271,14 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   <p className="text-xs mb-2 block text-muted-foreground">
                     This is the namespace of the agent that will be displayed in the UI and used to identify the agent.
                   </p>
-                  <Input
+                  <NamespaceCombobox
                     value={namespace}
-                    onChange={(e) => setNamespace(e.target.value)}
-                    onBlur={() => validateField('namespace', namespace)}
-                    className={`${errors.namespace ? "border-red-500" : ""}`}
-                    placeholder="Enter agent namespace..."
+                    onValueChange={(value) => {
+                      setNamespace(value);
+                      validateField('namespace', value);
+                    }}
                     disabled={isSubmitting || isLoading || isEditMode}
                   />
-                  {errors.namespace && <p className="text-red-500 text-sm mt-1">{errors.namespace}</p>}
                 </div>
 
                 <div>

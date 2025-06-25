@@ -10,6 +10,7 @@ import { SseMcpServerConfig, StdioMcpServerConfig, StreamableHttpMcpServerConfig
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { isResourceNameValid } from "@/lib/utils";
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Checkbox } from "./ui/checkbox";
 
 interface AddServerDialogProps {
@@ -494,16 +495,10 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <Input 
-                id="server-namespace" 
-                placeholder="e.g. default" 
+              <NamespaceCombobox
                 value={serverNamespace}
-                onChange={(e) => setServerNamespace(e.target.value)}
-                className={!isResourceNameValid(serverNamespace) && serverNamespace ? "border-red-300" : ""}
+                onValueChange={setServerNamespace}
               />
-              {!isResourceNameValid(serverNamespace) && serverNamespace && (
-                <p className="text-xs text-red-500">Namespace must conform to RFC 1123 subdomain format</p>
-              )}
             </div>
 
             <Tabs defaultValue="command" value={activeTab} onValueChange={(v) => setActiveTab(v as "command" | "url")}>
