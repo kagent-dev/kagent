@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kagent-dev/kagent/go/internal/version"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,9 +33,9 @@ var (
 
 	// These variables should be set during build time using -ldflags
 	Name      = "kagent-tools-server"
-	Version   = "dev"
-	GitCommit = "none"
-	BuildDate = "unknown"
+	Version   = version.Version
+	GitCommit = version.GitCommit
+	BuildDate = version.BuildDate
 )
 
 var rootCmd = &cobra.Command{

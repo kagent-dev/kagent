@@ -46,9 +46,9 @@ AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 
 # Version information for the build
-LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version=$(VERSION)   \
-            -X github.com/kagent-dev/kagent/go/internal/version=$(GIT_COMMIT) \
-            -X github.com/kagent-dev/kagent/go/internal/version=$(BUILD_DATE)"
+LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)      \
+            -X github.com/kagent-dev/kagent/go/internal/version.GitCommit=$(GIT_COMMIT) \
+            -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)"
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
