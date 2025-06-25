@@ -9,6 +9,7 @@ import { ProviderModelsResponse } from '@/app/actions/models';
 import { ModelProviderCombobox } from "@/components/ModelProviderCombobox";
 import { PROVIDERS_INFO, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
 import { OLLAMA_DEFAULT_TAG } from '@/lib/constants';
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
 interface ValidationErrors {
   name?: string;
@@ -87,15 +88,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
         <div>
           <label className="text-sm mb-2 block">Namespace</label>
           <div className="flex items-center space-x-2">
-            <Input
+            <NamespaceCombobox
               value={namespace}
-              onChange={(e) => onNamespaceChange(e.target.value)}
-              className={errors.name ? "border-destructive" : ""}
-              placeholder="Enter model namespace..."
+              onValueChange={onNamespaceChange}
               disabled={isSubmitting || isLoading || isEditMode}
             />
           </div>
-          {errors.namespace && <p className="text-destructive text-sm mt-1">{errors.namespace}</p>}
         </div>
 
         <div>
