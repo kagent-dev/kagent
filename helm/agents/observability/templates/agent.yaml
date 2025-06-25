@@ -80,7 +80,7 @@ spec:
       mcpServer:
         toolServer: kagent-querydoc
         toolNames:
-          - query_docs
+          - query-documentation
     - type: McpServer
       mcpServer:
         toolServer: kagent-tool-server
@@ -90,12 +90,6 @@ spec:
     - type: Agent
       agent:
         ref: promql-agent
-      ## TODO  - grafana.DashboardManagementTool
-      # config:
-      #   base_url: {{ .Values.grafana.url | default "grafana.kagent:3000" | quote }}
-      #   username: {{ .Values.grafana.username | default "" | quote }}
-      #   password: {{ .Values.grafana.password | default "" | quote }}
-      #   api_key: {{ .Values.grafana.apiKey | default "" | quote }}
   a2aConfig:
     skills:
       - id: prometheus-monitoring-querying

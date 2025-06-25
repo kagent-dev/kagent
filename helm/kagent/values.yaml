@@ -74,6 +74,15 @@ tools:
     limits:
       cpu: 1000m
       memory: 512Mi
+  prometheus:
+    url: ""
+    username: ""
+    password: ""
+  grafana:
+    url: ""
+    username: ""
+    password: ""
+    apiKey: ""
 
 # additional tools can be added here
 mcp:
@@ -185,15 +194,6 @@ promql-agent:
 
 observability-agent:
   enabled: true
-  prometheus:
-    url: ""
-    username: ""
-    password: ""
-  grafana:
-    url: ""
-    username: ""
-    password: ""
-    apiKey: ""
 
 argo-rollouts-agent:
   enabled: true
