@@ -28,6 +28,7 @@ const (
 	APIPathProviders   = "/api/providers"
 	APIPathModels      = "/api/models"
 	APIPathMemories    = "/api/memories"
+	APIPathNamespaces  = "/api/namespaces"
 	APIPathA2A         = "/api/a2a"
 	APIPathFeedback    = "/api/feedback"
 )
@@ -39,10 +40,11 @@ var defaultModelConfig = types.NamespacedName{
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	BindAddr      string
-	AutogenClient autogen_client.Client
-	KubeClient    client.Client
-	A2AHandler    a2a.A2AHandlerMux
+	BindAddr          string
+	AutogenClient     autogen_client.Client
+	KubeClient        client.Client
+	A2AHandler        a2a.A2AHandlerMux
+	WatchedNamespaces []string
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -58,7 +60,7 @@ func NewHTTPServer(config ServerConfig) *HTTPServer {
 	return &HTTPServer{
 		config:   config,
 		router:   mux.NewRouter(),
-		handlers: handlers.NewHandlers(config.KubeClient, config.AutogenClient, defaultModelConfig),
+		handlers: handlers.NewHandlers(config.KubeClient, config.AutogenClient, defaultModelConfig, config.WatchedNamespaces),
 	}
 }
 
@@ -165,6 +167,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathMemories+"/{namespace}/{memoryName}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
+
+	// Namespaces
+	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
 
 	// Feedback
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)

@@ -8,6 +8,7 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
 const agentSetupSchema = z.object({
     agentName: z.string().min(1, "Agent name is required."),
@@ -81,7 +82,10 @@ export function AgentSetupStep({ initialData, onNext, onBack }: AgentSetupStepPr
                             <FormItem>
                                 <FormLabel>Agent Namespace</FormLabel>
                                 <FormControl>
-                                    <Input {...field} />
+                                    <NamespaceCombobox
+                                        value={field.value || ""}
+                                        onValueChange={field.onChange}
+                                    />
                                 </FormControl>
                                 <FormDescription>A kubernetes namespace for your agent.</FormDescription>
                                 <FormMessage />
