@@ -75,6 +75,23 @@ tools:
       cpu: 1000m
       memory: 512Mi
 
+# additional tools can be added here
+mcp:
+  doc2vec:
+    enabled: true
+    image:
+      registry: ghcr.io
+      repository: kagent-dev/doc2vec/mcp
+      tag: latest
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
 app:
   image:
     registry: cr.kagent.dev

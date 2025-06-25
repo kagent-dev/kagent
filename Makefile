@@ -12,19 +12,17 @@ CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 TOOLS_IMAGE_NAME ?= tools
-DOCS_IMAGE_NAME ?= tools-querydoc
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
 TOOLS_IMAGE_TAG ?= $(VERSION)
-DOCS_IMAGE_TAG ?= $(VERSION)
+
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 TOOLS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(TOOLS_IMAGE_NAME):$(TOOLS_IMAGE_TAG)
-DOCS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(DOCS_IMAGE_NAME):$(DOCS_IMAGE_TAG)
 
 # Retagged image variables for kind loading; the Helm chart uses these
 RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
@@ -32,7 +30,6 @@ RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLE
 RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 RETAGGED_TOOLS_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(TOOLS_IMAGE_NAME):$(TOOLS_IMAGE_TAG)
-RETAGGED_DOCS_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(DOCS_IMAGE_NAME):$(DOCS_IMAGE_TAG)
 
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
@@ -181,7 +178,6 @@ build-controller: buildx-create controller-manifests
 .PHONY: build-tools
 build-tools: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(TOOLS_IMG) -f go/tools/Dockerfile ./go
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCS_IMG)  -f contrib/memory/doc2vec/Dockerfile contrib/memory/doc2vec
 
 .PHONY: release-controller
 release-controller: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
@@ -219,7 +215,6 @@ kind-load-docker-images: retag-docker-images
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_TOOLS_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_DOCS_IMG)
 
 .PHONY: retag-docker-images
 retag-docker-images: build
@@ -227,7 +222,6 @@ retag-docker-images: build
 	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
 	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
 	docker tag $(TOOLS_IMG) $(RETAGGED_TOOLS_IMG)
-	docker tag $(DOCS_IMG) $(RETAGGED_DOCS_IMG)
 
 .PHONY: helm-cleanup
 helm-cleanup:

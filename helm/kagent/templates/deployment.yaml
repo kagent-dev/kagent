@@ -149,13 +149,14 @@ spec:
               port: mcp
             initialDelaySeconds: 15
             periodSeconds: 15
+        {{ if and .Values.mcp.doc2vec.enabled (eq .Values.providers.default "openAI") }}
         - name: querydoc
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.tools.image.registry }}/{{ .Values.tools.image.repository }}-querydoc:{{ coalesce .Values.global.tag .Values.tools.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.tools.image.pullPolicy }}
+          image: "{{ .Values.mcp.doc2vec.image.registry }}/{{ .Values.mcp.doc2vec.image.repository }}:{{ .Values.mcp.doc2vec.image.tag }}"
+          imagePullPolicy: {{ .Values.mcp.doc2vec.image.pullPolicy }}
           resources:
-            {{- toYaml .Values.tools.resources | nindent 12 }}
+            {{- toYaml .Values.mcp.doc2vec.resources | nindent 12 }}
           env:
             - name: KAGENT_NAMESPACE
               valueFrom:
@@ -164,19 +165,15 @@ spec:
                   fieldPath: metadata.namespace
             - name: KAGENT_LOG_LEVEL
               value: {{ .Values.tools.loglevel }}
-            - name: MCP_PORT
+            - name: PORT
               value: "{{ .Values.service.ports.querydoc.targetPort }}"
             - name: TRANSPORT_TYPE
               value: "http"
             - name: OPENAI_API_KEY
-           {{ if eq .Values.providers.default "openAI"}}
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kagent.fullname" . }}-openai
                   key: OPENAI_API_KEY
-            {{ else }}
-              value: "" # fallback for other providers
-            {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -186,7 +183,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
           ports:
-            - name: querydoc
+            - name: http
               containerPort: {{ .Values.service.ports.querydoc.targetPort }}
               protocol: TCP
-
+        {{ end }}
