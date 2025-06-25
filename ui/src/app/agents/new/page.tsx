@@ -351,6 +351,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   setSelectedTools={setSelectedTools} 
                   isSubmitting={isSubmitting || isLoading} 
                   onBlur={() => validateField('tools', selectedTools)}
+                  currentAgentName={name}
                 />
               </CardContent>
             </Card>
