@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/kagent-dev/kagent/go/internal/version"
 	"os"
 	"os/exec"
 	"strings"
@@ -45,7 +46,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 
 func InstallCmd(ctx context.Context, cfg *config.Config) {
 
-	if Version == "dev" {
+	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return
 	}
@@ -72,7 +73,7 @@ func InstallCmd(ctx context.Context, cfg *config.Config) {
 
 	//allow user to set the helm registry and version
 	helmRegistry := GetEnvVarWithDefault(KAGENT_HELM_REPO, DefaultHelmOciRegistry)
-	helmVersion := GetEnvVarWithDefault(KAGENT_HELM_VERSION, Version)
+	helmVersion := GetEnvVarWithDefault(KAGENT_HELM_VERSION, version.Version)
 
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 

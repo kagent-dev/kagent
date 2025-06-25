@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/kagent-dev/kagent/go/internal/version"
 	"os"
 	"time"
 
@@ -10,18 +11,11 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
-var (
-	// These variables should be set during build time using -ldflags
-	Version   = "dev"
-	GitCommit = "none"
-	BuildDate = "unknown"
-)
-
 func VersionCmd(cfg *config.Config) {
 	versionInfo := map[string]string{
-		"kagent_version": Version,
-		"git_commit":     GitCommit,
-		"build_date":     BuildDate,
+		"kagent_version": version.Version,
+		"git_commit":     version.GitCommit,
+		"build_date":     version.BuildDate,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()

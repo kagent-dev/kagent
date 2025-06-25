@@ -29,6 +29,12 @@ var (
 	port  int
 	stdio bool
 	tools []string
+
+	// These variables should be set during build time using -ldflags
+	Name      = "kagent-tools-server"
+	Version   = "dev"
+	GitCommit = "none"
+	BuildDate = "unknown"
 )
 
 var rootCmd = &cobra.Command{
@@ -54,9 +60,11 @@ func run(cmd *cobra.Command, args []string) {
 	logger.Init()
 	defer logger.Sync()
 
+	logger.Get().Info("Starting "+Name, "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
+
 	mcp := server.NewMCPServer(
-		"kagent-tools",
-		"1.0.0",
+		Name,
+		Version,
 	)
 
 	signalChan := make(chan os.Signal, 1)
