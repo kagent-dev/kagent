@@ -119,10 +119,21 @@ tests:
       - contains:
           path: spec.template.spec.containers[1].env
           content:
-            name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
             value: "http://host.docker.internal:4317"
 
-  - it: should enable otel tracing when configured
+  - it: should enable otel tracing when explicitly configured
+    set:
+      otel:
+        tracing:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: OTEL_TRACING_ENABLED
+            value: "true"
+  - it: should disable otel tracing when configured
     set:
       otel:
         tracing:

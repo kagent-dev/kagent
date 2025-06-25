@@ -28,7 +28,7 @@ var (
 	}
 	toolsProvidersRequiringOpenaiApiKey = []string{
 		"query_docs",
-		"kagent/kagent-querydoc",
+		"kagent-querydoc",
 	}
 
 	log = ctrllog.Log.WithName("autogen")
