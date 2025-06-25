@@ -547,10 +547,6 @@ func (a *apiTranslator) translateAssistantAgent(
 			}
 			tools = append(tools, autogenTool)
 		case tool.McpServer != nil:
-			if toolNeedsOpenaiApiKey(tool.McpServer.ToolServer) && modelConfig.Spec.Provider != v1alpha1.OpenAI {
-				log.V(1).Info("Skipping tool that requires OpenAI API key", "tool", tool.McpServer.ToolServer, "modelProvider", modelConfig.Spec.Provider)
-				continue
-			}
 			for _, toolName := range tool.McpServer.ToolNames {
 				autogenTool, err := translateToolServerTool(
 					ctx,
@@ -721,19 +717,6 @@ func (a *apiTranslator) translateBuiltinTool(
 	if toolNeedsModelClient(tool.Name) {
 		if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
 			return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
-		}
-	}
-	if toolNeedsOpenaiApiKey(tool.Name) {
-		if (modelConfig.Spec.Provider != v1alpha1.OpenAI) && modelConfig.Spec.Provider != v1alpha1.AzureOpenAI {
-			return nil, fmt.Errorf("tool %s requires OpenAI API key, but model config is not OpenAI", tool.Name)
-		}
-		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get model config api key: %v", err)
-		}
-
-		if err := addOpenaiApiKeyToConfig(apiKey, &toolConfig); err != nil {
-			return nil, fmt.Errorf("failed to add openai api key to tool config: %v", err)
 		}
 	}
 
@@ -922,10 +905,6 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 
 func toolNeedsModelClient(provider string) bool {
 	return slices.Contains(toolsProvidersRequiringModelClient, provider)
-}
-
-func toolNeedsOpenaiApiKey(provider string) bool {
-	return slices.Contains(toolsProvidersRequiringOpenaiApiKey, provider)
 }
 
 func addModelClientToConfig(

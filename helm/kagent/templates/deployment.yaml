@@ -149,7 +149,6 @@ spec:
               port: mcp
             initialDelaySeconds: 15
             periodSeconds: 15
-        {{ if eq .Values.providers.default "openAI"}}
         - name: querydoc
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -170,10 +169,14 @@ spec:
             - name: TRANSPORT_TYPE
               value: "http"
             - name: OPENAI_API_KEY
+           {{ if eq .Values.providers.default "openAI"}}
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kagent.fullname" . }}-openai
                   key: OPENAI_API_KEY
+            {{ else }}
+              value: "" # fallback for other providers
+            {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -186,4 +189,4 @@ spec:
             - name: querydoc
               containerPort: {{ .Values.service.ports.querydoc.targetPort }}
               protocol: TCP
-        {{ end }}
+

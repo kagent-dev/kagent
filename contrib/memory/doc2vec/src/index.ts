@@ -24,10 +24,6 @@ const __dirname = path.dirname(__filename);
 const openAIApiKey = process.env.OPENAI_API_KEY;
 const dbDir = process.env.SQLITE_DB_DIR || __dirname; // Default to current dir if not set
 
-const openai = new OpenAI({
-    apiKey: openAIApiKey,
-});
-
 export interface QueryResult {
     chunk_id: string;
     distance: number;
@@ -41,6 +37,9 @@ export interface QueryResult {
 async function createEmbeddings(text: string): Promise<number[]> {
     try {
         console.error("Calling OpenAI embeddings API...");
+        const openai = new OpenAI({
+            apiKey: openAIApiKey,
+        });
         const startTime = Date.now();
         const response = await openai.embeddings.create({
             model: 'text-embedding-3-large', // Or your preferred model
