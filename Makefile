@@ -3,6 +3,7 @@ DOCKER_REGISTRY ?= ghcr.io
 BASE_IMAGE_REGISTRY ?= cgr.dev
 DOCKER_REPO ?= kagent-dev/kagent
 HELM_REPO ?= oci://ghcr.io/kagent-dev
+HELM_DIST_FOLDER ?= dist
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
@@ -230,7 +231,7 @@ retag-docker-images: build
 
 .PHONY: helm-cleanup
 helm-cleanup:
-	rm -f ./dist/*.tgz
+	rm -f ./$(HELM_DIST_FOLDER)/*.tgz
 
 .PHONY: helm-test
 helm-test: helm-version
@@ -245,33 +246,33 @@ helm-test: helm-version
 .PHONY: helm-agents
 helm-agents:
 	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
-	helm package -d dist helm/agents/k8s
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/k8s
 	VERSION=$(VERSION) envsubst < helm/agents/kgateway/Chart-template.yaml > helm/agents/kgateway/Chart.yaml
-	helm package -d dist helm/agents/kgateway
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/kgateway
 	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
-	helm package -d dist helm/agents/istio
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/istio
 	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
-	helm package -d dist helm/agents/promql
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/promql
 	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
-	helm package -d dist helm/agents/observability
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/observability
 	VERSION=$(VERSION) envsubst < helm/agents/helm/Chart-template.yaml > helm/agents/helm/Chart.yaml
-	helm package -d dist helm/agents/helm
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/helm
 	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
-	helm package -d dist helm/agents/argo-rollouts
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/argo-rollouts
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-policy/Chart-template.yaml > helm/agents/cilium-policy/Chart.yaml
-	helm package -d dist helm/agents/cilium-policy
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-policy
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-debug/Chart-template.yaml > helm/agents/cilium-debug/Chart.yaml
-	helm package -d dist helm/agents/cilium-debug
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-debug
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
-	helm package -d dist helm/agents/cilium-manager
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-manager
 
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
-	helm package -d dist helm/kagent-crds
-	helm package -d dist helm/kagent
+	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
+	helm package -d $(HELM_DIST_FOLDER) helm/kagent
 
 .PHONY: helm-install-provider
 helm-install-provider: helm-version check-openai-key
@@ -316,17 +317,17 @@ helm-uninstall:
 
 .PHONY: helm-publish
 helm-publish: helm-version
-	helm push ./dist/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
-	helm push ./dist/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
-	helm push ./dist/helm-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./dist/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./dist/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./dist/observability-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./dist/argo-rollouts-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./dist/cilium-policy-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./dist/cilium-manager-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./dist/cilium-debug-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./dist/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
+	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
+	helm push ./$(HELM_DIST_FOLDER)/helm-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/observability-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/argo-rollouts-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/cilium-policy-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/cilium-manager-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/cilium-debug-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 .PHONY: kagent-cli-install
 kagent-cli-install: clean build-cli-local kind-load-docker-images helm-version
