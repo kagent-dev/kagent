@@ -433,12 +433,12 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
+        <DialogHeader className="px-6 pt-6 pb-2 border-b flex-shrink-0">
           <DialogTitle>Add Tool Server</DialogTitle>
         </DialogHeader>
 
-        <div className="py-4">
+        <div className="flex-1 overflow-y-auto px-6">
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-start">
               <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
@@ -669,7 +669,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
           <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>
             Cancel
           </Button>
