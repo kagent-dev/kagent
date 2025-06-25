@@ -20,17 +20,6 @@ import (
 )
 
 var (
-	// hard-coded array of tools that require a model client
-	// this is automatically populated from the parent agent's model client
-	toolsProvidersRequiringModelClient = []string{
-		"kagent.tools.prometheus.GeneratePromQLTool",
-		"kagent.tools.k8s.GenerateResourceTool",
-	}
-	toolsProvidersRequiringOpenaiApiKey = []string{
-		"query_docs",
-		"kagent-querydoc",
-	}
-
 	log = ctrllog.Log.WithName("autogen")
 )
 
@@ -713,12 +702,6 @@ func (a *apiTranslator) translateBuiltinTool(
 	if err != nil {
 		return nil, err
 	}
-	// special case where we put the model client in the tool config
-	if toolNeedsModelClient(tool.Name) {
-		if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
-			return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
-		}
-	}
 
 	providerParts := strings.Split(tool.Name, ".")
 	toolLabel := providerParts[len(providerParts)-1]
@@ -901,10 +884,6 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 	}
 
 	return nil, fmt.Errorf("unsupported termination condition")
-}
-
-func toolNeedsModelClient(provider string) bool {
-	return slices.Contains(toolsProvidersRequiringModelClient, provider)
 }
 
 func addModelClientToConfig(
