@@ -53,7 +53,6 @@ export function Header() {
               </Link>
             </Button>
 
-
             {/* Create Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -133,7 +132,6 @@ export function Header() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-
             {/* Other Links */}
             <Button variant="link" className="text-secondary-foreground" asChild>
               <Link href="https://github.com/kagent-dev/kagent" target="_blank">Contribute</Link>
@@ -145,7 +143,7 @@ export function Header() {
             <ThemeToggle />
           </div>
         </div>
-        
+
         {/* Mobile menu */}
         {isMenuOpen && (
           <div className="md:hidden pt-4 pb-2 animate-in fade-in slide-in-from-top duration-300">
@@ -202,16 +200,16 @@ export function Header() {
               </DropdownMenu>
 
               {/* Mobile Create Dropdown */}
-               <DropdownMenu>
+              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-1 w-full">
-                     <Plus className="h-4 w-4" />
+                    <Plus className="h-4 w-4" />
                     Create
                     <ChevronDown className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
-                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
                     <Link href="/agents/new" className="gap-2 cursor-pointer w-full">
                       <KagentLogo className="h-4 w-4 text-primary" />
                       New Agent
@@ -224,13 +222,7 @@ export function Header() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/tools/new" className="gap-2 cursor-pointer w-full">
-                      <Wrench className="h-4 w-4" />
-                      New Tool
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
+                    <Link href="/servers" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
                       New Tool Server
                     </Link>
@@ -243,7 +235,7 @@ export function Header() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              
+
               {/* Mobile Other Links */}
               <Button variant="ghost" className="text-secondary-foreground justify-start px-1" asChild>
                 <Link href="https://github.com/kagent-dev/kagent" target="_blank" onClick={handleMobileLinkClick}>Contribute</Link>
@@ -253,7 +245,7 @@ export function Header() {
               </Button>
 
               <div className="flex items-center justify-end py-2">
-                 <ThemeToggle />
+                <ThemeToggle />
               </div>
             </div>
           </div>
