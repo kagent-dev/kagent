@@ -1,0 +1,14 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: mcp-grafana
+  namespace: kagent
+spec:
+  config:
+    stdio:
+      command: /app/python/bin/mcp-grafana
+      args:
+        - -t
+        - stdio
+      readTimeoutSeconds: 30
+  description: ""
