@@ -298,7 +298,7 @@ helm-install-provider: helm-version check-openai-key
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
-		$(HELM_EXTRA_ARGS)
+		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
 helm-install: kind-load-docker-images
