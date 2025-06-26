@@ -87,6 +87,46 @@ spec:
         toolNames:
         - k8s_get_resources
         - k8s_get_available_api_resources
+    - mcpServer:
+        toolNames:
+        - update_dashboard
+        - search_dashboards
+        - query_prometheus
+        - query_loki_stats
+        - query_loki_logs
+        - list_teams
+        - list_sift_investigations
+        - list_prometheus_metric_names
+        - list_prometheus_metric_metadata
+        - list_prometheus_label_values
+        - list_prometheus_label_names
+        - list_oncall_users
+        - list_oncall_teams
+        - list_oncall_schedules
+        - list_loki_label_values
+        - list_loki_label_names
+        - list_incidents
+        - list_datasources
+        - list_contact_points
+        - list_alert_rules
+        - get_sift_investigation
+        - get_sift_analysis
+        - get_oncall_shift
+        - get_incident
+        - get_datasource_by_uid
+        - get_datasource_by_name
+        - get_dashboard_panel_queries
+        - get_dashboard_by_uid
+        - get_current_oncall_users
+        - get_assertions
+        - get_alert_rule_by_uid
+        - find_slow_requests
+        - find_error_pattern_logs
+        - create_incident
+        - add_activity_to_incident
+        toolServer: kagent/mcp-grafana
+      type: McpServer
+    - type:
     - type: Agent
       agent:
         ref: promql-agent

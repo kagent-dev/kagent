@@ -76,6 +76,19 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
             - name: AUTOGEN_DISABLE_RUNTIME_TRACING
               value: "true"
+            - name: PROMETHEUS_URL
+              value: {{ .Values.tools.prometheus.url | quote }}
+            - name: PROMETHEUS_USERNAME
+              value: {{ .Values.tools.prometheus.url | quote }}
+            - name: PROMETHEUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-toolserver-secret
+                  key: prometheus
+            - name: GRAFANA_URL
+              value: {{ .Values.tools.grafana.url | quote }}
+            - name: GRAFANA_API_KEY
+              value: {{ .Values.tools.grafana.apiKey | quote }}
           {{- with .Values.app.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -140,26 +153,6 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
-            - name: PROMETHEUS_URL
-              value: {{ .Values.tools.prometheus.url | quote }}
-            - name: PROMETHEUS_USERNAME
-              value: {{ .Values.tools.prometheus.url | quote }}
-            - name: PROMETHEUS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "kagent.fullname" . }}-toolserver-secret
-                  key: prometheus
-            - name: GRAFANA_URL
-              value: {{ .Values.tools.grafana.url | quote }}
-            - name: GRAFANA_API_KEY
-              value: {{ .Values.tools.grafana.apiKey | quote }}
-            - name: GRAFANA_USERNAME
-              value: {{ .Values.tools.grafana.username | quote }}
-            - name: GRAFANA_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "kagent.fullname" . }}-toolserver-secret
-                  key: grafana
           ports:
             - name: mcp
               containerPort: {{ .Values.service.ports.tools.targetPort }}

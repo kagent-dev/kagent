@@ -19,7 +19,6 @@ import (
 	"github.com/kagent-dev/kagent/go/tools/internal/cilium"
 	"github.com/kagent-dev/kagent/go/tools/internal/common"
 	"github.com/kagent-dev/kagent/go/tools/internal/datetime"
-	"github.com/kagent-dev/kagent/go/tools/internal/grafana"
 	"github.com/kagent-dev/kagent/go/tools/internal/helm"
 	"github.com/kagent-dev/kagent/go/tools/internal/istio"
 	"github.com/kagent-dev/kagent/go/tools/internal/k8s"
@@ -153,7 +152,6 @@ func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
 		"istio":      istio.RegisterIstioTools,
 		"argo":       argo.RegisterArgoTools,
 		"cilium":     cilium.RegisterCiliumTools,
-		"grafana":    grafana.RegisterGrafanaTools,
 	}
 
 	// If no tools specified, register all tools
