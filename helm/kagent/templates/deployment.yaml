@@ -186,7 +186,7 @@ spec:
             - name: KAGENT_LOG_LEVEL
               value: {{ .Values.tools.loglevel }}
             - name: SQLITE_DB_DIR
-              value: /app/
+              value: /app/build/
             - name: PORT
               value: "{{ .Values.service.ports.querydoc.targetPort }}"
             - name: TRANSPORT_TYPE

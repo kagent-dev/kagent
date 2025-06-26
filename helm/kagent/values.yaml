@@ -91,7 +91,7 @@ mcp:
     image:
       registry: ghcr.io
       repository: kagent-dev/doc2vec/mcp
-      tag: latest
+      tag: 1.1.4
       pullPolicy: IfNotPresent
     resources:
       requests:
