@@ -8,13 +8,12 @@ metadata:
 spec:
   config:
     streamableHttp:
-      headers:
-        - name: Authorization
-          valueFrom:
-            key: token
-            type: Secret
-            valueRef:
-              secretName: github-copilot-token  # Change to your secret name
+      headersFrom:
+      - name: "Authorization"
+        valueFrom:
+          type: Secret
+          key: token
+          valueRef: github-copilot-token  # Change to your secret name
       sseReadTimeout: 5m0s
       timeout: 30s
       url: https://api.githubcopilot.com/mcp/
@@ -27,7 +26,7 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: github-copilot-token-example
+  name: github-copilot-token
 type: Opaque
 data:
   token: ""  # Replace with your actual token, base64 encoded "Bearer <example-token"
