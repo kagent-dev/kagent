@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,16 +14,14 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
-	"github.com/kagent-dev/kagent/go/tools/internal/logger"
+	"github.com/kagent-dev/kagent/go/tools/pkg/logger"
 
-	"github.com/kagent-dev/kagent/go/tools/internal/argo"
-	"github.com/kagent-dev/kagent/go/tools/internal/cilium"
-	"github.com/kagent-dev/kagent/go/tools/internal/common"
-	"github.com/kagent-dev/kagent/go/tools/internal/datetime"
-	"github.com/kagent-dev/kagent/go/tools/internal/helm"
-	"github.com/kagent-dev/kagent/go/tools/internal/istio"
-	"github.com/kagent-dev/kagent/go/tools/internal/k8s"
-	"github.com/kagent-dev/kagent/go/tools/internal/prometheus"
+	"github.com/kagent-dev/kagent/go/tools/pkg/argo"
+	"github.com/kagent-dev/kagent/go/tools/pkg/cilium"
+	"github.com/kagent-dev/kagent/go/tools/pkg/helm"
+	"github.com/kagent-dev/kagent/go/tools/pkg/istio"
+	"github.com/kagent-dev/kagent/go/tools/pkg/k8s"
+	"github.com/kagent-dev/kagent/go/tools/pkg/prometheus"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 )
@@ -144,9 +143,8 @@ func runStdioServer(ctx context.Context, mcp *server.MCPServer) {
 func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
 
 	var toolProviderMap = map[string]func(*server.MCPServer){
-		"common":     common.RegisterCommonTools,
+		"utils":      utils.RegisterDateTimeTools,
 		"k8s":        k8s.RegisterK8sTools,
-		"datetime":   datetime.RegisterDateTimeTools,
 		"prometheus": prometheus.RegisterPrometheusTools,
 		"helm":       helm.RegisterHelmTools,
 		"istio":      istio.RegisterIstioTools,

@@ -1,4 +1,4 @@
-package common
+package utils
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/tools/internal/logger"
+	"github.com/kagent-dev/kagent/go/tools/pkg/logger"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.opentelemetry.io/otel"

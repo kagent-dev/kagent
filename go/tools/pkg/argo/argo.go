@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/tools/internal/common"
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -25,7 +25,7 @@ func handleVerifyArgoRolloutsControllerInstall(ctx context.Context, request mcp.
 	label := mcp.ParseString(request, "label", "app.kubernetes.io/component=rollouts-controller")
 
 	cmd := []string{"get", "pods", "-n", ns, "-l", label, "-o", "jsonpath={.items[*].status.phase}"}
-	output, err := common.RunCommand("kubectl", cmd)
+	output, err := utils.RunCommand("kubectl", cmd)
 	if err != nil {
 		return mcp.NewToolResultError("Error: " + err.Error()), nil
 	}
@@ -60,7 +60,7 @@ func handleVerifyArgoRolloutsControllerInstall(ctx context.Context, request mcp.
 }
 
 func handleVerifyKubectlPluginInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	output, err := common.RunCommand("kubectl", []string{"argo", "rollouts", "version"})
+	output, err := utils.RunCommand("kubectl", []string{"argo", "rollouts", "version"})
 	if err != nil {
 		return mcp.NewToolResultText("Kubectl Argo Rollouts plugin is not installed: " + err.Error()), nil
 	}
@@ -91,7 +91,7 @@ func handlePromoteRollout(ctx context.Context, request mcp.CallToolRequest) (*mc
 		cmd = append(cmd, "--full")
 	}
 
-	output, err := common.RunCommand("kubectl", cmd)
+	output, err := utils.RunCommand("kubectl", cmd)
 	if err != nil {
 		return mcp.NewToolResultError("Error promoting rollout: " + err.Error()), nil
 	}
@@ -113,7 +113,7 @@ func handlePauseRollout(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	}
 	cmd = append(cmd, rolloutName)
 
-	output, err := common.RunCommand("kubectl", cmd)
+	output, err := utils.RunCommand("kubectl", cmd)
 	if err != nil {
 		return mcp.NewToolResultError("Error pausing rollout: " + err.Error()), nil
 	}
@@ -138,7 +138,7 @@ func handleSetRolloutImage(ctx context.Context, request mcp.CallToolRequest) (*m
 		cmd = append(cmd, "-n", ns)
 	}
 
-	output, err := common.RunCommand("kubectl", cmd)
+	output, err := utils.RunCommand("kubectl", cmd)
 	if err != nil {
 		return mcp.NewToolResultError("Error setting rollout image: " + err.Error()), nil
 	}
@@ -253,7 +253,7 @@ data:
 	tmpFile.Close()
 
 	// Apply the ConfigMap
-	_, err = common.RunCommand("kubectl", []string{"apply", "-f", tmpFile.Name()})
+	_, err = utils.RunCommand("kubectl", []string{"apply", "-f", tmpFile.Name()})
 	if err != nil {
 		return GatewayPluginStatus{
 			Installed:    false,
@@ -276,7 +276,7 @@ func handleVerifyGatewayPlugin(ctx context.Context, request mcp.CallToolRequest)
 
 	// Check if ConfigMap exists and is configured
 	cmd := []string{"get", "configmap", "argo-rollouts-config", "-n", namespace, "-o", "yaml"}
-	output, err := common.RunCommand("kubectl", cmd)
+	output, err := utils.RunCommand("kubectl", cmd)
 	if err == nil && strings.Contains(output, "argoproj-labs/gatewayAPI") {
 		status := GatewayPluginStatus{
 			Installed:    true,
@@ -309,7 +309,7 @@ func handleCheckPluginLogs(ctx context.Context, request mcp.CallToolRequest) (*m
 	}
 
 	cmd := []string{"logs", "-n", namespace, "-l", "app.kubernetes.io/name=argo-rollouts", "--tail", "100"}
-	output, err := common.RunCommand("kubectl", cmd)
+	output, err := utils.RunCommand("kubectl", cmd)
 	if err != nil {
 		status := GatewayPluginStatus{
 			Installed:    false,

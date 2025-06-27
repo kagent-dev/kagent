@@ -3,9 +3,9 @@ package cilium
 import (
 	"context"
 	"fmt"
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/tools/internal/common"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -13,11 +13,11 @@ import (
 // Cilium tools using cilium CLI
 
 func runCiliumCli(args ...string) (string, error) {
-	return common.RunCommand("cilium", args)
+	return utils.RunCommand("cilium", args)
 }
 
 func runCiliumCliWithContext(ctx context.Context, args ...string) (string, error) {
-	return common.RunCommandWithContext(ctx, "cilium", args)
+	return utils.RunCommandWithContext(ctx, "cilium", args)
 }
 
 func handleCiliumStatusAndVersion(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -347,7 +347,7 @@ func getCiliumPodNameWithContext(ctx context.Context, nodeName string) (string, 
 	if nodeName != "" {
 		args = append(args, "--field-selector", "spec.nodeName="+nodeName)
 	}
-	podName, err := common.RunCommandWithContext(ctx, "kubectl", args)
+	podName, err := utils.RunCommandWithContext(ctx, "kubectl", args)
 	if err != nil {
 		return "", fmt.Errorf("failed to get cilium pod name: %v", err)
 	}
@@ -369,7 +369,7 @@ func runCiliumDbgCommandWithContext(ctx context.Context, command, nodeName strin
 	cmdParts := strings.Fields(command)
 	args := []string{"exec", "-it", podName, "-n", "kube-system", "--", "cilium-dbg"}
 	args = append(args, cmdParts...)
-	return common.RunCommandWithContext(ctx, "kubectl", args)
+	return utils.RunCommandWithContext(ctx, "kubectl", args)
 }
 
 func handleGetEndpointDetails(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

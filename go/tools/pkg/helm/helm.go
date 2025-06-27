@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/tools/internal/common"
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -65,7 +65,7 @@ func handleHelmListReleases(ctx context.Context, request mcp.CallToolRequest) (*
 		args = append(args, "-o", output)
 	}
 
-	result, err := common.RunCommand("helm", args)
+	result, err := utils.RunCommand("helm", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Helm list command failed: %v", err)), nil
 	}
@@ -89,7 +89,7 @@ func handleHelmGetRelease(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	args := []string{"get", resource, name, "-n", namespace}
 
-	result, err := common.RunCommand("helm", args)
+	result, err := utils.RunCommand("helm", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Helm get command failed: %v", err)), nil
 	}
@@ -147,7 +147,7 @@ func handleHelmUpgradeRelease(ctx context.Context, request mcp.CallToolRequest) 
 		args = append(args, "--wait")
 	}
 
-	result, err := common.RunCommand("helm", args)
+	result, err := utils.RunCommand("helm", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Helm upgrade command failed: %v", err)), nil
 	}
@@ -176,7 +176,7 @@ func handleHelmUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		args = append(args, "--wait")
 	}
 
-	result, err := common.RunCommand("helm", args)
+	result, err := utils.RunCommand("helm", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Helm uninstall command failed: %v", err)), nil
 	}
@@ -195,7 +195,7 @@ func handleHelmRepoAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 
 	args := []string{"repo", "add", name, url}
 
-	result, err := common.RunCommand("helm", args)
+	result, err := utils.RunCommand("helm", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Helm repo add command failed: %v", err)), nil
 	}
@@ -207,7 +207,7 @@ func handleHelmRepoAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 func handleHelmRepoUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := []string{"repo", "update"}
 
-	result, err := common.RunCommand("helm", args)
+	result, err := utils.RunCommand("helm", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Helm repo update command failed: %v", err)), nil
 	}

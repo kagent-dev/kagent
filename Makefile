@@ -380,4 +380,3 @@ report/image-cve: build
 	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype docker:$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
 	grype docker:$(TOOLS_IMG)      -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/tools-cve.csv
-	grype docker:$(DOCS_IMG)       -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/doc2vec-cve.csv

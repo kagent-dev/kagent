@@ -1,4 +1,4 @@
-package datetime
+package utils
 
 import (
 	"context"
@@ -20,7 +20,7 @@ func handleGetCurrentDateTimeTool(ctx context.Context, request mcp.CallToolReque
 
 func RegisterDateTimeTools(s *server.MCPServer) {
 	// Register the GetCurrentDateTime tool to match Python implementation exactly
-	s.AddTool(mcp.NewTool("datetime_get_current_date_time",
+	s.AddTool(mcp.NewTool("datetime_get_current_time",
 		mcp.WithDescription("Returns the current date and time in ISO 8601 format."),
 	), handleGetCurrentDateTimeTool)
 }

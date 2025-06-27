@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/client-go/tools/clientcmd"
 	"math/rand"
 	"os"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/tools/internal/common"
-	"github.com/kagent-dev/kagent/go/tools/internal/logger"
+	"github.com/kagent-dev/kagent/go/tools/pkg/logger"
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	v1 "k8s.io/api/apps/v1"
@@ -18,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // K8sClient wraps Kubernetes client operations
@@ -430,7 +430,7 @@ func (k *K8sTool) handleKubectlDescribeTool(ctx context.Context, request mcp.Cal
 }
 
 func (k *K8sTool) runKubectlCommand(ctx context.Context, args []string) (*mcp.CallToolResult, error) {
-	result, err := common.RunCommandWithContext(ctx, "kubectl", args)
+	result, err := utils.RunCommandWithContext(ctx, "kubectl", args)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -809,7 +809,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		}
 		tmpFile.Close()
 
-		result, err := common.RunCommand("kubectl", []string{"create", "-f", tmpFile.Name()})
+		result, err := utils.RunCommand("kubectl", []string{"create", "-f", tmpFile.Name()})
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Create command failed: %v", err)), nil
 		}
@@ -842,7 +842,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 			args = append(args, "-n", namespace)
 		}
 
-		result, err := common.RunCommand("kubectl", args)
+		result, err := utils.RunCommand("kubectl", args)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Get YAML command failed: %v", err)), nil
 		}
