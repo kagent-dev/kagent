@@ -10,5 +10,14 @@ spec:
       args:
         - -t
         - stdio
+        - debug
       readTimeoutSeconds: 30
+      envFrom:
+      - name: "GRAFANA_URL"
+        value: {{ .Values.tools.grafana.url | quote }}
+      - name: "GRAFANA_API_KEY"
+        valueFrom:
+          type: Secret
+          key: "grafana"
+          valueRef: {{ include "kagent.fullname" . }}-toolserver-secret
   description: ""

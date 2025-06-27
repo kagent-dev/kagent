@@ -79,7 +79,7 @@ tools:
     username: ""
     password: ""
   grafana: # kubectl port-forward svc/grafana 3000:3000
-    url: "grafana.kagent.svc.cluster.local:3000"
+    url: "http://grafana.kagent.svc.cluster.local:3000"
     apiKey: ""
 
 # additional tools can be added here

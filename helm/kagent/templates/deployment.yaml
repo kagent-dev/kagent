@@ -76,22 +76,6 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
             - name: AUTOGEN_DISABLE_RUNTIME_TRACING
               value: "true"
-            - name: PROMETHEUS_URL
-              value: {{ .Values.tools.prometheus.url | quote }}
-            - name: PROMETHEUS_USERNAME
-              value: {{ .Values.tools.prometheus.url | quote }}
-            - name: PROMETHEUS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "kagent.fullname" . }}-toolserver-secret
-                  key: prometheus
-            - name: GRAFANA_URL
-              value: {{ .Values.tools.grafana.url | quote }}
-            - name: GRAFANA_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "kagent.fullname" . }}-toolserver-secret
-                  key: grafana
           {{- with .Values.app.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
