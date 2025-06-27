@@ -56,7 +56,7 @@ export KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI
 export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
 
 # use local helm chart to install kagent with openAI provider
-export KAGENT_HELM_EXTRA_ARGS="--set otel.tracing.enabled=true"
+export KAGENT_HELM_EXTRA_ARGS="--set otel.tracing.enabled=true --set tools.grafana.apiKey=glsa_ZtQ0tNOuilZ5jwyjbRnRYSddl1R9RZdw_d2e6fb64"
 export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
 export KAGENT_HELM_REPO=./helm/
 make kagent-cli-install

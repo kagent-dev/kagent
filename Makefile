@@ -344,6 +344,19 @@ kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
 	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80 8084:8084
 
+.PHONY: kagent-addon-install
+kagent-addon-install:
+	#to test the kagent addons - installing istio, grafana, prometheus, metrics-server
+	istioctl install --set profile=demo -y
+	kubectl apply -f contrib/addons/grafana.yaml
+	kubectl apply -f contrib/addons/prometheus.yaml
+	kubectl apply -f contrib/addons/metrics-server.yaml
+	#wait for pods to be ready
+	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=grafana 	-n kagent --timeout=60s
+	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
+	#port forward grafana service
+	kubectl port-forward svc/grafana 3000:3000 -n kagent
+
 .PHONY: open-dev-container
 open-dev-container:
 	@echo "Opening dev container..."

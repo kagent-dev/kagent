@@ -75,13 +75,11 @@ tools:
       cpu: 1000m
       memory: 512Mi
   prometheus:
-    url: ""
+    url: "prometheus.kagent.svc.cluster.local:9090"
     username: ""
     password: ""
-  grafana:
-    url: ""
-    username: ""
-    password: ""
+  grafana: # kubectl port-forward svc/grafana 3000:3000
+    url: "grafana.kagent.svc.cluster.local:3000"
     apiKey: ""
 
 # additional tools can be added here
@@ -91,7 +89,7 @@ mcp:
     image:
       registry: ghcr.io
       repository: kagent-dev/doc2vec/mcp
-      tag: 1.1.4
+      tag: 1.1.5
       pullPolicy: IfNotPresent
     resources:
       requests:
