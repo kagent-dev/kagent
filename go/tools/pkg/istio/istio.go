@@ -25,7 +25,7 @@ func handleIstioProxyStatus(ctx context.Context, request mcp.CallToolRequest) (*
 		args = append(args, podName)
 	}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl proxy-status failed: %v", err)), nil
 	}
@@ -51,7 +51,7 @@ func handleIstioProxyConfig(ctx context.Context, request mcp.CallToolRequest) (*
 		args = append(args, podName)
 	}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl proxy-config failed: %v", err)), nil
 	}
@@ -65,7 +65,7 @@ func handleIstioInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 
 	args := []string{"install", "--set", fmt.Sprintf("profile=%s", profile), "-y"}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl install failed: %v", err)), nil
 	}
@@ -79,7 +79,7 @@ func handleIstioGenerateManifest(ctx context.Context, request mcp.CallToolReques
 
 	args := []string{"manifest", "generate", "--set", fmt.Sprintf("profile=%s", profile)}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl manifest generate failed: %v", err)), nil
 	}
@@ -100,7 +100,7 @@ func handleIstioAnalyzeClusterConfiguration(ctx context.Context, request mcp.Cal
 		args = append(args, "-n", namespace)
 	}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl analyze failed: %v", err)), nil
 	}
@@ -118,7 +118,7 @@ func handleIstioVersion(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		args = append(args, "--short")
 	}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl version failed: %v", err)), nil
 	}
@@ -130,7 +130,7 @@ func handleIstioVersion(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 func handleIstioRemoteClusters(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := []string{"remote-clusters"}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl remote-clusters failed: %v", err)), nil
 	}
@@ -151,7 +151,7 @@ func handleWaypointList(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		args = append(args, "-n", namespace)
 	}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl waypoint list failed: %v", err)), nil
 	}
@@ -181,7 +181,7 @@ func handleWaypointGenerate(ctx context.Context, request mcp.CallToolRequest) (*
 		args = append(args, "--for", trafficType)
 	}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl waypoint generate failed: %v", err)), nil
 	}
@@ -204,7 +204,7 @@ func handleWaypointApply(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		args = append(args, "--enroll-namespace")
 	}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl waypoint apply failed: %v", err)), nil
 	}
@@ -235,7 +235,7 @@ func handleWaypointDelete(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	args = append(args, "-n", namespace)
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl waypoint delete failed: %v", err)), nil
 	}
@@ -260,7 +260,7 @@ func handleWaypointStatus(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	args = append(args, "-n", namespace)
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl waypoint status failed: %v", err)), nil
 	}
@@ -279,7 +279,7 @@ func handleZtunnelConfig(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		args = append(args, "-n", namespace)
 	}
 
-	result, err := utils.RunCommand("istioctl", args)
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl ztunnel-config failed: %v", err)), nil
 	}

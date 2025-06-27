@@ -4,8 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -478,78 +480,227 @@ func TestHandleKubectlLogsEnhanced(t *testing.T) {
 }
 
 func TestHandleApplyManifest(t *testing.T) {
-	ctx := context.Background()
-	clientset := fake.NewSimpleClientset()
-	k8sTool := newTestK8sTool(clientset)
+	t.Run("apply manifest from string", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		manifest := `apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  containers:
+  - name: test
+    image: nginx`
 
-	t.Run("missing manifest", func(t *testing.T) {
+		expectedOutput := `pod/test-pod created`
+		// Use partial matcher to handle dynamic temp file names
+		mock.AddPartialMatcherString("kubectl", []string{"apply", "-f", "*"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
 		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"manifest": manifest,
+		}
+
+		result, err := k8sTool.handleApplyManifest(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.False(t, result.IsError)
+
+		// Verify the expected output
+		content := getResultText(result)
+		assert.Contains(t, content, "created")
+
+		// Verify kubectl apply was called (we can't predict the exact temp file name)
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Len(t, callLog[0].Args, 3) // apply, -f, <temp-file>
+		assert.Equal(t, "apply", callLog[0].Args[0])
+		assert.Equal(t, "-f", callLog[0].Args[1])
+		// Third argument should be the temporary file path
+		assert.Contains(t, callLog[0].Args[2], "manifest-")
+	})
+
+	t.Run("missing manifest parameter", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			// Missing manifest parameter
+		}
+
 		result, err := k8sTool.handleApplyManifest(ctx, req)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.True(t, result.IsError)
-	})
+		assert.Contains(t, getResultText(result), "manifest parameter is required")
 
-	t.Run("valid manifest", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{"manifest": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod"}
-		result, err := k8sTool.handleApplyManifest(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
+		// Verify no commands were executed
+		callLog := mock.GetCallLog()
+		assert.Len(t, callLog, 0)
 	})
 }
 
 func TestHandleExecCommand(t *testing.T) {
-	ctx := context.Background()
-	clientset := fake.NewSimpleClientset()
-	k8sTool := newTestK8sTool(clientset)
+	t.Run("exec command in pod", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `total 8
+drwxr-xr-x 1 root root 4096 Jan  1 12:00 .
+drwxr-xr-x 1 root root 4096 Jan  1 12:00 ..`
 
-	t.Run("missing pod_name", func(t *testing.T) {
+		// The implementation passes the command as a single string after --
+		mock.AddCommandString("kubectl", []string{"exec", "mypod", "-n", "default", "--", "ls -la"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
 		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{"command": "ls"}
+		req.Params.Arguments = map[string]interface{}{
+			"pod_name":  "mypod",
+			"namespace": "default",
+			"command":   "ls -la",
+		}
+
+		result, err := k8sTool.handleExecCommand(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.False(t, result.IsError)
+
+		// Verify the expected output
+		content := getResultText(result)
+		assert.Contains(t, content, "total 8")
+
+		// Verify the correct kubectl command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"exec", "mypod", "-n", "default", "--", "ls -la"}, callLog[0].Args)
+	})
+
+	t.Run("missing required parameters", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"pod_name": "mypod",
+			// Missing command parameter
+		}
+
 		result, err := k8sTool.handleExecCommand(ctx, req)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.True(t, result.IsError)
-	})
+		assert.Contains(t, getResultText(result), "pod_name and command parameters are required")
 
-	t.Run("missing command", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{"pod_name": "test-pod"}
-		result, err := k8sTool.handleExecCommand(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.True(t, result.IsError)
-	})
-
-	t.Run("valid pod_name and command", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{"pod_name": "test-pod", "command": "ls"}
-		result, err := k8sTool.handleExecCommand(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
+		// Verify no commands were executed
+		callLog := mock.GetCallLog()
+		assert.Len(t, callLog, 0)
 	})
 }
 
 func TestHandleRollout(t *testing.T) {
-	ctx := context.Background()
-	clientset := fake.NewSimpleClientset()
-	k8sTool := newTestK8sTool(clientset)
+	t.Run("rollout restart deployment", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `deployment.apps/myapp restarted`
 
-	t.Run("missing parameters", func(t *testing.T) {
+		mock.AddCommandString("kubectl", []string{"rollout", "restart", "deployment/myapp", "-n", "default"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
 		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"action":        "restart",
+			"resource_type": "deployment",
+			"resource_name": "myapp",
+			"namespace":     "default",
+		}
+
+		result, err := k8sTool.handleRollout(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.False(t, result.IsError)
+
+		// Verify the expected output
+		content := getResultText(result)
+		assert.Contains(t, content, "restarted")
+
+		// Verify the correct kubectl command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"rollout", "restart", "deployment/myapp", "-n", "default"}, callLog[0].Args)
+	})
+
+	t.Run("rollout status check", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `deployment "myapp" successfully rolled out`
+
+		mock.AddCommandString("kubectl", []string{"rollout", "status", "deployment/myapp", "-n", "default"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"action":        "status",
+			"resource_type": "deployment",
+			"resource_name": "myapp",
+			"namespace":     "default",
+		}
+
+		result, err := k8sTool.handleRollout(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.False(t, result.IsError)
+
+		// Verify the expected output
+		content := getResultText(result)
+		assert.Contains(t, content, "successfully rolled out")
+
+		// Verify the correct kubectl command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"rollout", "status", "deployment/myapp", "-n", "default"}, callLog[0].Args)
+	})
+
+	t.Run("missing required parameters", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"action": "restart",
+			// Missing resource_type and resource_name
+		}
+
 		result, err := k8sTool.handleRollout(ctx, req)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.True(t, result.IsError)
-	})
+		assert.Contains(t, getResultText(result), "required")
 
-	t.Run("valid parameters", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{"action": "restart", "resource_type": "deployment", "resource_name": "test-deployment"}
-		result, err := k8sTool.handleRollout(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
+		// Verify no commands were executed
+		callLog := mock.GetCallLog()
+		assert.Len(t, callLog, 0)
 	})
 }
 
@@ -688,6 +839,64 @@ func TestHandleGetResourceYAML(t *testing.T) {
 	result, err := k8sTool.runKubectlCommand(ctx, args)
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
+}
+
+func TestHandleKubectlGetTool(t *testing.T) {
+	t.Run("success with mocked kubectl", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `NAME      READY   STATUS    RESTARTS   AGE
+pod1      1/1     Running   0          1d
+pod2      1/1     Running   0          2d`
+
+		mock.AddCommandString("kubectl", []string{"get", "pods", "-n", "default", "-o", "json"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"resource_type": "pods",
+			"namespace":     "default",
+			"output":        "json",
+		}
+
+		result, err := k8sTool.handleKubectlGetTool(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.False(t, result.IsError)
+
+		// Verify the expected output
+		content := getResultText(result)
+		assert.Contains(t, content, "pod1")
+		assert.Contains(t, content, "pod2")
+
+		// Verify the correct kubectl command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"get", "pods", "-n", "default", "-o", "json"}, callLog[0].Args)
+	})
+
+	t.Run("kubectl command failure", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		mock.AddCommandString("kubectl", []string{"get", "invalidresource", "-o", "json"}, "", assert.AnError)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		clientset := fake.NewSimpleClientset()
+		k8sTool := newTestK8sTool(clientset)
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"resource_type": "invalidresource",
+		}
+
+		result, err := k8sTool.handleKubectlGetTool(ctx, req)
+		assert.NoError(t, err) // MCP handlers should not return Go errors
+		assert.NotNil(t, result)
+		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "command kubectl failed")
+	})
 }
 
 // Helper function for creating int32 pointer

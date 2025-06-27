@@ -3,8 +3,9 @@ package cilium
 import (
 	"context"
 	"fmt"
-	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"strings"
+
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -21,12 +22,12 @@ func runCiliumCliWithContext(ctx context.Context, args ...string) (string, error
 }
 
 func handleCiliumStatusAndVersion(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	status, err := runCiliumCli("status")
+	status, err := runCiliumCliWithContext(ctx, "status")
 	if err != nil {
 		return mcp.NewToolResultError("Error getting Cilium status: " + err.Error()), nil
 	}
 
-	version, err := runCiliumCli("version")
+	version, err := runCiliumCliWithContext(ctx, "version")
 	if err != nil {
 		return mcp.NewToolResultError("Error getting Cilium version: " + err.Error()), nil
 	}
@@ -47,7 +48,7 @@ func handleUpgradeCilium(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		args = append(args, "--datapath-mode", datapathMode)
 	}
 
-	output, err := runCiliumCli(args...)
+	output, err := runCiliumCliWithContext(ctx, args...)
 	if err != nil {
 		return mcp.NewToolResultError("Error upgrading Cilium: " + err.Error()), nil
 	}
@@ -71,7 +72,7 @@ func handleInstallCilium(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		args = append(args, "--datapath-mode", datapathMode)
 	}
 
-	output, err := runCiliumCli(args...)
+	output, err := runCiliumCliWithContext(ctx, args...)
 	if err != nil {
 		return mcp.NewToolResultError("Error installing Cilium: " + err.Error()), nil
 	}
@@ -80,7 +81,7 @@ func handleInstallCilium(ctx context.Context, request mcp.CallToolRequest) (*mcp
 }
 
 func handleUninstallCilium(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	output, err := runCiliumCli("uninstall")
+	output, err := runCiliumCliWithContext(ctx, "uninstall")
 	if err != nil {
 		return mcp.NewToolResultError("Error uninstalling Cilium: " + err.Error()), nil
 	}
@@ -101,7 +102,7 @@ func handleConnectToRemoteCluster(ctx context.Context, request mcp.CallToolReque
 		args = append(args, "--destination-context", context)
 	}
 
-	output, err := runCiliumCli(args...)
+	output, err := runCiliumCliWithContext(ctx, args...)
 	if err != nil {
 		return mcp.NewToolResultError("Error connecting to remote cluster: " + err.Error()), nil
 	}
@@ -118,7 +119,7 @@ func handleDisconnectRemoteCluster(ctx context.Context, request mcp.CallToolRequ
 
 	args := []string{"clustermesh", "disconnect", "--destination-cluster", clusterName}
 
-	output, err := runCiliumCli(args...)
+	output, err := runCiliumCliWithContext(ctx, args...)
 	if err != nil {
 		return mcp.NewToolResultError("Error disconnecting from remote cluster: " + err.Error()), nil
 	}
@@ -127,7 +128,7 @@ func handleDisconnectRemoteCluster(ctx context.Context, request mcp.CallToolRequ
 }
 
 func handleListBGPPeers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	output, err := runCiliumCli("bgp", "peers")
+	output, err := runCiliumCliWithContext(ctx, "bgp", "peers")
 	if err != nil {
 		return mcp.NewToolResultError("Error listing BGP peers: " + err.Error()), nil
 	}
@@ -136,7 +137,7 @@ func handleListBGPPeers(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 }
 
 func handleListBGPRoutes(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	output, err := runCiliumCli("bgp", "routes")
+	output, err := runCiliumCliWithContext(ctx, "bgp", "routes")
 	if err != nil {
 		return mcp.NewToolResultError("Error listing BGP routes: " + err.Error()), nil
 	}
@@ -145,7 +146,7 @@ func handleListBGPRoutes(ctx context.Context, request mcp.CallToolRequest) (*mcp
 }
 
 func handleShowClusterMeshStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	output, err := runCiliumCli("clustermesh", "status")
+	output, err := runCiliumCliWithContext(ctx, "clustermesh", "status")
 	if err != nil {
 		return mcp.NewToolResultError("Error getting cluster mesh status: " + err.Error()), nil
 	}
@@ -154,7 +155,7 @@ func handleShowClusterMeshStatus(ctx context.Context, request mcp.CallToolReques
 }
 
 func handleShowFeaturesStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	output, err := runCiliumCli("features", "status")
+	output, err := runCiliumCliWithContext(ctx, "features", "status")
 	if err != nil {
 		return mcp.NewToolResultError("Error getting features status: " + err.Error()), nil
 	}
@@ -173,7 +174,7 @@ func handleToggleHubble(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		action = "disable"
 	}
 
-	output, err := runCiliumCli("hubble", action)
+	output, err := runCiliumCliWithContext(ctx, "hubble", action)
 	if err != nil {
 		return mcp.NewToolResultError("Error toggling Hubble: " + err.Error()), nil
 	}
@@ -192,7 +193,7 @@ func handleToggleClusterMesh(ctx context.Context, request mcp.CallToolRequest) (
 		action = "disable"
 	}
 
-	output, err := runCiliumCli("clustermesh", action)
+	output, err := runCiliumCliWithContext(ctx, "clustermesh", action)
 	if err != nil {
 		return mcp.NewToolResultError("Error toggling cluster mesh: " + err.Error()), nil
 	}

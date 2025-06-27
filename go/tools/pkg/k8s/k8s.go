@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"k8s.io/client-go/tools/clientcmd"
 	"math/rand"
 	"os"
 	"strings"
+
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/kagent-dev/kagent/go/tools/pkg/logger"
 	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
@@ -809,7 +810,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		}
 		tmpFile.Close()
 
-		result, err := utils.RunCommand("kubectl", []string{"create", "-f", tmpFile.Name()})
+		result, err := utils.RunCommandWithContext(ctx, "kubectl", []string{"create", "-f", tmpFile.Name()})
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Create command failed: %v", err)), nil
 		}
@@ -842,7 +843,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 			args = append(args, "-n", namespace)
 		}
 
-		result, err := utils.RunCommand("kubectl", args)
+		result, err := utils.RunCommandWithContext(ctx, "kubectl", args)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Get YAML command failed: %v", err)), nil
 		}

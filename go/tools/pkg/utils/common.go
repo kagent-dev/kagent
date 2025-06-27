@@ -17,6 +17,177 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// ShellExecutor defines the interface for executing shell commands
+type ShellExecutor interface {
+	Exec(ctx context.Context, command string, args ...string) (output []byte, err error)
+}
+
+// DefaultShellExecutor implements ShellExecutor using os/exec
+type DefaultShellExecutor struct{}
+
+// Exec executes a command using os/exec.CommandContext
+func (e *DefaultShellExecutor) Exec(ctx context.Context, command string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, command, args...)
+	return cmd.CombinedOutput()
+}
+
+// MockShellExecutor implements ShellExecutor for testing
+type MockShellExecutor struct {
+	// Commands maps command+args to expected output and error
+	Commands map[string]MockCommandResult
+	// CallLog keeps track of all executed commands for verification
+	CallLog []MockCommandCall
+	// PartialMatchers allows partial matching for dynamic arguments
+	PartialMatchers []PartialMatcher
+}
+
+// PartialMatcher represents a partial command matcher for dynamic arguments
+type PartialMatcher struct {
+	Command string
+	Args    []string // Use "*" for wildcard matching
+	Result  MockCommandResult
+}
+
+// MockCommandResult represents the expected result of a mocked command
+type MockCommandResult struct {
+	Output []byte
+	Error  error
+}
+
+// MockCommandCall represents a logged command execution
+type MockCommandCall struct {
+	Command string
+	Args    []string
+}
+
+// Exec executes a mocked command
+func (m *MockShellExecutor) Exec(ctx context.Context, command string, args ...string) ([]byte, error) {
+	// Log the call
+	m.CallLog = append(m.CallLog, MockCommandCall{
+		Command: command,
+		Args:    args,
+	})
+
+	// Try exact match first
+	key := m.commandKey(command, args...)
+	if result, exists := m.Commands[key]; exists {
+		return result.Output, result.Error
+	}
+
+	// Try partial matchers
+	for _, matcher := range m.PartialMatchers {
+		if m.matchesPartial(command, args, matcher) {
+			return matcher.Result.Output, matcher.Result.Error
+		}
+	}
+
+	// Default behavior for unmocked commands
+	return []byte(""), fmt.Errorf("unmocked command: %s %v", command, args)
+}
+
+// matchesPartial checks if a command matches a partial matcher
+func (m *MockShellExecutor) matchesPartial(command string, args []string, matcher PartialMatcher) bool {
+	if command != matcher.Command {
+		return false
+	}
+
+	if len(args) != len(matcher.Args) {
+		return false
+	}
+
+	for i, expectedArg := range matcher.Args {
+		if expectedArg == "*" {
+			continue // Wildcard match
+		}
+		if args[i] != expectedArg {
+			return false
+		}
+	}
+
+	return true
+}
+
+// AddCommand adds a command mock
+func (m *MockShellExecutor) AddCommand(command string, args []string, output []byte, err error) {
+	if m.Commands == nil {
+		m.Commands = make(map[string]MockCommandResult)
+	}
+	key := m.commandKey(command, args...)
+	m.Commands[key] = MockCommandResult{
+		Output: output,
+		Error:  err,
+	}
+}
+
+// AddCommandString is a convenience method for adding string output
+func (m *MockShellExecutor) AddCommandString(command string, args []string, output string, err error) {
+	m.AddCommand(command, args, []byte(output), err)
+}
+
+// AddPartialMatcher adds a partial matcher for dynamic arguments
+func (m *MockShellExecutor) AddPartialMatcher(command string, args []string, output []byte, err error) {
+	if m.PartialMatchers == nil {
+		m.PartialMatchers = []PartialMatcher{}
+	}
+	m.PartialMatchers = append(m.PartialMatchers, PartialMatcher{
+		Command: command,
+		Args:    args,
+		Result: MockCommandResult{
+			Output: output,
+			Error:  err,
+		},
+	})
+}
+
+// AddPartialMatcherString is a convenience method for adding string output with partial matching
+func (m *MockShellExecutor) AddPartialMatcherString(command string, args []string, output string, err error) {
+	m.AddPartialMatcher(command, args, []byte(output), err)
+}
+
+// GetCallLog returns the log of all command calls
+func (m *MockShellExecutor) GetCallLog() []MockCommandCall {
+	return m.CallLog
+}
+
+// Reset clears the mock state
+func (m *MockShellExecutor) Reset() {
+	m.Commands = make(map[string]MockCommandResult)
+	m.CallLog = []MockCommandCall{}
+	m.PartialMatchers = []PartialMatcher{}
+}
+
+// commandKey creates a unique key for command+args combination
+func (m *MockShellExecutor) commandKey(command string, args ...string) string {
+	return fmt.Sprintf("%s %s", command, strings.Join(args, " "))
+}
+
+// Context key for shell executor injection
+type contextKey string
+
+const shellExecutorKey contextKey = "shellExecutor"
+
+// WithShellExecutor returns a context with the given shell executor
+func WithShellExecutor(ctx context.Context, executor ShellExecutor) context.Context {
+	return context.WithValue(ctx, shellExecutorKey, executor)
+}
+
+// GetShellExecutor retrieves the shell executor from context, or returns default
+func GetShellExecutor(ctx context.Context) ShellExecutor {
+	if executor, ok := ctx.Value(shellExecutorKey).(ShellExecutor); ok {
+		return executor
+	}
+	return &DefaultShellExecutor{}
+}
+
+// NewMockShellExecutor creates a new mock shell executor for testing
+func NewMockShellExecutor() *MockShellExecutor {
+	return &MockShellExecutor{
+		Commands:        make(map[string]MockCommandResult),
+		CallLog:         []MockCommandCall{},
+		PartialMatchers: []PartialMatcher{},
+	}
+}
+
 var (
 	tracer = otel.Tracer("kagent-tools")
 	meter  = otel.Meter("kagent-tools")
@@ -83,8 +254,9 @@ func RunCommandWithContext(ctx context.Context, command string, args []string) (
 	// Record metrics
 	startTime := time.Now()
 
-	cmd := exec.CommandContext(ctx, command, args...)
-	output, err := cmd.CombinedOutput()
+	// Use the shell executor from context (or default)
+	executor := GetShellExecutor(ctx)
+	output, err := executor.Exec(ctx, command, args...)
 
 	duration := time.Since(startTime)
 
