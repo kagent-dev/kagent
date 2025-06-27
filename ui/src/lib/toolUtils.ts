@@ -221,3 +221,48 @@ export const getToolCategory = (tool: Component<ToolConfig>) => {
   }
   return "other"; // Default category
 };
+
+// Group MCP tools by server
+export const groupMcpToolsByServer = (tools: Tool[]): {
+  groupedTools: Tool[];
+  errors: string[];
+} => {
+  if (!tools || !Array.isArray(tools)) {
+    return { groupedTools: [], errors: ["Invalid input: tools must be an array"] };
+  }
+
+  const mcpToolsByServer = new Map<string, Set<string>>();
+  const nonMcpTools: Tool[] = [];
+  const errors: string[] = [];
+
+  tools.forEach((tool) => {
+    if (isMcpTool(tool)) {
+      const serverNameRef = tool.mcpServer.toolServer;
+      const toolNames = tool.mcpServer.toolNames;
+
+      // Get existing set or create new one
+      const existingNames = mcpToolsByServer.get(serverNameRef) || new Set<string>();
+      toolNames.forEach(name => existingNames.add(name));
+      mcpToolsByServer.set(serverNameRef, existingNames);
+    } else if (isAgentTool(tool) || isBuiltinTool(tool)) {
+      nonMcpTools.push(tool);
+    } else {
+      const toolType = tool?.type || (tool ? 'malformed' : 'null/undefined');
+      errors.push(`Invalid tool of type '${toolType}' was skipped`);
+    }
+  });
+
+  // Convert to Tool objects
+  const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => ({
+    type: "McpServer" as const,
+    mcpServer: {
+      toolServer: serverNameRef,
+      toolNames: Array.from(toolNamesSet)
+    }
+  }));
+
+  return {
+    groupedTools: [...groupedMcpTools, ...nonMcpTools],
+    errors
+  };
+};
