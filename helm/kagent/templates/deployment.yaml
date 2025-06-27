@@ -88,7 +88,10 @@ spec:
             - name: GRAFANA_URL
               value: {{ .Values.tools.grafana.url | quote }}
             - name: GRAFANA_API_KEY
-              value: {{ .Values.tools.grafana.apiKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-toolserver-secret
+                  key: grafana
           {{- with .Values.app.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
