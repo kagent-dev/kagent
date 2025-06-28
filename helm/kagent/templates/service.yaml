@@ -8,10 +8,17 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if .Values.oauth2Proxy.enabled }}
+    - port: {{ .Values.service.ports.oauth2Proxy.port }}
+      targetPort: {{ .Values.service.ports.oauth2Proxy.targetPort }}
+      protocol: TCP
+      name: oauth2-proxy
+    {{- else }}
     - port: {{ .Values.service.ports.ui.port }}
       targetPort: {{ .Values.service.ports.ui.targetPort }}
       protocol: TCP
       name: ui
+    {{- end }}
     - port: {{ .Values.service.ports.app.port }}
       targetPort: {{ .Values.service.ports.app.targetPort }}
       protocol: TCP

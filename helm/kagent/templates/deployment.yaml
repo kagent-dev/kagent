@@ -26,6 +26,10 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kagent.fullname" . }}
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "kagent.fullname" . }}-nginx-config
       containers:
         - name: controller
           args:
@@ -101,5 +105,109 @@ spec:
             - name: http
               containerPort: {{ .Values.service.ports.ui.targetPort }}
               protocol: TCP
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
+        {{- if .Values.oauth2Proxy.enabled }}
+        - name: oauth2-proxy
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.oauth2Proxy.image.registry }}/{{ .Values.oauth2Proxy.image.repository }}:{{ .Values.oauth2Proxy.image.tag }}"
+          imagePullPolicy: {{ .Values.oauth2Proxy.image.pullPolicy }}
+          args:
+            - --http-address=0.0.0.0:4180
+            - --metrics-address=0.0.0.0:44180
+            {{- range .Values.oauth2Proxy.config.upstreams }}
+            - --upstream={{ . }}
+            {{- end }}
+            - --provider={{ .Values.oauth2Proxy.provider }}
+            {{- if .Values.oauth2Proxy.oidc.issuerUrl }}
+            - --oidc-issuer-url={{ .Values.oauth2Proxy.oidc.issuerUrl }}
+            {{- end }}
+            {{- if .Values.oauth2Proxy.github.org }}
+            - --github-org={{ .Values.oauth2Proxy.github.org }}
+            {{- end }}
+            {{- if .Values.oauth2Proxy.github.team }}
+            - --github-team={{ .Values.oauth2Proxy.github.team }}
+            {{- end }}
+            {{- if .Values.oauth2Proxy.google.hostedDomain }}
+            - --google-hosted-domain={{ .Values.oauth2Proxy.google.hostedDomain }}
+            {{- end }}
+            {{- if .Values.oauth2Proxy.azure.tenant }}
+            - --azure-tenant={{ .Values.oauth2Proxy.azure.tenant }}
+            {{- end }}
+            {{- if .Values.oauth2Proxy.config.emailDomains }}
+            {{- range .Values.oauth2Proxy.config.emailDomains }}
+            - --email-domain={{ . }}
+            {{- end }}
+            {{- else }}
+            - --email-domain=*
+            {{- end }}
+            {{- if .Values.oauth2Proxy.config.cookieDomain }}
+            - --cookie-domain={{ .Values.oauth2Proxy.config.cookieDomain }}
+            {{- end }}
+            - --cookie-secure={{ .Values.oauth2Proxy.config.cookieSecure }}
+            - --cookie-httponly={{ .Values.oauth2Proxy.config.cookieHttpOnly }}
+            - --cookie-samesite={{ .Values.oauth2Proxy.config.cookieSameSite }}
+            - --cookie-expire={{ .Values.oauth2Proxy.config.cookieExpire }}
+            - --session-store-type={{ .Values.oauth2Proxy.config.sessionStoreType }}
+            - --log-level={{ .Values.oauth2Proxy.config.logLevel }}
+            {{- range .Values.oauth2Proxy.config.skipAuthPaths }}
+            - --skip-auth-regex=^{{ . }}
+            {{- end }}
+            {{- range .Values.oauth2Proxy.config.extraArgs }}
+            - {{ . }}
+            {{- end }}
+          env:
+            {{- if not .Values.oauth2Proxy.secrets.external }}
+            - name: OAUTH2_PROXY_CLIENT_ID
+              value: {{ .Values.oauth2Proxy.clientId | quote }}
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              value: {{ .Values.oauth2Proxy.clientSecret | quote }}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              value: {{ .Values.oauth2Proxy.cookieSecret | quote }}
+            {{- else }}
+            - name: OAUTH2_PROXY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oauth2Proxy.secrets.secretName }}
+                  key: {{ .Values.oauth2Proxy.secrets.clientIdKey }}
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oauth2Proxy.secrets.secretName }}
+                  key: {{ .Values.oauth2Proxy.secrets.clientSecretKey }}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oauth2Proxy.secrets.secretName }}
+                  key: {{ .Values.oauth2Proxy.secrets.cookieSecretKey }}
+            {{- end }}
+            {{- with .Values.oauth2Proxy.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 4180
+              protocol: TCP
+            - name: metrics
+              containerPort: 44180
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.oauth2Proxy.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 4180
+            initialDelaySeconds: 5
+            periodSeconds: 5
+        {{- end }}

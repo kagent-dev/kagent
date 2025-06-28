@@ -102,6 +102,9 @@ service:
     controller:
       port: 8083
       targetPort: 8083
+    oauth2Proxy:
+      port: 4180
+      targetPort: 4180
 
 imagePullSecrets: []
 nameOverride: ""
@@ -171,3 +174,96 @@ cilium-manager-agent:
 
 cilium-debug-agent:
   enabled: true
+
+# OAuth2 Proxy configuration
+oauth2Proxy:
+  enabled: false
+  image:
+    registry: quay.io
+    repository: oauth2-proxy/oauth2-proxy
+    tag: "v7.9.0"
+    pullPolicy: IfNotPresent
+  
+  # OAuth2 Provider configuration
+  provider: "github"  # github, google, azure, oidc, etc.
+  
+  # OAuth2 client configuration (typically set via secrets)
+  clientId: ""
+  clientSecret: ""
+  cookieSecret: ""  # Generate with: python -c 'import secrets; print(secrets.token_urlsafe(32))'
+  
+  # OIDC configuration (for generic OIDC providers)
+  oidc:
+    issuerUrl: ""
+    
+  # GitHub specific configuration
+  github:
+    org: ""  # Optional: restrict to specific GitHub org
+    team: "" # Optional: restrict to specific GitHub team
+    
+  # Google specific configuration  
+  google:
+    hostedDomain: "" # Optional: restrict to specific Google Workspace domain
+    
+  # Azure specific configuration
+  azure:
+    tenant: ""
+    
+  # Additional oauth2-proxy configuration
+  config:
+    # Email domains that are allowed (empty means any)
+    emailDomains: []
+    # Example: ["example.com", "company.org"]
+    
+    # Upstream configuration - will be set automatically to point to nginx
+    upstreams: ["http://127.0.0.1:8080"]
+    
+    # Cookie configuration
+    cookieDomain: ""
+    cookieSecure: true
+    cookieHttpOnly: true
+    cookieSameSite: "lax"
+    cookieExpire: "168h"  # 7 days
+    
+    # Session configuration
+    sessionStoreType: "cookie"
+    
+    # Logging
+    logLevel: "info"
+    
+    # Skip authentication for specific paths
+    skipAuthPaths:
+      - "/ping"
+      - "/health"
+      - "/ready"
+    
+    # Additional command line arguments
+    extraArgs: []
+    # Example: ["--skip-provider-button", "--pass-basic-auth=false"]
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # Environment variables
+  env: []
+  # Example:
+  # - name: OAUTH2_PROXY_CUSTOM_VAR
+  #   value: "custom-value"
+
+  # Secret configuration - these should be set via external secrets or values override
+  secrets:
+    # If true, expects secrets to be provided externally
+    # If false, will create secret from values above (not recommended for production)
+    external: true
+    secretName: "oauth2-proxy-secrets"
+    
+    # Keys in the secret
+    clientIdKey: "client-id"
+    clientSecretKey: "client-secret" 
+    cookieSecretKey: "cookie-secret"

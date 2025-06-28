@@ -43,6 +43,11 @@
 
 The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/docs).
 
+### Additional Documentation
+- **[OAuth2-Proxy Authentication](docs/oauth2proxy.md)** - Enterprise authentication with OAuth2-proxy sidecar
+- **[Development Guide](DEVELOPMENT.md)** - Local development setup
+- **[Contribution Guide](CONTRIBUTION.md)** - How to contribute to Kagent
+
 ## Core Concepts
 
 - **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools, and a model configuration.

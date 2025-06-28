@@ -1,0 +1,111 @@
+# Example values for OAuth2-Proxy with GitHub
+# Copy and customize this file for your deployment
+
+# Enable OAuth2-Proxy
+oauth2Proxy:
+  enabled: true
+  
+  # Provider configuration
+  provider: "github"
+  
+  # OAuth2 client configuration - set these via external secrets in production
+  clientId: "your-github-client-id"
+  clientSecret: "your-github-client-secret"
+  cookieSecret: "generate-with-python-c-import-secrets-print-secrets-token_urlsafe-32"
+  
+  # GitHub specific configuration
+  github:
+    org: "your-github-org"  # Optional: restrict to specific GitHub org
+    team: "your-team"       # Optional: restrict to specific GitHub team
+    
+  # Additional configuration
+  config:
+    # Restrict to specific email domains (empty means any)
+    emailDomains: ["example.com"]
+    
+    # Cookie configuration
+    cookieDomain: ".example.com"  # Set to your domain
+    cookieSecure: true            # Set to false for HTTP (dev only)
+    
+    # Skip authentication for specific paths
+    skipAuthPaths:
+      - "/ping"
+      - "/health"
+      - "/ready"
+      - "/metrics"
+    
+    # Additional oauth2-proxy arguments
+    extraArgs:
+      - "--skip-provider-button"
+      - "--pass-basic-auth=false"
+      - "--pass-access-token"
+      - "--set-xauthrequest"
+  
+  # Use external secrets (recommended for production)
+  secrets:
+    external: true
+    secretName: "oauth2-proxy-secrets"
+
+---
+# Example Secret (create this manually or via external-secrets-operator)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oauth2-proxy-secrets
+  namespace: kagent
+type: Opaque
+stringData:
+  client-id: "your-github-client-id"
+  client-secret: "your-github-client-secret"
+  cookie-secret: "your-generated-cookie-secret"
+
+---
+# Example for Google OAuth2
+oauth2Proxy:
+  enabled: true
+  provider: "google"
+  
+  clientId: "your-google-client-id"
+  clientSecret: "your-google-client-secret"
+  cookieSecret: "your-generated-cookie-secret"
+  
+  google:
+    hostedDomain: "example.com"  # Restrict to specific Google Workspace domain
+    
+  config:
+    emailDomains: ["example.com"]
+
+---
+# Example for Azure AD
+oauth2Proxy:
+  enabled: true
+  provider: "azure"
+  
+  clientId: "your-azure-client-id"
+  clientSecret: "your-azure-client-secret"
+  cookieSecret: "your-generated-cookie-secret"
+  
+  azure:
+    tenant: "your-tenant-id"
+    
+  config:
+    emailDomains: ["example.com"]
+
+---
+# Example for Generic OIDC Provider
+oauth2Proxy:
+  enabled: true
+  provider: "oidc"
+  
+  clientId: "your-oidc-client-id"
+  clientSecret: "your-oidc-client-secret"
+  cookieSecret: "your-generated-cookie-secret"
+  
+  oidc:
+    issuerUrl: "https://your-oidc-provider.com"
+    
+  config:
+    emailDomains: ["*"]  # Allow any email domain
+    extraArgs:
+      - "--oidc-groups-claim=groups"
+      - "--oidc-email-claim=email" 
