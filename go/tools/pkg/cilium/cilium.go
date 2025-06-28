@@ -11,12 +11,6 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// Cilium tools using cilium CLI
-
-func runCiliumCli(args ...string) (string, error) {
-	return utils.RunCommand("cilium", args)
-}
-
 func runCiliumCliWithContext(ctx context.Context, args ...string) (string, error) {
 	return utils.RunCommandWithContext(ctx, "cilium", args)
 }

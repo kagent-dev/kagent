@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
@@ -524,17 +523,6 @@ func (a *apiTranslator) translateAssistantAgent(
 	for _, tool := range agent.Spec.Tools {
 		// Skip tools that are not applicable to the model provider
 		switch {
-		case tool.Builtin != nil:
-			autogenTool, err := a.translateBuiltinTool(
-				ctx,
-				modelClientWithoutStreaming,
-				modelConfig,
-				tool.Builtin,
-			)
-			if err != nil {
-				return nil, err
-			}
-			tools = append(tools, autogenTool)
 		case tool.McpServer != nil:
 			for _, toolName := range tool.McpServer.ToolNames {
 				autogenTool, err := translateToolServerTool(
@@ -689,30 +677,6 @@ func (a *apiTranslator) translateMemory(ctx context.Context, memoryRef string, d
 	}
 
 	return nil, fmt.Errorf("unsupported memory provider: %s", memoryObj.Spec.Provider)
-}
-
-func (a *apiTranslator) translateBuiltinTool(
-	ctx context.Context,
-	modelClient *api.Component,
-	modelConfig *v1alpha1.ModelConfig,
-	tool *v1alpha1.BuiltinTool,
-) (*api.Component, error) {
-
-	toolConfig, err := convertMapFromAnytype(tool.Config)
-	if err != nil {
-		return nil, err
-	}
-
-	providerParts := strings.Split(tool.Name, ".")
-	toolLabel := providerParts[len(providerParts)-1]
-
-	return &api.Component{
-		Provider:      tool.Name,
-		ComponentType: "tool",
-		Version:       1,
-		Config:        toolConfig,
-		Label:         toolLabel,
-	}, nil
 }
 
 func translateToolServerTool(
