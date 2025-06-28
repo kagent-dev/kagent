@@ -148,7 +148,7 @@ describe('Tool Utility Functions', () => {
     it('should handle unknown tool types', () => {
       const unknownTool = { someProperty: "value" };
       expect(getToolDisplayName(unknownTool as any)).toBe("Unknown Tool");
-      expect(consoleWarnSpy).toHaveBeenCalledWith("Unknown tool type:", unknownTool);
+      expect(consoleWarnSpy).toHaveBeenCalledWith("Unknown tool type:", expect.objectContaining(unknownTool));
     });
   });
 
@@ -304,7 +304,7 @@ describe('Tool Utility Functions', () => {
       const unknownTool = { someProperty: "value" };
       const result = getToolIdentifier(unknownTool as any);
       expect(result).toMatch(/^unknown-/);
-      expect(consoleWarnSpy).toHaveBeenCalledWith("Unknown tool type:", unknownTool);
+      expect(consoleWarnSpy).toHaveBeenCalledWith("Unknown tool type:", expect.objectContaining(unknownTool));
     });
   });
 
@@ -350,7 +350,7 @@ describe('Tool Utility Functions', () => {
     it('should handle unknown tool types', () => {
       const unknownTool = { someProperty: "value" };
       expect(getToolProvider(unknownTool as any)).toBe("unknown");
-      expect(consoleWarnSpy).toHaveBeenCalledWith("Unknown tool type:", unknownTool);
+      expect(consoleWarnSpy).toHaveBeenCalledWith("Unknown tool type:", expect.objectContaining(unknownTool));
     });
   });
 

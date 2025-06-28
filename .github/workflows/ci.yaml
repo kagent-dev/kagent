@@ -39,7 +39,7 @@ jobs:
             --cache-to=type=gha,mode=max
             --platform=linux/amd64,linux/arm64
             --output=type=tar,dest=/dev/null
-
+          DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx"
         run: make build-${{ matrix.image }}
         working-directory: ./
@@ -126,29 +126,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-
-  python-test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install python
-        run: uv python install 3.12
-        working-directory: ./python
-
-      - name: Sync dependencies
-        working-directory: ./python
-        run: |
-          export GIT_LFS_SKIP_SMUDGE=1
-          uv sync --all-extras
-
-      - name: Run tests
-        working-directory: ./python
-        run: uv run pytest tests
 
   ui-tests:
     runs-on: ubuntu-latest

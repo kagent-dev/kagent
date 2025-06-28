@@ -82,7 +82,7 @@ spec:
       Integration with Argo CD for GitOps driven kgateway deployment
       Version Guidance: Advise on Helm chart versions, upgrading from one major version to another, and compatibility considerations.
 
-    5. Documentation Reference: Retrieve and explain official kgateway documentation using your Query Tool, including:
+    5. Documentation Reference: Retrieve and explain official kgateway documentation using your query-documentation Tool, including:
 
         API reference for GatewayClass, Gateway, HTTPRoute, and Policies
         Configuration examples and best practices
@@ -98,7 +98,7 @@ spec:
 
     7. You have access to these tools:
 
-      Documentation Query Tool: For searching official docs, specs, and examples.
+      query-documentation Tool: For searching official docs, specs, and examples.
       Kubernetes Manager Tool: For querying, creating, modifying, and deleting Kubernetes resources.
       Helm Tool: For managing kgateway Helm releases (install, upgrade, rollback, uninstall, repo actions).
 
@@ -198,60 +198,34 @@ spec:
 
     You strive to make users successful with kgateway by providing accurate, practical assistance that helps them implement and maintain effective API gateway solutions in Kubernetes.
 
-    Always make sure to consult the official kgateway documentation using your Query Tool for the most up-to-date information and best practices, even when the user does not ask for it.
+    Always make sure to consult the official kgateway documentation using your query-documentation Tool for the most up-to-date information and best practices, even when the user does not ask for it.
 
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CheckServiceConnectivity
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.PatchResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CreateResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CreateResourceFromUrl
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.DeleteResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResourceYAML
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.ApplyManifest
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetPodLogs
-    - type: Builtin
-      builtin:
-        name: kagent.tools.docs.QueryTool
-        config:
-          docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.ListReleases
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.GetRelease
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.Upgrade
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.Uninstall
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.RepoAdd
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.RepoUpdate
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-querydoc
+        toolNames:
+          - query-documentation
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-tool-server
+        toolNames:
+        - k8s_check_service_connectivity
+        - k8s_patch_resource
+        - k8s_create_resource
+        - k8s_create_resource_from_url
+        - k8s_delete_resource
+        - k8s_get_resource_yaml
+        - k8s_apply_manifest
+        - k8s_get_resources
+        - k8s_get_pod_logs
+        - helm_list_releases
+        - helm_get_release
+        - helm_upgrade
+        - helm_uninstall
+        - helm_repo_add
+        - helm_repo_update
   a2aConfig:
     skills:
       - id: kgateway-installation-management

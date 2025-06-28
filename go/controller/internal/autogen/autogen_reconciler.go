@@ -619,8 +619,10 @@ func (a *autogenReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req
 
 	var models []string
 	for _, model := range modelsList.Items {
+		if model.Spec.APIKeySecretRef == "" {
+			continue
+		}
 		secretNamespaced, err := common.ParseRefString(model.Spec.APIKeySecretRef, model.Namespace)
-
 		if err != nil {
 			reconcileLog.Error(err, "failed to parse ModelConfig APIKeySecretRef",
 				"errorDetails", err.Error(),

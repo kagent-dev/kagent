@@ -2,9 +2,9 @@ BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-$(GIT_COMMIT)")
 
-LDFLAGS := -X github.com/kagent-dev/kagent/go/cli/internal/cli.Version=$(VERSION) \
-           -X github.com/kagent-dev/kagent/go/cli/internal/cli.GitCommit=$(GIT_COMMIT) \
-           -X github.com/kagent-dev/kagent/go/cli/internal/cli.BuildDate=$(BUILD_DATE)
+LDFLAGS := -X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)    \
+           -X github.com/kagent-dev/kagent/go/internal/version.GitCommit=$(GIT_COMMIT) \
+           -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -96,12 +96,16 @@ build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-da
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./controller/cmd/main.go
 
+.PHONY: build/tool-server
+build/tool-server:
+	go mod tidy -v
+	go build -ldflags "$(LDFLAGS)" -o bin/tool-server-local ./tools/cmd/tool-server
 
-##@ Deployment
-
-ifndef ignore-not-found
-  ignore-not-found = false
-endif
+.PHONY: run/tool-server
+run/tool-server: build/tool-server ## Run the tool server from your host.
+	echo "Running tool server on http://localhost:8084/sse ..."
+	echo "Use:  npx @modelcontextprotocol/inspector to connect to the tool server"
+	./bin/tool-server-local
 
 .PHONY: install
 install: manifests

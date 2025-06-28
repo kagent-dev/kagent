@@ -111,80 +111,35 @@ spec:
     - `cilium-dbg bpf recorder delete <id>` - Delete PCAP recorder
 
   tools:
-    # Endpoint Management and Debugging Tools
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ManageEndpointConfig
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.GetEndpointHealth
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.GetEndpointLogs
-    
-    # Identity Management Tools
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ListIdentities
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.GetIdentityDetails
-    
-    # Debugging Tools
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.RequestDebuggingInformation
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.DisplayEncryptionState
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.FlushIPsecState
-    
-    # Network Tools
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ListEnvoyConfig
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.FQDNCache
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ListIPAddresses
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ShowIPCacheInformation
-    
-    # Monitoring Tools
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ListBPFMapEvents
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ListMetrics
-    
-    # Cluster Tools
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ListClusterNodes
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ListNodeIds
-    
-    # PCAP Tools
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ListPCAPRecorders
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.GetPCAPRecorder
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.UpdatePCAPRecorder
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.DeletePCAPRecorder
-
+  - type: McpServer
+    mcpServer:
+      toolServer: kagent-querydoc
+      toolNames:
+        - query-documentation
+  - type: McpServer
+    mcpServer:
+      toolServer: kagent-tool-server
+      toolNames:
+      - cilium_manage_endpoint_config
+      - cilium_get_endpoint_health
+      - cilium_get_endpoint_logs
+      - cilium_list_identities
+      - cilium_get_identity_details
+      - cilium_request_debugging_information
+      - cilium_display_encryption_state
+      - cilium_flush_ipsec_state
+      - cilium_list_envoy_config
+      - cilium_fqdn_cache
+      - cilium_list_ip_addresses
+      - cilium_show_ip_cache_information
+      - cilium_list_bpf_map_events
+      - cilium_list_metrics
+      - cilium_list_cluster_nodes
+      - cilium_list_node_ids
+      - cilium_list_pcap_recorders
+      - cilium_get_pcap_recorder
+      - cilium_update_pcap_recorder
+      - cilium_delete_pcap_recorder
   a2aConfig:
     skills:
       - id: advanced-cilium-debugging

@@ -25,49 +25,21 @@ RUN addgroup -g 1001 pythongroup                       && \
     mkdir    -p /app/python/bin                        && \
     mkdir    -p /app/python/downloads                  && \
     mkdir    -p /app/python/.cache/uv                  && \
-    mkdir    -p /app/python/.autogenstudio/configs     && \
     chown    -vR 1001:1001 /app
 
 USER python
 WORKDIR /app/python
 
-### STAGE 3: tools
-FROM base-os AS tools-builder
-ARG TARGETARCH
+### STAGE 2 : download tools
+ARG TOOLS_GRAFANA_MCP_VERSION
+FROM mcp/grafana:latest AS mcp-grafana
+LABEL org.opencontainers.image.source="mcp/grafana${TOOLS_GRAFANA_MCP_VERSION}"
 
-ARG TOOLS_BUN_VERSION
-ARG TOOLS_HELM_VERSION
-ARG TOOLS_ISTIO_VERSION
-ARG TOOLS_ARGO_CD_VERSION
-
-WORKDIR /app/python/downloads
-
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$TARGETARCH/kubectl" \
-    && chmod +x kubectl
-
-RUN curl -Lo /app/python/downloads/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/$TOOLS_ARGO_CD_VERSION/download/kubectl-argo-rollouts-linux-$TARGETARCH \
-    && chmod +x /app/python/downloads/kubectl-argo-rollouts
-
-RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$TOOLS_ISTIO_VERSION TARGET_ARCH=$TARGETARCH sh - \
-    && mv istio-*/bin/istioctl /app/python/downloads/                                                           \
-    && rm -rf istio-*
-
-# Install Helm
-RUN curl -Lo helm.tar.gz https://get.helm.sh/helm-v${TOOLS_HELM_VERSION}-linux-${TARGETARCH}.tar.gz  \
-    && tar -xvf helm.tar.gz                                                                             \
-    && mv linux-${TARGETARCH}/helm /app/python/downloads/helm                                           \
-    && chmod +x /app/python/downloads/helm
-
-### STAGE 4: final
+### STAGE 3: final
 FROM python-os AS final
 ARG TOOLS_PYTHON_VERSION
 
 WORKDIR /app/python
-
-COPY --from=tools-builder --chown=python:pythongroup /app/python/downloads/kubectl               /app/python/bin/kubectl
-COPY --from=tools-builder --chown=python:pythongroup /app/python/downloads/istioctl              /app/python/bin/istioctl
-COPY --from=tools-builder --chown=python:pythongroup /app/python/downloads/helm                  /app/python/bin/helm
-COPY --from=tools-builder --chown=python:pythongroup /app/python/downloads/kubectl-argo-rollouts /app/python/bin/kubectl-argo-rollouts
 
 ENV PATH=$PATH:/app/python/bin
 
@@ -86,12 +58,11 @@ RUN echo "Installing dependencies..."                   \
 
 ENV UV_OFFLINE=1
 
-# Generate configs
-RUN mkdir -p /app/python/.autogenstudio/configs                  \
-    && uv run tool_gen -o /app/python/.autogenstudio/configs
-
 # Test if the tool is working and fetch all dependencies
 RUN uv run kagent-engine --help
+
+ # Grafana MCP
+COPY --from=mcp-grafana /app/mcp-grafana /app/python/bin/mcp-grafana
 
 EXPOSE 8081
 ARG VERSION
@@ -101,4 +72,4 @@ LABEL org.opencontainers.image.description="Kagent app is the apiserver for runn
 LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 LABEL org.opencontainers.image.version="$VERSION"
 
-CMD ["uv", "run", "kagent-engine", "serve", "--host", "0.0.0.0", "--port", "8081"]
+CMD ["uv", "run", "kagent-engine", "--host", "0.0.0.0", "--port", "8081"]

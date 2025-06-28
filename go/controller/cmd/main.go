@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"github.com/kagent-dev/kagent/go/internal/version"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,6 +65,11 @@ var (
 	scheme          = runtime.NewScheme()
 	setupLog        = ctrl.Log.WithName("setup")
 	kagentNamespace = utils_internal.GetResourceNamespace()
+
+	// These variables should be set during build time using -ldflags
+	Version   = version.Version
+	GitCommit = version.GitCommit
+	BuildDate = version.BuildDate
 )
 
 func init() {
@@ -125,6 +131,8 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -254,7 +262,7 @@ func main() {
 	)
 
 	// wait for autogen to become ready on port 8081 before starting the manager
-	if err := waitForAutogenReady(context.Background(), setupLog, autogenClient, time.Minute*5, time.Second*5); err != nil {
+	if err := waitForAutogenReady(context.Background(), setupLog, autogenClient, time.Minute*5, time.Second*15); err != nil {
 		setupLog.Error(err, "failed to wait for autogen to become ready")
 		os.Exit(1)
 	}

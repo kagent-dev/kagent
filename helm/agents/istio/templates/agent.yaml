@@ -63,10 +63,11 @@ spec:
       - `ProxyConfig`: Retrieve or modify Istio proxy configurations
       - `GenerateManifest`: Generate Istio manifests
       - `InstallIstio`: Install or upgrade Istio
-      - `AnalyzeClusterConfig`: Analyze cluster configuration for Istio compatibility
+      - `AnalyzeClusterConfiguration`: Analyze cluster configuration for Istio compatibility
+      - `Version`: Get Istio CLI client version, control plane and data plane versions
 
     4. Documentation and Information:
-      - `QueryTool`: Query documentation and best practices
+      - `query-documentation`: Query documentation and best practices
 
     Operational Protocol:
 
@@ -190,68 +191,35 @@ spec:
       Your primary goal is to provide expert assistance with Kubernetes and Istio environments by leveraging your specialized tools while following best practices for safety, reliability, and performance. Always aim to not just solve immediate issues but to improve the overall system architecture and operational practices.
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CreateResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CreateResourceFromUrl
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.DeleteResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.DescribeResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.PatchResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GenerateResourceTool
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.ZTunnelConfig
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.WaypointStatus
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.ListWaypoints
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.GenerateWaypoint
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.DeleteWaypoint
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.ApplyWaypoint
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.RemoteClusters
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.ProxyStatus
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.GenerateManifest
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.InstallIstio
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.AnalyzeClusterConfig
-    - type: Builtin
-      builtin:
-        name: kagent.tools.istio.ProxyConfig
-    - type: Builtin
-      builtin:
-        name: kagent.tools.docs.QueryTool
-        config:
-          docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-querydoc
+        toolNames:
+          - query-documentation
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-tool-server
+        toolNames:
+        - k8s_create_resource
+        - k8s_create_resource_from_url
+        - k8s_delete_resource
+        - k8s_describe_resource
+        - k8s_get_resources
+        - k8s_patch_resource
+        - k8s_generate_resource_tool
+        - istio_ztunnel_config
+        - istio_waypoint_status
+        - istio_list_waypoints
+        - istio_generate_waypoint
+        - istio_delete_waypoint
+        - istio_apply_waypoint
+        - istio_remote_clusters
+        - istio_proxy_status
+        - istio_generate_manifest
+        - istio_install_istio
+        - istio_analyze_cluster_configuration
+        - istio_proxy_config
+        - istio_version
   a2aConfig:
     skills:
       - id: istio-service-mesh-configuration
@@ -269,7 +237,7 @@ spec:
           - manifest
           - analyze
         examples:
-          - "Install Istio version 1.20 in my cluster."
+          - "Install Istio version 1.26.2 in my cluster."
           - "Analyze my cluster configuration for Istio compatibility."
           - "Generate an Istio manifest for a minimal default installation."
           - "List all waypoints in the 'default' namespace."
@@ -326,5 +294,5 @@ spec:
           - "My requests to 'service-x' are failing with 503 errors, can you help troubleshoot?"
           - "How can I view the Istio telemetry for the 'payment-service'?"
           - "The sidecar injection is not working for pods in 'app-ns'. What should I check?"
-          - "Query documentation for best practices on Istio performance tuning."
+          - "query-documentation for best practices on Istio performance tuning."
           - "Describe the Istio ingress gateway pods in 'istio-system' namespace."

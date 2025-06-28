@@ -23,6 +23,7 @@ install-bun:
 .PHONY: build
 update:
 	@echo "Updating UI lock file..."
+	npm install
 	bun install --frozen-lockfile --production
 	bun update  --lockfile-only
 	@echo "Updating UI lock file done."

@@ -449,14 +449,18 @@ spec:
     These tools can be used to troubleshoot policy issues, verify policy behavior, and ensure your network policies are correctly configured before deployment.
     
   tools:
-    # Policy Tools
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.DisplayPolicyNodeInformation
-    - type: Builtin
-      builtin:
-        name: kagent.tools.cilium.ValidateCiliumNetworkPolicies
-
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-querydoc
+        toolNames:
+          - query-documentation
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-tool-server
+        toolNames:
+        # Policy Tools
+        - cilium_display_policy_node_information
+        - cilium_validate_cilium_network_policies
   a2aConfig:
     skills:
       - id: create-cilium-network-policy

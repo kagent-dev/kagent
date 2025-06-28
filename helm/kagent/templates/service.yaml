@@ -20,5 +20,13 @@ spec:
       targetPort: {{ .Values.service.ports.controller.targetPort }}
       protocol: TCP
       name: controller
+    - port: {{ .Values.service.ports.tools.port }}
+      targetPort: {{ .Values.service.ports.tools.targetPort }}
+      protocol: TCP
+      name: tools
+    - port: {{ .Values.service.ports.querydoc.port }}
+      targetPort: {{ .Values.service.ports.querydoc.targetPort }}
+      protocol: TCP
+      name: querydoc
   selector:
     {{- include "kagent.selectorLabels" . | nindent 4 }}

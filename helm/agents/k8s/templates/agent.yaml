@@ -118,65 +118,33 @@ spec:
     Always start with the least intrusive approach, and escalate diagnostics only as needed. When in doubt, gather more information before recommending changes.
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CheckServiceConnectivity
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.PatchResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.RemoveAnnotation
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.AnnotateResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.RemoveLabel
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.LabelResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CreateResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CreateResourceFromUrl
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetEvents
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetAvailableAPIResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetClusterConfiguration
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.DescribeResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.DeleteResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResourceYAML
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.ExecuteCommand
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.ApplyManifest
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetPodLogs
-    - type: Builtin
-      builtin:
-        name: kagent.tools.docs.QueryTool
-        config:
-          docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-querydoc
+        toolNames:
+          - query-documentation
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-tool-server
+        toolNames:
+        - k8s_check_service_connectivity
+        - k8s_patch_resource
+        - k8s_remove_annotation
+        - k8s_annotate_resource
+        - k8s_remove_label
+        - k8s_label_resource
+        - k8s_create_resource
+        - k8s_create_resource_from_url
+        - k8s_get_events
+        - k8s_get_available_api_resources
+        - k8s_get_cluster_configuration
+        - k8s_describe_resource
+        - k8s_delete_resource
+        - k8s_get_resource_yaml
+        - k8s_execute_command
+        - k8s_apply_manifest
+        - k8s_get_resources
+        - k8s_get_pod_logs
   a2aConfig:
     skills:
       - id: cluster-diagnostics

@@ -60,6 +60,45 @@ controller:
       memory: 512Mi
   env: [] # Additional environment variables for the controller can be added here
 
+tools:
+  loglevel: "debug"
+  image:
+    registry: cr.kagent.dev
+    repository: kagent-dev/kagent/tools
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  prometheus:
+    url: "prometheus.kagent.svc.cluster.local:9090"
+    username: ""
+    password: ""
+  grafana: # kubectl port-forward svc/grafana 3000:3000
+    url: "http://grafana.kagent.svc.cluster.local:3000"
+    apiKey: ""
+
+# additional tools can be added here
+mcp:
+  doc2vec:
+    enabled: true
+    image:
+      registry: ghcr.io
+      repository: kagent-dev/doc2vec/mcp
+      tag: 1.1.7
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
 app:
   image:
     registry: cr.kagent.dev
@@ -102,6 +141,12 @@ service:
     controller:
       port: 8083
       targetPort: 8083
+    tools:
+      port: 8084
+      targetPort: 8084
+    querydoc:
+      port: 8085
+      targetPort: 8085
 
 imagePullSecrets: []
 nameOverride: ""
@@ -130,7 +175,7 @@ otel:
     exporter:
       otlp:
         endpoint: http://host.docker.internal:4317
-        timeout: 10
+        timeout: 15
         insecure: true
 
 k8s-agent:
@@ -147,15 +192,6 @@ promql-agent:
 
 observability-agent:
   enabled: true
-  prometheus:
-    url: ""
-    username: ""
-    password: ""
-  grafana:
-    url: ""
-    username: ""
-    password: ""
-    apiKey: ""
 
 argo-rollouts-agent:
   enabled: true

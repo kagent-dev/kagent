@@ -201,3 +201,5 @@ go/bin/
 /tmp/
 /reports/*.csv
 /reports/*.txt
+/go/tools/tool-server
+/contrib/memory/doc2vec/bun.lock

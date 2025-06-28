@@ -20,7 +20,7 @@ dependencies = [
   "tiktoken==0.8.0",
   "python-dotenv>=1.1.0",
   "pyyaml>=6.0.2",
-  "mcp>=1.2.0",
+  "mcp>=1.8.1",
   "sqlite-vec>=0.1.7a2",
   "typer>=0.15.2",
   "numpy>=2.2.4",
@@ -45,6 +45,7 @@ dependencies = [
   "google-genai>=1.18.0",
   "google-auth>=2.40.2",
   "h11>=0.16.0",
+  "protobuf >= 5.29.5",
 ]
 
 [project.optional-dependencies]

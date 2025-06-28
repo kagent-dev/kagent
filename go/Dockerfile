@@ -4,6 +4,7 @@ FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/go:latest AS bu
 
 ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG LDFLAGS
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -17,6 +18,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 
 # Copy the go source
 COPY autogen autogen
+COPY internal internal
 COPY controller controller
 
 # Build
@@ -26,7 +28,7 @@ COPY controller controller
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw         \
     --mount=type=cache,target=/root/.cache/go-build,rw    \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager controller/cmd/main.go
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o manager controller/cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details

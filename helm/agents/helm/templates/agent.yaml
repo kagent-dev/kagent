@@ -77,7 +77,7 @@ spec:
     - `ApplyManifest`: Apply a YAML resource file to the cluster (useful for customizations).
 
     ### Documentation Tools
-    - `QueryTool`: Search documentation related to Helm, charts, and Kubernetes integration.
+    - `query-documentation`: Search documentation related to Helm, charts, and Kubernetes integration.
 
     ## Safety Protocols
 
@@ -145,38 +145,24 @@ spec:
     Always prioritize stability and correctness in Helm operations, and provide clear guidance on how to verify the success of operations.
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.ListReleases
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.GetRelease
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.Upgrade
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.Uninstall
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.RepoAdd
-    - type: Builtin
-      builtin:
-        name: kagent.tools.helm.RepoUpdate
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetAvailableAPIResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.ApplyManifest
-    - type: Builtin
-      builtin:
-        name: kagent.tools.docs.QueryTool
-        config:
-          docs_download_url: https://doc-sqlite-db.s3.sa-east-1.amazonaws.com
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-querydoc
+        toolNames:
+          - query-documentation
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-tool-server
+        toolNames:
+        - helm_list_releases
+        - helm_get_release
+        - helm_upgrade
+        - helm_uninstall
+        - helm_repo_add
+        - helm_repo_update
+        - k8s_get_resources
+        - k8s_get_available_api_resources
+        - k8s_apply_manifest
   a2aConfig:
     skills:
       - id: helm-release-management

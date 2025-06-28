@@ -119,10 +119,31 @@ tests:
       - contains:
           path: spec.template.spec.containers[1].env
           content:
-            name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
             value: "http://host.docker.internal:4317"
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+            value: "15"
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
+            value: "true"
 
-  - it: should enable otel tracing when configured
+  - it: should enable otel tracing when explicitly configured
+    set:
+      otel:
+        tracing:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: OTEL_TRACING_ENABLED
+            value: "true"
+  - it: should disable otel tracing when configured
     set:
       otel:
         tracing:
@@ -187,7 +208,7 @@ tests:
           value: /api/version
       - equal:
           path: spec.template.spec.containers[1].readinessProbe.httpGet.port
-          value: 8081
+          value: http-app
       - equal:
           path: spec.template.spec.containers[1].readinessProbe.initialDelaySeconds
           value: 15

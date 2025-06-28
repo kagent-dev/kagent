@@ -46,7 +46,6 @@ func (r *ToolServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	return ctrl.Result{
 		// loop forever because we need to refresh tools server status
-		Requeue:      true,
 		RequeueAfter: 60 * time.Second,
 	}, r.Reconciler.ReconcileAutogenToolServer(ctx, req)
 }

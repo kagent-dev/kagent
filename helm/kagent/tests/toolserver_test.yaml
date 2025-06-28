@@ -1,0 +1,67 @@
+suite: test toolserver
+templates:
+  - toolserver.yaml
+tests:
+  - it: should render toolserver with default values
+    asserts:
+      - isKind:
+          of: ToolServer
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-tool-server
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - equal:
+          path: spec.description
+          value: "Built In Tool Server"
+      - hasDocuments:
+          count: 1
+
+  - it: should have correct SSE configuration
+    asserts:
+      - equal:
+          path: spec.config.sse.sseReadTimeout
+          value: 5m0s
+      - equal:
+          path: spec.config.sse.timeout
+          value: 30s
+      - equal:
+          path: spec.config.sse.url
+          value: http://localhost:8084/sse
+
+  - it: should not have labels (toolserver template doesn't include common labels)
+    asserts:
+      - notExists:
+          path: metadata.labels
+
+  - it: should use custom namespace when overridden
+    set:
+      namespaceOverride: "custom-namespace"
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace
+
+  - it: should use custom fullname when overridden
+    set:
+      fullnameOverride: "custom-kagent"
+    asserts:
+      - equal:
+          path: metadata.name
+          value: custom-kagent-tool-server
+
+  - it: should have hardcoded port 8084 in SSE URL
+    asserts:
+      - equal:
+          path: spec.config.sse.url
+          value: http://localhost:8084/sse
+
+  - it: should have correct APIVersion and Kind
+    asserts:
+      - equal:
+          path: apiVersion
+          value: kagent.dev/v1alpha1
+      - equal:
+          path: kind
+          value: ToolServer
