@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
 )
@@ -97,14 +96,12 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handlerName := common.ResourceRefString(agentNamespace, agentName)
-
 	// get the underlying handler
-	handlerHandler, ok := a.getHandler(handlerName)
+	handlerHandler, ok := a.getHandler(agentName)
 	if !ok {
 		http.Error(
 			w,
-			fmt.Sprintf("Agent %s not found", handlerName),
+			fmt.Sprintf("Agent %s not found", agentName),
 			http.StatusNotFound,
 		)
 		return

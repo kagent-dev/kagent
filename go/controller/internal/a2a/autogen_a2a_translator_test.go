@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	"github.com/kagent-dev/kagent/go/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -64,7 +65,7 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 						{
 							ID:          "skill1",
 							Name:        "Test Skill",
-							Description: common.MakePtr("A test skill"),
+							Description: internal.MakePtr("A test skill"),
 						},
 					},
 				},
@@ -78,7 +79,7 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.Equal(t, "test-namespace/test-agent", result.AgentCard.Name)
-		assert.Equal(t, "Test agent", *result.AgentCard.Description)
+		assert.Equal(t, "Test agent", result.AgentCard.Description)
 		assert.Equal(t, "http://localhost:8083/test-namespace/test-agent", result.AgentCard.URL)
 		assert.Equal(t, "1", result.AgentCard.Version)
 		assert.Equal(t, []string{"text"}, result.AgentCard.DefaultInputModes)
@@ -185,7 +186,7 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler
-		handlerResult, err := result.HandleTask(ctx, task, &sessionID)
+		handlerResult, err := result.HandleTask(ctx, task, sessionID)
 		require.NoError(t, err)
 		// Note: The in-memory implementation will return a default response
 		assert.Contains(t, handlerResult, "Session task completed")
@@ -223,7 +224,7 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler - this should create a new session and then invoke it
-		handlerResult, err := result.HandleTask(ctx, task, &sessionID)
+		handlerResult, err := result.HandleTask(ctx, task, sessionID)
 		require.NoError(t, err)
 		assert.Contains(t, handlerResult, "Session task completed")
 
@@ -267,7 +268,7 @@ func TestTaskHandlerWithSession(t *testing.T) {
 
 		// With the in-memory implementation, session creation should succeed
 		// This test might need to be adjusted to test a different error scenario
-		_, err = result.HandleTask(ctx, task, &sessionID)
+		_, err = result.HandleTask(ctx, task, sessionID)
 		require.NoError(t, err) // Changed from require.Error
 	})
 }
@@ -307,14 +308,13 @@ func TestTaskHandlerWithoutSession(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler without session ID
-		handlerResult, err := result.HandleTask(ctx, task, nil)
+		handlerResult, err := result.HandleTask(ctx, task, "")
 		require.NoError(t, err)
 		assert.Contains(t, handlerResult, "Task completed")
 	})
 
 	t.Run("should invoke task directly when empty session ID provided", func(t *testing.T) {
 		task := "test task"
-		emptySessionID := ""
 
 		mockClient := fake.NewMockAutogenClient()
 
@@ -343,7 +343,7 @@ func TestTaskHandlerWithoutSession(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler with empty session ID
-		handlerResult, err := result.HandleTask(ctx, task, &emptySessionID)
+		handlerResult, err := result.HandleTask(ctx, task, "")
 		require.NoError(t, err)
 		assert.Contains(t, handlerResult, "Task completed")
 	})
@@ -383,7 +383,7 @@ func TestTaskHandlerMessageContentExtraction(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler
-		handlerResult, err := result.HandleTask(ctx, task, nil)
+		handlerResult, err := result.HandleTask(ctx, task, "")
 		require.NoError(t, err)
 		assert.Contains(t, handlerResult, "Task completed")
 	})
@@ -418,7 +418,7 @@ func TestTaskHandlerMessageContentExtraction(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler
-		handlerResult, err := result.HandleTask(ctx, task, nil)
+		handlerResult, err := result.HandleTask(ctx, task, "")
 		require.NoError(t, err)
 		assert.Contains(t, handlerResult, "Task completed")
 	})
@@ -453,7 +453,7 @@ func TestTaskHandlerMessageContentExtraction(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler
-		handlerResult, err := result.HandleTask(ctx, task, nil)
+		handlerResult, err := result.HandleTask(ctx, task, "")
 		require.NoError(t, err)
 		assert.Contains(t, handlerResult, "Task completed")
 	})
@@ -495,7 +495,7 @@ func TestTaskHandlerErrorHandling(t *testing.T) {
 		require.NotNil(t, result)
 
 		// With the in-memory implementation, this should succeed
-		_, err = result.HandleTask(ctx, task, nil)
+		_, err = result.HandleTask(ctx, task, "")
 		require.NoError(t, err) // Changed from require.Error
 	})
 
@@ -537,7 +537,7 @@ func TestTaskHandlerErrorHandling(t *testing.T) {
 		require.NotNil(t, result)
 
 		// With the in-memory implementation, this should succeed
-		_, err = result.HandleTask(ctx, task, &sessionID)
+		_, err = result.HandleTask(ctx, task, sessionID)
 		require.NoError(t, err) // Changed from require.Error
 	})
 
@@ -575,7 +575,7 @@ func TestTaskHandlerErrorHandling(t *testing.T) {
 		require.NotNil(t, result)
 
 		// This should succeed by creating a new session
-		_, err = result.HandleTask(ctx, task, &sessionID)
+		_, err = result.HandleTask(ctx, task, sessionID)
 		require.NoError(t, err) // Changed from require.Error
 	})
 }

@@ -26,7 +26,7 @@ require (
 	k8s.io/client-go v0.33.2
 	sigs.k8s.io/controller-runtime v0.21.0
 	sigs.k8s.io/yaml v1.4.0
-	trpc.group/trpc-go/trpc-a2a-go v0.0.3
+	trpc.group/trpc-go/trpc-a2a-go v0.2.0
 )
 
 require (

@@ -12,6 +12,7 @@ import (
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	"github.com/kagent-dev/kagent/go/internal"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -185,12 +186,12 @@ func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1
 
 		var timeout *float64
 		if config.Sse.Timeout != nil {
-			timeout = common.MakePtr(config.Sse.Timeout.Duration.Seconds())
+			timeout = internal.MakePtr(config.Sse.Timeout.Duration.Seconds())
 		}
 
 		var sseReadTimeout *float64
 		if config.Sse.SseReadTimeout != nil {
-			sseReadTimeout = common.MakePtr(config.Sse.SseReadTimeout.Duration.Seconds())
+			sseReadTimeout = internal.MakePtr(config.Sse.SseReadTimeout.Duration.Seconds())
 		}
 
 		return "kagent.tool_servers.SseMcpToolServer", &api.SseMcpServerConfig{
@@ -224,11 +225,11 @@ func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1
 
 		var timeout *float64
 		if config.StreamableHttp.Timeout != nil {
-			timeout = common.MakePtr(config.StreamableHttp.Timeout.Duration.Seconds())
+			timeout = internal.MakePtr(config.StreamableHttp.Timeout.Duration.Seconds())
 		}
 		var sseReadTimeout *float64
 		if config.StreamableHttp.SseReadTimeout != nil {
-			sseReadTimeout = common.MakePtr(config.StreamableHttp.SseReadTimeout.Duration.Seconds())
+			sseReadTimeout = internal.MakePtr(config.StreamableHttp.SseReadTimeout.Duration.Seconds())
 		}
 
 		return "kagent.tool_servers.StreamableHttpMcpToolServer", &api.StreamableHttpServerConfig{

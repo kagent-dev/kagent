@@ -60,7 +60,7 @@ func (a *a2aReconciler) ReconcileAutogenAgent(
 	}
 
 	return a.a2aHandler.SetAgentHandler(
-		agentRef,
+		agent.Name,
 		params,
 	)
 }

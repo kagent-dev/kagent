@@ -84,7 +84,7 @@ func (a *autogenA2ATranslator) translateCardForAgent(
 
 	return &server.AgentCard{
 		Name:        agentRef,
-		Description: common.MakePtr(agent.Spec.Description),
+		Description: agent.Spec.Description,
 		URL:         fmt.Sprintf("%s/%s", a.a2aBaseUrl, agentRef),
 		//Provider:           nil,
 		Version: fmt.Sprintf("%v", agent.Generation),
@@ -100,14 +100,14 @@ func (a *autogenA2ATranslator) translateCardForAgent(
 func (a *autogenA2ATranslator) makeHandlerForTeam(
 	autogenTeam *autogen_client.Team,
 ) (TaskHandler, error) {
-	return func(ctx context.Context, task string, sessionID *string) (string, error) {
+	return func(ctx context.Context, task string, sessionID string) (string, error) {
 		var taskResult *autogen_client.TaskResult
-		if sessionID != nil && *sessionID != "" {
-			session, err := a.autogenClient.GetSession(*sessionID, common.GetGlobalUserID())
+		if sessionID != "" {
+			session, err := a.autogenClient.GetSession(sessionID, common.GetGlobalUserID())
 			if err != nil {
 				if errors.Is(err, autogen_client.NotFoundError) {
 					session, err = a.autogenClient.CreateSession(&autogen_client.CreateSession{
-						Name:   *sessionID,
+						Name:   sessionID,
 						UserID: common.GetGlobalUserID(),
 					})
 					if err != nil {

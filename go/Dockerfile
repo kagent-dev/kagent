@@ -20,6 +20,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 COPY autogen autogen
 COPY internal internal
 COPY controller controller
+COPY internal internal
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command

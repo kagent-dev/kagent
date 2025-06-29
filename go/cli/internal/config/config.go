@@ -41,7 +41,7 @@ func Init() error {
 	viper.SetDefault("user_id", "admin@kagent.dev")
 	viper.SetDefault("output_format", "table")
 	viper.SetDefault("namespace", "kagent")
-	viper.SetDefault("a2a_url", "http://localhost:8083/api/a2a")
+	viper.SetDefault("a2a_url", "http://172.20.255.0:8083/api/a2a")
 
 	viper.MustBindEnv("USER_ID")
 
