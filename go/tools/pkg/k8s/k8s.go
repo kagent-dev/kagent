@@ -666,9 +666,11 @@ func (k *K8sTool) handleGenerateResource(ctx context.Context, request mcp.CallTo
 }
 
 func RegisterK8sTools(s *server.MCPServer) {
-	llm, err := openai.New()
-	if err != nil {
-		return
+	var llm llms.Model
+	if openAiClient, err := openai.New(); err == nil {
+		llm = openAiClient
+	} else {
+		logger.Get().Error(err, "Failed to initialize OpenAI LLM, k8s_generate_resource tool will not be available")
 	}
 
 	k8sTool, err := NewK8sTool(llm)
@@ -859,7 +861,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("namespace", mcp.Description("Namespace of the resource (optional)")),
 	), k8sTool.handleKubectlDescribeTool)
 
-	s.AddTool(mcp.NewTool("k8s_generate_resource_tool",
+	s.AddTool(mcp.NewTool("k8s_generate_resource",
 		mcp.WithDescription("Generate a Kubernetes resource YAML from a description"),
 		mcp.WithString("resource_description", mcp.Description("Detailed description of the resource to generate"), mcp.Required()),
 		mcp.WithString("resource_type", mcp.Description(fmt.Sprintf("Type of resource to generate (%s)", strings.Join(slices.Collect(resourceTypes), ", "))), mcp.Required()),
