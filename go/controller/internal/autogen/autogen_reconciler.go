@@ -181,47 +181,88 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 	return nil
 }
 
+// testSecretAvailability tests if the ModelConfig's secret is available without failing
+func (a *autogenReconciler) testSecretAvailability(ctx context.Context, modelConfig *v1alpha1.ModelConfig) error {
+	// Skip secret check for Ollama or if no secret reference
+	if modelConfig.Spec.Provider == v1alpha1.Ollama || modelConfig.Spec.APIKeySecretRef == "" {
+		return nil
+	}
+
+	// Try to get the API key - this will return SecretNotFoundError if missing
+	_, err := a.autogenTranslator.(*apiTranslator).getModelConfigApiKey(ctx, modelConfig)
+	return err
+}
+
 func (a *autogenReconciler) ReconcileAutogenModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha1.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
 		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
 	}
 
+	// Test secret availability first
+	secretErr := a.testSecretAvailability(ctx, modelConfig)
+
 	agents, err := a.findAgentsUsingModel(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to find agents for model %s: %v", req.Name, err)
 	}
 
-	if err := a.reconcileAgents(ctx, agents...); err != nil {
-		return fmt.Errorf("failed to reconcile agents for model %s: %v", req.Name, err)
+	var reconcileErr error
+	if secretErr == nil {
+		// Secret available - reconcile normally
+		if err := a.reconcileAgents(ctx, agents...); err != nil {
+			reconcileErr = fmt.Errorf("failed to reconcile agents for model %s: %v", req.Name, err)
+		}
+
+		if reconcileErr == nil {
+			teams, err := a.findTeamsUsingModel(ctx, req)
+			if err != nil {
+				reconcileErr = fmt.Errorf("failed to find teams for model %s: %v", req.Name, err)
+			} else {
+				reconcileErr = a.reconcileTeams(ctx, teams...)
+			}
+		}
+	} else {
+		// Secret missing - graceful degradation
+		reconcileLog.V(1).Info("Secret not available, skipping agent/team reconciliation",
+			"modelConfig", req.NamespacedName,
+			"secretError", secretErr.Error())
 	}
 
-	teams, err := a.findTeamsUsingModel(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find teams for model %s: %v", req.Name, err)
+	// Determine final error with proper priority
+	var finalErr error
+	if reconcileErr != nil {
+		finalErr = reconcileErr
+	} else if secretErr != nil {
+		finalErr = secretErr
 	}
 
 	return a.reconcileModelConfigStatus(
 		ctx,
 		modelConfig,
-		a.reconcileTeams(ctx, teams...),
+		finalErr,
 	)
 }
 
 func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha1.ModelConfig, err error) error {
-	var (
-		status  metav1.ConditionStatus
-		message string
-		reason  string
-	)
+	// Set single Accepted condition
+	var status metav1.ConditionStatus
+	var reason, message string
+
 	if err != nil {
 		status = metav1.ConditionFalse
 		message = err.Error()
-		reason = "ModelConfigReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile model config", "modelConfig", modelConfig)
+
+		if IsSecretNotFoundError(err) {
+			reason = "SecretNotFound"
+		} else {
+			reason = "ReconcileFailed"
+			reconcileLog.Error(err, "failed to reconcile model config", "modelConfig", modelConfig)
+		}
 	} else {
 		status = metav1.ConditionTrue
-		reason = "ModelConfigReconciled"
+		reason = "Reconciled"
+		message = "ModelConfig reconciled successfully"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
