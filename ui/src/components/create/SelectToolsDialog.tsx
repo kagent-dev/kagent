@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Component, ToolConfig, AgentResponse, Tool } from "@/types/datamodel";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider, isAgentTool, isMcpTool, isMcpProvider, componentToAgentTool } from "@/lib/toolUtils";
+import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider, isAgentTool, isMcpTool, isMcpProvider, componentToAgentTool, groupMcpToolsByServer } from "@/lib/toolUtils";
+import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 // Maximum number of tools that can be selected
@@ -251,7 +252,15 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   };
 
   const handleSave = () => {
-    onToolsSelected(localSelectedComponents.map(entry => entry.toolInstance));
+    const selectedTools = localSelectedComponents.map(entry => entry.toolInstance);
+    const { groupedTools, errors } = groupMcpToolsByServer(selectedTools);
+    
+    if (errors.length > 0) {
+      const errorList = errors.join('\n- ');
+      toast.warning(`Tools skipped:\n- ${errorList}`);
+    }
+    
+    onToolsSelected(groupedTools);
     onOpenChange(false);
   };
 
