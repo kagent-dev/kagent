@@ -84,7 +84,15 @@ func TestE2E(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		return result.TaskResult.Messages[len(result.TaskResult.Messages)-1]["content"].(string)
+		events := make([]autogen_client.Event, len(result.TaskResult.Messages))
+		for i, msg := range result.TaskResult.Messages {
+			parsedEvent, err := autogen_client.ParseEvent(msg)
+			if err != nil {
+				require.NoError(t, err)
+			}
+			events[i] = parsedEvent
+		}
+		return autogen_client.GetLastStringMessage(events)
 	}
 
 	// Helper to check if a namespace exists

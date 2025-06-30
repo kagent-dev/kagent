@@ -121,8 +121,10 @@ type TeamResult struct {
 }
 
 type TaskResult struct {
-	Messages   []TaskMessageMap `json:"messages"`
-	StopReason string           `json:"stop_reason"`
+	// These are all of type Event, but we don't want to unmarshal them here
+	// because we want to handle them in the caller
+	Messages   [][]byte `json:"messages"`
+	StopReason string   `json:"stop_reason"`
 }
 
 // APIResponse is the common response wrapper for all API responses

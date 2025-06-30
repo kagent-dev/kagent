@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/utils/a2autils"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
@@ -14,13 +16,16 @@ var (
 	processorLog = ctrl.Log.WithName("a2a_task_processor")
 )
 
-type TaskHandler func(ctx context.Context, task string, contextID string) (string, error)
+type TaskHandler interface {
+	HandleTask(ctx context.Context, task string, contextID string) ([]client.Event, error)
+	StreamTask(ctx context.Context, task string, contextID string) (<-chan client.Event, error)
+}
 
 type a2aTaskProcessor struct {
-	// handleTask is a function that processes the input text.
+	// taskHandler is a function that processes the input text.
 	// in production this is done by handing off the input text by a call to
 	// the underlying agentic framework (e.g.: autogen)
-	handleTask TaskHandler
+	taskHandler TaskHandler
 }
 
 var _ taskmanager.MessageProcessor = &a2aTaskProcessor{}
@@ -28,7 +33,7 @@ var _ taskmanager.MessageProcessor = &a2aTaskProcessor{}
 // newA2ATaskProcessor creates a new A2A task processor.
 func newA2ATaskProcessor(handleTask TaskHandler) taskmanager.MessageProcessor {
 	return &a2aTaskProcessor{
-		handleTask: handleTask,
+		taskHandler: handleTask,
 	}
 }
 
@@ -38,10 +43,6 @@ func (a *a2aTaskProcessor) ProcessMessage(
 	options taskmanager.ProcessOptions,
 	handle taskmanager.TaskHandler,
 ) (*taskmanager.MessageProcessingResult, error) {
-
-	if options.Streaming {
-		return nil, fmt.Errorf("streaming not yet supported")
-	}
 
 	// Extract text from the incoming message.
 	text := a2autils.ExtractText(message)
@@ -56,28 +57,161 @@ func (a *a2aTaskProcessor) ProcessMessage(
 		}, nil
 	}
 
-	processorLog.Info("Processing task", "taskID", message.TaskID, "text", text)
+	processorLog.Info("Processing task", "taskID", message.TaskID, "contextID", message.ContextID, "text", text)
 
-	// Process the input text (in this simple example, we'll just reverse it).
-	sessionID := handle.GetContextID()
-	result, err := a.handleTask(ctx, text, sessionID)
-	if err != nil {
-		message := protocol.NewMessage(
+	if !options.Streaming {
+		// Process the input text (in this simple example, we'll just reverse it).
+		contextID := handle.GetContextID()
+		result, err := a.taskHandler.HandleTask(ctx, text, contextID)
+		if err != nil {
+			message := protocol.NewMessage(
+				protocol.MessageRoleAgent,
+				[]protocol.Part{protocol.NewTextPart(err.Error())},
+			)
+			return &taskmanager.MessageProcessingResult{
+				Result: &message,
+			}, nil
+		}
+
+		textResult := client.GetLastStringMessage(result)
+
+		// Create response message.
+		responseMessage := protocol.NewMessage(
 			protocol.MessageRoleAgent,
-			[]protocol.Part{protocol.NewTextPart(err.Error())},
+			[]protocol.Part{protocol.NewTextPart(textResult)},
 		)
+
 		return &taskmanager.MessageProcessingResult{
-			Result: &message,
+			Result: &responseMessage,
 		}, nil
 	}
 
-	// Create response message.
-	responseMessage := protocol.NewMessage(
-		protocol.MessageRoleAgent,
-		[]protocol.Part{protocol.NewTextPart(fmt.Sprintf("Processed result: %s", result))},
-	)
+	events, err := a.taskHandler.StreamTask(ctx, text, handle.GetContextID())
+	if err != nil {
+		return nil, err
+	}
+
+	taskID, err := handle.BuildTask(message.TaskID, message.ContextID)
+	if err != nil {
+		return nil, err
+	}
+
+	taskSubscriber, err := handle.SubScribeTask(ptr.To(taskID))
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		defer func() {
+			if taskSubscriber != nil {
+				taskSubscriber.Close()
+			}
+
+			handle.CleanTask(&taskID)
+		}()
+
+		// Send task status update - working
+		workingEvent := protocol.StreamingMessageEvent{
+			Result: &protocol.TaskStatusUpdateEvent{
+				TaskID: taskID,
+				Kind:   protocol.KindTaskStatusUpdate,
+				Status: protocol.TaskStatus{
+					State: protocol.TaskStateWorking,
+				},
+			},
+		}
+		err = taskSubscriber.Send(workingEvent)
+		if err != nil {
+			processorLog.Error(err, "Failed to send working event to task subscriber")
+		}
+
+		for event := range events {
+			err := taskSubscriber.Send(convertAutogenTypeToA2AType(event, &taskID, message.ContextID))
+			if err != nil {
+				processorLog.Error(err, "Failed to send event to task subscriber")
+			}
+		}
+
+		// Send task completion
+		completedEvent := protocol.StreamingMessageEvent{
+			Result: &protocol.TaskStatusUpdateEvent{
+				TaskID: taskID,
+				Kind:   protocol.KindTaskStatusUpdate,
+				Status: protocol.TaskStatus{
+					State: protocol.TaskStateCompleted,
+				},
+				Final: true,
+			},
+		}
+		err = taskSubscriber.Send(completedEvent)
+		if err != nil {
+			processorLog.Error(err, "Failed to send completed event to task subscriber")
+		}
+
+	}()
 
 	return &taskmanager.MessageProcessingResult{
-		Result: &responseMessage,
+		StreamingEvents: taskSubscriber,
 	}, nil
+}
+
+func convertAutogenTypeToA2AType(event client.Event, taskId, contextId *string) protocol.StreamingMessageEvent {
+	switch typed := event.(type) {
+	case *client.TextMessage:
+		msg := protocol.NewMessageWithContext(
+			protocol.MessageRoleAgent,
+			[]protocol.Part{protocol.NewTextPart(typed.Content)},
+			taskId,
+			contextId,
+		)
+		return protocol.StreamingMessageEvent{
+			Result: &msg,
+		}
+	case *client.ModelClientStreamingChunkEvent:
+		msg := protocol.NewMessageWithContext(
+			protocol.MessageRoleAgent,
+			[]protocol.Part{protocol.NewTextPart(typed.Content)},
+			taskId,
+			contextId,
+		)
+		return protocol.StreamingMessageEvent{
+			Result: &msg,
+		}
+	case *client.ToolCallRequestEvent:
+		msg := protocol.NewMessageWithContext(
+			protocol.MessageRoleAgent,
+			[]protocol.Part{protocol.NewDataPart(typed.Content)},
+			taskId,
+			contextId,
+		)
+		return protocol.StreamingMessageEvent{
+			Result: &msg,
+		}
+	case *client.ToolCallExecutionEvent:
+		msg := protocol.NewMessageWithContext(
+			protocol.MessageRoleAgent,
+			[]protocol.Part{protocol.NewDataPart(typed.Content)},
+			taskId,
+			contextId,
+		)
+		return protocol.StreamingMessageEvent{
+			Result: &msg,
+		}
+	case *client.MemoryQueryEvent:
+		msg := protocol.NewMessageWithContext(
+			protocol.MessageRoleAgent,
+			[]protocol.Part{protocol.NewDataPart(typed.Content)},
+			taskId,
+			contextId,
+		)
+		return protocol.StreamingMessageEvent{
+			Result: &msg,
+		}
+	default:
+		return protocol.StreamingMessageEvent{
+			Result: &protocol.Message{
+				Parts: []protocol.Part{protocol.NewTextPart(fmt.Sprintf("Unsupported event type: %T", event))},
+			},
+		}
+	}
 }
