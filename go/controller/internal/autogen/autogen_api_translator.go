@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,6 +23,30 @@ import (
 var (
 	log = ctrllog.Log.WithName("autogen")
 )
+
+// SecretNotFoundError represents a missing secret error that can be handled gracefully
+type SecretNotFoundError struct {
+	SecretRef string
+	Namespace string
+	Message   string
+}
+
+func (e *SecretNotFoundError) Error() string {
+	return e.Message
+}
+
+func (e *SecretNotFoundError) IsSecretNotFound() bool {
+	return true
+}
+
+// IsSecretNotFoundError checks if the error is a SecretNotFoundError
+func IsSecretNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	_, ok := err.(*SecretNotFoundError)
+	return ok
+}
 
 type ApiTranslator interface {
 	TranslateGroupChatForTeam(
@@ -1271,6 +1296,13 @@ func (a *apiTranslator) getSecretKey(ctx context.Context, secretRef string, secr
 		secretRef,
 		namespace,
 	); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil, &SecretNotFoundError{
+				SecretRef: secretRef,
+				Namespace: namespace,
+				Message:   fmt.Sprintf("API key secret %s/%s not found", namespace, secretRef),
+			}
+		}
 		return nil, fmt.Errorf("failed to fetch secret %s/%s: %w", namespace, secretRef, err)
 	}
 
