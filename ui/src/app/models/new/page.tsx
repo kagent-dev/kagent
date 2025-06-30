@@ -24,7 +24,6 @@ import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendMo
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
-import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ValidationErrors {
   name?: string;
@@ -125,6 +124,9 @@ function ModelPageContent() {
   const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
+  const [projectId, setProjectId] = useState("");
+  const [location, setLocation] = useState("");
+  const [vertexAIErrors, setVertexAIErrors] = useState<{ projectId?: string; location?: string }>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -323,6 +325,16 @@ function ModelPageContent() {
       newErrors.apiKey = "API key is required for new models (except for Ollama or when you don't need an API key)";
     }
 
+    // Validate Vertex AI specific fields
+    if (isVertexAIProvider) {
+      if (!projectId.trim()) {
+        newErrors.requiredParams = { ...newErrors.requiredParams, projectID: "Project ID is required" };
+      }
+      if (!location.trim()) {
+        newErrors.requiredParams = { ...newErrors.requiredParams, location: "Location is required" };
+      }
+    }
+
     requiredParams.forEach(param => {
       if (!param.value.trim() && param.key.trim()) {
         if (!newErrors.requiredParams) newErrors.requiredParams = {};
@@ -451,7 +463,7 @@ function ModelPageContent() {
 
     try {
       let response;
-      if (isEditMode && modelConfigName) {
+      if (isEditMode && modelId) {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
@@ -461,27 +473,26 @@ function ModelPageContent() {
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
         };
-        const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
-        response = await updateModelConfig(modelConfigRef, updatePayload);
+        response = await updateModelConfig(modelId, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }
 
       if (response.success) {
-        toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
+        toast.success(isEditMode ? "Model updated successfully" : "Model created successfully");
         router.push("/models");
       } else {
-        throw new Error(response.error || "Failed to save model configuration");
+        toast.error(response.error || "Failed to save model");
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred";
-      console.error("Submission error:", err);
-      setError(errorMessage);
-      toast.error(errorMessage);
+    } catch (error) {
+      toast.error("An error occurred while saving the model");
+      console.error("Error saving model:", error);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const isVertexAIProvider = selectedProvider?.type === "GeminiVertexAI" || selectedProvider?.type === "AnthropicVertexAI";
 
   if (error) {
     return <ErrorState message={error} />;
@@ -534,6 +545,19 @@ function ModelPageContent() {
             modelTag={modelTag}
             onModelTagChange={setModelTag}
           />
+
+          {isVertexAIProvider && (
+            <VertexAIConfigSection
+              projectId={projectId}
+              location={location}
+              onProjectIdChange={setProjectId}
+              onLocationChange={setLocation}
+              errors={vertexAIErrors}
+              isSubmitting={isSubmitting}
+              isLoading={isLoading}
+              isEditMode={isEditMode}
+            />
+          )}
 
           <AuthSection
             isOllamaSelected={isOllamaSelected}
