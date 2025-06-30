@@ -1,0 +1,4 @@
+enhancement-proposal:
+  - changed-files:
+    - any-glob-to-any-file: 'design/**/*'
+    - all-globs-to-all-files: '!design/template.md'
