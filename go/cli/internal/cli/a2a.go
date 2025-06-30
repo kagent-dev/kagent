@@ -100,7 +100,11 @@ func runTaskStream(
 	}
 
 	for event := range result {
-		fmt.Fprintf(os.Stdout, "%+v\n", event.Result)
+		json, err := event.MarshalJSON()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stdout, "%+v\n", string(json))
 	}
 
 	return nil

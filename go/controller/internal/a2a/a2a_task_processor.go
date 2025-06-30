@@ -31,9 +31,9 @@ type a2aTaskProcessor struct {
 var _ taskmanager.MessageProcessor = &a2aTaskProcessor{}
 
 // newA2ATaskProcessor creates a new A2A task processor.
-func newA2ATaskProcessor(handleTask TaskHandler) taskmanager.MessageProcessor {
+func newA2ATaskProcessor(taskHandler TaskHandler) taskmanager.MessageProcessor {
 	return &a2aTaskProcessor{
-		taskHandler: handleTask,
+		taskHandler: taskHandler,
 	}
 }
 
@@ -147,7 +147,6 @@ func (a *a2aTaskProcessor) ProcessMessage(
 		if err != nil {
 			processorLog.Error(err, "Failed to send completed event to task subscriber")
 		}
-
 	}()
 
 	return &taskmanager.MessageProcessingResult{

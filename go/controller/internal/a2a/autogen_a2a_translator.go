@@ -191,6 +191,7 @@ func (t *taskHandler) StreamTask(ctx context.Context, task string, contextID str
 
 		events := make(chan autogen_client.Event)
 		go func() {
+			defer close(events)
 			for event := range stream {
 				parsedEvent, err := autogen_client.ParseEvent(event.Data)
 				if err != nil {
@@ -214,6 +215,7 @@ func (t *taskHandler) StreamTask(ctx context.Context, task string, contextID str
 
 		events := make(chan autogen_client.Event)
 		go func() {
+			defer close(events)
 			for event := range stream {
 				parsedEvent, err := autogen_client.ParseEvent(event.Data)
 				if err != nil {
