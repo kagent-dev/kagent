@@ -1,0 +1,199 @@
+# EP-489: Secret Lifecycle Management for kagent resources
+
+* Issue: [#489](https://github.com/kagent-dev/kagent/issues/489)
+* Additional Issues:
+  - Issue: [#321](https://github.com/kagent-dev/kagent/issues/321)
+  - Issue: [#575](https://github.com/kagent-dev/kagent/issues/575)
+  - Issue: [#577](https://github.com/kagent-dev/kagent/issues/577)
+
+## Background 
+
+The kagent system creates and manages Kubernetes secrets containing API keys for ModelConfig resources and vector database credentials for Memory resources.
+Currently, when these resources are deleted or updated to no longer use a secret, orphaned secrets remain in the cluster, creating security risks and resource waste.
+
+This enhancement proposes a robust secret lifecycle management system that handles automatic cleanup of unused secrets while avoiding the complexity and race conditions inherent in OwnerReference-based approaches.
+The solution works consistently across all resource creation methods (API, kubectl, Helm).
+
+## Motivation
+
+### Current Problems
+
+1. **Orphaned Secrets**: When ModelConfigs or Memory resources are deleted, their associated secrets remain in the cluster indefinitely
+2. **Update Scenarios**: When resources change providers (e.g., OpenAI --> Ollama, Pinecone --> Mem0), old secrets become orphaned
+3. **Shared Secrets**: Multiple resources can reference the same secret, making ownership unclear
+4. **Manual Secret Creation**: Users can create secrets via kubectl/helm and reference them, bypassing our management
+5. **External Secret Modifications**: Users can delete or modify secrets externally (kubectl/helm), breaking kagent resources that depend on them
+6. **API-Only Solutions Create Inconsistency**: Implementing cleanup only in API handlers would create different behavior between resources created via API vs kubectl/Helm, leading to confusing user experience
+
+### Goals
+
+- Automatically clean up unused secrets when no kagent resources reference them
+- Handle secret cleanup during both deletion and update scenarios  
+- Support shared secrets across multiple ModelConfigs and Memory resources
+- Maintain compatibility with manually created secrets
+- Ensure consistent behavior regardless of resource creation method (API, kubectl, Helm)
+- Avoid race conditions and complex ownership management
+- Follow Kubernetes best practices and security principles
+- Provide extensible solution for future resource types that use secrets
+- Detect and handle external secret modifications (deletion/updates by kubectl/helm)
+
+### Non-Goals
+
+- Managing secrets not related to kagent resources (ModelConfig API keys, Memory credentials, etc.)
+- Cross-namespace secret references (secrets must be in same namespace as referencing resource)
+- Migration of existing secrets (will be handled separately)
+- UI changes for secret selection (future enhancement - issue [#321](https://github.com/kagent-dev/kagent/issues/321))
+
+## Implementation Details
+
+### Part 1: Label-Based Secret Identity
+
+Secrets managed by kagent will be explicitly labeled:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openai-secret
+  labels:
+    kagent.dev/type: "modelconfig"  # or "memory" for vector DB credentials
+    kagent.dev/managed-by: "kagent-controller"
+data:
+  OPENAI_API_KEY: "c2stLi4u"  # base64 encoded
+```
+
+**Benefits:**
+- Explicit opt-in management
+- Safe by default (ignores unlabeled secrets)
+- Follows Kubernetes standard labeling conventions
+- Enables watching for external secret modifications
+
+### Part 2: Status Field Reference Tracking
+
+Extend ModelConfigStatus to track secret reference changes:
+
+```go
+type ModelConfigStatus struct {
+    Conditions         []metav1.Condition `json:"conditions,omitempty"`
+    ObservedGeneration int64              `json:"observedGeneration,omitempty"`
+    LastSecretRef      string             `json:"lastSecretRef,omitempty"`  // Detect changes
+    SecretStatus       SecretStatus       `json:"secretStatus,omitempty"`   // Current state
+}
+
+type SecretStatus struct {
+    InUse      bool   `json:"inUse"`
+    References int    `json:"references"`  // Reference count
+    Namespace  string `json:"namespace"`
+    Name       string `json:"name"`
+}
+```
+
+### Part 3: Controller Architecture
+
+#### Secret Cleanup Controller
+A dedicated controller following single responsibility principle that watches both resources and secrets:
+
+```go
+func (r *SecretCleanupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    // 1. Get secret with kagent labels
+    // 2. Count references from ModelConfig and Memory resources using field indexing
+    // 3. If total reference count = 0, delete secret
+    // 4. If secret was deleted/modified externally, update resource status to reflect broken state
+    // 5. Update resource status fields
+}
+```
+
+**Key Advantage**: By watching secrets directly, this approach can detect when users delete or modify secrets externally (via kubectl/helm), allowing kagent to update resource status and alert users to broken configurations. Neither OwnerReferences nor Finalizers provide this capability.
+
+#### ModelConfig Controller Updates
+Enhanced to detect secret reference changes:
+
+```go
+func (r *ModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    // Existing logic...
+    
+    // Detect secret reference changes
+    if mc.Status.LastSecretRef != currentSecretRef {
+        // Trigger cleanup check for old secret
+        // Update status with new reference
+    }
+}
+```
+
+### Part 4: Dynamic User Discovery
+
+Use controller-runtime field indexing for efficient secret usage lookups:
+
+```go
+// Setup field indexers for ModelConfig
+mgr.GetFieldIndexer().IndexField(ctx, &kagentv1alpha1.ModelConfig{}, 
+    "spec.apiKeySecretRef", func(rawObj client.Object) []string {
+        mc := rawObj.(*kagentv1alpha1.ModelConfig)
+        return []string{mc.Spec.ApiKeySecretRef}
+    })
+
+// Setup field indexers for Memory
+mgr.GetFieldIndexer().IndexField(ctx, &kagentv1alpha1.Memory{}, 
+    "spec.vectorDB.secretRef", func(rawObj client.Object) []string {
+        mem := rawObj.(*kagentv1alpha1.Memory)
+        return []string{mem.Spec.VectorDB.SecretRef}
+    })
+
+// Efficient lookup across both resource types
+var modelConfigs kagentv1alpha1.ModelConfigList
+err := r.List(ctx, &modelConfigs, 
+    client.MatchingFields{"spec.apiKeySecretRef": secretKey})
+
+var memories kagentv1alpha1.MemoryList
+err = r.List(ctx, &memories, 
+    client.MatchingFields{"spec.vectorDB.secretRef": secretKey})
+```
+
+### Test Plan 
+
+#### Unit Tests
+- Secret cleanup logic with various reference scenarios
+- ModelConfig status update behavior
+- Field indexing functionality
+- Race condition handling
+
+#### Integration Tests  
+- End-to-end secret lifecycle (create -> use -> cleanup)
+- Multiple ModelConfigs sharing secrets
+- Update scenarios (provider changes)
+- Manual secret creation workflows
+
+#### E2E Tests
+- Full cluster scenarios with multiple namespaces
+- Concurrent operations testing
+- Performance with large numbers of secrets/ModelConfigs
+
+## Alternatives
+
+### OwnerReference Approach (Rejected)
+**Approval Status**: [ ] @EItanya [ ] @peterj [ ] @ilackarms
+Initially considered using Kubernetes OwnerReferences for automatic garbage collection, but this approach has fundamental issues:
+
+1. **Controller Flag Complexity**: Only one owner can have `controller: true`, requiring complex ownership transfers
+2. **Race Conditions**: Concurrent deletion of multiple ModelConfigs creates race conditions during controller flag transfers
+3. **API Handler Complexity**: Mixed creation patterns (API vs kubectl) make ownership management complex in HTTP handlers, and implementing cleanup only in API handlers creates inconsistent behavior between different resource creation methods
+4. **RBAC Security Issues**: API handlers would need excessive permissions across namespaces
+5. **Update Scenario Gaps**: OwnerReferences only handle deletion, not updates where secrets become unused
+
+### Finalizers Approach (Rejected)
+**Approval Status**: [ ] @EItanya [ ] @peterj [ ] @ilackarms
+
+Finalizers were considered but have fundamental limitations for this use case:
+
+1. **Update Scenario Gap**: Finalizers only trigger on **deletion**, but we also need to handle **updates** where resources stop using secrets. This is a fundamental limitation - finalizers never respond to update events.
+2. **Circular Dependencies**: Would create circular dependencies where ModelConfig finalizer waits for secret cleanup, while secret finalizer waits for ModelConfig to stop using it. This is a documented issue in Kubernetes (GitHub issue [#60538](https://github.com/kubernetes/kubernetes/issues/60538)).
+3. **Poor User Experience**: Resources would get stuck in "Terminating" state during cleanup, creating confusion for users.
+4. **Ordering Problems**: When users delete both the resource and secret simultaneously, finalizers can create race conditions and ordering issues.
+5. **Limited Scope**: Finalizers are designed for "must cleanup before deletion" scenarios, but we need "react to any change in secret usage" - which is exactly what watchers are designed for.
+
+## Open Questions
+
+1. **Migration Strategy**: How to handle existing secrets without labels?
+2. **Extensibility**: How should the system be designed to easily add support for future resource types that reference secrets?
+3. **Cleanup Timing**: Should cleanup be immediate or delayed to handle temporary disconnections?
+4. **Monitoring**: What metrics should be exposed for secret lifecycle operations?
