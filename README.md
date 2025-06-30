@@ -50,9 +50,9 @@ The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/do
 
 - **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent". 
 - **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
-- **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheuys, Grafana,  Cilium and others. All tools are as Kubernetes custom resources (ToolServers) and can be used by multiple agents.
+- **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana,  Cilium and others. All tools are as Kubernetes custom resources (ToolServers) and can be used by multiple agents.
 - **Memory**: Using the [memory](https://kagent.dev/docs/concepts/memory) your agents can always have access to the latest and most up to date information.
-- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/getting-started/tracing) which allows you to can monitor what's happening with your agents and tools. 
+- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/getting-started/tracing) which allows you to monitor what's happening with your agents and tools.
 
 ## Core Principles
 
@@ -80,7 +80,7 @@ Kagent has 4 core components:
 
 ## Roadmap
 
-`kagent` is currently in active development. You can check out hte full roadmap in the project Kanban board [here](https://github.com/orgs/kagent-dev/projects/3).
+`kagent` is currently in active development. You can check out the full roadmap in the project Kanban board [here](https://github.com/orgs/kagent-dev/projects/3).
 
 ## Local development
 
