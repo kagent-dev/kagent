@@ -20,6 +20,7 @@ jobs:
           - controller
           - ui
           - app
+          - tools
     runs-on: ubuntu-latest
     permissions:
       contents: read

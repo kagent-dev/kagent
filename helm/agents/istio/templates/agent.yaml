@@ -206,7 +206,7 @@ spec:
         - k8s_describe_resource
         - k8s_get_resources
         - k8s_patch_resource
-        - k8s_generate_resource_tool
+        - k8s_generate_resource
         - istio_ztunnel_config
         - istio_waypoint_status
         - istio_list_waypoints

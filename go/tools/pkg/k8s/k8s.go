@@ -2,10 +2,13 @@ package k8s
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/rand"
 	"os"
+	"slices"
 	"strings"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -14,6 +17,8 @@ import (
 	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/openai"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,15 +57,17 @@ func NewK8sClient() (*K8sClient, error) {
 
 // K8sTool struct to hold the client
 type K8sTool struct {
-	client *K8sClient
+	client   *K8sClient
+	llmModel llms.Model
 }
 
-func NewK8sTool() (*K8sTool, error) {
+func NewK8sTool(llmModel llms.Model) (*K8sTool, error) {
 	client, err := NewK8sClient()
 	if err != nil {
 		return nil, err
 	}
-	return &K8sTool{client: client}, nil
+
+	return &K8sTool{client: client, llmModel: llmModel}, nil
 }
 
 // Enhanced kubectl get with native K8s client
@@ -567,6 +574,49 @@ func (k *K8sTool) handleCreateResourceFromURL(ctx context.Context, request mcp.C
 	return k.runKubectlCommand(ctx, args)
 }
 
+var (
+	//go:embed resources/istio/peer_auth.md
+	istioAuthPolicy string
+
+	//go:embed resources/istio/virtual_service.md
+	istioVirtualService string
+
+	//go:embed resources/gw_api/reference_grant.md
+	gatewayApiReferenceGrant string
+
+	//go:embed resources/gw_api/gateway.md
+	gatewayApiGateway string
+
+	//go:embed resources/gw_api/http_route.md
+	gatewayApiHttpRoute string
+
+	//go:embed resources/gw_api/gateway_class.md
+	gatewayApiGatewayClass string
+
+	//go:embed resources/gw_api/grpc_route.md
+	gatewayApiGrpcRoute string
+
+	//go:embed resources/argo/rollout.md
+	argoRollout string
+
+	//go:embed resources/argo/analysis_template.md
+	argoAnalaysisTempalte string
+
+	resourceMap = map[string]string{
+		"istio_auth_policy":           istioAuthPolicy,
+		"istio_virtual_service":       istioVirtualService,
+		"gateway_api_reference_grant": gatewayApiReferenceGrant,
+		"gateway_api_gateway":         gatewayApiGateway,
+		"gateway_api_http_route":      gatewayApiHttpRoute,
+		"gateway_api_gateway_class":   gatewayApiGatewayClass,
+		"gateway_api_grpc_route":      gatewayApiGrpcRoute,
+		"argo_rollout":                argoRollout,
+		"argo_analysis_template":      argoAnalaysisTempalte,
+	}
+
+	resourceTypes = maps.Keys(resourceMap)
+)
+
 func (k *K8sTool) handleGenerateResource(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceDescription := mcp.ParseString(request, "resource_description", "")
@@ -575,102 +625,55 @@ func (k *K8sTool) handleGenerateResource(ctx context.Context, request mcp.CallTo
 		return mcp.NewToolResultError("resource_type and resource_description parameters are required"), nil
 	}
 
-	// Generate basic YAML templates based on resource type and description
-	template := generateResourceTemplate(resourceType, resourceDescription)
-	if template == "" {
-		return mcp.NewToolResultError(fmt.Sprintf("Unsupported resource type: %s", resourceType)), nil
+	systemPrompt, ok := resourceMap[resourceType]
+	if !ok {
+		return mcp.NewToolResultError(fmt.Sprintf("resource type %s not found", resourceType)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("# Generated YAML for %s\n# Description: %s\n%s", resourceType, resourceDescription, template)), nil
-}
-
-// generateResourceTemplate provides basic YAML templates for common Kubernetes resources
-func generateResourceTemplate(resourceType, description string) string {
-	switch strings.ToLower(resourceType) {
-	case "deployment":
-		return `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: CHANGEME-deployment
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: CHANGEME-app
-  template:
-    metadata:
-      labels:
-        app: CHANGEME-app
-    spec:
-      containers:
-      - name: CHANGEME-container
-        image: CHANGEME-image:latest
-        ports:
-        - containerPort: 80`
-
-	case "service":
-		return `apiVersion: v1
-kind: Service
-metadata:
-  name: CHANGEME-service
-  namespace: default
-spec:
-  selector:
-    app: CHANGEME-app
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 80
-  type: ClusterIP`
-
-	case "configmap":
-		return `apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: CHANGEME-config
-  namespace: default
-data:
-  config.yaml: |
-    # Add your configuration here`
-
-	case "secret":
-		return `apiVersion: v1
-kind: Secret
-metadata:
-  name: CHANGEME-secret
-  namespace: default
-type: Opaque
-data:
-  # Base64 encoded values
-  key: dmFsdWU=`
-
-	case "ingress":
-		return `apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: CHANGEME-ingress
-  namespace: default
-spec:
-  rules:
-  - host: CHANGEME-host.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: CHANGEME-service
-            port:
-              number: 80`
-
-	default:
-		return ""
+	// Use the injected LLM model if available, otherwise create a new OpenAI instance
+	if k.llmModel == nil {
+		return mcp.NewToolResultError("No LLM client present, can't generate resource"), nil
 	}
+	llm := k.llmModel
+
+	contents := []llms.MessageContent{
+		{
+			Role: llms.ChatMessageTypeSystem,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: systemPrompt},
+			},
+		},
+
+		{
+			Role: llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: resourceDescription},
+			},
+		},
+	}
+
+	resp, err := llm.GenerateContent(ctx, contents, llms.WithModel("gpt-4o-mini"))
+	if err != nil {
+		return mcp.NewToolResultError("failed to generate content: " + err.Error()), nil
+	}
+
+	choices := resp.Choices
+	if len(choices) < 1 {
+		return mcp.NewToolResultError("empty response from model"), nil
+	}
+	c1 := choices[0]
+	return mcp.NewToolResultText(c1.Content), nil
 }
 
 func RegisterK8sTools(s *server.MCPServer) {
-	k8sTool, err := NewK8sTool()
+	var llm llms.Model
+	if openAiClient, err := openai.New(); err == nil {
+		llm = openAiClient
+	} else {
+		logger.Get().Error(err, "Failed to initialize OpenAI LLM, k8s_generate_resource tool will not be available")
+	}
+
+	k8sTool, err := NewK8sTool(llm)
 	if err != nil {
 		// Log the error and proceed without native tool implementations
 		logger.Get().Info("Failed to initialize Kubernetes client, falling back to kubectl commands",
@@ -858,9 +861,9 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("namespace", mcp.Description("Namespace of the resource (optional)")),
 	), k8sTool.handleKubectlDescribeTool)
 
-	s.AddTool(mcp.NewTool("k8s_generate_resource_tool",
+	s.AddTool(mcp.NewTool("k8s_generate_resource",
 		mcp.WithDescription("Generate a Kubernetes resource YAML from a description"),
 		mcp.WithString("resource_description", mcp.Description("Detailed description of the resource to generate"), mcp.Required()),
-		mcp.WithString("resource_type", mcp.Description("Type of resource to generate (deployment, service, configmap, etc.)"), mcp.Required()),
+		mcp.WithString("resource_type", mcp.Description(fmt.Sprintf("Type of resource to generate (%s)", strings.Join(slices.Collect(resourceTypes), ", "))), mcp.Required()),
 	), k8sTool.handleGenerateResource)
 }

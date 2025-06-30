@@ -133,16 +133,6 @@ spec:
                           minLength: 1
                           type: string
                       type: object
-                    builtin:
-                      properties:
-                        config:
-                          description: 'note: this implementation is due to the kubebuilder
-                            limitation https://github.com/kubernetes-sigs/controller-tools/issues/636'
-                          x-kubernetes-preserve-unknown-fields: true
-                        name:
-                          description: the name of the builtin tool
-                          type: string
-                      type: object
                     mcpServer:
                       properties:
                         toolNames:
@@ -164,21 +154,15 @@ spec:
                     type:
                       allOf:
                       - enum:
-                        - Builtin
                         - McpServer
                         - Agent
                       - enum:
-                        - Builtin
                         - McpServer
                         - Agent
                       description: ToolProviderType represents the tool provider type
                       type: string
                   type: object
                   x-kubernetes-validations:
-                  - message: type.builtin must be nil if the type is not Builtin
-                    rule: '!(has(self.builtin) && self.type != ''Builtin'')'
-                  - message: type.builtin must be specified for Builtin filter.type
-                    rule: '!(!has(self.builtin) && self.type == ''Builtin'')'
                   - message: type.mcpServer must be nil if the type is not McpServer
                     rule: '!(has(self.mcpServer) && self.type != ''McpServer'')'
                   - message: type.mcpServer must be specified for McpServer filter.type

@@ -227,4 +227,9 @@ func RegisterPrometheusTools(s *server.MCPServer) {
 		mcp.WithDescription("Get all Prometheus targets and their status"),
 		mcp.WithString("prometheus_url", mcp.Description("Prometheus server URL (default: http://localhost:9090)")),
 	), handlePrometheusTargetsQueryTool)
+
+	s.AddTool(mcp.NewTool("prometheus_promql_tool",
+		mcp.WithDescription("Generate a PromQL query"),
+		mcp.WithString("query_description", mcp.Description("A string describing the query to generate"), mcp.Required()),
+	), handlePromql)
 }

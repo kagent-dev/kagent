@@ -158,10 +158,6 @@ export interface StreamableHttpMcpServerConfig {
   sseReadTimeout?: string;
 }
 
-export interface BuiltInToolConfig {
-  [key: string]: any;
-}
-
 // Provider-based Configs
 export interface SelectorGroupChatConfig {
   participants: Component<AgentConfig>[];
@@ -291,7 +287,7 @@ export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | Use
 
 export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig;
 
-export type ToolConfig = FunctionToolConfig | MCPToolConfig | BuiltInToolConfig;
+export type ToolConfig = FunctionToolConfig | MCPToolConfig;
 
 export type ToolServerConfig = StdioMcpServerConfig | SseMcpServerConfig | StreamableHttpMcpServerConfig;
 
@@ -373,11 +369,10 @@ export interface ResourceMetadata {
   namespace?: string;
 }
 
-export type ToolProviderType = "Builtin" | "McpServer" | "Agent"
+export type ToolProviderType = "McpServer" | "Agent"
 
 export interface Tool {
   type: ToolProviderType;
-  builtin?: BuiltinTool;
   mcpServer?: McpServerTool;
   agent?: AgentTool;
 }
@@ -385,13 +380,6 @@ export interface Tool {
 export interface AgentTool {
   ref: string;
   description?: string;
-}
-
-export interface BuiltinTool {
-  name: string;
-  description?: string;
-  config?: any;
-  label?: string;
 }
 
 export interface McpServerTool {
