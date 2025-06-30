@@ -5,7 +5,7 @@ import { Agent, AgentResponse, Tool, Component } from "@/types/datamodel";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { isBuiltinTool, isMcpTool, isAgentTool } from "@/lib/toolUtils";
+import { isMcpTool, isAgentTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
 /**
@@ -16,9 +16,7 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
  */
 function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
   const typedTool = tool as Partial<Tool>;
-  if (isBuiltinTool(typedTool)) {
-    return tool as Tool;
-  } else if (isMcpTool(typedTool)) {
+  if (isMcpTool(typedTool)) {
     return tool as Tool;
   } else if (isAgentTool(typedTool)) {
     const agentRef = typedTool.agent.ref;
@@ -41,31 +39,7 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
     } as Tool;
   }
 
-  // Check if it's a Component<ToolConfig>
-  if (tool && typeof tool === 'object' && 'provider' in tool) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const componentTool = tool as Component<any>;
-    return {
-      type: "Builtin",
-      builtin: {
-        name: componentTool.provider,
-        description: componentTool.description || "",
-        config: componentTool.config || {},
-        label: componentTool.label,
-      }
-    } as Tool;
-  }
-
-  // Default case - shouldn't happen with proper type checking
-  console.warn("Unknown tool format:", tool);
-  return {
-    type: "Builtin",
-    builtin: {
-      name: "unknown",
-      description: "Unknown tool",
-      config: {},
-    }
-  } as Tool;
+  throw new Error(`Unknown tool type: ${tool}`);
 }
 
 /**
@@ -116,18 +90,6 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       modelConfig: agentFormData.model.ref || "",
       memory: agentFormData.memory,
       tools: agentFormData.tools.map((tool) => {
-        // Convert to the proper Tool structure based on the tool type
-        if (isBuiltinTool(tool) && tool.builtin) {
-          return {
-            type: "Builtin",
-            builtin: {
-              name: tool.builtin.name,
-              config: tool.builtin.config ? processConfigObject(tool.builtin.config) : {},
-              label: tool.builtin.label,
-            },
-          } as Tool;
-        }
-        
         if (isMcpTool(tool) && tool.mcpServer) {
           return {
             type: "McpServer",
