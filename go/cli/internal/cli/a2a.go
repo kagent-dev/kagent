@@ -138,19 +138,12 @@ func runTask(
 		return err
 	}
 
-	msg, ok := result.Result.(*protocol.Message)
-	if !ok {
-		return fmt.Errorf("unexpected message type: %T", result.Result)
+	jsn, err := result.MarshalJSON()
+	if err != nil {
+		return err
 	}
 
-	fmt.Fprintln(os.Stderr, "Task completed successfully:")
-	var text string
-	for _, part := range msg.Parts {
-		if textPart, ok := part.(*protocol.TextPart); ok {
-			text += textPart.Text
-		}
-	}
-	fmt.Fprintln(os.Stdout, text)
+	fmt.Fprintf(os.Stdout, "%+v\n", string(jsn))
 
 	return nil
 }
