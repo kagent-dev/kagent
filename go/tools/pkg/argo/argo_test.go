@@ -5,97 +5,316 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// Helper function to extract text content from MCP result
+func getResultText(result *mcp.CallToolResult) string {
+	if result == nil || len(result.Content) == 0 {
+		return ""
+	}
+	if textContent, ok := result.Content[0].(mcp.TextContent); ok {
+		return textContent.Text
+	}
+	return ""
+}
 
 // Test the actual MCP tool handler functions
 
+// Test Argo Rollouts Promote
 func TestHandlePromoteRollout(t *testing.T) {
-	ctx := context.Background()
+	t.Run("promote rollout basic", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `rollout "myapp" promoted`
 
-	// Test missing rollout_name parameter
-	request := mcp.CallToolRequest{}
-	request.Params.Arguments = map[string]interface{}{}
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "promote", "myapp"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
 
-	result, err := handlePromoteRollout(ctx, request)
-	if err != nil {
-		t.Fatalf("handlePromoteRollout failed: %v", err)
-	}
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name": "myapp",
+		}
 
-	if result == nil {
-		t.Fatal("Expected non-nil result")
-	}
+		result, err := handlePromoteRollout(ctx, request)
 
-	// Should return error result for missing rollout_name
-	if !result.IsError {
-		t.Error("Expected error result for missing rollout_name")
-	}
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.False(t, result.IsError)
+
+		// Verify the expected output
+		content := getResultText(result)
+		assert.Contains(t, content, "promoted")
+
+		// Verify the correct command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"argo", "rollouts", "promote", "myapp"}, callLog[0].Args)
+	})
+
+	t.Run("promote rollout with namespace", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `rollout "myapp" promoted`
+
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "promote", "-n", "production", "myapp"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name": "myapp",
+			"namespace":    "production",
+		}
+
+		result, err := handlePromoteRollout(ctx, request)
+
+		assert.NoError(t, err)
+		assert.False(t, result.IsError)
+
+		// Verify the correct command was called with namespace
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"argo", "rollouts", "promote", "-n", "production", "myapp"}, callLog[0].Args)
+	})
+
+	t.Run("promote rollout with full flag", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `rollout "myapp" fully promoted`
+
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "promote", "myapp", "--full"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name": "myapp",
+			"full":         "true",
+		}
+
+		result, err := handlePromoteRollout(ctx, request)
+
+		assert.NoError(t, err)
+		assert.False(t, result.IsError)
+
+		// Verify the correct command was called with --full flag
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"argo", "rollouts", "promote", "myapp", "--full"}, callLog[0].Args)
+	})
+
+	t.Run("missing required parameters", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			// Missing rollout_name
+		}
+
+		result, err := handlePromoteRollout(ctx, request)
+		assert.NoError(t, err)
+		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "rollout_name parameter is required")
+
+		// Verify no commands were executed
+		callLog := mock.GetCallLog()
+		assert.Len(t, callLog, 0)
+	})
+
+	t.Run("kubectl command failure", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "promote", "myapp"}, "", assert.AnError)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name": "myapp",
+		}
+
+		result, err := handlePromoteRollout(ctx, request)
+
+		assert.NoError(t, err) // MCP handlers should not return Go errors
+		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "Error promoting rollout")
+	})
 }
 
+// Test Argo Rollouts Pause
 func TestHandlePauseRollout(t *testing.T) {
-	ctx := context.Background()
+	t.Run("pause rollout basic", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `rollout "myapp" paused`
 
-	// Test missing rollout_name parameter
-	request := mcp.CallToolRequest{}
-	request.Params.Arguments = map[string]interface{}{}
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "pause", "myapp"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
 
-	result, err := handlePauseRollout(ctx, request)
-	if err != nil {
-		t.Fatalf("handlePauseRollout failed: %v", err)
-	}
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name": "myapp",
+		}
 
-	if result == nil {
-		t.Fatal("Expected non-nil result")
-	}
+		result, err := handlePauseRollout(ctx, request)
 
-	// Should return error result for missing rollout_name
-	if !result.IsError {
-		t.Error("Expected error result for missing rollout_name")
-	}
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.False(t, result.IsError)
+
+		// Verify the expected output
+		content := getResultText(result)
+		assert.Contains(t, content, "paused")
+
+		// Verify the correct command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"argo", "rollouts", "pause", "myapp"}, callLog[0].Args)
+	})
+
+	t.Run("pause rollout with namespace", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `rollout "myapp" paused`
+
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "pause", "-n", "production", "myapp"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name": "myapp",
+			"namespace":    "production",
+		}
+
+		result, err := handlePauseRollout(ctx, request)
+
+		assert.NoError(t, err)
+		assert.False(t, result.IsError)
+
+		// Verify the correct command was called with namespace
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"argo", "rollouts", "pause", "-n", "production", "myapp"}, callLog[0].Args)
+	})
+
+	t.Run("missing required parameters", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			// Missing rollout_name
+		}
+
+		result, err := handlePauseRollout(ctx, request)
+		assert.NoError(t, err)
+		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "rollout_name parameter is required")
+
+		// Verify no commands were executed
+		callLog := mock.GetCallLog()
+		assert.Len(t, callLog, 0)
+	})
 }
 
+// Test Argo Rollouts Set Image
 func TestHandleSetRolloutImage(t *testing.T) {
-	ctx := context.Background()
+	t.Run("set rollout image basic", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `rollout "myapp" image updated`
 
-	// Test missing rollout_name parameter
-	request := mcp.CallToolRequest{}
-	request.Params.Arguments = map[string]interface{}{
-		"container_image": "nginx:latest",
-	}
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "set", "image", "myapp", "nginx:latest"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
 
-	result, err := handleSetRolloutImage(ctx, request)
-	if err != nil {
-		t.Fatalf("handleSetRolloutImage failed: %v", err)
-	}
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name":    "myapp",
+			"container_image": "nginx:latest",
+		}
 
-	if result == nil {
-		t.Fatal("Expected non-nil result")
-	}
+		result, err := handleSetRolloutImage(ctx, request)
 
-	// Should return error result for missing rollout_name
-	if !result.IsError {
-		t.Error("Expected error result for missing rollout_name")
-	}
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.False(t, result.IsError)
 
-	// Test missing container_image parameter
-	request2 := mcp.CallToolRequest{}
-	request2.Params.Arguments = map[string]interface{}{
-		"rollout_name": "my-rollout",
-	}
+		// Verify the expected output
+		content := getResultText(result)
+		assert.Contains(t, content, "image updated")
 
-	result2, err := handleSetRolloutImage(ctx, request2)
-	if err != nil {
-		t.Fatalf("handleSetRolloutImage failed: %v", err)
-	}
+		// Verify the correct command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"argo", "rollouts", "set", "image", "myapp", "nginx:latest"}, callLog[0].Args)
+	})
 
-	if result2 == nil {
-		t.Fatal("Expected non-nil result")
-	}
+	t.Run("set rollout image with namespace", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `rollout "myapp" image updated`
 
-	// Should return error result for missing container_image
-	if !result2.IsError {
-		t.Error("Expected error result for missing container_image")
-	}
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "set", "image", "myapp", "nginx:1.20", "-n", "production"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name":    "myapp",
+			"container_image": "nginx:1.20",
+			"namespace":       "production",
+		}
+
+		result, err := handleSetRolloutImage(ctx, request)
+
+		assert.NoError(t, err)
+		assert.False(t, result.IsError)
+
+		// Verify the correct command was called with namespace
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"argo", "rollouts", "set", "image", "myapp", "nginx:1.20", "-n", "production"}, callLog[0].Args)
+	})
+
+	t.Run("missing rollout_name parameter", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"container_image": "nginx:latest",
+			// Missing rollout_name
+		}
+
+		result, err := handleSetRolloutImage(ctx, request)
+		assert.NoError(t, err)
+		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "rollout_name parameter is required")
+
+		// Verify no commands were executed
+		callLog := mock.GetCallLog()
+		assert.Len(t, callLog, 0)
+	})
+
+	t.Run("missing container_image parameter", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"rollout_name": "myapp",
+			// Missing container_image
+		}
+
+		result, err := handleSetRolloutImage(ctx, request)
+		assert.NoError(t, err)
+		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "container_image parameter is required")
+
+		// Verify no commands were executed
+		callLog := mock.GetCallLog()
+		assert.Len(t, callLog, 0)
+	})
 }
 
 func TestGetSystemArchitecture(t *testing.T) {
@@ -145,311 +364,168 @@ func TestGatewayPluginStatus(t *testing.T) {
 	}
 }
 
+// Test Verify Gateway Plugin
 func TestHandleVerifyGatewayPlugin(t *testing.T) {
-	ctx := context.Background()
+	t.Run("verify gateway plugin without install", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `gateway-api-plugin not found`
 
-	// Test with should_install=false
-	request := mcp.CallToolRequest{}
-	request.Params.Arguments = map[string]interface{}{
-		"should_install": "false",
-		"namespace":      "argo-rollouts",
-	}
+		mock.AddCommandString("kubectl", []string{"get", "configmap", "argo-rollouts-config", "-n", "argo-rollouts", "-o", "yaml"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
 
-	result, err := handleVerifyGatewayPlugin(ctx, request)
-	if err != nil {
-		t.Fatalf("handleVerifyGatewayPlugin failed: %v", err)
-	}
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"should_install": "false",
+		}
 
-	if result == nil {
-		t.Fatal("Expected non-nil result")
-	}
+		result, err := handleVerifyGatewayPlugin(ctx, request)
 
-	// Should return result (may be success or error depending on kubectl availability)
-	if len(result.Content) == 0 {
-		t.Error("Expected content in result")
-	}
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		// May be success or error depending on whether plugin exists
+
+		// Verify kubectl command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Contains(t, callLog[0].Args, "get")
+		assert.Contains(t, callLog[0].Args, "configmap")
+		assert.Contains(t, callLog[0].Args, "argo-rollouts-config")
+	})
+
+	t.Run("verify gateway plugin with custom namespace", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `gateway-api-plugin-abc123`
+
+		mock.AddCommandString("kubectl", []string{"get", "configmap", "argo-rollouts-config", "-n", "custom-namespace", "-o", "yaml"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"should_install": "false",
+			"namespace":      "custom-namespace",
+		}
+
+		result, err := handleVerifyGatewayPlugin(ctx, request)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+
+		// Verify kubectl command was called with custom namespace
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Contains(t, callLog[0].Args, "-n")
+		assert.Contains(t, callLog[0].Args, "custom-namespace")
+	})
 }
 
-func TestConfigureGatewayPlugin(t *testing.T) {
-	// Test plugin configuration (will likely fail due to kubectl dependency, but tests the logic)
-	status := configureGatewayPlugin("0.5.0", "test-namespace")
-
-	// Should return a status object
-	if status.Version != "0.5.0" && status.ErrorMessage == "" {
-		t.Error("Expected either version to be set or error message")
-	}
-
-	// Test with empty version (should use latest)
-	status2 := configureGatewayPlugin("", "test-namespace")
-	if status2.ErrorMessage == "" && status2.Version == "" {
-		t.Error("Expected either error or version to be set")
-	}
-}
-
+// Test Verify Argo Rollouts Controller Install
 func TestHandleVerifyArgoRolloutsControllerInstall(t *testing.T) {
-	ctx := context.Background()
+	t.Run("verify controller install", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `argo-rollouts-controller-manager-abc123`
 
-	tests := []struct {
-		name   string
-		params map[string]interface{}
-	}{
-		{
-			name:   "default parameters",
-			params: map[string]interface{}{},
-		},
-		{
-			name: "custom namespace",
-			params: map[string]interface{}{
-				"namespace": "custom-argo",
-			},
-		},
-		{
-			name: "custom label",
-			params: map[string]interface{}{
-				"label": "app=custom-rollouts",
-			},
-		},
-	}
+		mock.AddCommandString("kubectl", []string{"get", "pods", "-l", "app.kubernetes.io/name=argo-rollouts", "-n", "argo-rollouts", "-o", "jsonpath={.items[*].metadata.name}"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := mcp.CallToolRequest{}
-			request.Params.Arguments = tt.params
+		request := mcp.CallToolRequest{}
+		result, err := handleVerifyArgoRolloutsControllerInstall(ctx, request)
 
-			result, err := handleVerifyArgoRolloutsControllerInstall(ctx, request)
-			if err != nil {
-				t.Fatalf("handleVerifyArgoRolloutsControllerInstall failed: %v", err)
-			}
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
 
-			if result == nil {
-				t.Fatal("Expected non-nil result")
-			}
+		// Verify kubectl command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Contains(t, callLog[0].Args, "get")
+		assert.Contains(t, callLog[0].Args, "pods")
+	})
 
-			// Should return some result (may be error if kubectl not available)
-			if len(result.Content) == 0 {
-				t.Error("Expected content in result")
-			}
-		})
-	}
+	t.Run("verify controller install with custom namespace", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `argo-rollouts-controller-manager-abc123`
+
+		mock.AddCommandString("kubectl", []string{"get", "pods", "-l", "app.kubernetes.io/name=argo-rollouts", "-n", "custom-argo", "-o", "jsonpath={.items[*].metadata.name}"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"namespace": "custom-argo",
+		}
+
+		result, err := handleVerifyArgoRolloutsControllerInstall(ctx, request)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+
+		// Verify kubectl command was called with custom namespace
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Contains(t, callLog[0].Args, "-n")
+		assert.Contains(t, callLog[0].Args, "custom-argo")
+	})
+
+	t.Run("verify controller install with custom label", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `argo-rollouts-controller-manager-abc123`
+
+		mock.AddCommandString("kubectl", []string{"get", "pods", "-l", "app=custom-rollouts", "-n", "argo-rollouts", "-o", "jsonpath={.items[*].metadata.name}"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
+
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{
+			"label": "app=custom-rollouts",
+		}
+
+		result, err := handleVerifyArgoRolloutsControllerInstall(ctx, request)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+
+		// Verify kubectl command was called with custom label
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Contains(t, callLog[0].Args, "-l")
+		assert.Contains(t, callLog[0].Args, "app=custom-rollouts")
+	})
 }
 
+// Test Verify Kubectl Plugin Install
 func TestHandleVerifyKubectlPluginInstall(t *testing.T) {
-	ctx := context.Background()
-	request := mcp.CallToolRequest{}
-	request.Params.Arguments = map[string]interface{}{}
+	t.Run("verify kubectl plugin install", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		expectedOutput := `kubectl-argo-rollouts`
 
-	result, err := handleVerifyKubectlPluginInstall(ctx, request)
-	if err != nil {
-		t.Fatalf("handleVerifyKubectlPluginInstall failed: %v", err)
-	}
+		mock.AddCommandString("kubectl", []string{"argo", "rollouts", "version"}, expectedOutput, nil)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
 
-	if result == nil {
-		t.Fatal("Expected non-nil result")
-	}
+		request := mcp.CallToolRequest{}
+		result, err := handleVerifyKubectlPluginInstall(ctx, request)
 
-	// Should return some result (may be error if kubectl plugin not available)
-	if len(result.Content) == 0 {
-		t.Error("Expected content in result")
-	}
-}
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
 
-func TestHandleCheckPluginLogs(t *testing.T) {
-	ctx := context.Background()
+		// Verify kubectl command was called
+		callLog := mock.GetCallLog()
+		require.Len(t, callLog, 1)
+		assert.Equal(t, "kubectl", callLog[0].Command)
+		assert.Equal(t, []string{"argo", "rollouts", "version"}, callLog[0].Args)
+	})
 
-	tests := []struct {
-		name   string
-		params map[string]interface{}
-	}{
-		{
-			name:   "default parameters",
-			params: map[string]interface{}{},
-		},
-		{
-			name: "custom namespace",
-			params: map[string]interface{}{
-				"namespace": "custom-argo",
-			},
-		},
-		{
-			name: "with timeout",
-			params: map[string]interface{}{
-				"timeout": "30",
-			},
-		},
-		{
-			name: "invalid timeout",
-			params: map[string]interface{}{
-				"timeout": "invalid",
-			},
-		},
-	}
+	t.Run("kubectl plugin command failure", func(t *testing.T) {
+		mock := utils.NewMockShellExecutor()
+		mock.AddCommandString("kubectl", []string{"plugin", "list"}, "", assert.AnError)
+		ctx := utils.WithShellExecutor(context.Background(), mock)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := mcp.CallToolRequest{}
-			request.Params.Arguments = tt.params
+		request := mcp.CallToolRequest{}
+		result, err := handleVerifyKubectlPluginInstall(ctx, request)
 
-			result, err := handleCheckPluginLogs(ctx, request)
-			if err != nil {
-				t.Fatalf("handleCheckPluginLogs failed: %v", err)
-			}
-
-			if result == nil {
-				t.Fatal("Expected non-nil result")
-			}
-
-			// Should return some result (may be error if kubectl not available)
-			if len(result.Content) == 0 {
-				t.Error("Expected content in result")
-			}
-		})
-	}
-}
-
-func TestHandlePromoteRolloutValidParams(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name   string
-		params map[string]interface{}
-	}{
-		{
-			name: "basic rollout",
-			params: map[string]interface{}{
-				"rollout_name": "test-rollout",
-			},
-		},
-		{
-			name: "with namespace",
-			params: map[string]interface{}{
-				"rollout_name": "test-rollout",
-				"namespace":    "prod",
-			},
-		},
-		{
-			name: "with full promote",
-			params: map[string]interface{}{
-				"rollout_name": "test-rollout",
-				"full":         "true",
-			},
-		},
-		{
-			name: "full false",
-			params: map[string]interface{}{
-				"rollout_name": "test-rollout",
-				"full":         "false",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := mcp.CallToolRequest{}
-			request.Params.Arguments = tt.params
-
-			result, err := handlePromoteRollout(ctx, request)
-			if err != nil {
-				t.Fatalf("handlePromoteRollout failed: %v", err)
-			}
-
-			if result == nil {
-				t.Fatal("Expected non-nil result")
-			}
-
-			// Should return some result (may be error if kubectl/rollout not available)
-			if len(result.Content) == 0 {
-				t.Error("Expected content in result")
-			}
-		})
-	}
-}
-
-func TestHandlePauseRolloutValidParams(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name   string
-		params map[string]interface{}
-	}{
-		{
-			name: "basic rollout",
-			params: map[string]interface{}{
-				"rollout_name": "test-rollout",
-			},
-		},
-		{
-			name: "with namespace",
-			params: map[string]interface{}{
-				"rollout_name": "test-rollout",
-				"namespace":    "prod",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := mcp.CallToolRequest{}
-			request.Params.Arguments = tt.params
-
-			result, err := handlePauseRollout(ctx, request)
-			if err != nil {
-				t.Fatalf("handlePauseRollout failed: %v", err)
-			}
-
-			if result == nil {
-				t.Fatal("Expected non-nil result")
-			}
-
-			// Should return some result (may be error if kubectl/rollout not available)
-			if len(result.Content) == 0 {
-				t.Error("Expected content in result")
-			}
-		})
-	}
-}
-
-func TestHandleSetRolloutImageValidParams(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name   string
-		params map[string]interface{}
-	}{
-		{
-			name: "basic image set",
-			params: map[string]interface{}{
-				"rollout_name":    "test-rollout",
-				"container_image": "nginx:latest",
-			},
-		},
-		{
-			name: "with namespace",
-			params: map[string]interface{}{
-				"rollout_name":    "test-rollout",
-				"container_image": "nginx:1.20",
-				"namespace":       "prod",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := mcp.CallToolRequest{}
-			request.Params.Arguments = tt.params
-
-			result, err := handleSetRolloutImage(ctx, request)
-			if err != nil {
-				t.Fatalf("handleSetRolloutImage failed: %v", err)
-			}
-
-			if result == nil {
-				t.Fatal("Expected non-nil result")
-			}
-
-			// Should return some result (may be error if kubectl/rollout not available)
-			if len(result.Content) == 0 {
-				t.Error("Expected content in result")
-			}
-		})
-	}
+		assert.NoError(t, err) // MCP handlers should not return Go errors
+		assert.NotNil(t, result)
+		// May be success or error depending on implementation
+	})
 }

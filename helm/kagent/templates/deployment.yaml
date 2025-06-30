@@ -132,6 +132,11 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-openai
+                  key: OPENAI_API_KEY
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

@@ -106,12 +106,6 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 			toolCopy := tool.DeepCopy()
 
 			switch toolCopy.Type {
-			case v1alpha1.ToolProviderType_Builtin:
-				if toolCopy.Builtin != nil {
-					tools = append(tools, toolCopy)
-					continue
-				}
-
 			case v1alpha1.ToolProviderType_Agent:
 				if toolCopy.Agent == nil {
 					log.Info("Agent tool has nil Agent field", "tool", toolCopy)
@@ -379,12 +373,6 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 		toolCopy := tool.DeepCopy()
 
 		switch toolCopy.Type {
-		case v1alpha1.ToolProviderType_Builtin:
-			if toolCopy.Builtin != nil {
-				tools = append(tools, toolCopy)
-				continue
-			}
-
 		case v1alpha1.ToolProviderType_Agent:
 			if toolCopy.Agent == nil {
 				log.Info("Agent tool has nil Agent field", "tool", toolCopy)

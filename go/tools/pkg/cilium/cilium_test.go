@@ -5,42 +5,7 @@ import (
 	"testing"
 )
 
-func TestCiliumCommandExecution(t *testing.T) {
-	// Test basic command splitting for cilium commands
-	testCases := []struct {
-		command  string
-		expected []string
-	}{
-		{
-			command:  "cilium status",
-			expected: []string{"cilium", "status"},
-		},
-		{
-			command:  "cilium connectivity test",
-			expected: []string{"cilium", "connectivity", "test"},
-		},
-		{
-			command:  "cilium endpoint list",
-			expected: []string{"cilium", "endpoint", "list"},
-		},
-	}
-
-	for _, tc := range testCases {
-		parts := strings.Fields(tc.command)
-		if len(parts) != len(tc.expected) {
-			t.Errorf("Command '%s': expected %d parts, got %d", tc.command, len(tc.expected), len(parts))
-			continue
-		}
-
-		for i, part := range parts {
-			if part != tc.expected[i] {
-				t.Errorf("Command '%s': expected part %d to be '%s', got '%s'", tc.command, i, tc.expected[i], part)
-			}
-		}
-	}
-}
-
-func TestCiliumStatusArgs(t *testing.T) {
+func TestCiliumStatusAndVersion(t *testing.T) {
 	// Test cilium status argument construction
 	testCases := []struct {
 		namespace    string
@@ -99,7 +64,7 @@ func TestCiliumStatusArgs(t *testing.T) {
 	}
 }
 
-func TestCiliumConnectivityArgs(t *testing.T) {
+func TestCiliumConnectivity(t *testing.T) {
 	// Test cilium connectivity argument construction
 	testCases := []struct {
 		action         string
@@ -140,7 +105,7 @@ func TestCiliumConnectivityArgs(t *testing.T) {
 	}
 }
 
-func TestCiliumEndpointArgs(t *testing.T) {
+func TestCiliumEndpoint(t *testing.T) {
 	// Test cilium endpoint argument construction
 	testCases := []struct {
 		action         string
@@ -181,7 +146,7 @@ func TestCiliumEndpointArgs(t *testing.T) {
 	}
 }
 
-func TestCiliumPolicyArgs(t *testing.T) {
+func TestCiliumPolicy(t *testing.T) {
 	// Test cilium policy argument construction
 	testCases := []struct {
 		action         string
@@ -222,7 +187,7 @@ func TestCiliumPolicyArgs(t *testing.T) {
 	}
 }
 
-func TestCiliumNodeArgs(t *testing.T) {
+func TestCiliumNode(t *testing.T) {
 	// Test cilium node argument construction
 	testCases := []struct {
 		action         string

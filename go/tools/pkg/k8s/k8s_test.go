@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tmc/langchaingo/llms"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
+	"k8s.io/utils/ptr"
 )
 
 // Helper function to create a test K8sTool with fake client
@@ -25,6 +27,17 @@ func newTestK8sTool(clientset kubernetes.Interface) *K8sTool {
 			clientset: clientset,
 			config:    &rest.Config{},
 		},
+	}
+}
+
+// Helper function to create a test K8sTool with fake client and mock LLM
+func newTestK8sToolWithLLM(clientset kubernetes.Interface, llm llms.Model) *K8sTool {
+	return &K8sTool{
+		client: &K8sClient{
+			clientset: clientset,
+			config:    &rest.Config{},
+		},
+		llmModel: llm,
 	}
 }
 
@@ -125,7 +138,7 @@ func TestHandleScaleDeployment(t *testing.T) {
 				Namespace: "default",
 			},
 			Spec: v1.DeploymentSpec{
-				Replicas: int32Ptr(3),
+				Replicas: ptr.To(int32(3)),
 			},
 		}
 		clientset := fake.NewSimpleClientset(deployment)
@@ -364,11 +377,12 @@ func TestHandleGenerateResource(t *testing.T) {
 
 	t.Run("missing parameters", func(t *testing.T) {
 		clientset := fake.NewSimpleClientset()
-		k8sTool := newTestK8sTool(clientset)
+		mockLLM := newMockLLM(&llms.ContentResponse{}, nil)
+		k8sTool := newTestK8sToolWithLLM(clientset, mockLLM)
 
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{
-			"resource_type": "deployment",
+			"resource_type": "istio_auth_policy",
 			// Missing resource_description
 		}
 
@@ -376,16 +390,34 @@ func TestHandleGenerateResource(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "resource_type and resource_description parameters are required")
 	})
 
-	t.Run("valid deployment generation", func(t *testing.T) {
+	t.Run("valid istio auth policy generation", func(t *testing.T) {
 		clientset := fake.NewSimpleClientset()
-		k8sTool := newTestK8sTool(clientset)
+		expectedResponse := `apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: test-auth-policy
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: test-app
+  mtls:
+    mode: STRICT`
+
+		mockLLM := newMockLLM(&llms.ContentResponse{
+			Choices: []*llms.ContentChoice{
+				{Content: expectedResponse},
+			},
+		}, nil)
+		k8sTool := newTestK8sToolWithLLM(clientset, mockLLM)
 
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{
-			"resource_type":        "deployment",
-			"resource_description": "A web application deployment with nginx",
+			"resource_type":        "istio_auth_policy",
+			"resource_description": "A peer authentication policy for strict mTLS",
 		}
 
 		result, err := k8sTool.handleGenerateResource(ctx, req)
@@ -394,18 +426,36 @@ func TestHandleGenerateResource(t *testing.T) {
 		assert.False(t, result.IsError)
 
 		resultText := getResultText(result)
-		assert.Contains(t, resultText, "kind: Deployment")
-		assert.Contains(t, resultText, "Generated YAML for deployment")
+		assert.Equal(t, expectedResponse, resultText)
+
+		// Verify the mock was called
+		assert.Equal(t, 1, mockLLM.called)
 	})
 
-	t.Run("valid service generation", func(t *testing.T) {
+	t.Run("valid gateway api gateway generation", func(t *testing.T) {
 		clientset := fake.NewSimpleClientset()
-		k8sTool := newTestK8sTool(clientset)
+		expectedResponse := `apiVersion: gateway.networking.k8s.io/v1beta1
+kind: Gateway
+metadata:
+  name: test-gateway
+  namespace: default
+spec:
+  gatewayClassName: istio
+  listeners:
+  - name: http
+    port: 80`
+
+		mockLLM := newMockLLM(&llms.ContentResponse{
+			Choices: []*llms.ContentChoice{
+				{Content: expectedResponse},
+			},
+		}, nil)
+		k8sTool := newTestK8sToolWithLLM(clientset, mockLLM)
 
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{
-			"resource_type":        "service",
-			"resource_description": "A service to expose the web application",
+			"resource_type":        "gateway_api_gateway",
+			"resource_description": "A gateway for HTTP traffic",
 		}
 
 		result, err := k8sTool.handleGenerateResource(ctx, req)
@@ -414,17 +464,20 @@ func TestHandleGenerateResource(t *testing.T) {
 		assert.False(t, result.IsError)
 
 		resultText := getResultText(result)
-		assert.Contains(t, resultText, "kind: Service")
-		assert.Contains(t, resultText, "Generated YAML for service")
+		assert.Equal(t, expectedResponse, resultText)
+
+		// Verify the mock was called
+		assert.Equal(t, 1, mockLLM.called)
 	})
 
 	t.Run("unsupported resource type", func(t *testing.T) {
 		clientset := fake.NewSimpleClientset()
-		k8sTool := newTestK8sTool(clientset)
+		mockLLM := newMockLLM(&llms.ContentResponse{}, nil)
+		k8sTool := newTestK8sToolWithLLM(clientset, mockLLM)
 
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{
-			"resource_type":        "unsupported",
+			"resource_type":        "unsupported_resource_type",
 			"resource_description": "Some description",
 		}
 
@@ -432,6 +485,54 @@ func TestHandleGenerateResource(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "resource type unsupported_resource_type not found")
+
+		// Verify the mock was never called since validation failed
+		assert.Equal(t, 0, mockLLM.called)
+	})
+
+	t.Run("LLM generation error", func(t *testing.T) {
+		clientset := fake.NewSimpleClientset()
+		mockLLM := newMockLLM(nil, assert.AnError)
+		k8sTool := newTestK8sToolWithLLM(clientset, mockLLM)
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"resource_type":        "istio_auth_policy",
+			"resource_description": "A peer authentication policy for strict mTLS",
+		}
+
+		result, err := k8sTool.handleGenerateResource(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "failed to generate content")
+
+		// Verify the mock was called
+		assert.Equal(t, 1, mockLLM.called)
+	})
+
+	t.Run("LLM empty response", func(t *testing.T) {
+		clientset := fake.NewSimpleClientset()
+		mockLLM := newMockLLM(&llms.ContentResponse{
+			Choices: []*llms.ContentChoice{}, // Empty choices
+		}, nil)
+		k8sTool := newTestK8sToolWithLLM(clientset, mockLLM)
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"resource_type":        "istio_auth_policy",
+			"resource_description": "A peer authentication policy for strict mTLS",
+		}
+
+		result, err := k8sTool.handleGenerateResource(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.IsError)
+		assert.Contains(t, getResultText(result), "empty response from model")
+
+		// Verify the mock was called
+		assert.Equal(t, 1, mockLLM.called)
 	})
 }
 
@@ -899,7 +1000,38 @@ pod2      1/1     Running   0          2d`
 	})
 }
 
-// Helper function for creating int32 pointer
-func int32Ptr(i int32) *int32 {
-	return &i
+func newMockLLM(response *llms.ContentResponse, err error) *mockLLM {
+	return &mockLLM{
+		called:   0,
+		response: response,
+		error:    err,
+	}
+}
+
+// not synchronized, don't use concurrently!
+type mockLLM struct {
+	called   int
+	response *llms.ContentResponse
+	error    error
+}
+
+func (m *mockLLM) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
+	return llms.GenerateFromSinglePrompt(ctx, m, prompt, options...)
+}
+
+func (m *mockLLM) GenerateContent(ctx context.Context, _ []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	var opts llms.CallOptions
+	for _, opt := range options {
+		opt(&opts)
+	}
+
+	if opts.StreamingFunc != nil && len(m.response.Choices) > 0 {
+		if err := opts.StreamingFunc(ctx, []byte(m.response.Choices[0].Content)); err != nil {
+			return nil, err
+		}
+	}
+
+	m.called++
+
+	return m.response, m.error
 }

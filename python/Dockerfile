@@ -31,8 +31,8 @@ USER python
 WORKDIR /app/python
 
 ### STAGE 2 : download tools
-ARG TOOLS_GRAFANA_MCP_VERSION
 FROM mcp/grafana:latest AS mcp-grafana
+ARG TOOLS_GRAFANA_MCP_VERSION
 LABEL org.opencontainers.image.source="mcp/grafana${TOOLS_GRAFANA_MCP_VERSION}"
 
 ### STAGE 3: final

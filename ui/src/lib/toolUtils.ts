@@ -1,4 +1,4 @@
-import { Tool, Component, MCPToolConfig, ToolConfig, McpServerTool, BuiltinTool, AgentTool } from "@/types/datamodel";
+import { Tool, Component, MCPToolConfig, ToolConfig, McpServerTool, AgentTool } from "@/types/datamodel";
 
 export const isAgentTool = (tool: unknown): tool is { type: "Agent"; agent: AgentTool } => {
   if (!tool || typeof tool !== "object") return false;
@@ -21,13 +21,6 @@ export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer
   );
 };
 
-export const isBuiltinTool = (tool: unknown): tool is { type: "Builtin"; builtin: BuiltinTool } => {
-  if (!tool || typeof tool !== "object") return false;
-
-  const possibleTool = tool as Partial<Tool>;
-
-  return possibleTool.type === "Builtin" && !!possibleTool.builtin && typeof possibleTool.builtin === "object" && typeof possibleTool.builtin.name === "string";
-};
 
 export const getToolDisplayName = (tool?: Tool | Component<ToolConfig>): string => {
   if (!tool) return "No name";
@@ -45,11 +38,6 @@ export const getToolDisplayName = (tool?: Tool | Component<ToolConfig>): string 
   if (isMcpTool(tool) && tool.mcpServer) {
     // For McpServer tools, use the first tool name if available
     return tool.mcpServer.toolNames.length > 0 ? tool.mcpServer.toolNames[0] : tool.mcpServer.toolServer;
-  } else if (isBuiltinTool(tool) && tool.builtin) {
-    // For Builtin tools, use the label if available, otherwise fall back to provider and make sure to use the last part of the provider
-    const providerParts = tool.builtin.name.split(".");
-    const providerName = providerParts[providerParts.length - 1];
-    return tool.builtin.label || providerName || "Builtin Tool";
   } else if (isAgentTool(tool) && tool.agent) {
     return tool.agent.ref;
   } else {
@@ -62,7 +50,7 @@ export const getToolDescription = (tool?: Tool | Component<ToolConfig>): string 
   if (!tool) return "No description";
 
   if (typeof tool === "object" && "provider" in tool) {
-    const component = tool as Component<ToolConfig>; 
+    const component = tool as Component<ToolConfig>;
     if (isMcpProvider(component.provider)) {
       const desc = (component.config as MCPToolConfig)?.tool?.description;
       return typeof desc === 'string' && desc ? desc : "No description";
@@ -74,16 +62,14 @@ export const getToolDescription = (tool?: Tool | Component<ToolConfig>): string 
       }
       // Fallback if config.description is missing
       if (typeof component.description === 'string' && component.description) {
-          // Use top-level description as fallback for Components
-          return component.description;
+        // Use top-level description as fallback for Components
+        return component.description;
       }
       return "No description";
     }
   }
 
-  if (isBuiltinTool(tool) && tool.builtin) {
-    return tool.builtin.description || "No description"; 
-  } else if (isMcpTool(tool)) {
+  if (isMcpTool(tool)) {
     return "MCP Server Tool";
   } else if (isAgentTool(tool) && tool.agent) {
     return tool.agent.description || "Agent Tool (No description provided)";
@@ -93,21 +79,31 @@ export const getToolDescription = (tool?: Tool | Component<ToolConfig>): string 
   }
 };
 
+export const isBuiltInTool = (tool?: Tool | Component<ToolConfig>): boolean => {
+  if (!tool) return false;
+
+  // Check if the toolServer name ends with 'kagent-tool-server'
+  // This is a bit fragile, since we're relying on the name of the tool server.
+  if (typeof tool === "object" && "provider" in tool) {
+    const component = tool as Component<ToolConfig>;
+    if (isMcpProvider(component.provider)) {
+      const toolServer = component.label || (component.config as MCPToolConfig)?.tool?.name || "unknown";
+      return toolServer.endsWith("kagent-tool-server");
+    }
+  }
+  return false;
+};
+
 export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string => {
   if (!tool) return "unknown";
 
   // Handle Component<ToolConfig> type
-  if (typeof tool === "object" && "provider" in tool) {
-    if (isMcpProvider(tool.provider)) {
-      // For MCP adapter components, use toolServer (from label) and tool name
-      const mcpConfig = tool.config as MCPToolConfig;
-      const toolServer = tool.label || mcpConfig.tool.name || "unknown"; // Prefer label as toolServer
-      const toolName = mcpConfig.tool.name || "unknown";
-      return `mcptool-${toolServer}-${toolName}`;
-    }
-
-    // For regular component tools (includes Builtin)
-    return `component-${tool.provider}`;
+  if (typeof tool === "object" && "provider" in tool && isMcpProvider(tool.provider)) {
+    // For MCP adapter components, use toolServer (from label) and tool name
+    const mcpConfig = tool.config as MCPToolConfig;
+    const toolServer = tool.label || mcpConfig.tool.name || "unknown"; // Prefer label as toolServer
+    const toolName = mcpConfig.tool.name || "unknown";
+    return `${toolServer}-${toolName}`;
   }
 
   // Handle AgentTool types
@@ -116,10 +112,7 @@ export const getToolIdentifier = (tool?: Tool | Component<ToolConfig>): string =
     const toolName = tool.mcpServer.toolNames[0] || "unknown";
     // Ensure mcpServer and toolServer exist before accessing
     const toolServer = tool.mcpServer?.toolServer || "unknown";
-    return `mcptool-${toolServer}-${toolName}`;
-  } else if (isBuiltinTool(tool) && tool.builtin) {
-    // For Builtin agent tools
-    return `component-${tool.builtin.name}`;
+    return `${toolServer}-${toolName}`;
   } else if (isAgentTool(tool) && tool.agent) {
     return `agent-${tool.agent.ref}`;
   } else {
@@ -135,11 +128,8 @@ export const getToolProvider = (tool?: Tool | Component<ToolConfig>): string => 
   if (typeof tool === "object" && "provider" in tool) {
     return tool.provider;
   }
-  
   // Handle AgentTool types
-  if (isBuiltinTool(tool) && tool.builtin) {
-    return tool.builtin.name;
-  } else if (isMcpTool(tool) && tool.mcpServer) {
+  if (isMcpTool(tool) && tool.mcpServer) {
     return tool.mcpServer.toolServer;
   } else if (isAgentTool(tool) && tool.agent) {
     return tool.agent.ref;
@@ -164,24 +154,9 @@ export const componentToAgentTool = (component: Component<ToolConfig>): Tool => 
         toolNames: [mcpConfig.tool.name || "unknown"]
       }
     };
-  } else {
-    // Built-in component
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const configDesc = (component.config as any)?.description;
-    const descriptionToStore = (typeof configDesc === 'string' && configDesc)
-        ? configDesc 
-        : (typeof component.description === 'string' && component.description ? component.description : undefined);
-
-    return {
-      type: "Builtin",
-      builtin: {
-        name: component.provider,
-        label: component.label || undefined,
-        description: descriptionToStore,
-        config: component.config || undefined
-      }
-    };
   }
+
+  throw new Error(`Unknown tool type: ${component.provider}`);
 };
 
 export const findComponentForAgentTool = (
@@ -207,19 +182,17 @@ export function isMcpProvider(provider: string): boolean {
 
 // Extract category from tool identifier
 export const getToolCategory = (tool: Component<ToolConfig>) => {
-  if (isMcpProvider(tool.provider)) {
-    return tool.label || "MCP Server";
+  if (isBuiltInTool(tool)) {
+    // Get the tool name, and get the first portion of the tool name (split at '_'). The tools are named like this: 'k8s_some_tool_name' and "istio_another_toolname".
+    // We want the first portion of the tool name.
+    const toolName = (tool.config as MCPToolConfig)?.tool?.name;
+    const parts = toolName.split("_");
+    if (parts.length > 0) {
+      return parts[0];
+    }
+    return "other";
   }
-
-  const toolId = getToolIdentifier(tool);
-  const parts = toolId.split(".");
-  if (parts.length >= 3 && parts[1] === "tools") {
-    return parts[2]; // e.g., kagent.tools.grafana -> grafana
-  }
-  if (parts.length >= 2) {
-    return parts[1]; // e.g., kagent.builtin -> builtin
-  }
-  return "other"; // Default category
+  return tool.label || "MCP Server";
 };
 
 // Group MCP tools by server
@@ -244,7 +217,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
       const existingNames = mcpToolsByServer.get(serverNameRef) || new Set<string>();
       toolNames.forEach(name => existingNames.add(name));
       mcpToolsByServer.set(serverNameRef, existingNames);
-    } else if (isAgentTool(tool) || isBuiltinTool(tool)) {
+    } else if (isAgentTool(tool)) {
       nonMcpTools.push(tool);
     } else {
       const toolType = tool?.type || (tool ? 'malformed' : 'null/undefined');
