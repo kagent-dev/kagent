@@ -19,6 +19,7 @@ type A2ACfg struct {
 	Task      string
 	Timeout   time.Duration
 	Config    *config.Config
+	Stream    bool
 }
 
 func A2ARun(ctx context.Context, cfg *A2ACfg) {
@@ -31,20 +32,19 @@ func A2ARun(ctx context.Context, cfg *A2ACfg) {
 		sessionID = &cfg.SessionID
 	}
 
-	msg, err := runTask(ctx, cfg.Config.Namespace, cfg.AgentName, cfg.Task, sessionID, cfg.Timeout, cfg.Config)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error running task: %v\n", err)
-		return
-	}
-
-	fmt.Fprintln(os.Stderr, "Task completed successfully:")
-	var text string
-	for _, part := range msg.Parts {
-		if textPart, ok := part.(*protocol.TextPart); ok {
-			text += textPart.Text
+	if !cfg.Stream {
+		err := runTask(ctx, cfg.Config.Namespace, cfg.AgentName, cfg.Task, sessionID, cfg.Timeout, cfg.Config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error running task: %v\n", err)
+			return
+		}
+	} else {
+		if err := runTaskStream(ctx, cfg.Config.Namespace, cfg.AgentName, cfg.Task, sessionID, cfg.Timeout, cfg.Config); err != nil {
+			fmt.Fprintf(os.Stderr, "Error running task: %v\n", err)
+			return
 		}
 	}
-	fmt.Fprintln(os.Stdout, text)
+
 }
 
 func startPortForward(ctx context.Context) func() {
@@ -70,6 +70,42 @@ func startPortForward(ctx context.Context) func() {
 	}
 }
 
+func runTaskStream(
+	ctx context.Context,
+	agentNamespace, agentName string,
+	userPrompt string,
+	sessionID *string,
+	timeout time.Duration,
+	cfg *config.Config,
+) error {
+
+	a2aURL := fmt.Sprintf("%s/%s/%s", cfg.A2AURL, agentNamespace, agentName)
+	a2a, err := client.NewA2AClient(a2aURL)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	result, err := a2a.StreamMessage(ctx, protocol.SendMessageParams{
+		Message: protocol.Message{
+			Role:      protocol.MessageRoleUser,
+			ContextID: sessionID,
+			Parts:     []protocol.Part{protocol.NewTextPart(userPrompt)},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	for event := range result {
+		fmt.Fprintf(os.Stdout, "%+v\n", event.Result)
+	}
+
+	return nil
+}
+
 func runTask(
 	ctx context.Context,
 	agentNamespace, agentName string,
@@ -77,11 +113,11 @@ func runTask(
 	sessionID *string,
 	timeout time.Duration,
 	cfg *config.Config,
-) (*protocol.Message, error) {
+) error {
 	a2aURL := fmt.Sprintf("%s/%s/%s", cfg.A2AURL, agentNamespace, agentName)
 	a2a, err := client.NewA2AClient(a2aURL)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -95,13 +131,22 @@ func runTask(
 		},
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	msg, ok := result.Result.(*protocol.Message)
 	if !ok {
-		return nil, fmt.Errorf("unexpected message type: %T", result.Result)
+		return fmt.Errorf("unexpected message type: %T", result.Result)
 	}
 
-	return msg, nil
+	fmt.Fprintln(os.Stderr, "Task completed successfully:")
+	var text string
+	for _, part := range msg.Parts {
+		if textPart, ok := part.(*protocol.TextPart); ok {
+			text += textPart.Text
+		}
+	}
+	fmt.Fprintln(os.Stdout, text)
+
+	return nil
 }

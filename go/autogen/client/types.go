@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -70,6 +71,13 @@ func (m *ModelsUsage) String() string {
 	return fmt.Sprintf("Prompt Tokens: %d, Completion Tokens: %d", m.PromptTokens, m.CompletionTokens)
 }
 
+func (m *ModelsUsage) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"prompt_tokens":     m.PromptTokens,
+		"completion_tokens": m.CompletionTokens,
+	}
+}
+
 type TaskMessageMap map[string]interface{}
 
 type RunMessage struct {
@@ -123,8 +131,8 @@ type TeamResult struct {
 type TaskResult struct {
 	// These are all of type Event, but we don't want to unmarshal them here
 	// because we want to handle them in the caller
-	Messages   [][]byte `json:"messages"`
-	StopReason string   `json:"stop_reason"`
+	Messages   []json.RawMessage `json:"messages"`
+	StopReason string            `json:"stop_reason"`
 }
 
 // APIResponse is the common response wrapper for all API responses

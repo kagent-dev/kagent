@@ -128,6 +128,7 @@ func main() {
 	a2aCmd.Flags().StringVarP(&a2aCfg.AgentName, "agent-name", "a", "", "Agent Name")
 	a2aCmd.Flags().StringVarP(&a2aCfg.Task, "task", "t", "", "Task")
 	a2aCmd.Flags().DurationVarP(&a2aCfg.Timeout, "timeout", "T", 300*time.Second, "Timeout")
+	a2aCmd.Flags().BoolVarP(&a2aCfg.Stream, "stream", "S", false, "Stream the response")
 
 	getCmd := &cobra.Command{
 		Use:   "get",

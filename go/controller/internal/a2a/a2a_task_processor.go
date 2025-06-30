@@ -158,54 +158,59 @@ func (a *a2aTaskProcessor) ProcessMessage(
 func convertAutogenTypeToA2AType(event client.Event, taskId, contextId *string) protocol.StreamingMessageEvent {
 	switch typed := event.(type) {
 	case *client.TextMessage:
-		msg := protocol.NewMessageWithContext(
-			protocol.MessageRoleAgent,
-			[]protocol.Part{protocol.NewTextPart(typed.Content)},
-			taskId,
-			contextId,
-		)
 		return protocol.StreamingMessageEvent{
-			Result: &msg,
+			Result: newMessage(
+				protocol.MessageRoleAgent,
+				[]protocol.Part{protocol.NewTextPart(typed.Content)},
+				taskId,
+				contextId,
+				typed.Metadata,
+				typed.ModelsUsage,
+			),
 		}
 	case *client.ModelClientStreamingChunkEvent:
-		msg := protocol.NewMessageWithContext(
-			protocol.MessageRoleAgent,
-			[]protocol.Part{protocol.NewTextPart(typed.Content)},
-			taskId,
-			contextId,
-		)
 		return protocol.StreamingMessageEvent{
-			Result: &msg,
+			Result: newMessage(
+				protocol.MessageRoleAgent,
+				[]protocol.Part{protocol.NewTextPart(typed.Content)},
+				taskId,
+				contextId,
+				typed.Metadata,
+				typed.ModelsUsage,
+			),
 		}
 	case *client.ToolCallRequestEvent:
-		msg := protocol.NewMessageWithContext(
-			protocol.MessageRoleAgent,
-			[]protocol.Part{protocol.NewDataPart(typed.Content)},
-			taskId,
-			contextId,
-		)
 		return protocol.StreamingMessageEvent{
-			Result: &msg,
+			Result: newMessage(
+				protocol.MessageRoleAgent,
+				[]protocol.Part{protocol.NewDataPart(typed.Content)},
+				taskId,
+				contextId,
+				typed.Metadata,
+				typed.ModelsUsage,
+			),
 		}
 	case *client.ToolCallExecutionEvent:
-		msg := protocol.NewMessageWithContext(
-			protocol.MessageRoleAgent,
-			[]protocol.Part{protocol.NewDataPart(typed.Content)},
-			taskId,
-			contextId,
-		)
 		return protocol.StreamingMessageEvent{
-			Result: &msg,
+			Result: newMessage(
+				protocol.MessageRoleAgent,
+				[]protocol.Part{protocol.NewDataPart(typed.Content)},
+				taskId,
+				contextId,
+				typed.Metadata,
+				typed.ModelsUsage,
+			),
 		}
 	case *client.MemoryQueryEvent:
-		msg := protocol.NewMessageWithContext(
-			protocol.MessageRoleAgent,
-			[]protocol.Part{protocol.NewDataPart(typed.Content)},
-			taskId,
-			contextId,
-		)
 		return protocol.StreamingMessageEvent{
-			Result: &msg,
+			Result: newMessage(
+				protocol.MessageRoleAgent,
+				[]protocol.Part{protocol.NewDataPart(typed.Content)},
+				taskId,
+				contextId,
+				typed.Metadata,
+				typed.ModelsUsage,
+			),
 		}
 	default:
 		return protocol.StreamingMessageEvent{
@@ -214,4 +219,33 @@ func convertAutogenTypeToA2AType(event client.Event, taskId, contextId *string) 
 			},
 		}
 	}
+}
+
+func newMessage(
+	role protocol.MessageRole,
+	parts []protocol.Part,
+	taskId,
+	contextId *string,
+	metadata map[string]string,
+	modelsUsage *client.ModelsUsage,
+) *protocol.Message {
+	msg := protocol.NewMessageWithContext(
+		role,
+		parts,
+		taskId,
+		contextId,
+	)
+	msg.Metadata = buildMetadata(metadata, modelsUsage)
+	return &msg
+}
+
+func buildMetadata(metadata map[string]string, modelsUsage *client.ModelsUsage) map[string]interface{} {
+	result := make(map[string]interface{})
+	for k, v := range metadata {
+		result[k] = v
+	}
+	if modelsUsage != nil {
+		result["usage"] = modelsUsage.ToMap()
+	}
+	return result
 }

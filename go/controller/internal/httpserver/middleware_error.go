@@ -27,6 +27,14 @@ type errorResponseWriter struct {
 
 var _ handlers.ErrorResponseWriter = &errorResponseWriter{}
 
+var _ http.Flusher = &errorResponseWriter{}
+
+func (w *errorResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func (w *errorResponseWriter) RespondWithError(err error) {
 	log := ctrllog.FromContext(w.request.Context())
 

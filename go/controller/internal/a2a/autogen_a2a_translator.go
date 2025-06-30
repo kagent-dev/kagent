@@ -9,6 +9,7 @@ import (
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	"k8s.io/utils/ptr"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
@@ -89,8 +90,10 @@ func (a *autogenA2ATranslator) translateCardForAgent(
 		//Provider:           nil,
 		Version: fmt.Sprintf("%v", agent.Generation),
 		//DocumentationURL:   nil,
-		//Capabilities:       server.AgentCapabilities{},
 		//Authentication:     nil,
+		Capabilities: server.AgentCapabilities{
+			Streaming: ptr.To(true),
+		},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
 		Skills:             convertedSkills,
