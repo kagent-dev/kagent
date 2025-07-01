@@ -58,6 +58,12 @@ type MemoryQueryEvent struct {
 	Content []map[string]interface{} `json:"content"`
 }
 
+type ToolCallSummaryMessage struct {
+	BaseChatMessage
+	ToolCalls []FunctionCall            `json:"tool_calls"`
+	Results   []FunctionExecutionResult `json:"results"`
+}
+
 const (
 	TextMessageLabel                    = "TextMessage"
 	ToolCallRequestEventLabel           = "ToolCallRequestEvent"
@@ -67,6 +73,7 @@ const (
 	ModelClientStreamingChunkEventLabel = "ModelClientStreamingChunkEvent"
 	LLMCallEventMessageLabel            = "LLMCallEventMessage"
 	MemoryQueryEventLabel               = "MemoryQueryEvent"
+	ToolCallSummaryMessageLabel         = "ToolCallSummaryMessage"
 )
 
 func ParseEvent(event []byte) (Event, error) {
@@ -106,6 +113,12 @@ func ParseEvent(event []byte) (Event, error) {
 			return nil, err
 		}
 		return &memoryQueryEvent, nil
+	case ToolCallSummaryMessageLabel:
+		var ToolCallSummaryMessage ToolCallSummaryMessage
+		if err := json.Unmarshal(event, &ToolCallSummaryMessage); err != nil {
+			return nil, err
+		}
+		return &ToolCallSummaryMessage, nil
 	default:
 		return nil, fmt.Errorf("unknown event type: %s", baseEvent.Type)
 	}

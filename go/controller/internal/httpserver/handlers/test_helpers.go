@@ -31,6 +31,12 @@ type testErrorResponseWriter struct {
 	http.ResponseWriter
 }
 
+func (t *testErrorResponseWriter) Flush() {
+	if flusher, ok := t.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func (t *testErrorResponseWriter) RespondWithError(err error) {
 	if apiErr, ok := err.(*errors.APIError); ok {
 		http.Error(t.ResponseWriter, apiErr.Message, apiErr.StatusCode())

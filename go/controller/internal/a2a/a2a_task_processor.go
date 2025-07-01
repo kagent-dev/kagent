@@ -211,6 +211,17 @@ func convertAutogenTypeToA2AType(event client.Event, taskId, contextId *string) 
 				typed.ModelsUsage,
 			),
 		}
+	case *client.ToolCallSummaryMessage:
+		return protocol.StreamingMessageEvent{
+			Result: newMessage(
+				protocol.MessageRoleAgent,
+				[]protocol.Part{protocol.NewDataPart(typed.ToolCalls), protocol.NewDataPart(typed.Results)},
+				taskId,
+				contextId,
+				typed.Metadata,
+				typed.ModelsUsage,
+			),
+		}
 	default:
 		return protocol.StreamingMessageEvent{
 			Result: &protocol.Message{

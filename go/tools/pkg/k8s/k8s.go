@@ -76,7 +76,7 @@ func (k *K8sTool) handleKubectlGetEnhanced(ctx context.Context, request mcp.Call
 	resourceName := mcp.ParseString(request, "resource_name", "")
 	namespace := mcp.ParseString(request, "namespace", "")
 	allNamespaces := mcp.ParseString(request, "all_namespaces", "") == "true"
-	output := mcp.ParseString(request, "output", "json")
+	output := mcp.ParseString(request, "output", "wide")
 
 	if resourceType == "" {
 		return mcp.NewToolResultError("resource_type parameter is required"), nil

@@ -184,7 +184,7 @@ var (
 
 func streamSseResponse(r io.ReadCloser) chan *SseEvent {
 	scanner := bufio.NewScanner(r)
-	ch := make(chan *SseEvent)
+	ch := make(chan *SseEvent, 10)
 	go func() {
 		defer close(ch)
 		defer r.Close()

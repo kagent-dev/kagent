@@ -213,7 +213,7 @@ func (t *taskHandler) StreamTask(ctx context.Context, task string, contextID str
 			return nil, fmt.Errorf("failed to invoke task: %w", err)
 		}
 
-		events := make(chan autogen_client.Event)
+		events := make(chan autogen_client.Event, 10)
 		go func() {
 			defer close(events)
 			for event := range stream {

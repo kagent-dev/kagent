@@ -48,6 +48,29 @@ func TestInvokeAPI(t *testing.T) {
 			text := a2autils.ExtractText(*msgResult)
 			require.Contains(t, text, "kube-scheduler-kagent-control-plane")
 		})
+
+		t.Run("should successfully handle a streaming agent invocation", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			msg, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
+				Message: protocol.Message{
+					Role:  protocol.MessageRoleUser,
+					Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
+				},
+			})
+			require.NoError(t, err)
+
+			var text string
+			for event := range msg {
+				msgResult, ok := event.Result.(*protocol.Message)
+				if !ok {
+					continue
+				}
+				text += a2autils.ExtractText(*msgResult)
+			}
+			require.Contains(t, text, "kube-scheduler-kagent-control-plane")
+		})
 	})
 }
 
