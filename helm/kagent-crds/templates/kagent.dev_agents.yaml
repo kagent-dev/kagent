@@ -126,6 +126,9 @@ spec:
                   properties:
                     agent:
                       properties:
+                        description:
+                          description: Description of the referenced agent.
+                          type: string
                         ref:
                           description: |-
                             Reference to the Agent resource to use as a tool.
