@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -112,11 +113,8 @@ func (m *InMemoryAutogenClient) InvokeTask(req *autogen_client.InvokeTaskRequest
 	// For in-memory implementation, return a basic result
 	return &autogen_client.InvokeTaskResult{
 		TaskResult: autogen_client.TaskResult{
-			Messages: []autogen_client.TaskMessageMap{
-				{
-					"role":    "assistant",
-					"content": fmt.Sprintf("Task completed: %s", req.Task),
-				},
+			Messages: []json.RawMessage{
+				json.RawMessage(fmt.Sprintf(`{"role": "assistant", "content": "%s"}`, req.Task)),
 			},
 		},
 	}, nil
@@ -144,11 +142,8 @@ func (m *InMemoryAutogenClient) InvokeSession(sessionID int, userID string, requ
 
 	return &autogen_client.TeamResult{
 		TaskResult: autogen_client.TaskResult{
-			Messages: []autogen_client.TaskMessageMap{
-				{
-					"role":    "assistant",
-					"content": fmt.Sprintf("Session task completed: %s", request.Task),
-				},
+			Messages: []json.RawMessage{
+				json.RawMessage(fmt.Sprintf(`{"role": "assistant", "content": "%s"}`, request.Task)),
 			},
 		},
 	}, nil

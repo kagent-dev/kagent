@@ -84,7 +84,7 @@ jobs:
           export GW_IP=$(kubectl get svc -n kagent kagent -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           export KAGENT_A2A_URL="http://${GW_IP}:8083/api/a2a"
           cd go
-          go test -v -timeout 30s -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
+          go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
 
 
   go-unit-tests:
