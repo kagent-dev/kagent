@@ -82,6 +82,9 @@ type AgentTool struct {
 	// Can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
 	// +kubebuilder:validation:MinLength=1
 	Ref string `json:"ref,omitempty"`
+	// Description of the referenced agent.
+	// +optional
+	Description string `json:"description,omitempty"`
 }
 
 type McpServerTool struct {
