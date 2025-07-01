@@ -102,7 +102,7 @@ func (a *autogenA2ATranslator) translateCardForAgent(
 
 func (a *autogenA2ATranslator) makeHandlerForTeam(
 	autogenTeam *autogen_client.Team,
-) (TaskHandler, error) {
+) (MessageHandler, error) {
 	return &taskHandler{
 		team:   autogenTeam,
 		client: a.autogenClient,
@@ -114,7 +114,7 @@ type taskHandler struct {
 	client autogen_client.Client
 }
 
-func (t *taskHandler) HandleTask(ctx context.Context, task string, contextID string) ([]autogen_client.Event, error) {
+func (t *taskHandler) HandleMessage(ctx context.Context, task string, contextID string) ([]autogen_client.Event, error) {
 	var taskResult *autogen_client.TaskResult
 	if contextID != "" {
 		session, err := t.client.GetSession(contextID, common.GetGlobalUserID())
@@ -164,7 +164,7 @@ func (t *taskHandler) HandleTask(ctx context.Context, task string, contextID str
 	return events, nil
 }
 
-func (t *taskHandler) StreamTask(ctx context.Context, task string, contextID string) (<-chan autogen_client.Event, error) {
+func (t *taskHandler) HandleMessageStream(ctx context.Context, task string, contextID string) (<-chan autogen_client.Event, error) {
 	if contextID != "" {
 		session, err := t.client.GetSession(contextID, common.GetGlobalUserID())
 		if err != nil {

@@ -13,7 +13,7 @@ import (
 
 type A2AHandlerParams struct {
 	AgentCard   server.AgentCard
-	TaskHandler TaskHandler
+	TaskHandler MessageHandler
 }
 
 // A2AHandlerMux is an interface that defines methods for adding, getting, and removing agentic task handlers.
@@ -47,7 +47,7 @@ func (a *handlerMux) SetAgentHandler(
 	agentRef string,
 	params *A2AHandlerParams,
 ) error {
-	processor := newA2ATaskProcessor(params.TaskHandler)
+	processor := newA2AMessageProcessor(params.TaskHandler)
 
 	// Create task manager and inject processor.
 	taskManager, err := taskmanager.NewMemoryTaskManager(processor)
@@ -104,7 +104,7 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.Error(
 			w,
-			fmt.Sprintf("Agent %s not found", agentName),
+			fmt.Sprintf("Agent %s not found", handlerName),
 			http.StatusNotFound,
 		)
 		return

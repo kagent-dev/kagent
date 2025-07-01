@@ -16,28 +16,28 @@ var (
 	processorLog = ctrl.Log.WithName("a2a_task_processor")
 )
 
-type TaskHandler interface {
-	HandleTask(ctx context.Context, task string, contextID string) ([]client.Event, error)
-	StreamTask(ctx context.Context, task string, contextID string) (<-chan client.Event, error)
+type MessageHandler interface {
+	HandleMessage(ctx context.Context, task string, contextID string) ([]client.Event, error)
+	HandleMessageStream(ctx context.Context, task string, contextID string) (<-chan client.Event, error)
 }
 
-type a2aTaskProcessor struct {
-	// taskHandler is a function that processes the input text.
+type a2aMessageProcessor struct {
+	// msgHandler is a function that processes the input text.
 	// in production this is done by handing off the input text by a call to
 	// the underlying agentic framework (e.g.: autogen)
-	taskHandler TaskHandler
+	msgHandler MessageHandler
 }
 
-var _ taskmanager.MessageProcessor = &a2aTaskProcessor{}
+var _ taskmanager.MessageProcessor = &a2aMessageProcessor{}
 
-// newA2ATaskProcessor creates a new A2A task processor.
-func newA2ATaskProcessor(taskHandler TaskHandler) taskmanager.MessageProcessor {
-	return &a2aTaskProcessor{
-		taskHandler: taskHandler,
+// newA2AMessageProcessor creates a new A2A message processor.
+func newA2AMessageProcessor(taskHandler MessageHandler) taskmanager.MessageProcessor {
+	return &a2aMessageProcessor{
+		msgHandler: taskHandler,
 	}
 }
 
-func (a *a2aTaskProcessor) ProcessMessage(
+func (a *a2aMessageProcessor) ProcessMessage(
 	ctx context.Context,
 	message protocol.Message,
 	options taskmanager.ProcessOptions,
@@ -62,7 +62,7 @@ func (a *a2aTaskProcessor) ProcessMessage(
 	if !options.Streaming {
 		// Process the input text (in this simple example, we'll just reverse it).
 		contextID := handle.GetContextID()
-		result, err := a.taskHandler.HandleTask(ctx, text, contextID)
+		result, err := a.msgHandler.HandleMessage(ctx, text, contextID)
 		if err != nil {
 			message := protocol.NewMessage(
 				protocol.MessageRoleAgent,
@@ -86,7 +86,7 @@ func (a *a2aTaskProcessor) ProcessMessage(
 		}, nil
 	}
 
-	events, err := a.taskHandler.StreamTask(ctx, text, handle.GetContextID())
+	events, err := a.msgHandler.HandleMessageStream(ctx, text, handle.GetContextID())
 	if err != nil {
 		return nil, err
 	}
