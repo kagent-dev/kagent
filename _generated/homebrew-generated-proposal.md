@@ -286,10 +286,10 @@ Behind the scenes, Homebrew performs a series of actions: it clones the homebrew
 
 Managing updates is equally seamless. Users can upgrade to the latest version of kagent with a single command:
 
-Bash
+```Bash
 
 brew upgrade kagent
-
+```
 The brew update command (often run automatically or as part of brew upgrade) pulls the latest changes to the kagent-dev/homebrew-kagent tap, making Homebrew aware of the new version. The upgrade command then handles the download and replacement of the old binary.15 This provides a trusted, standardized mechanism for version management.
 
 ### **5.3 Post-Installation Verification: The test do Block**
@@ -298,12 +298,12 @@ To provide immediate feedback and confidence to the user, the Homebrew formula i
 
 .goreleaser.yml configuration is:
 
-Ruby
+```Ruby
 
 test do  
   system "#{bin}/kagent version"  
 end
-
+```
 This simple test runs the kagent version command and asserts that it exits with a status code of 0 (success). This confirms that the binary is correctly installed, is executable, and responds to a basic command without errors.
 
 This automated verification is a significant improvement over manual methods. It proves to the user that the tool is ready for use, completing a high-quality installation experience that encourages adoption among the target audience of DevOps and platform engineers, who value robust and reliable tooling.25
@@ -318,12 +318,12 @@ The implemented solution provides a secure, fully automated release pipeline for
 
 Strict adherence to **Semantic Versioning (SemVer)** is strongly recommended. GoReleaser and Homebrew both rely on well-formed version tags (e.g., v1.2.3, v1.3.0-rc1) to function correctly.26 The official release process for maintainers should be to create and push an annotated Git tag:
 
-Bash
+```Bash
 
 # Example for creating release v0.1.0  
 git tag -a v0.1.0 -m "Release v0.1.0"  
 git push origin v0.1.0
-
+```
 Using an annotated tag (-a) is a best practice as it stores extra metadata, including the author, date, and a message.
 
 ### **6.3 Maintenance and Troubleshooting**
