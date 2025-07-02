@@ -25,10 +25,17 @@ export function AgentCard({ id, agentResponse: { agent, model, provider } }: Age
     <Link href={`/agents/${id}/chat`} passHref>
       <Card className={`group transition-colors cursor-pointer hover:border-violet-500`}>
         <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-          <CardTitle className="flex items-center gap-2">
-            <KagentLogo className="h-5 w-5" />
-            {agent.metadata.name}
-          </CardTitle>
+          <div className="flex flex-col">
+            <CardTitle className="flex items-center gap-2">
+              <KagentLogo className="h-5 w-5" />
+              {agent.metadata.name}
+            </CardTitle>
+            {agent.metadata.namespace && (
+              <p className="text-xs text-muted-foreground mt-1 ml-7">
+                {agent.metadata.namespace}
+              </p>
+            )}
+          </div>
           <div className="flex items-center space-x-2 invisible group-hover:visible">
             <Button variant="ghost" size="icon" onClick={handleEditClick} aria-label="Edit Agent">
               <Pencil className="h-4 w-4" />
