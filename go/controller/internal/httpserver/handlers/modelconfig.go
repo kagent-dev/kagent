@@ -65,12 +65,6 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		if config.Spec.Ollama != nil {
 			FlattenStructToMap(config.Spec.Ollama, modelParams)
 		}
-		if config.Spec.GeminiVertexAI != nil {
-			FlattenStructToMap(config.Spec.GeminiVertexAI, modelParams)
-		}
-		if config.Spec.AnthropicVertexAI != nil {
-			FlattenStructToMap(config.Spec.AnthropicVertexAI, modelParams)
-		}
 
 		responseItem := ModelConfigResponse{
 			Name:            config.Name,
@@ -129,12 +123,6 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	if modelConfig.Spec.Ollama != nil {
 		FlattenStructToMap(modelConfig.Spec.Ollama, modelParams)
 	}
-	if modelConfig.Spec.GeminiVertexAI != nil {
-		FlattenStructToMap(modelConfig.Spec.GeminiVertexAI, modelParams)
-	}
-	if modelConfig.Spec.AnthropicVertexAI != nil {
-		FlattenStructToMap(modelConfig.Spec.AnthropicVertexAI, modelParams)
-	}
 
 	responseItem := ModelConfigResponse{
 		Name:            modelConfig.Name,
@@ -168,16 +156,14 @@ func getStructJSONKeys(structType reflect.Type) []string {
 }
 
 type CreateModelConfigRequest struct {
-	Name                  string                            `json:"name"`
-	Provider              Provider                          `json:"provider"`
-	Model                 string                            `json:"model"`
-	APIKey                string                            `json:"apiKey"`
-	OpenAIParams          *v1alpha1.OpenAIConfig            `json:"openAI,omitempty"`
-	AnthropicParams       *v1alpha1.AnthropicConfig         `json:"anthropic,omitempty"`
-	AzureParams           *v1alpha1.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
-	OllamaParams          *v1alpha1.OllamaConfig            `json:"ollama,omitempty"`
-	GeminiParams          *v1alpha1.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
-	AnthropicVertexParams *v1alpha1.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	Name            string                      `json:"name"`
+	Provider        Provider                    `json:"provider"`
+	Model           string                      `json:"model"`
+	APIKey          string                      `json:"apiKey"`
+	OpenAIParams    *v1alpha1.OpenAIConfig      `json:"openAI,omitempty"`
+	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
+	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
 }
 
 type Provider struct {
@@ -283,30 +269,6 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No Ollama params provided in create.")
 		}
-	case v1alpha1.GeminiVertexAI:
-		if req.GeminiParams == nil {
-			providerConfigErr = fmt.Errorf("geminiVertexAI parameters are required for GeminiVertexAI provider")
-		} else {
-			// Basic validation for required Gemini Vertex AI fields
-			if req.GeminiParams.ProjectID == "" || req.GeminiParams.Location == "" {
-				providerConfigErr = fmt.Errorf("missing required GeminiVertexAI parameters: projectID, location")
-			} else {
-				modelConfig.Spec.GeminiVertexAI = req.GeminiParams
-				log.V(1).Info("Assigned GeminiVertexAI params to spec")
-			}
-		}
-	case v1alpha1.AnthropicVertexAI:
-		if req.AnthropicVertexParams == nil {
-			providerConfigErr = fmt.Errorf("anthropicVertexAI parameters are required for AnthropicVertexAI provider")
-		} else {
-			// Basic validation for required Anthropic Vertex AI fields
-			if req.AnthropicVertexParams.ProjectID == "" || req.AnthropicVertexParams.Location == "" {
-				providerConfigErr = fmt.Errorf("missing required AnthropicVertexAI parameters: projectID, location")
-			} else {
-				modelConfig.Spec.AnthropicVertexAI = req.AnthropicVertexParams
-				log.V(1).Info("Assigned AnthropicVertexAI params to spec")
-			}
-		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
 	}
@@ -344,15 +306,13 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 // UpdateModelConfigRequest defines the structure for updating a model config.
 // It's similar to Create, but APIKey is optional.
 type UpdateModelConfigRequest struct {
-	Provider              Provider                          `json:"provider"`
-	Model                 string                            `json:"model"`
-	APIKey                *string                           `json:"apiKey,omitempty"`
-	OpenAIParams          *v1alpha1.OpenAIConfig            `json:"openAI,omitempty"`
-	AnthropicParams       *v1alpha1.AnthropicConfig         `json:"anthropic,omitempty"`
-	AzureParams           *v1alpha1.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
-	OllamaParams          *v1alpha1.OllamaConfig            `json:"ollama,omitempty"`
-	GeminiParams          *v1alpha1.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
-	AnthropicVertexParams *v1alpha1.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	Provider        Provider                    `json:"provider"`
+	Model           string                      `json:"model"`
+	APIKey          *string                     `json:"apiKey,omitempty"`
+	OpenAIParams    *v1alpha1.OpenAIConfig      `json:"openAI,omitempty"`
+	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
+	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
 }
 
 func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *http.Request) {
@@ -480,30 +440,6 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No Ollama params provided in update.")
 		}
-	case v1alpha1.GeminiVertexAI:
-		if req.GeminiParams == nil {
-			providerConfigErr = fmt.Errorf("geminiVertexAI parameters are required for GeminiVertexAI provider")
-		} else {
-			// Basic validation for required Gemini Vertex AI fields
-			if req.GeminiParams.ProjectID == "" || req.GeminiParams.Location == "" {
-				providerConfigErr = fmt.Errorf("missing required GeminiVertexAI parameters: projectID, location")
-			} else {
-				modelConfig.Spec.GeminiVertexAI = req.GeminiParams
-				log.V(1).Info("Assigned updated GeminiVertexAI params to spec")
-			}
-		}
-	case v1alpha1.AnthropicVertexAI:
-		if req.AnthropicVertexParams == nil {
-			providerConfigErr = fmt.Errorf("anthropicVertexAI parameters are required for AnthropicVertexAI provider")
-		} else {
-			// Basic validation for required Anthropic Vertex AI fields
-			if req.AnthropicVertexParams.ProjectID == "" || req.AnthropicVertexParams.Location == "" {
-				providerConfigErr = fmt.Errorf("missing required AnthropicVertexAI parameters: projectID, location")
-			} else {
-				modelConfig.Spec.AnthropicVertexAI = req.AnthropicVertexParams
-				log.V(1).Info("Assigned updated AnthropicVertexAI params to spec")
-			}
-		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)
 	}
@@ -530,10 +466,6 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		FlattenStructToMap(modelConfig.Spec.AzureOpenAI, updatedParams)
 	} else if modelConfig.Spec.Ollama != nil {
 		FlattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
-	} else if modelConfig.Spec.GeminiVertexAI != nil {
-		FlattenStructToMap(modelConfig.Spec.GeminiVertexAI, updatedParams)
-	} else if modelConfig.Spec.AnthropicVertexAI != nil {
-		FlattenStructToMap(modelConfig.Spec.AnthropicVertexAI, updatedParams)
 	}
 
 	responseItem := ModelConfigResponse{

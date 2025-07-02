@@ -24,7 +24,6 @@ import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendMo
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
-import { VertexAIConfigSection } from '@/components/models/new/VertexAIConfigSection';
 
 interface ValidationErrors {
   name?: string;
@@ -122,9 +121,6 @@ function ModelPageContent() {
   const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
-  const [projectId, setProjectId] = useState("");
-  const [location, setLocation] = useState("");
-  const [vertexAIErrors, setVertexAIErrors] = useState<{ projectId?: string; location?: string }>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -319,16 +315,6 @@ function ModelPageContent() {
       newErrors.apiKey = "API key is required for new models (except for Ollama or when you don't need an API key)";
     }
 
-    // Validate Vertex AI specific fields
-    if (isVertexAIProvider) {
-      if (!projectId.trim()) {
-        newErrors.requiredParams = { ...newErrors.requiredParams, projectID: "Project ID is required" };
-      }
-      if (!location.trim()) {
-        newErrors.requiredParams = { ...newErrors.requiredParams, location: "Location is required" };
-      }
-    }
-
     requiredParams.forEach(param => {
       if (!param.value.trim() && param.key.trim()) {
         if (!newErrors.requiredParams) newErrors.requiredParams = {};
@@ -432,77 +418,61 @@ function ModelPageContent() {
       apiKey: finalApiKey,
     };
 
-    // Add provider-specific configuration
-    if (finalSelectedProvider.type === 'OpenAI' && requiredParams) {
-      payload.openAI = {
-        temperature: requiredParams.temperature,
-        maxTokens: requiredParams.maxTokens ? parseInt(requiredParams.maxTokens) : undefined,
-        topP: requiredParams.topP,
-        frequencyPenalty: requiredParams.frequencyPenalty ? parseFloat(requiredParams.frequencyPenalty) : undefined,
-        presencePenalty: requiredParams.presencePenalty ? parseFloat(requiredParams.presencePenalty) : undefined,
-      };
-    } else if (finalSelectedProvider.type === 'AzureOpenAI' && requiredParams) {
-      payload.azureOpenAI = {
-        endpoint: requiredParams.endpoint,
-        apiVersion: requiredParams.apiVersion,
-        temperature: requiredParams.temperature,
-        maxTokens: requiredParams.maxTokens ? parseInt(requiredParams.maxTokens) : undefined,
-        topP: requiredParams.topP,
-        frequencyPenalty: requiredParams.frequencyPenalty ? parseFloat(requiredParams.frequencyPenalty) : undefined,
-        presencePenalty: requiredParams.presencePenalty ? parseFloat(requiredParams.presencePenalty) : undefined,
-      };
-    } else if (finalSelectedProvider.type === 'Anthropic' && requiredParams) {
-      payload.anthropic = {
-        temperature: requiredParams.temperature,
-        maxTokens: requiredParams.maxTokens ? parseInt(requiredParams.maxTokens) : undefined,
-        topP: requiredParams.topP,
-        topK: requiredParams.topK ? parseInt(requiredParams.topK) : undefined,
-      };
-    } else if (finalSelectedProvider.type === 'Ollama' && requiredParams) {
-      payload.ollama = {
-        host: requiredParams.host,
-        options: optionalParams,
-      };
-    } else if ((finalSelectedProvider.type === 'GeminiVertexAI' || finalSelectedProvider.type === 'AnthropicVertexAI')) {
-      const vertexAIConfig = {
-        projectID: projectId.trim(),
-        location: location.trim(),
-        temperature: requiredParams.find(p => p.key === 'temperature')?.value,
-        topP: requiredParams.find(p => p.key === 'topP')?.value,
-        topK: requiredParams.find(p => p.key === 'topK')?.value,
-        stopSequences: requiredParams.find(p => p.key === 'stopSequences')?.value?.split(',').map(s => s.trim()),
-      };
+    const providerParams = processModelParams(requiredParams, optionalParams);
 
-      if (finalSelectedProvider.type === 'GeminiVertexAI') {
-        payload.geminiVertexAI = vertexAIConfig;
-      } else {
-        payload.anthropicVertexAI = vertexAIConfig;
-      }
+    const providerType = finalSelectedProvider.type;
+    switch (providerType) {
+      case 'OpenAI':
+        payload.openAI = providerParams as OpenAIConfigPayload;
+        break;
+      case 'Anthropic':
+        payload.anthropic = providerParams as AnthropicConfigPayload;
+        break;
+      case 'AzureOpenAI':
+        payload.azureOpenAI = providerParams as AzureOpenAIConfigPayload;
+        break;
+      case 'Ollama':
+        payload.ollama = providerParams as OllamaConfigPayload;
+        break;
+      default:
+        console.error("Unsupported provider type during payload construction:", providerType);
+        toast.error("Internal error: Unsupported provider type.");
+        setIsSubmitting(false);
+        return;
     }
 
     try {
       let response;
       if (isEditMode && modelId) {
-        response = await updateModelConfig(modelId, payload as UpdateModelConfigPayload);
+        const updatePayload: UpdateModelConfigPayload = {
+          provider: payload.provider,
+          model: payload.model,
+          apiKey: finalApiKey ? finalApiKey : null,
+          openAI: payload.openAI,
+          anthropic: payload.anthropic,
+          azureOpenAI: payload.azureOpenAI,
+          ollama: payload.ollama,
+        };
+        response = await updateModelConfig(modelId, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }
 
       if (response.success) {
-        toast.success(isEditMode ? "Model updated successfully" : "Model created successfully");
+        toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
         router.push("/models");
       } else {
-        toast.error(response.error || "Failed to save model");
+        throw new Error(response.error || "Failed to save model configuration");
       }
-    } catch (error) {
-      toast.error("An error occurred while saving the model");
-      console.error("Error saving model:", error);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred";
+      console.error("Submission error:", err);
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  const isVertexAIProvider = selectedProvider?.type === "GeminiVertexAI" || selectedProvider?.type === "AnthropicVertexAI";
 
   if (error) {
     return <ErrorState message={error} />;
@@ -553,19 +523,6 @@ function ModelPageContent() {
             modelTag={modelTag}
             onModelTagChange={setModelTag}
           />
-
-          {isVertexAIProvider && (
-            <VertexAIConfigSection
-              projectId={projectId}
-              location={location}
-              onProjectIdChange={setProjectId}
-              onLocationChange={setLocation}
-              errors={vertexAIErrors}
-              isSubmitting={isSubmitting}
-              isLoading={isLoading}
-              isEditMode={isEditMode}
-            />
-          )}
 
           <AuthSection
             isOllamaSelected={isOllamaSelected}
