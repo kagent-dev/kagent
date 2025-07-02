@@ -151,8 +151,11 @@ export interface SseMcpServerConfig {
   sseReadTimeout?: string;
 }
 
-export interface BuiltInToolConfig {
-  [key: string]: any;
+export interface StreamableHttpMcpServerConfig {
+  url: string;
+  headers?: Record<string, any>;
+  timeout?: string;
+  sseReadTimeout?: string;
 }
 
 // Provider-based Configs
@@ -284,9 +287,9 @@ export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | Use
 
 export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig;
 
-export type ToolConfig = FunctionToolConfig | MCPToolConfig | BuiltInToolConfig;
+export type ToolConfig = FunctionToolConfig | MCPToolConfig;
 
-export type ToolServerConfig = StdioMcpServerConfig | SseMcpServerConfig;
+export type ToolServerConfig = StdioMcpServerConfig | SseMcpServerConfig | StreamableHttpMcpServerConfig;
 
 export type ChatCompletionContextConfig = UnboundedChatCompletionContextConfig;
 
@@ -366,11 +369,10 @@ export interface ResourceMetadata {
   namespace?: string;
 }
 
-export type ToolProviderType = "Builtin" | "McpServer" | "Agent"
+export type ToolProviderType = "McpServer" | "Agent"
 
 export interface Tool {
   type: ToolProviderType;
-  builtin?: BuiltinTool;
   mcpServer?: McpServerTool;
   agent?: AgentTool;
 }
@@ -378,13 +380,6 @@ export interface Tool {
 export interface AgentTool {
   ref: string;
   description?: string;
-}
-
-export interface BuiltinTool {
-  name: string;
-  description?: string;
-  config?: any;
-  label?: string;
 }
 
 export interface McpServerTool {
@@ -410,7 +405,10 @@ export interface AgentResponse {
   agent: Agent;
   component: Component<TeamConfig>;
   model: string;
-  provider: string;
+  modelProvider: string;
+  modelConfigRef: string;
+  memoryRefs: string[];
+  tools: Tool[];
 }
 
 export interface ToolServer {
@@ -426,6 +424,7 @@ export interface ToolServerSpec {
 export interface ToolServerConfiguration {
   stdio?: StdioMcpServerConfig;
   sse?: SseMcpServerConfig;
+  streamableHttp?: StreamableHttpMcpServerConfig;
 }
 
 export interface ToolComponent {
@@ -434,7 +433,7 @@ export interface ToolComponent {
 }
 
 export interface ToolServerWithTools {
-  name: string;
+  ref: string;
   config: ToolServerConfiguration;
   discoveredTools: ToolComponent[];
 }

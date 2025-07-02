@@ -1,0 +1,16 @@
+name: Label Enhancement Proposals
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+
+jobs:
+  label-by-files:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"

@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowBigUp, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Session, AgentMessageConfig } from "@/types/datamodel";
+import type { Session, AgentMessageConfig, TeamConfig, Component } from "@/types/datamodel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import StreamingMessage from "./StreamingMessage";
@@ -14,6 +14,7 @@ import { TokenStats } from "@/lib/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionMessages, checkSessionExists, updateSession } from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
+import { getTeam } from "@/app/actions/teams";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers } from "@/lib/messageHandlers";
@@ -35,6 +36,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
     input: 0,
     output: 0,
   });
+  const [teamConfig, setTeamConfig] = useState<Component<TeamConfig>>();
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
@@ -111,6 +113,20 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
       }
     }
   }, [messages, streamingContent]);
+
+  useEffect(() => {
+    async function loadTeamConfig() {
+      try {
+        const teamResponse = await getTeam(selectedAgentId);
+        if (teamResponse.success && teamResponse.data) {
+          setTeamConfig(teamResponse.data.component);
+        }
+      } catch (error) {
+        console.error("Error loading team config:", error);
+      }
+    }
+    loadTeamConfig();
+  }, [selectedAgentId]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,6 +214,11 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
       abortControllerRef.current = new AbortController();
 
       try {
+        const requestBody = {
+          task: userMessageText,
+          team_config: teamConfig,
+        }
+
         const response = await fetch(
           `/stream/${currentSessionId}`,
           {
@@ -205,7 +226,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
             headers: {
               'Content-Type': 'text/plain',
             },
-            body: userMessageText,
+            body: JSON.stringify(requestBody),
             signal: abortControllerRef.current.signal,
           }
         );

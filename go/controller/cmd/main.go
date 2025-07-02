@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -24,6 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/internal/version"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
@@ -63,6 +66,11 @@ var (
 	scheme          = runtime.NewScheme()
 	setupLog        = ctrl.Log.WithName("setup")
 	kagentNamespace = utils_internal.GetResourceNamespace()
+
+	// These variables should be set during build time using -ldflags
+	Version   = version.Version
+	GitCommit = version.GitCommit
+	BuildDate = version.BuildDate
 )
 
 func init() {
@@ -124,6 +132,8 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -214,6 +224,9 @@ func main() {
 		})
 	}
 
+	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
+	watchNamespacesList := filterValidNamespaces(strings.Split(watchNamespaces, ","))
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -222,7 +235,7 @@ func main() {
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
 		Cache: cache.Options{
-			DefaultNamespaces: ConfigureNamespaceWatching(watchNamespaces),
+			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
 		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
@@ -250,7 +263,7 @@ func main() {
 	)
 
 	// wait for autogen to become ready on port 8081 before starting the manager
-	if err := waitForAutogenReady(setupLog, autogenClient, time.Minute*5, time.Second*5); err != nil {
+	if err := waitForAutogenReady(context.Background(), setupLog, autogenClient, time.Minute*5, time.Second*15); err != nil {
 		setupLog.Error(err, "failed to wait for autogen to become ready")
 		os.Exit(1)
 	}
@@ -353,10 +366,11 @@ func main() {
 	}
 
 	httpServer := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		BindAddr:      httpServerAddr,
-		AutogenClient: autogenClient,
-		KubeClient:    kubeClient,
-		A2AHandler:    a2aHandler,
+		BindAddr:          httpServerAddr,
+		AutogenClient:     autogenClient,
+		KubeClient:        kubeClient,
+		A2AHandler:        a2aHandler,
+		WatchedNamespaces: watchNamespacesList,
 	})
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")
@@ -371,13 +385,14 @@ func main() {
 }
 
 func waitForAutogenReady(
+	ctx context.Context,
 	log logr.Logger,
 	client autogen_client.Client,
 	timeout, interval time.Duration,
 ) error {
 	log.Info("waiting for autogen to become ready")
 	return waitForReady(func() error {
-		version, err := client.GetVersion()
+		version, err := client.GetVersion(ctx)
 		if err != nil {
 			log.Error(err, "autogen is not ready")
 			return err
@@ -401,11 +416,10 @@ func waitForReady(f func() error, timeout, interval time.Duration) error {
 	}
 }
 
-// ConfigureNamespaceWatching sets up the controller manager to watch specific namespaces
+// configureNamespaceWatching sets up the controller manager to watch specific namespaces
 // based on the provided configuration. It returns the list of namespaces being watched,
 // or nil if watching all namespaces.
-func ConfigureNamespaceWatching(watchNamespaces string) map[string]cache.Config {
-	watchNamespacesList := filterValidNamespaces(strings.Split(watchNamespaces, ","))
+func configureNamespaceWatching(watchNamespacesList []string) map[string]cache.Config {
 	if len(watchNamespacesList) == 0 {
 		setupLog.Info("Watching all namespaces (no valid namespaces specified)")
 		return map[string]cache.Config{"": {}}

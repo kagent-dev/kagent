@@ -34,7 +34,7 @@
               "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
               "version": 1
             },
-            "name": "parent_agent",
+            "name": "test__NS__parent_agent",
             "reflect_on_tool_use": false,
             "system_message": "You are a coordinating agent that can delegate tasks to specialists.",
             "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
@@ -44,7 +44,7 @@
                 "component_version": 0,
                 "config": {
                   "description": "A specialist agent for math problems",
-                  "name": "specialist-agent",
+                  "name": "test__NS__specialist_agent",
                   "team": {
                     "component_type": "team",
                     "component_version": 0,
@@ -77,7 +77,7 @@
                               "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
                               "version": 1
                             },
-                            "name": "specialist_agent",
+                            "name": "test__NS__specialist_agent",
                             "reflect_on_tool_use": false,
                             "system_message": "You are a math specialist. Focus on solving mathematical problems step by step.",
                             "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
@@ -93,16 +93,16 @@
                         "component_type": "termination",
                         "component_version": 0,
                         "config": {
-                          "source": "specialist_agent"
+                          "source": "test__NS__specialist_agent"
                         },
                         "description": "",
                         "label": "",
-                        "provider": "autogen_agentchat.conditions.TextMessageTermination",
+                        "provider": "kagent.conditions.FinalTextMessageTermination",
                         "version": 1
                       }
                     },
                     "description": "A specialist agent for math problems",
-                    "label": "specialist-agent",
+                    "label": "test/specialist-agent",
                     "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
                     "version": 1
                   }
@@ -124,16 +124,16 @@
         "component_type": "termination",
         "component_version": 0,
         "config": {
-          "source": "parent_agent"
+          "source": "test__NS__parent_agent"
         },
         "description": "",
         "label": "",
-        "provider": "autogen_agentchat.conditions.TextMessageTermination",
+        "provider": "kagent.conditions.FinalTextMessageTermination",
         "version": 1
       }
     },
     "description": "A parent agent that can delegate to specialists",
-    "label": "parent-agent",
+    "label": "test/parent-agent",
     "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
     "version": 1
   },

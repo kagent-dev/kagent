@@ -33,6 +33,9 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// For streaming responses in A2A lib
+var _ http.Flusher = &statusResponseWriter{}
+
 type statusResponseWriter struct {
 	http.ResponseWriter
 	status int
@@ -40,6 +43,12 @@ type statusResponseWriter struct {
 
 func newStatusResponseWriter(w http.ResponseWriter) *statusResponseWriter {
 	return &statusResponseWriter{w, http.StatusOK}
+}
+
+func (w *statusResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func (w *statusResponseWriter) WriteHeader(code int) {

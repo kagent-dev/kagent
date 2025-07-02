@@ -106,9 +106,11 @@ func (h *InvokeHandler) HandleInvokeAgentStream(w ErrorResponseWriter, r *http.R
 	log.Info("Successfully invoked agent")
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
+	w.Flush()
 
 	for event := range ch {
 		w.Write([]byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event.Event, event.Data)))
+		w.Flush()
 	}
 }
 

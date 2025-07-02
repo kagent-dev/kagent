@@ -76,30 +76,59 @@ spec:
     - If you created any artifacts such as files or resources, you will include those in your response as well
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetAvailableAPIResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.prometheus.QueryTool
-        config:
-          base_url: {{ .Values.prometheus.url | default "prometheus.kagent:9090" | quote }}
-          username: {{ .Values.prometheus.username | default "" | quote }}
-          password: {{ .Values.prometheus.password | default "" | quote }}
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-querydoc
+        toolNames:
+          - query-documentation
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent-tool-server
+        toolNames:
+        - k8s_get_resources
+        - k8s_get_available_api_resources
+    - type: McpServer
+      mcpServer:
+        toolServer: kagent/mcp-grafana
+        toolNames:
+        - update_dashboard
+        - search_dashboards
+        - query_prometheus
+        - query_loki_stats
+        - query_loki_logs
+        - list_teams
+        - list_sift_investigations
+        - list_prometheus_metric_names
+        - list_prometheus_metric_metadata
+        - list_prometheus_label_values
+        - list_prometheus_label_names
+        - list_oncall_users
+        - list_oncall_teams
+        - list_oncall_schedules
+        - list_loki_label_values
+        - list_loki_label_names
+        - list_incidents
+        - list_datasources
+        - list_contact_points
+        - list_alert_rules
+        - get_sift_investigation
+        - get_sift_analysis
+        - get_oncall_shift
+        - get_incident
+        - get_datasource_by_uid
+        - get_datasource_by_name
+        - get_dashboard_panel_queries
+        - get_dashboard_by_uid
+        - get_current_oncall_users
+        - get_assertions
+        - get_alert_rule_by_uid
+        - find_slow_requests
+        - find_error_pattern_logs
+        - create_incident
+        - add_activity_to_incident
     - type: Agent
       agent:
         ref: promql-agent
-    - type: Builtin
-      builtin:
-        name: kagent.tools.grafana.DashboardManagementTool
-        config:
-          base_url: {{ .Values.grafana.url | default "grafana.kagent:3000" | quote }}
-          username: {{ .Values.grafana.username | default "" | quote }}
-          password: {{ .Values.grafana.password | default "" | quote }}
-          api_key: {{ .Values.grafana.apiKey | default "" | quote }}
   a2aConfig:
     skills:
       - id: prometheus-monitoring-querying

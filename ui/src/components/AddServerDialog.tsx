@@ -6,10 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Terminal, Globe, Loader2, ChevronDown, ChevronUp, PlusCircle, Trash2, Code, InfoIcon, AlertCircle } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { SseMcpServerConfig, StdioMcpServerConfig, ToolServer } from "@/types/datamodel";
+import { SseMcpServerConfig, StdioMcpServerConfig, StreamableHttpMcpServerConfig, ToolServer } from "@/types/datamodel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { isResourceNameValid } from "@/lib/utils";
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
+import { Checkbox } from "./ui/checkbox";
 
 interface AddServerDialogProps {
   open: boolean;
@@ -35,6 +37,8 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const [error, setError] = useState<string | null>(null);
   const [serverName, setServerName] = useState("");
   const [userEditedName, setUserEditedName] = useState(false);
+  const [serverNamespace, setServerNamespace] = useState("");
+  const [useStreamableHttp, setUseStreamableHttp] = useState(false);
 
   // Command structure fields
   const [commandType, setCommandType] = useState("npx");
@@ -297,7 +301,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     setIsSubmitting(true);
     setError(null); // Clear any previous errors
 
-    let params: StdioMcpServerConfig | SseMcpServerConfig;
+    let params: StdioMcpServerConfig | SseMcpServerConfig | StreamableHttpMcpServerConfig;
     if (activeTab === "command") {
       // Create StdioServerParameters
       params = {
@@ -349,13 +353,15 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     const newServer: ToolServer = {
       metadata: {
         name: finalServerName,
+        namespace: serverNamespace.trim() || ''
       },
 
       spec: {
         description: "",
         config: {
           stdio: typeof params === "object" && "command" in params ? params : undefined,
-          sse: typeof params === "object" && "url" in params ? params : undefined,
+          sse: !useStreamableHttp && typeof params === "object" && "url" in params ? params : undefined,
+          streamableHttp: useStreamableHttp && typeof params === "object" && "url" in params ? params : undefined,
         },
       },
     };
@@ -422,14 +428,18 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     return errorMsg;
   };
 
+  const handleUseStreamableHttpChange = (checked: boolean) => {
+    setUseStreamableHttp(checked);
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
+        <DialogHeader className="px-6 pt-6 pb-2 border-b flex-shrink-0">
           <DialogTitle>Add Tool Server</DialogTitle>
         </DialogHeader>
 
-        <div className="py-4">
+        <div className="flex-1 overflow-y-auto px-6">
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-start">
               <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
@@ -467,6 +477,28 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
               {!isResourceNameValid(serverName) && serverName && (
                 <p className="text-xs text-red-500">Name must conform to RFC 1123 subdomain format</p>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="server-namespace">Server Namespace</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="inline-flex">
+                        <InfoIcon className="h-4 w-4 text-gray-400" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs text-xs">Must be lowercase alphanumeric characters, &apos;-&apos; or &apos;.&apos;, and must start and end with an alphanumeric character</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <NamespaceCombobox
+                value={serverNamespace}
+                onValueChange={setServerNamespace}
+              />
             </div>
 
             <Tabs defaultValue="command" value={activeTab} onValueChange={(v) => setActiveTab(v as "command" | "url")}>
@@ -597,6 +629,14 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   <p className="text-xs text-muted-foreground">Enter the URL of the MCP server endpoint</p>
                 </div>
 
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox id="use-streamable-http" checked={useStreamableHttp} onCheckedChange={handleUseStreamableHttpChange} />
+                    <Label htmlFor="use-streamable-http">Use Streamable HTTP</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Use Streamable HTTP to connect to the MCP server, instead of SSE</p>
+                </div>
+
                 <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced} className="border rounded-md p-2">
                   <CollapsibleTrigger className="flex w-full items-center justify-between p-2">
                     <span className="font-medium">Advanced Settings</span>
@@ -624,7 +664,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
           <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>
             Cancel
           </Button>

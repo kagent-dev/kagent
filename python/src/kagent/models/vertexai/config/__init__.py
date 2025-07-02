@@ -3,7 +3,7 @@ from typing import List, Optional
 from autogen_ext.models.anthropic.config import AnthropicClientConfigurationConfigModel
 from pydantic import BaseModel, Field
 
-from .._gemini_vertexai_client import ModelInfo
+from ..types import ModelInfo
 
 
 class VertexAIClientConfiguration(BaseModel):

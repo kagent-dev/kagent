@@ -1,0 +1,52 @@
+operation: translateAgent
+targetObject: agent-with-cross-ns-agent
+namespace: test-consumer
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test-provider
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha1
+    kind: ModelConfig
+    metadata:
+      name: provider-model
+      namespace: test-provider
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecretRef: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha1
+    kind: Agent
+    metadata:
+      name: provider-agent
+      namespace: test-provider
+    spec:
+      description: A provider agent with vector memory
+      systemMessage: You are a provider assistant with access to memory.
+      modelConfig: provider-model
+  - apiVersion: kagent.dev/v1alpha1
+    kind: ModelConfig
+    metadata:
+      name: consumer-model
+      namespace: test-consumer
+    spec:
+      provider: OpenAI
+      model: gpt-3.5-turbo
+      apiKeySecretRef: test-provider/openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha1
+    kind: Agent
+    metadata:
+      name: agent-with-cross-ns-agent
+      namespace: test-consumer
+    spec:
+      description: An agent that uses another agent from a different namespace
+      systemMessage: You are an assistant that can delegate to other agents.
+      modelConfig: consumer-model
+      tools:
+        - agent:
+            ref: test-provider/provider-agent

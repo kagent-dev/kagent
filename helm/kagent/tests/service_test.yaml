@@ -25,7 +25,7 @@ tests:
           value: 80
       - equal:
           path: spec.ports[0].targetPort
-          value: 80
+          value: 8080
       - equal:
           path: spec.ports[0].protocol
           value: TCP

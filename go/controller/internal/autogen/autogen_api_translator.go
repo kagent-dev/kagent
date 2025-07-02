@@ -6,30 +6,21 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var (
-	// hard-coded array of tools that require a model client
-	// this is automatically populated from the parent agent's model client
-	toolsProvidersRequiringModelClient = []string{
-		"kagent.tools.prometheus.GeneratePromQLTool",
-		"kagent.tools.k8s.GenerateResourceTool",
-	}
-	toolsProvidersRequiringOpenaiApiKey = []string{
-		"kagent.tools.docs.QueryTool",
-	}
+	log = ctrllog.Log.WithName("autogen")
 )
 
 type ApiTranslator interface {
@@ -65,7 +56,7 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 			ComponentType: "tool_server",
 			Version:       1,
 			Description:   toolServer.Spec.Description,
-			Label:         toolServer.Name,
+			Label:         common.GetObjectRef(toolServer),
 			Config:        api.MustToConfig(toolServerConfig),
 		},
 	}, nil
@@ -94,7 +85,7 @@ func (a *apiTranslator) getConfigMapValue(ctx context.Context, source *v1alpha1.
 	}
 
 	configMap := &corev1.ConfigMap{}
-	err := fetchObjKube(
+	err := common.GetObject(
 		ctx,
 		a.kube,
 		configMap,
@@ -119,7 +110,7 @@ func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.Val
 	}
 
 	secret := &corev1.Secret{}
-	err := fetchObjKube(
+	err := common.GetObject(
 		ctx,
 		a.kube,
 		secret,
@@ -137,7 +128,7 @@ func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.Val
 	return string(value), nil
 }
 
-func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1alpha1.ToolServerConfig, namespace string) (string, *api.ToolServerConfig, error) {
+func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1alpha1.ToolServerConfig, namespace string) (string, api.ComponentConfig, error) {
 	switch {
 	case config.Stdio != nil:
 		env := make(map[string]string)
@@ -164,12 +155,11 @@ func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1
 			}
 		}
 
-		return "kagent.tool_servers.StdioMcpToolServer", &api.ToolServerConfig{
-			StdioMcpServerConfig: &api.StdioMcpServerConfig{
-				Command: config.Stdio.Command,
-				Args:    config.Stdio.Args,
-				Env:     env,
-			},
+		return "kagent.tool_servers.StdioMcpToolServer", &api.StdioMcpServerConfig{
+			Command:            config.Stdio.Command,
+			Args:               config.Stdio.Args,
+			Env:                env,
+			ReadTimeoutSeconds: 30,
 		}, nil
 	case config.Sse != nil:
 		headers, err := convertMapFromAnytype(config.Sse.Headers)
@@ -193,37 +183,64 @@ func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1
 			}
 		}
 
-		timeout, err := convertDurationToSeconds(config.Sse.Timeout)
-		if err != nil {
-			return "", nil, err
+		var timeout *float64
+		if config.Sse.Timeout != nil {
+			timeout = ptr.To(config.Sse.Timeout.Duration.Seconds())
 		}
-		sseReadTimeout, err := convertDurationToSeconds(config.Sse.SseReadTimeout)
+
+		var sseReadTimeout *float64
+		if config.Sse.SseReadTimeout != nil {
+			sseReadTimeout = ptr.To(config.Sse.SseReadTimeout.Duration.Seconds())
+		}
+
+		return "kagent.tool_servers.SseMcpToolServer", &api.SseMcpServerConfig{
+			URL:            config.Sse.URL,
+			Headers:        headers,
+			Timeout:        timeout,
+			SseReadTimeout: sseReadTimeout,
+		}, nil
+	case config.StreamableHttp != nil:
+
+		headers, err := convertMapFromAnytype(config.StreamableHttp.Headers)
 		if err != nil {
 			return "", nil, err
 		}
 
-		return "kagent.tool_servers.SseMcpToolServer", &api.ToolServerConfig{
-			SseMcpServerConfig: &api.SseMcpServerConfig{
-				URL:            config.Sse.URL,
-				Headers:        headers,
-				Timeout:        timeout,
-				SseReadTimeout: sseReadTimeout,
-			},
+		if len(config.StreamableHttp.HeadersFrom) > 0 {
+			for _, header := range config.StreamableHttp.HeadersFrom {
+				if header.ValueFrom != nil {
+					value, err := a.resolveValueSource(ctx, header.ValueFrom, namespace)
+
+					if err != nil {
+						return "", nil, fmt.Errorf("failed to resolve header %s: %v", header.Name, err)
+					}
+
+					headers[header.Name] = value
+				} else if header.Value != "" {
+					headers[header.Name] = header.Value
+				}
+			}
+		}
+
+		var timeout *float64
+		if config.StreamableHttp.Timeout != nil {
+			timeout = ptr.To(config.StreamableHttp.Timeout.Duration.Seconds())
+		}
+		var sseReadTimeout *float64
+		if config.StreamableHttp.SseReadTimeout != nil {
+			sseReadTimeout = ptr.To(config.StreamableHttp.SseReadTimeout.Duration.Seconds())
+		}
+
+		return "kagent.tool_servers.StreamableHttpMcpToolServer", &api.StreamableHttpServerConfig{
+			URL:              config.StreamableHttp.URL,
+			Headers:          headers,
+			Timeout:          timeout,
+			SseReadTimeout:   sseReadTimeout,
+			TerminateOnClose: config.StreamableHttp.TerminateOnClose,
 		}, nil
 	}
 
 	return "", nil, fmt.Errorf("unsupported tool server config")
-}
-
-func convertDurationToSeconds(timeout string) (int, error) {
-	if timeout == "" {
-		return 0, nil
-	}
-	d, err := time.ParseDuration(timeout)
-	if err != nil {
-		return 0, err
-	}
-	return int(d.Seconds()), nil
 }
 
 func NewAutogenApiTranslator(
@@ -243,6 +260,7 @@ func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v
 	}
 	opts := defaultTeamOptions()
 	opts.stream = stream
+
 	return a.translateGroupChatForAgent(ctx, agent, opts, &tState{})
 }
 
@@ -290,11 +308,11 @@ func (a *apiTranslator) translateGroupChatForAgent(
 	opts *teamOptions,
 	state *tState,
 ) (*autogen_client.Team, error) {
-
-	simpleTeam, err := a.simpleRoundRobinTeam(ctx, agent, agent.Name)
+	simpleTeam, err := a.simpleRoundRobinTeam(ctx, agent)
 	if err != nil {
 		return nil, err
 	}
+
 	return a.translateGroupChatForTeam(ctx, simpleTeam, opts, state)
 }
 
@@ -310,31 +328,22 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	magenticOneTeamConfig := team.Spec.MagenticOneTeamConfig
 	swarmTeamConfig := team.Spec.SwarmTeamConfig
 
-	modelConfigRef := a.defaultModelConfig
-	if team.Spec.ModelConfig != "" {
-		modelConfigRef = types.NamespacedName{
-			Name:      team.Spec.ModelConfig,
-			Namespace: team.Namespace,
-		}
-	}
-	modelConfig := &v1alpha1.ModelConfig{}
-	err := fetchObjKube(
+	modelConfigObj, err := common.GetModelConfig(
 		ctx,
 		a.kube,
-		modelConfig,
-		modelConfigRef.Name,
-		modelConfigRef.Namespace,
+		team,
+		a.defaultModelConfig,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	modelClientWithStreaming, err := a.createModelClientForProvider(ctx, modelConfig, true)
+	modelClientWithStreaming, err := a.createModelClientForProvider(ctx, modelConfigObj, true)
 	if err != nil {
 		return nil, err
 	}
 
-	modelClientWithoutStreaming, err := a.createModelClientForProvider(ctx, modelConfig, false)
+	modelClientWithoutStreaming, err := a.createModelClientForProvider(ctx, modelConfigObj, false)
 	if err != nil {
 		return nil, err
 	}
@@ -350,23 +359,22 @@ func (a *apiTranslator) translateGroupChatForTeam(
 
 	var participants []*api.Component
 
-	for _, agentName := range team.Spec.Participants {
-		agent := &v1alpha1.Agent{}
-		err := fetchObjKube(
+	for _, agentRef := range team.Spec.Participants {
+		agentObj := &v1alpha1.Agent{}
+		if err := common.GetObject(
 			ctx,
 			a.kube,
-			agent,
-			agentName,
+			agentObj,
+			agentRef,
 			team.Namespace,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 
 		participant, err := a.translateAssistantAgent(
 			ctx,
-			agent,
-			modelConfig,
+			agentObj,
+			modelConfigObj,
 			modelClientWithStreaming,
 			modelClientWithoutStreaming,
 			modelContext,
@@ -451,7 +459,7 @@ func (a *apiTranslator) translateGroupChatForTeam(
 		return nil, fmt.Errorf("no team config specified")
 	}
 
-	teamConfig.Label = team.Name
+	teamConfig.Label = common.GetObjectRef(team)
 
 	return &autogen_client.Team{
 		Component: teamConfig,
@@ -461,23 +469,24 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	}, nil
 }
 
-func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha1.Agent, name string) (*v1alpha1.Team, error) {
-
-	modelConfig := a.defaultModelConfig
-	// Use the provided model config if set, otherwise use the default one
-	if agent.Spec.ModelConfig != "" {
-		modelConfig = types.NamespacedName{
-			Name:      agent.Spec.ModelConfig,
-			Namespace: agent.Namespace,
-		}
-	}
-	if err := a.kube.Get(ctx, modelConfig, &v1alpha1.ModelConfig{}); err != nil {
+func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha1.Agent) (*v1alpha1.Team, error) {
+	modelConfigObj, err := common.GetModelConfig(
+		ctx,
+		a.kube,
+		agent,
+		a.defaultModelConfig,
+	)
+	if err != nil {
 		return nil, err
 	}
+	modelConfigRef := common.GetObjectRef(modelConfigObj)
+
 	// generate an internal round robin "team" for the society of mind agent
 	meta := agent.ObjectMeta.DeepCopy()
-	// This is important so we don't output this message in the CLI/UI
-	meta.Name = name
+	meta.Name = agent.GetName()
+	meta.Namespace = agent.GetNamespace()
+	agentRef := common.GetObjectRef(agent)
+
 	team := &v1alpha1.Team{
 		ObjectMeta: *meta,
 		TypeMeta: metav1.TypeMeta{
@@ -485,17 +494,18 @@ func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha
 			APIVersion: "kagent.dev/v1alpha1",
 		},
 		Spec: v1alpha1.TeamSpec{
-			Participants:         []string{agent.Name},
+			Participants:         []string{agentRef},
 			Description:          agent.Spec.Description,
-			ModelConfig:          agent.Spec.ModelConfig,
+			ModelConfig:          modelConfigRef,
 			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
 			TerminationCondition: v1alpha1.TerminationCondition{
-				TextMessageTermination: &v1alpha1.TextMessageTermination{
-					Source: convertToPythonIdentifier(agent.Name),
+				FinalTextMessageTermination: &v1alpha1.FinalTextMessageTermination{
+					Source: common.ConvertToPythonIdentifier(agentRef),
 				},
 			},
 		},
 	}
+
 	return team, nil
 }
 
@@ -512,18 +522,8 @@ func (a *apiTranslator) translateAssistantAgent(
 
 	tools := []*api.Component{}
 	for _, tool := range agent.Spec.Tools {
+		// Skip tools that are not applicable to the model provider
 		switch {
-		case tool.Builtin != nil:
-			autogenTool, err := a.translateBuiltinTool(
-				ctx,
-				modelClientWithoutStreaming,
-				modelConfig,
-				tool.Builtin,
-			)
-			if err != nil {
-				return nil, err
-			}
-			tools = append(tools, autogenTool)
 		case tool.McpServer != nil:
 			for _, toolName := range tool.McpServer.ToolNames {
 				autogenTool, err := translateToolServerTool(
@@ -539,33 +539,41 @@ func (a *apiTranslator) translateAssistantAgent(
 				tools = append(tools, autogenTool)
 			}
 		case tool.Agent != nil:
-			if tool.Agent.Ref == agent.Name {
-				return nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agent.Name)
+			toolNamespacedName, err := common.ParseRefString(tool.Agent.Ref, agent.Namespace)
+			if err != nil {
+				return nil, err
 			}
 
-			if state.isVisited(tool.Agent.Ref) {
-				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agent.Name, tool.Agent.Ref)
+			toolRef := toolNamespacedName.String()
+			agentRef := common.GetObjectRef(agent)
+
+			if toolRef == agentRef {
+				return nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+			}
+
+			if state.isVisited(toolRef) {
+				return nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentRef, toolRef)
 			}
 
 			if state.depth > MAX_DEPTH {
-				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agent.Name, tool.Agent.Ref)
+				return nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentRef, toolRef)
 			}
 
 			// Translate a nested tool
-			toolAgent := v1alpha1.Agent{}
+			toolAgent := &v1alpha1.Agent{}
 
-			err := fetchObjKube(
+			err = common.GetObject(
 				ctx,
 				a.kube,
-				&toolAgent,
-				tool.Agent.Ref,
-				agent.Namespace,
+				toolAgent,
+				toolRef,
+				agent.Namespace, // redundant
 			)
 			if err != nil {
 				return nil, err
 			}
 
-			team, err := a.simpleRoundRobinTeam(ctx, &toolAgent, toolAgent.Name)
+			team, err := a.simpleRoundRobinTeam(ctx, toolAgent)
 			if err != nil {
 				return nil, err
 			}
@@ -574,12 +582,13 @@ func (a *apiTranslator) translateAssistantAgent(
 				return nil, err
 			}
 
+			toolAgentRef := common.GetObjectRef(toolAgent)
 			tool := &api.Component{
 				Provider:      "autogen_agentchat.tools.TeamTool",
 				ComponentType: "tool",
 				Version:       1,
 				Config: api.MustToConfig(&api.TeamToolConfig{
-					Name:        toolAgent.Name,
+					Name:        common.ConvertToPythonIdentifier(toolAgentRef),
 					Description: toolAgent.Spec.Description,
 					Team:        autogenTool.Component,
 				}),
@@ -594,8 +603,10 @@ func (a *apiTranslator) translateAssistantAgent(
 
 	sysMsg := agent.Spec.SystemMessage
 
+	agentRef := common.GetObjectRef(agent)
+
 	cfg := &api.AssistantAgentConfig{
-		Name:         convertToPythonIdentifier(agent.Name),
+		Name:         common.ConvertToPythonIdentifier(agentRef),
 		Tools:        tools,
 		ModelContext: modelContext,
 		Description:  agent.Spec.Description,
@@ -614,8 +625,8 @@ func (a *apiTranslator) translateAssistantAgent(
 	}
 
 	if agent.Spec.Memory != nil {
-		for _, memoryName := range agent.Spec.Memory {
-			autogenMemory, err := a.translateMemory(ctx, memoryName, agent.Namespace)
+		for _, memoryRef := range agent.Spec.Memory {
+			autogenMemory, err := a.translateMemory(ctx, memoryRef, agent.Namespace)
 			if err != nil {
 				return nil, err
 			}
@@ -633,10 +644,9 @@ func (a *apiTranslator) translateAssistantAgent(
 	}, nil
 }
 
-func (a *apiTranslator) translateMemory(ctx context.Context, memoryName string, memoryNamespace string) (*api.Component, error) {
+func (a *apiTranslator) translateMemory(ctx context.Context, memoryRef string, defaultNamespace string) (*api.Component, error) {
 	memoryObj := &v1alpha1.Memory{}
-	err := fetchObjKube(ctx, a.kube, memoryObj, memoryName, memoryNamespace)
-	if err != nil {
+	if err := common.GetObject(ctx, a.kube, memoryObj, memoryRef, defaultNamespace); err != nil {
 		return nil, err
 	}
 
@@ -670,76 +680,33 @@ func (a *apiTranslator) translateMemory(ctx context.Context, memoryName string, 
 	return nil, fmt.Errorf("unsupported memory provider: %s", memoryObj.Spec.Provider)
 }
 
-func (a *apiTranslator) translateBuiltinTool(
-	ctx context.Context,
-	modelClient *api.Component,
-	modelConfig *v1alpha1.ModelConfig,
-	tool *v1alpha1.BuiltinTool,
-) (*api.Component, error) {
-
-	toolConfig, err := convertMapFromAnytype(tool.Config)
-	if err != nil {
-		return nil, err
-	}
-	// special case where we put the model client in the tool config
-	if toolNeedsModelClient(tool.Name) {
-		if err := addModelClientToConfig(modelClient, &toolConfig); err != nil {
-			return nil, fmt.Errorf("failed to add model client to tool config: %v", err)
-		}
-	}
-	if toolNeedsOpenaiApiKey(tool.Name) {
-		if (modelConfig.Spec.Provider != v1alpha1.OpenAI) && modelConfig.Spec.Provider != v1alpha1.AzureOpenAI {
-			return nil, fmt.Errorf("tool %s requires OpenAI API key, but model config is not OpenAI", tool.Name)
-		}
-		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get model config api key: %v", err)
-		}
-
-		if err := addOpenaiApiKeyToConfig(apiKey, &toolConfig); err != nil {
-			return nil, fmt.Errorf("failed to add openai api key to tool config: %v", err)
-		}
-	}
-
-	providerParts := strings.Split(tool.Name, ".")
-	toolLabel := providerParts[len(providerParts)-1]
-
-	return &api.Component{
-		Provider:      tool.Name,
-		ComponentType: "tool",
-		Version:       1,
-		Config:        toolConfig,
-		Label:         toolLabel,
-	}, nil
-}
-
 func translateToolServerTool(
 	ctx context.Context,
 	kube client.Client,
-	toolServerName string,
+	toolServerRef string,
 	toolName string,
-	agentNamespace string,
+	defaultNamespace string,
 ) (*api.Component, error) {
-	toolServer := &v1alpha1.ToolServer{}
-	err := fetchObjKube(
+	toolServerObj := &v1alpha1.ToolServer{}
+	err := common.GetObject(
 		ctx,
 		kube,
-		toolServer,
-		toolServerName,
-		agentNamespace,
+		toolServerObj,
+		toolServerRef,
+		defaultNamespace,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	// requires the tool to have been discovered
-	for _, discoveredTool := range toolServer.Status.DiscoveredTools {
+	for _, discoveredTool := range toolServerObj.Status.DiscoveredTools {
 		if discoveredTool.Name == toolName {
 			return convertComponent(discoveredTool.Component)
 		}
 	}
 
-	return nil, fmt.Errorf("tool %v not found in discovered tools in ToolServer %v", toolName, toolServer.Name)
+	return nil, fmt.Errorf("tool %v not found in discovered tools in ToolServer %v", toolName, toolServerObj.Namespace+"/"+toolServerObj.Name)
 }
 
 func convertComponent(component v1alpha1.Component) (*api.Component, error) {
@@ -799,8 +766,11 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 	if terminationCondition.TextMessageTermination != nil {
 		conditionsSet++
 	}
+	if terminationCondition.FinalTextMessageTermination != nil {
+		conditionsSet++
+	}
 	if conditionsSet != 1 {
-		return nil, fmt.Errorf("exactly one termination condition must be set")
+		return nil, fmt.Errorf("exactly one termination condition must be set, got %d", conditionsSet)
 	}
 
 	switch {
@@ -832,6 +802,16 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 			//ComponentVersion: 1,
 			Config: api.MustToConfig(&api.TextMessageTerminationConfig{
 				Source: terminationCondition.TextMessageTermination.Source,
+			}),
+		}, nil
+	case terminationCondition.FinalTextMessageTermination != nil:
+		return &api.Component{
+			Provider:      "kagent.conditions.FinalTextMessageTermination",
+			ComponentType: "termination",
+			Version:       1,
+			//ComponentVersion: 1,
+			Config: api.MustToConfig(&api.FinalTextMessageTerminationConfig{
+				Source: terminationCondition.FinalTextMessageTermination.Source,
 			}),
 		}, nil
 	case terminationCondition.OrTermination != nil:
@@ -869,37 +849,6 @@ func translateTerminationCondition(terminationCondition v1alpha1.TerminationCond
 	}
 
 	return nil, fmt.Errorf("unsupported termination condition")
-}
-
-func fetchObjKube(ctx context.Context, kube client.Client, obj client.Object, objName, objNamespace string) error {
-	ref := getRefFromString(objName, objNamespace)
-	err := kube.Get(ctx, ref, obj)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func convertToPythonIdentifier(name string) string {
-	return strings.ReplaceAll(name, "-", "_")
-}
-
-func toolNeedsModelClient(provider string) bool {
-	for _, p := range toolsProvidersRequiringModelClient {
-		if p == provider {
-			return true
-		}
-	}
-	return false
-}
-
-func toolNeedsOpenaiApiKey(provider string) bool {
-	for _, p := range toolsProvidersRequiringOpenaiApiKey {
-		if p == provider {
-			return true
-		}
-	}
-	return false
 }
 
 func addModelClientToConfig(
@@ -1278,34 +1227,37 @@ func translateModelInfo(modelInfo *v1alpha1.ModelInfo) *api.ModelInfo {
 	}
 }
 
-func (a *apiTranslator) getMemoryApiKey(ctx context.Context, memory *v1alpha1.Memory) ([]byte, error) {
-	memoryApiKeySecret := &v1.Secret{}
-	err := fetchObjKube(
+func (a *apiTranslator) getSecretKey(ctx context.Context, secretRef string, secretKey string, namespace string) ([]byte, error) {
+	secret := &corev1.Secret{}
+	if err := common.GetObject(
 		ctx,
 		a.kube,
-		memoryApiKeySecret,
-		memory.Spec.APIKeySecretRef,
-		memory.Namespace,
-	)
-	if err != nil {
-		return nil, err
+		secret,
+		secretRef,
+		namespace,
+	); err != nil {
+		return nil, fmt.Errorf("failed to fetch secret %s/%s: %w", namespace, secretRef, err)
 	}
 
-	if memoryApiKeySecret.Data == nil {
-		return nil, fmt.Errorf("memory api key secret data not found")
+	if secret.Data == nil {
+		return nil, fmt.Errorf("secret data not found in %s/%s", namespace, secretRef)
 	}
 
-	memoryApiKey, ok := memoryApiKeySecret.Data[memory.Spec.APIKeySecretKey]
+	value, ok := secret.Data[secretKey]
 	if !ok {
-		return nil, fmt.Errorf("memory api key not found")
+		return nil, fmt.Errorf("key %s not found in secret %s/%s", secretKey, namespace, secretRef)
 	}
 
-	return memoryApiKey, nil
+	return value, nil
+}
+
+func (a *apiTranslator) getMemoryApiKey(ctx context.Context, memory *v1alpha1.Memory) ([]byte, error) {
+	return a.getSecretKey(ctx, memory.Spec.APIKeySecretRef, memory.Spec.APIKeySecretKey, memory.Namespace)
 }
 
 func (a *apiTranslator) getModelConfigGoogleApplicationCredentials(ctx context.Context, modelConfig *v1alpha1.ModelConfig) (map[string]interface{}, error) {
-	googleApplicationCredentialsSecret := &v1.Secret{}
-	err := fetchObjKube(
+	googleApplicationCredentialsSecret := &corev1.Secret{}
+	err := common.GetObject(
 		ctx,
 		a.kube,
 		googleApplicationCredentialsSecret,
@@ -1335,50 +1287,5 @@ func (a *apiTranslator) getModelConfigGoogleApplicationCredentials(ctx context.C
 }
 
 func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v1alpha1.ModelConfig) ([]byte, error) {
-	// Only retrieve the secret if APIKeySecretRef is provided
-	if modelConfig.Spec.APIKeySecretRef == "" {
-		return []byte(""), nil
-	}
-
-	modelApiKeySecret := &v1.Secret{}
-	err := fetchObjKube(
-		ctx,
-		a.kube,
-		modelApiKeySecret,
-		modelConfig.Spec.APIKeySecretRef,
-		modelConfig.Namespace,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch API key secret %s/%s: %w", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef, err)
-	}
-
-	if modelApiKeySecret.Data == nil {
-		return nil, fmt.Errorf("API key secret %s/%s data not found", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef)
-	}
-
-	modelApiKey, ok := modelApiKeySecret.Data[modelConfig.Spec.APIKeySecretKey]
-	if !ok {
-		return nil, fmt.Errorf("API key not found in secret %s/%s with key %s", modelConfig.Namespace, modelConfig.Spec.APIKeySecretRef, modelConfig.Spec.APIKeySecretKey)
-	}
-	return modelApiKey, nil
-}
-
-func getRefFromString(ref string, parentNamespace string) types.NamespacedName {
-	parts := strings.Split(ref, "/")
-	var (
-		namespace string
-		name      string
-	)
-	if len(parts) == 2 {
-		namespace = parts[0]
-		name = parts[1]
-	} else {
-		namespace = parentNamespace
-		name = ref
-	}
-
-	return types.NamespacedName{
-		Namespace: namespace,
-		Name:      name,
-	}
+	return a.getSecretKey(ctx, modelConfig.Spec.APIKeySecretRef, modelConfig.Spec.APIKeySecretKey, modelConfig.Namespace)
 }

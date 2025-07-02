@@ -5,25 +5,25 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
 )
 
 type A2AHandlerParams struct {
-	AgentCard  server.AgentCard
-	HandleTask TaskHandler
+	AgentCard   server.AgentCard
+	TaskHandler MessageHandler
 }
 
 // A2AHandlerMux is an interface that defines methods for adding, getting, and removing agentic task handlers.
 type A2AHandlerMux interface {
 	SetAgentHandler(
-		agentNamespace string,
-		agentName string,
+		agentRef string,
 		params *A2AHandlerParams,
 	) error
 	RemoveAgentHandler(
-		agentNamespace string,
-		agentName string,
+		agentRef string,
 	)
 	http.Handler
 }
@@ -44,11 +44,10 @@ func NewA2AHttpMux(pathPrefix string) *handlerMux {
 }
 
 func (a *handlerMux) SetAgentHandler(
-	agentNamespace string,
-	agentName string,
+	agentRef string,
 	params *A2AHandlerParams,
 ) error {
-	processor := newA2ATaskProcessor(params.HandleTask)
+	processor := newA2AMessageProcessor(params.TaskHandler)
 
 	// Create task manager and inject processor.
 	taskManager, err := taskmanager.NewMemoryTaskManager(processor)
@@ -63,18 +62,17 @@ func (a *handlerMux) SetAgentHandler(
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
-	a.handlers[makeHandlerName(agentNamespace, agentName)] = srv.Handler()
+	a.handlers[agentRef] = srv.Handler()
 
 	return nil
 }
 
 func (a *handlerMux) RemoveAgentHandler(
-	agentNamespace string,
-	agentName string,
+	agentRef string,
 ) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	delete(a.handlers, makeHandlerName(agentNamespace, agentName))
+	delete(a.handlers, agentRef)
 }
 
 func (a *handlerMux) getHandler(name string) (http.Handler, bool) {
@@ -99,7 +97,7 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handlerName := makeHandlerName(agentNamespace, agentName)
+	handlerName := common.ResourceRefString(agentNamespace, agentName)
 
 	// get the underlying handler
 	handlerHandler, ok := a.getHandler(handlerName)
@@ -112,14 +110,7 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// update the request URL to the remaining path
-	r.URL.Path = "/" + remainingPath
-
 	handlerHandler.ServeHTTP(w, r)
-}
-
-func makeHandlerName(agentNamespace string, agentName string) string {
-	return fmt.Sprintf("%s/%s", agentNamespace, agentName)
 }
 
 // popPath separates the first element of a path from the rest.

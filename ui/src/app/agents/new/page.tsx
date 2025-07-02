@@ -19,9 +19,11 @@ import { AgentFormData } from "@/components/AgentsProvider";
 import { Tool } from "@/types/datamodel";
 import { toast } from "sonner";
 import { listMemories } from "@/app/actions/memories";
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   description?: string;
   systemPrompt?: string;
   model?: string;
@@ -55,12 +57,13 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 
   // Basic form state
   const [name, setName] = useState("");
+  const [namespace, setNamespace] = useState("");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState(isEditMode ? "" : DEFAULT_SYSTEM_PROMPT);
 
   // Default to the first model
-  type SelectedModelType = Pick<ModelConfig, 'name' | 'model'>;
-  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { name: models[0].name, model: models[0].model } : null);
+  type SelectedModelType = Pick<ModelConfig, 'ref' | 'model'>;
+  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { ref: models[0].ref, model: models[0].model } : null);
 
   // Tools state - now using AgentTool interface correctly
   const [selectedTools, setSelectedTools] = useState<Tool[]>([]);
@@ -98,17 +101,18 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
             try {
               // Populate form with existing agent data
               setName(agent.metadata.name || "");
+              setNamespace(agent.metadata.namespace || "");
               setDescription(agent.spec.description || "");
               setSystemPrompt(agent.spec.systemMessage || "");
-              setSelectedTools(agent.spec.tools || []);
+              setSelectedTools(agentResponse.tools || []);
               setSelectedModel({
                 model: agentResponse.model,
-                name: agent.spec.modelConfig,
+                ref: agentResponse.modelConfigRef,
               });
-              
+
               // Set selected memories if they exist
-              if (agent.spec.memory && Array.isArray(agent.spec.memory)) {
-                setSelectedMemories(agent.spec.memory);
+              if (agentResponse.memoryRefs && Array.isArray(agentResponse.memoryRefs)) {
+                setSelectedMemories(agentResponse.memoryRefs);
               }
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
@@ -145,6 +149,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   const validateForm = () => {
     const formData = {
       name,
+      namespace,
       description,
       systemPrompt,
       model: selectedModel || undefined,
@@ -164,6 +169,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
     // Set only the field being validated
     switch (fieldName) {
       case 'name': formData.name = value; break;
+      case 'namespace': formData.namespace = value; break;
       case 'description': formData.description = value; break;
       case 'systemPrompt': formData.systemPrompt = value; break;
       case 'model': formData.model = value; break;
@@ -193,6 +199,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 
       const agentData = {
         name,
+        namespace,
         systemPrompt,
         description,
         model: selectedModel,
@@ -260,7 +267,22 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 </div>
 
                 <div>
-                  <label className="text-base mb-2 block font-bold">Description</label>
+                  <label className="text-base mb-2 block font-bold">Agent Namespace</label>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    This is the namespace of the agent that will be displayed in the UI and used to identify the agent.
+                  </p>
+                  <NamespaceCombobox
+                    value={namespace}
+                    onValueChange={(value) => {
+                      setNamespace(value);
+                      validateField('namespace', value);
+                    }}
+                    disabled={isSubmitting || isLoading || isEditMode}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm mb-2 block">Description</label>
                   <p className="text-xs mb-2 block text-muted-foreground">
                     This is a description of the agent. It's for your reference only and it's not going to be used by the agent.
                   </p>
@@ -287,7 +309,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   allModels={models} 
                   selectedModel={selectedModel} 
                   setSelectedModel={(model) => {
-                    setSelectedModel(model as Pick<ModelConfig, 'name' | 'model'>);
+                    setSelectedModel(model as Pick<ModelConfig, 'ref' | 'model'>);
                     validateField('model', model);
                   }} 
                   error={errors.model} 
@@ -329,6 +351,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   setSelectedTools={setSelectedTools} 
                   isSubmitting={isSubmitting || isLoading} 
                   onBlur={() => validateField('tools', selectedTools)}
+                  currentAgentName={name}
                 />
               </CardContent>
             </Card>

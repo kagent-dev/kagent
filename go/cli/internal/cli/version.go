@@ -1,30 +1,31 @@
 package cli
 
 import (
-	"fmt"
+	"context"
+	"encoding/json"
+	"github.com/kagent-dev/kagent/go/internal/version"
 	"os"
+	"time"
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 )
 
-var (
-	// These variables should be set during build time using -ldflags
-	Version   = "dev"
-	GitCommit = "none"
-	BuildDate = "unknown"
-)
-
 func VersionCmd(cfg *config.Config) {
-	fmt.Fprintf(os.Stdout, "kagent version %s\n", Version)
-	fmt.Fprintf(os.Stdout, "git commit: %s\n", GitCommit)
-	fmt.Fprintf(os.Stdout, "build date: %s\n", BuildDate)
-
-	client := autogen_client.New(cfg.APIURL)
-	version, err := client.GetVersion()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: Could not fetch backend version")
-	} else {
-		fmt.Fprintf(os.Stdout, "backend version: %s\n", version)
+	versionInfo := map[string]string{
+		"kagent_version": version.Version,
+		"git_commit":     version.GitCommit,
+		"build_date":     version.BuildDate,
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	client := autogen_client.New(cfg.APIURL)
+	version, err := client.GetVersion(ctx)
+	if err != nil {
+		versionInfo["backend_version"] = "unknown"
+	} else {
+		versionInfo["backend_version"] = version
+	}
+
+	json.NewEncoder(os.Stdout).Encode(versionInfo)
 }

@@ -111,27 +111,22 @@ spec:
     Always follow this recommended approach unless the user specifies otherwise.
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
-    - type: Builtin
-      builtin:
-        name: kagent.tools.argo.VerifyArgoRolloutsControllerInstall
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResources
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.GetResourceYAML
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.CreateResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.DeleteResource
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.ApplyManifest
-    - type: Builtin
-      builtin:
-        name: kagent.tools.k8s.DescribeResource
+  - type: McpServer
+    mcpServer:
+      toolServer: kagent-querydoc
+      toolNames:
+        - query-documentation
+  - type: McpServer
+    mcpServer:
+      toolServer: kagent-tool-server
+      toolNames:
+      - argo_verify_argo_rollouts_controller_install
+      - k8s_get_resources
+      - k8s_get_resource_yaml
+      - k8s_create_resource
+      - k8s_delete_resource
+      - k8s_apply_manifest
+      - k8s_describe_resource
   a2aConfig:
     skills:
       - id: convert-deployment-to-rollout

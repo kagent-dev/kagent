@@ -1,0 +1,12 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: {{ include "kagent.fullname" . }}-tool-server
+  namespace: {{ include "kagent.namespace" . }}
+spec:
+  config:
+    sse:
+      sseReadTimeout: 5m0s
+      timeout: 30s
+      url: http://localhost:8084/sse
+  description: "Built In Tool Server"

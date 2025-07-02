@@ -13,14 +13,14 @@ description = "kagent is a tool for building and deploying agent-based applicati
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "autogen-core>=0.5.7",
-  "autogen-agentchat>=0.5.7",
-  "autogen-ext[anthropic,azure,mcp,ollama,openai]>=0.5.7",
+  "autogen-core @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-core",
+  "autogen-agentchat @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-agentchat",
+  "autogen-ext[anthropic,azure,mcp,ollama,openai] @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-ext",
   "openai>=1.72.0",
   "tiktoken==0.8.0",
   "python-dotenv>=1.1.0",
   "pyyaml>=6.0.2",
-  "mcp>=1.2.0",
+  "mcp>=1.8.1",
   "sqlite-vec>=0.1.7a2",
   "typer>=0.15.2",
   "numpy>=2.2.4",
@@ -36,7 +36,7 @@ dependencies = [
   "sqlmodel>=0.0.24",
   "alembic>=1.11.0",
   "fastapi>=0.103.1",
-  "playwright>=1.48.0",
+  "playwright>=1.52.0",
   "html2text>=2025.4.15",
   "bs4>=0.0.2",
   "magika>=0.6.2",
@@ -44,6 +44,8 @@ dependencies = [
   "websockets>=11.0",
   "google-genai>=1.18.0",
   "google-auth>=2.40.2",
+  "h11>=0.16.0",
+  "protobuf >= 5.29.5",
 ]
 
 [project.optional-dependencies]
@@ -84,6 +86,9 @@ ignore = ["F401", "E501", "B008", "ASYNC109"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kagent", "src/autogenstudio"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

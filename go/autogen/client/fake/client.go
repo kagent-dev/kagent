@@ -1,6 +1,8 @@
 package fake
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -66,7 +68,6 @@ func (m *InMemoryAutogenClient) CreateSession(req *autogen_client.CreateSession)
 		ID:     m.nextSessionID,
 		Name:   req.Name,
 		UserID: req.UserID,
-		TeamID: req.TeamID,
 	}
 
 	m.sessions[session.ID] = session
@@ -109,14 +110,11 @@ func (m *InMemoryAutogenClient) GetTeamByID(teamID int, userID string) (*autogen
 }
 
 func (m *InMemoryAutogenClient) InvokeTask(req *autogen_client.InvokeTaskRequest) (*autogen_client.InvokeTaskResult, error) {
-	// For in-memory implementation, return a basic result
+	// For in-memory implementation, return a basic result with properly formatted TextMessage
 	return &autogen_client.InvokeTaskResult{
 		TaskResult: autogen_client.TaskResult{
-			Messages: []autogen_client.TaskMessageMap{
-				{
-					"role":    "assistant",
-					"content": fmt.Sprintf("Task completed: %s", req.Task),
-				},
+			Messages: []json.RawMessage{
+				json.RawMessage(fmt.Sprintf(`{"type": "TextMessage", "content": "Task completed: %s", "source": "assistant"}`, req.Task)),
 			},
 		},
 	}, nil
@@ -133,7 +131,7 @@ func (m *InMemoryAutogenClient) GetSession(sessionLabel string, userID string) (
 	return session, nil
 }
 
-func (m *InMemoryAutogenClient) InvokeSession(sessionID int, userID string, task string) (*autogen_client.TeamResult, error) {
+func (m *InMemoryAutogenClient) InvokeSession(sessionID int, userID string, request *autogen_client.InvokeRequest) (*autogen_client.TeamResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -144,11 +142,8 @@ func (m *InMemoryAutogenClient) InvokeSession(sessionID int, userID string, task
 
 	return &autogen_client.TeamResult{
 		TaskResult: autogen_client.TaskResult{
-			Messages: []autogen_client.TaskMessageMap{
-				{
-					"role":    "assistant",
-					"content": fmt.Sprintf("Session task completed: %s", task),
-				},
+			Messages: []json.RawMessage{
+				json.RawMessage(fmt.Sprintf(`{"type": "TextMessage", "content": "Session task completed: %s", "source": "assistant"}`, request.Task)),
 			},
 		},
 	}, nil
@@ -352,11 +347,11 @@ func (m *InMemoryAutogenClient) GetToolServerByLabel(toolServerLabel string, use
 	return toolServer, nil
 }
 
-func (m *InMemoryAutogenClient) GetVersion() (string, error) {
+func (m *InMemoryAutogenClient) GetVersion(_ context.Context) (string, error) {
 	return "1.0.0-inmemory", nil
 }
 
-func (m *InMemoryAutogenClient) InvokeSessionStream(sessionID int, userID string, task string) (<-chan *autogen_client.SseEvent, error) {
+func (m *InMemoryAutogenClient) InvokeSessionStream(sessionID int, userID string, request *autogen_client.InvokeRequest) (<-chan *autogen_client.SseEvent, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -370,7 +365,7 @@ func (m *InMemoryAutogenClient) InvokeSessionStream(sessionID int, userID string
 		defer close(ch)
 		ch <- &autogen_client.SseEvent{
 			Event: "message",
-			Data:  []byte(fmt.Sprintf("Session stream task completed: %s", task)),
+			Data:  []byte(fmt.Sprintf(`{"type": "TextMessage", "content": "Session stream task completed: %s", "source": "assistant"}`, request.Task)),
 		}
 	}()
 
@@ -383,7 +378,7 @@ func (m *InMemoryAutogenClient) InvokeTaskStream(req *autogen_client.InvokeTaskR
 		defer close(ch)
 		ch <- &autogen_client.SseEvent{
 			Event: "message",
-			Data:  []byte(fmt.Sprintf("Task stream completed: %s", req.Task)),
+			Data:  []byte(fmt.Sprintf(`{"type": "TextMessage", "content": "Task stream completed: %s", "source": "assistant"}`, req.Task)),
 		}
 	}()
 

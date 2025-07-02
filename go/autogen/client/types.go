@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -70,6 +71,13 @@ func (m *ModelsUsage) String() string {
 	return fmt.Sprintf("Prompt Tokens: %d, Completion Tokens: %d", m.PromptTokens, m.CompletionTokens)
 }
 
+func (m *ModelsUsage) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"prompt_tokens":     m.PromptTokens,
+		"completion_tokens": m.CompletionTokens,
+	}
+}
+
 type TaskMessageMap map[string]interface{}
 
 type RunMessage struct {
@@ -121,8 +129,10 @@ type TeamResult struct {
 }
 
 type TaskResult struct {
-	Messages   []TaskMessageMap `json:"messages"`
-	StopReason string           `json:"stop_reason"`
+	// These are all of type Event, but we don't want to unmarshal them here
+	// because we want to handle them in the caller
+	Messages   []json.RawMessage `json:"messages"`
+	StopReason string            `json:"stop_reason"`
 }
 
 // APIResponse is the common response wrapper for all API responses
@@ -136,16 +146,16 @@ type Session struct {
 	ID        int    `json:"id"`
 	UserID    string `json:"user_id"`
 	Version   string `json:"version"`
-	TeamID    int    `json:"team_id"`
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	TeamID    *int   `json:"team_id"`
 }
 
 type CreateSession struct {
 	UserID string `json:"user_id"`
-	TeamID int    `json:"team_id"`
 	Name   string `json:"name"`
+	TeamID *int   `json:"team_id"`
 }
 
 // ProviderModels maps provider names to a list of their supported model names.
@@ -162,13 +172,19 @@ type SseEvent struct {
 	Data  []byte `json:"data"`
 }
 
+// InvokeRequest represents the request payload for session invocation
+type InvokeRequest struct {
+	Task       string         `json:"task"`
+	TeamConfig *api.Component `json:"team_config"`
+}
+
 var (
 	NotFoundError = errors.New("not found")
 )
 
 func streamSseResponse(r io.ReadCloser) chan *SseEvent {
 	scanner := bufio.NewScanner(r)
-	ch := make(chan *SseEvent)
+	ch := make(chan *SseEvent, 10)
 	go func() {
 		defer close(ch)
 		defer r.Close()

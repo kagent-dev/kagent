@@ -1,105 +1,109 @@
 package e2e_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/kagent-dev/kagent/go/controller/utils/a2autils"
 	"github.com/stretchr/testify/require"
+	"trpc.group/trpc-go/trpc-a2a-go/client"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 func TestInvokeAPI(t *testing.T) {
 	t.Run("when sent to the server", func(t *testing.T) {
-		var apiURL string
+		var a2aBaseURL string
 
 		// Setup
-		apiURL = os.Getenv("KAGENT_API_URL")
-		if apiURL == "" {
-			apiURL = "http://localhost:8001"
+		a2aBaseURL = os.Getenv("KAGENT_A2A_URL")
+		if a2aBaseURL == "" {
+			a2aBaseURL = "http://localhost:8083/api/a2a"
 		}
 
-		t.Run("should successfully handle a synchronous invocation", func(t *testing.T) {
-			payload := map[string]interface{}{
-				"message": "Test message from integration test",
-				"user_id": "integration-test-user",
-			}
-			payloadBytes, err := json.Marshal(payload)
-			require.NoError(t, err)
+		// A2A URL format: <base_url>/<namespace>/<agent_name>
+		agentNamespace := "kagent"
 
-			client := http.Client{
-				Timeout: time.Second * 30,
-			}
+		agentName := "k8s-agent"
+		a2aURL := a2aBaseURL + "/" + agentNamespace + "/" + agentName
 
-			req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/agents/1/invoke", apiURL), bytes.NewBuffer(payloadBytes))
-			require.NoError(t, err)
-			req.Header.Set("Content-Type", "application/json")
+		a2aClient, err := client.NewA2AClient(a2aURL)
+		require.NoError(t, err)
 
+		t.Run("should successfully handle a synchronous agent invocation", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			req = req.WithContext(ctx)
 
-			resp, err := client.Do(req)
-			if err != nil {
-				t.Skipf("Server not available: %s", err.Error())
-				return
-			}
-			defer resp.Body.Close()
-
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-			var responseData map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&responseData)
+			msg, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
+				Message: protocol.Message{
+					Role:  protocol.MessageRoleUser,
+					Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
+				},
+			})
 			require.NoError(t, err)
 
-			assert.Contains(t, responseData, "sessionId")
-			assert.Contains(t, responseData, "response")
-			assert.Contains(t, responseData, "status")
-			assert.Equal(t, "completed", responseData["status"])
+			msgResult, ok := msg.Result.(*protocol.Message)
+			require.True(t, ok)
+			text := a2autils.ExtractText(*msgResult)
+			require.Contains(t, text, "kube-scheduler-kagent-control-plane")
 		})
 
-		t.Run("should successfully handle an asynchronous invocation", func(t *testing.T) {
-			payload := map[string]interface{}{
-				"message": "Test message from integration test",
-				"user_id": "integration-test-user",
-			}
-			payloadBytes, err := json.Marshal(payload)
-			require.NoError(t, err)
-
-			client := http.Client{
-				Timeout: time.Second * 30,
-			}
-
-			req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/agents/1/start", apiURL), bytes.NewBuffer(payloadBytes))
-			require.NoError(t, err)
-			req.Header.Set("Content-Type", "application/json")
-
+		t.Run("should successfully handle a streaming agent invocation", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			req = req.WithContext(ctx)
 
-			resp, err := client.Do(req)
-			if err != nil {
-				t.Skipf("Server not available: %s", err.Error())
-				return
-			}
-			defer resp.Body.Close()
-
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-			var responseData map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&responseData)
+			msg, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
+				Message: protocol.Message{
+					Role:  protocol.MessageRoleUser,
+					Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
+				},
+			})
 			require.NoError(t, err)
 
-			assert.Contains(t, responseData, "sessionId")
-			assert.Contains(t, responseData, "statusUrl")
-			assert.Contains(t, responseData, "status")
-			assert.Equal(t, "processing", responseData["status"])
+			var text string
+			for event := range msg {
+				msgResult, ok := event.Result.(*protocol.Message)
+				if !ok {
+					continue
+				}
+				text += a2autils.ExtractText(*msgResult)
+			}
+			require.Contains(t, text, "kube-scheduler-kagent-control-plane")
 		})
 	})
+}
+
+// waitForTaskCompletion polls the task until it's completed or times out
+func waitForTaskCompletion(ctx context.Context, a2aClient *client.A2AClient, taskID string, timeout time.Duration) (*protocol.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			task, err := a2aClient.GetTasks(ctx, protocol.TaskQueryParams{
+				ID: taskID,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			switch task.Status.State {
+			case protocol.TaskStateSubmitted,
+				protocol.TaskStateWorking:
+				continue // Keep polling
+			case protocol.TaskStateCompleted,
+				protocol.TaskStateFailed,
+				protocol.TaskStateCanceled:
+				return task, nil
+			}
+
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
