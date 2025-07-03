@@ -3,7 +3,6 @@
     "info": {
         "description": "This API powers the backend for the CLI, UI, and other services.",
         "title": "KAgent Controller API",
-        "termsOfService": "http://swagger.io/terms/",
         "contact": {},
         "version": "1.0"
     },
