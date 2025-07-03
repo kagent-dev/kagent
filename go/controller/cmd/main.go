@@ -19,7 +19,6 @@ limitations under the License.
 // @description     This API powers the backend for the CLI, UI, and other services.
 // @termsOfService  http://swagger.io/terms/
 
-
 package main
 
 import (
