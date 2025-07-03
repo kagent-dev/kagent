@@ -202,7 +202,7 @@ func handlePrometheusTargetsQueryTool(ctx context.Context, request mcp.CallToolR
 	return mcp.NewToolResultText(string(prettyJSON)), nil
 }
 
-func RegisterPrometheusTools(s *server.MCPServer) {
+func RegisterPrometheusTools(s *server.MCPServer, kubeconfig string) {
 	s.AddTool(mcp.NewTool("prometheus_query_tool",
 		mcp.WithDescription("Execute a PromQL query against Prometheus"),
 		mcp.WithString("query", mcp.Description("PromQL query to execute"), mcp.Required()),

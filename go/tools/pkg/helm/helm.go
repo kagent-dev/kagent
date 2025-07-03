@@ -10,6 +10,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+var kubeConfig = "" // Global variable to hold kubeconfig path
+
 // Helm list releases
 func handleHelmListReleases(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	namespace := mcp.ParseString(request, "namespace", "")
@@ -65,12 +67,19 @@ func handleHelmListReleases(ctx context.Context, request mcp.CallToolRequest) (*
 		args = append(args, "-o", output)
 	}
 
-	result, err := utils.RunCommandWithContext(ctx, "helm", args)
+	result, err := runHelmCommand(ctx, args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Helm list command failed: %v", err)), nil
 	}
 
 	return mcp.NewToolResultText(result), nil
+}
+
+func runHelmCommand(ctx context.Context, args []string) (string, error) {
+	if kubeConfig != "" {
+		args = append(args, "--kubeconfig", kubeConfig)
+	}
+	return utils.RunCommandWithContext(ctx, "helm", args)
 }
 
 // Helm get release
@@ -216,7 +225,9 @@ func handleHelmRepoUpdate(ctx context.Context, request mcp.CallToolRequest) (*mc
 }
 
 // Register Helm tools
-func RegisterHelmTools(s *server.MCPServer) {
+func RegisterHelmTools(s *server.MCPServer, kubeconfig string) {
+	kubeConfig = kubeconfig
+
 	s.AddTool(mcp.NewTool("helm_list_releases",
 		mcp.WithDescription("List Helm releases in a namespace"),
 		mcp.WithString("namespace", mcp.Description("The namespace to list releases from")),

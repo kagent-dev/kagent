@@ -195,7 +195,7 @@ func handleToggleClusterMesh(ctx context.Context, request mcp.CallToolRequest) (
 	return mcp.NewToolResultText(output), nil
 }
 
-func RegisterCiliumTools(s *server.MCPServer) {
+func RegisterCiliumTools(s *server.MCPServer, kubeconfig string) {
 	// Register debug tools
 	RegisterCiliumDbgTools(s)
 

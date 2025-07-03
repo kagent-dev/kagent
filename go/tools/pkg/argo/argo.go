@@ -343,7 +343,7 @@ func handleCheckPluginLogs(ctx context.Context, request mcp.CallToolRequest) (*m
 	return mcp.NewToolResultText(status.String()), nil
 }
 
-func RegisterArgoTools(s *server.MCPServer) {
+func RegisterArgoTools(s *server.MCPServer, kubeconfig string) {
 	s.AddTool(mcp.NewTool("argo_verify_argo_rollouts_controller_install",
 		mcp.WithDescription("Verify that the Argo Rollouts controller is installed and running"),
 		mcp.WithString("namespace", mcp.Description("The namespace where Argo Rollouts is installed")),
