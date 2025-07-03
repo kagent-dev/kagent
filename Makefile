@@ -36,7 +36,7 @@ LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 
 # Docker buildx configuration
 DOCKER_BUILDER ?= docker buildx
-DOCKER_BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --pull --load --platform linux/$(LOCALARCH)
+DOCKER_BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME)
 KIND_CLUSTER_NAME ?= kagent
 
 BUILDX_NO_DEFAULT_ATTESTATIONS=1
@@ -54,16 +54,15 @@ LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSIO
 #tools versions
 TOOLS_UV_VERSION ?= 0.7.2
 TOOLS_BUN_VERSION ?= 1.2.16
-TOOLS_K9S_VERSION ?= 0.50.4
-TOOLS_KIND_VERSION ?= 0.27.0
 TOOLS_NODE_VERSION ?= 22.16.0
-TOOLS_ISTIO_VERSION ?= 1.26.1
+TOOLS_ISTIO_VERSION ?= 1.26.2
 TOOLS_ARGO_CD_VERSION ?= 3.0.6
 TOOLS_ARGO_ROLLOUTS_VERSION ?= 1.8.3
 TOOLS_KUBECTL_VERSION ?= 1.33.2
 TOOLS_HELM_VERSION ?= 3.18.3
 TOOLS_PYTHON_VERSION ?= 3.12
 TOOLS_GRAFANA_MCP_VERSION ?= 0.5.0
+TOOLS_KIND_IMAGE_VERSION ?= 1.33.1
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
@@ -94,7 +93,6 @@ print-tools-versions:
 	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
 	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
 	@echo "Tools K9S    : $(TOOLS_K9S_VERSION)"
-	@echo "Tools Kind   : $(TOOLS_KIND_VERSION)"
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
@@ -126,7 +124,7 @@ build-all:
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
-	kind create cluster --name $(KIND_CLUSTER_NAME)
+	kind create cluster --name $(KIND_CLUSTER_NAME) --image kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) --config ./scripts/kind/kind-config.yaml
 
 .PHONY: use-kind-cluster
 use-kind-cluster:
@@ -159,6 +157,7 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
+build: DOCKER_BUILD_ARGS += --pull --load --platform linux/$(LOCALARCH)
 build: build-controller build-ui build-app build-tools
 
 .PHONY: build-cli
