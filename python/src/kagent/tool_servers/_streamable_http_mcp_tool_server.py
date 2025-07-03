@@ -20,7 +20,7 @@ class StreamableHttpMcpToolServer(ToolServer, Component[StreamableHttpMcpToolSer
 
     async def discover_tools(self) -> list[Component]:
         try:
-            logger.debug(f"Discovering tools from streamable http server: {self.config}")
+            logger.debug(f"Discovering tools from streamable http server: {self._sanitize_config(self.config)}")
             tools = await mcp_server_tools(self.config)
             return tools
         except Exception as e:
@@ -32,3 +32,11 @@ class StreamableHttpMcpToolServer(ToolServer, Component[StreamableHttpMcpToolSer
     @classmethod
     def _from_config(cls, config: StreamableHttpMcpToolServerConfig):
         return cls(config)
+
+    @staticmethod
+    def _sanitize_config(config: StreamableHttpServerParams) -> dict:
+        config_dict = config.model_dump()
+        headers = config_dict.get("headers")
+        if headers and "Authorization" in headers:
+            headers["Authorization"] = "***REDACTED***"
+        return config_dict
