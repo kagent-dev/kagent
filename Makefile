@@ -130,9 +130,11 @@ use-kind-cluster:
 delete-kind-cluster:
 	kind delete cluster --name $(KIND_CLUSTER_NAME)
 
-PHONY: clean
+.PHONY: clean
 clean: prune-kind-cluster
 clean: prune-docker-images
+	docker buildx rm $(BUILDX_BUILDER_NAME)  -f || true
+	rm -rf ./go/bin
 
 .PHONY: prune-kind-cluster
 prune-kind-cluster:
@@ -154,6 +156,10 @@ build: buildx-create build-controller build-ui build-app build-tools
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
 	@echo "Tools Image: $(TOOLS_IMG)"
+
+.PHONY: build-monitor
+build-monitor: buildx-create
+	watch docker exec -t  buildx_buildkit_$(BUILDX_BUILDER_NAME)0  ps
 
 .PHONY: build-cli
 build-cli:
