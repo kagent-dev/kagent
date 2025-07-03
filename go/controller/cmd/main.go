@@ -14,6 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// @title           KAgent Controller API
+// @version         1.0
+// @description     This API powers the backend for the CLI, UI, and other services.
+// @termsOfService  http://swagger.io/terms/
+
+
 package main
 
 import (

@@ -1,4 +1,21 @@
 info:
   contact: {}
-paths: {}
+  description: This API powers the backend for the CLI, UI, and other services.
+  termsOfService: http://swagger.io/terms/
+  title: KAgent Controller API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Returns 200 OK if the service is alive
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: Health Check
+      tags:
+      - System
 swagger: "2.0"

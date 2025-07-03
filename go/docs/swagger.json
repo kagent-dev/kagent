@@ -1,7 +1,32 @@
 {
     "swagger": "2.0",
     "info": {
-        "contact": {}
+        "description": "This API powers the backend for the CLI, UI, and other services.",
+        "title": "KAgent Controller API",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {},
+        "version": "1.0"
     },
-    "paths": {}
+    "paths": {
+        "/health": {
+            "get": {
+                "description": "Returns 200 OK if the service is alive",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "Health Check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
