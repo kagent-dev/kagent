@@ -270,7 +270,7 @@ helm-install-provider: helm-version check-openai-key
 		--namespace kagent \
 		--create-namespace \
 		--history-max 2    \
-		--timeout 5m       \
+		--timeout 3m       \
 		--wait \
 		--set service.type=LoadBalancer \
 		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
@@ -315,7 +315,7 @@ helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 .PHONY: kagent-cli-install
-kagent-cli-install: use-kind-cluster build-cli-local kind-load-docker-images prune-docker-images prune-kind-cluster  helm-version
+kagent-cli-install: use-kind-cluster build-cli-local kind-load-docker-images helm-version
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local install
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local dashboard
 
