@@ -192,16 +192,6 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.Use(errorHandlerMiddleware)
 }
 
-// Serve OpenAPI/Swagger docs
-func adaptSwaggerHandler(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == SwaggerPath {
-			http.Redirect(w, r, SwaggerPath+"index.html", http.StatusMovedPermanently)
-			return
-		}
-		h(w, r)
-	}
-}
 
 func adaptHandler(h func(handlers.ErrorResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
