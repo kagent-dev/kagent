@@ -31,7 +31,6 @@ jobs:
   build-local:
     needs:
       - setup
-      - e2e-test
     env:
       VERSION: v0.0.1-test
     strategy:
@@ -60,7 +59,9 @@ jobs:
         working-directory: ./
 
   e2e-test:
-    needs: setup
+    needs:
+      - setup
+      - build-local
     env:
       VERSION: v0.0.1-test
       BUILDX_BUILDER_NAME: kagent-builder-main
@@ -174,7 +175,7 @@ jobs:
   build:
     needs:
       - setup
-      - e2e-test
+      - build-local
     env:
       VERSION: v0.0.1-test
     strategy:
