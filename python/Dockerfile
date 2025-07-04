@@ -16,7 +16,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV GIT_LFS_SKIP_SMUDGE=1
 
-ENV UV_LINK_MODE=copy
+ENV UV_LINK_MODE=symlink
 ENV UV_CACHE_DIR=/app/python/.cache/uv
 ENV UV_PROJECT_ENVIRONMENT="/app/python/.venv"
 
@@ -53,9 +53,12 @@ COPY --chown=python:pythongroup README.md .
 RUN echo "Installing dependencies..."                   \
     && uv venv --python=python$TOOLS_PYTHON_VERSION     \
     && uv sync --locked --refresh                       \
-    && uv pip install hatchling hatch setuptools        \
-    && find . | grep playwright | grep node | tee | xargs rm -rf      # remove cve playwtite node from venv
+    && uv pip install setuptools wheel                  \
+    && find .venv -name "*playwright*" -name "*node*" -type d -exec rm -rf {} + 2>/dev/null || true \
+    && uv run kagent-engine --help \
+    && uv cache prune
 
+# Offline mode
 ENV UV_OFFLINE=1
 
 # Test if the tool is working and fetch all dependencies

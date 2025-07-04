@@ -29,6 +29,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw         \
     --mount=type=cache,target=/root/.cache/go-build,rw    \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o manager controller/cmd/main.go
 
+### STAGE 2: final image
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot

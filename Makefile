@@ -105,7 +105,7 @@ check-openai-key:
 
 .PHONY: buildx-create
 buildx-create:
-	docker buildx inspect $(BUILDX_BUILDER_NAME) || \
+	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
 	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use || true
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
@@ -202,7 +202,7 @@ build-app: buildx-create
 
 .PHONY: kind-load-docker-images
 kind-load-docker-images: retag-docker-images
-	docker images | grep $(VERSION) || true
+	docker images | grep $(VERSION) | grep $(DOCKER_REGISTRY) || true
 	@if [ "$$(kubectl config current-context)" == "kind-$(KIND_CLUSTER_NAME)" ]; then 	\
 		echo "Loading docker images into kind cluster $(KIND_CLUSTER_NAME)...";			\
 		kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG);	\

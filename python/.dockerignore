@@ -1,15 +1,190 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-.venv/
-.env
-*.log
+# Git and version control
 .git/
 .gitignore
-.pytest_cache/
+.gitattributes
+.gitmodules
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Testing and coverage
 .coverage
+.pytest_cache/
+.tox/
+.nox/
 htmlcov/
-workspace/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Playwright
+playwright-report/
+test-results/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache directories
+.cache/
+.pytest_cache/
+.ruff_cache/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Container files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Local development
+.local/
+local/
+
+# Makefile
+Makefile
+makefile
+
+# Requirements files (use pyproject.toml instead)
+requirements*.txt
+requirements/*.txt
+
+# Node.js (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Package files not needed in container
+*.tar.gz
+*.zip
+*.rar
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Lock files (except uv.lock which is needed)
+poetry.lock
+Pipfile.lock
+# Keep uv.lock for reproducible builds
+
+# Development scripts
+scripts/
+bin/
+tools/
+
+# Examples and samples
+examples/
+samples/
+demo/
+
+# Configuration files not needed in container
+.editorconfig
+.pre-commit-config.yaml
+pyproject.toml.bak
