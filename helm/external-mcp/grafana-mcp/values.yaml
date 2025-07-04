@@ -1,0 +1,33 @@
+enabled: false
+
+replicaCount: 1
+
+image:
+  registry: docker.io
+  repository: mcp/grafana
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources: {}
+
+# Grafana connection configuration
+grafana:
+  url: ""
+  apiKey: ""
+  apiKeySecretRef: grafana-mcp-secret
+  apiKeySecretKey: GRAFANA_API_KEY

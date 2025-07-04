@@ -1,0 +1,5 @@
+apiVersion: v2
+name: kagent-tool-server
+description: Kagent builtin tools server
+type: application
+version: ${VERSION}

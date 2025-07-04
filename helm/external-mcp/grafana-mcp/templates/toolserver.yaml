@@ -1,0 +1,16 @@
+{{- if .Values.enabled -}}
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: grafana-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "grafana-mcp.labels" . | nindent 4 }}
+spec:
+  config:
+    sse:
+      url: http://{{ include "grafana-mcp.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+      timeout: 5s
+      sseReadTimeout: 5m0s
+  description: "Grafana MCP server for monitoring and dashboard management"
+{{- end }}

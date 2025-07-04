@@ -1,0 +1,18 @@
+{{- if .Values.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "querydoc.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "querydoc.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.service.port | default 8080 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "querydoc.selectorLabels" . | nindent 4 }}
+{{- end }}

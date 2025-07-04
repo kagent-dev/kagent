@@ -1,0 +1,14 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: {{ include "tools.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tools.labels" . | nindent 4 }}
+spec:
+  config:
+    sse:
+      sseReadTimeout: 5m0s
+      timeout: 30s
+      url: {{ include "tools.serverUrl" . }}
+  description: "Built In Tool Server"

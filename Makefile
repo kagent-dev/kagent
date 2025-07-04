@@ -276,6 +276,9 @@ helm-agents:
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
+	VERSION=$(VERSION) envsubst < helm/kagent/charts/tool-server/Chart-template.yaml > helm/kagent/charts/tool-server/Chart.yaml
+	VERSION=$(VERSION) envsubst < helm/external-mcp/querydoc/Chart-template.yaml > helm/external-mcp/querydoc/Chart.yaml
+	VERSION=$(VERSION) envsubst < helm/external-mcp/grafana-mcp/Chart-template.yaml > helm/external-mcp/grafana-mcp/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
@@ -294,17 +297,20 @@ helm-install-provider: helm-version check-openai-key
 		--history-max 2    \
 		--timeout 5m       \
 		--wait \
-		--set service.type=LoadBalancer \
+		--set ui.service.type=LoadBalancer \
 		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set app.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set engine.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
-		--set app.image.tag=$(APP_IMAGE_TAG) \
+		--set engine.image.tag=$(APP_IMAGE_TAG) \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		--set external-mcp.querydoc.config.openaiApiKey=$(OPENAI_API_KEY) \
+		--set tool-server.openai.apiKey=$(OPENAI_API_KEY) \
+		$(if $(GRAFANA_API_KEY),--set external-mcp.grafana-mcp.config.grafanaApiKey=$(GRAFANA_API_KEY),) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install

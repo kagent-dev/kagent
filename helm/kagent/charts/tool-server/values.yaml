@@ -1,0 +1,46 @@
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repository: kagent-dev/kagent-tools
+  pullPolicy: IfNotPresent
+  tag: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources: {}
+
+# OpenAI API configuration
+openai:
+  apiKey: ""
+  apiKeySecretRef: tool-server-openai
+  apiKeySecretKey: OPENAI_API_KEY
+
+# Custom environment variables
+env: []
+
+# Custom configuration for ConfigMap
+config: {}
+
+# OTEL configuration
+otel:
+  tracing:
+    enabled: false
+    exporter:
+      otlp:
+        endpoint: ""
+        timeout: 10000
+        insecure: true

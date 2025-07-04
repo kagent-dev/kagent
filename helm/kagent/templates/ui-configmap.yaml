@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.ui.labels" . | nindent 4 }}
+data:
+  NEXT_PUBLIC_BACKEND_URL: "http://{{ include "kagent.fullname" . }}.{{ include "kagent.namespace" . }}.svc.cluster.local:{{ .Values.controller.service.ports.port }}/api"
+  {{- with .Values.ui.config }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}

@@ -1,10 +1,114 @@
 # Default values for kagent
+
+# ==============================================================================
+# GLOBAL CONFIGURATION
+# ==============================================================================
+
+tag: ""
+
 replicaCount: 1
 
-global:
-  tag: ""
+imagePullSecrets: []
+imagePullPolicy: IfNotPresent
 
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Override the namespace
+# @default -- `.Release.Namespace`
+namespaceOverride: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# ==============================================================================
+# CORE KAGENT COMPONENTS
+# ==============================================================================
+
+controller:
+  loglevel: "info"
+
+  # -- Namespaces the controller should watch.
+  # If empty, the controller will watch ONLY release namespace.
+  # @default -- [] (watches release namespace)
+  watchNamespaces: []
+  #  - watch-ns-1
+  #  - watch-ns-2
+
+  image:
+    registry: cr.kagent.dev
+    repository: kagent-dev/kagent/controller
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  service:
+    type: ClusterIP
+    ports:
+      port: 8083
+      targetPort: 8083
+  config: {} # Additional configuration key-value pairs for the controller ConfigMap
+
+engine:
+  image:
+    registry: cr.kagent.dev
+    repository: kagent-dev/kagent/app
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  service:
+    type: ClusterIP
+    ports:
+      port: 8081
+      targetPort: 8081
+  config: {} # Additional configuration key-value pairs for the engine ConfigMap
+
+ui:
+  image:
+    registry: cr.kagent.dev
+    repository: kagent-dev/kagent/ui
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  service:
+    type: ClusterIP
+    ports:
+      port: 80
+      targetPort: 8080
+  config: {} # Additional configuration key-value pairs for the ui ConfigMap
+
+# ==============================================================================
+# LLM PROVIDERS CONFIGURATION
+# ==============================================================================
 # https://kagent.dev/docs/getting-started/configuring-providers
+
 providers:
   default: openAI
   openAI:
@@ -36,31 +140,14 @@ providers:
       azureDeployment: ""
       azureEndpoint: ""
 
-controller:
-  loglevel: "info"
+# ==============================================================================
+# BUILT-IN TOOLS
+# ==============================================================================
 
-  # -- Namespaces the controller should watch.
-  # If empty, the controller will watch ONLY release namespace.
-  # @default -- [] (watches release namespace)
-  watchNamespaces: []
-  #  - watch-ns-1
-  #  - watch-ns-2
-
-  image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/controller
-    tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  env: [] # Additional environment variables for the controller can be added here
-
-tools:
+tool-server:
+  enabled: true
+  openai:
+    apiKey: ""
   loglevel: "debug"
   image:
     registry: cr.kagent.dev
@@ -74,17 +161,39 @@ tools:
     limits:
       cpu: 1000m
       memory: 512Mi
-  prometheus:
-    url: "prometheus.kagent.svc.cluster.local:9090"
-    username: ""
-    password: ""
-  grafana: # kubectl port-forward svc/grafana 3000:3000
-    url: "http://grafana.kagent.svc.cluster.local:3000"
-    apiKey: ""
 
-# additional tools can be added here
-mcp:
-  doc2vec:
+# ==============================================================================
+# AGENTS
+# ==============================================================================
+
+agents:
+  k8s-agent:
+    enabled: true
+  kgateway-agent:
+    enabled: true
+  istio-agent:
+    enabled: true
+  promql-agent:
+    enabled: true
+  observability-agent:
+    enabled: true
+  argo-rollouts-agent:
+    enabled: true
+  helm-agent:
+    enabled: true
+  cilium-policy-agent:
+    enabled: true
+  cilium-manager-agent:
+    enabled: true
+  cilium-debug-agent:
+    enabled: true
+
+# ==============================================================================
+# EXTERNAL MCP SERVERS
+# ==============================================================================
+
+external-mcp:
+  querydoc:
     enabled: true
     image:
       registry: ghcr.io
@@ -98,76 +207,29 @@ mcp:
       limits:
         cpu: 500m
         memory: 512Mi
+    config:
+      openaiApiKey: ""
+  grafana-mcp:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: mcp/grafana
+      tag: latest
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    config:
+      grafanaUrl: "http://grafana.kagent.svc.cluster.local:3000"
+      grafanaApiKey: ""
 
-app:
-  image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/app
-    tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-  env: [] # Additional environment variables for the app can be added here
-
-ui:
-  image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/ui
-    tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-  env: [] # Additional environment variables for the ui can be added here
-
-service:
-  type: ClusterIP
-  ports:
-    ui:
-      port: 80
-      targetPort: 8080
-    app:
-      port: 8081
-      targetPort: 8081
-    controller:
-      port: 8083
-      targetPort: 8083
-    tools:
-      port: 8084
-      targetPort: 8084
-    querydoc:
-      port: 8085
-      targetPort: 8085
-
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
-
-# -- Override the namespace
-# @default -- `.Release.Namespace`
-namespaceOverride: ""
-
-podAnnotations: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+# ==============================================================================
+# OBSERVABILITY
+# ==============================================================================
 
 otel:
   tracing:
@@ -177,33 +239,3 @@ otel:
         endpoint: http://host.docker.internal:4317
         timeout: 15
         insecure: true
-
-k8s-agent:
-  enabled: true
-
-kgateway-agent:
-  enabled: true
-
-istio-agent:
-  enabled: true
-
-promql-agent:
-  enabled: true
-
-observability-agent:
-  enabled: true
-
-argo-rollouts-agent:
-  enabled: true
-
-helm-agent:
-  enabled: true
-
-cilium-policy-agent:
-  enabled: true
-
-cilium-manager-agent:
-  enabled: true
-
-cilium-debug-agent:
-  enabled: true

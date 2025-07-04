@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
+        {{- with .Values.controller.podAnnotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "kagent.controller.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.controller.imagePullSecrets | default .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml (.Values.controller.podSecurityContext | default .Values.podSecurityContext) | nindent 8 }}
+      serviceAccountName: {{ include "kagent.fullname" . }}
+      containers:
+        - name: controller
+          args:
+          # Consider using env vars (stored in a dedicated ConfigMap(s)) rather than this
+          {{/* #we need to pass the default model config name to the app otherwise helm upgrade will not allow provider type change due to validations */}}
+            - -default-model-config-name
+            - {{ include "kagent.defaultModelConfigName" . | quote }}
+            - -zap-log-level
+            - {{ .Values.controller.loglevel }}
+            - -watch-namespaces
+            - "{{ include "kagent.watchNamespaces" . }}"
+            - -autogen-base-url
+            - "http://{{ include "kagent.fullname" . }}-engine.{{ include "kagent.namespace" . }}.svc.cluster.local:{{ .Values.engine.service.ports.port }}/api"
+          securityContext:
+            {{- toYaml .Values.controller.securityContext | nindent 12 }}
+          image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "kagent.fullname" . }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.controller.service.ports.targetPort }}
+              protocol: TCP

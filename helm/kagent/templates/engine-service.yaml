@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kagent.fullname" . }}-engine
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.engine.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.engine.service.type }}
+  ports:
+    - port: {{ .Values.engine.service.ports.port }}
+      targetPort: {{ .Values.engine.service.ports.targetPort }}
+      protocol: TCP
+      name: engine
+  selector:
+    {{- include "kagent.engine.selectorLabels" . | nindent 4 }}

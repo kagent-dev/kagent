@@ -4,6 +4,14 @@ description: A Helm chart for kagent, built with Autogen
 type: application
 version: ${VERSION}
 dependencies:
+  - name: tool-server
+    version: ${VERSION}
+    repository: file://charts/tool-server
+    condition: tool-server.enabled
+  - name: querydoc
+    version: ${VERSION}
+    repository: file://charts/querydoc
+    condition: querydoc.enabled
   - name: k8s-agent
     version: ${VERSION}
     repository: file://../agents/k8s

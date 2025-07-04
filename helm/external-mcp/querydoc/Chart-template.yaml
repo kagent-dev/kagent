@@ -1,0 +1,5 @@
+apiVersion: v2
+name: querydoc
+description: Document query MCP server for kagent
+type: application
+version: ${VERSION}
