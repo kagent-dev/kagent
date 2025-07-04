@@ -4,9 +4,9 @@ FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-RUN apk update && apk add  \
-    curl openssl bash git ca-certificates uv nodejs-22 npm \
-    && rm -rf /var/cache/apk/*
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    apk update && apk add  \
+    curl openssl bash git ca-certificates uv nodejs-22 npm
 
 ### STAGE 2: python
 FROM base-os AS python-os
