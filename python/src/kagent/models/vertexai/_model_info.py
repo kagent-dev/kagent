@@ -26,7 +26,7 @@ _MODEL_INFO: ModelInfoDict = {
         "vision": False,
         "function_calling": True,
         "json_output": True,
-        "family": "gemini-2.5-flash-lite",
+        "family": "gemini-2.5-flash",
         "structured_output": True,
         "multiple_system_messages": False,
     },
