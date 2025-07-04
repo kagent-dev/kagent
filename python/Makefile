@@ -4,7 +4,7 @@ export GIT_LFS_SKIP_SMUDGE=1
 
 .PHONY: update
 update:
-	uv python list | grep 3.13
+	uv python list | grep 3.12
 	uv sync --all-extras --all-groups
 	uv lock
 
