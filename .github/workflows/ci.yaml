@@ -22,10 +22,42 @@ jobs:
         with:
           name: kagent-builder-main
           platforms: linux/amd64,linux/arm64
-          version: v0.23.0
+          version: latest
           use: 'true'
       - name: Cache setup complete
         run: echo "Docker buildx and QEMU setup complete"
+
+  # This job builds the Docker images for the controller, UI, app, and CLI on local amd64 platform.
+  build-local:
+    needs:
+      - setup
+      - e2e-test
+    env:
+      VERSION: v0.0.1-test
+    strategy:
+      matrix:
+        image:
+          - controller
+          - ui
+          - app
+          - cli
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run make build
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDX_BUILDER_NAME: kagent-builder-main
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=kagent-${{ matrix.image }}
+            --cache-to=type=gha,mode=max,scope=kagent-${{ matrix.image }}
+            --platform=linux/amd64
+            --output=type=tar,dest=/dev/null
+          DOCKER_REPO: "${{ github.repository_owner }}/kagent"
+          DOCKER_BUILDER: "docker buildx"
+        run: make build-${{ matrix.image }}
+        working-directory: ./
 
   e2e-test:
     needs: setup
@@ -74,7 +106,6 @@ jobs:
           cd go
           go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
 
-
   go-unit-tests:
     runs-on: ubuntu-latest
     steps:
@@ -92,6 +123,7 @@ jobs:
         working-directory: go
         run: |
           go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
+
 
   helm-unit-tests:
     runs-on: ubuntu-latest
@@ -116,6 +148,7 @@ jobs:
         run: |
           helm unittest helm/kagent
 
+
   ui-tests:
     runs-on: ubuntu-latest
     steps:
@@ -137,6 +170,7 @@ jobs:
         working-directory: ./ui
         run: npm run test
 
+  # This job builds the Docker images for the controller, UI, app, and CLI on amd64 and arm64 platforms.
   build:
     needs:
       - setup
