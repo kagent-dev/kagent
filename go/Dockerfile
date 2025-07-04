@@ -2,9 +2,10 @@
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS builder
-ARG BUILDPLATFORM
-ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG TARGETPLATFORM
+# This is used to print the build platform in the logs
+ARG BUILDPLATFORM
 
 WORKDIR /workspace
 # Copy the Go Modules manifests

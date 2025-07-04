@@ -2,9 +2,10 @@
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS deps
-ARG BUILDPLATFORM
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+# This is used to print the build platform in the logs
+ARG BUILDPLATFORM
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
@@ -14,7 +15,6 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
 
 ARG TOOLS_BUN_VERSION
 ARG TARGETARCH
-ARG BUILDPLATFORM
 
 ENV DO_NOT_TRACK=1
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -56,9 +56,10 @@ RUN --mount=type=cache,target=/cache/node_modules,rw \
 
 ### STAGE 3: Runtime
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
-ARG BUILDPLATFORM
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+# This is used to print the build platform in the logs
+ARG BUILDPLATFORM
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
