@@ -99,6 +99,7 @@ jobs:
         with:
           go-version: "1.24"
           cache: true
+          cache-dependency-path: go/go.sum
 
       - name: Run cmd/main.go tests
         working-directory: go
