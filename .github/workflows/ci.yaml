@@ -17,15 +17,6 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          name: kagent-builder-main
-          platforms: linux/amd64,linux/arm64
-          version: latest
-          use: 'true'
-      - name: Cache setup complete
-        run: echo "Docker buildx and QEMU setup complete"
 
   # This job builds the Docker images for the controller, UI, app, and CLI on local amd64 platform.
   build-local:
@@ -45,10 +36,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          name: kagent-builder-${{ matrix.image }}
+          platforms: linux/amd64,linux/arm64
+          version: latest
+          use: 'true'
       - name: Run make build
         env:
           DOCKER_BUILDKIT: 1
-          BUILDX_BUILDER_NAME: kagent-builder-main
+          BUILDX_BUILDER_NAME: kagent-builder-${{ matrix.image }}
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=kagent-${{ matrix.image }}
             --cache-to=type=gha,mode=max,scope=kagent-${{ matrix.image }}
@@ -71,7 +69,8 @@ jobs:
         --cache-from=type=gha,scope=kagent-controller
         --cache-from=type=gha,scope=kagent-ui
         --cache-from=type=gha,scope=kagent-app
-        --cache-from=type=gha,mode=max,scope=kagent-main
+        --cache-from=type=gha,scope=kagent-tools
+        --cache-from=type=gha,scope=kagent-cli
         --cache-to=type=gha,mode=max,scope=kagent-main
         --platform=linux/amd64
         --load
@@ -79,6 +78,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          name: kagent-builder-main
+          platforms: linux/amd64,linux/arm64
+          version: latest
+          use: 'true'
       - name: Set up Helm
         uses: azure/setup-helm@v4.2.0
         with:
@@ -126,7 +132,6 @@ jobs:
         run: |
           go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
 
-
   helm-unit-tests:
     runs-on: ubuntu-latest
     steps:
@@ -149,7 +154,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-
 
   ui-tests:
     runs-on: ubuntu-latest
@@ -191,10 +195,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          name: kagent-builder-${{ matrix.image }}
+          platforms: linux/amd64,linux/arm64
+          version: latest
+          use: 'true'
       - name: Run make build
         env:
           DOCKER_BUILDKIT: 1
-          BUILDX_BUILDER_NAME: kagent-builder-main
+          BUILDX_BUILDER_NAME: kagent-builder-${{ matrix.image }}
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=kagent-${{ matrix.image }}
             --cache-to=type=gha,mode=max,scope=kagent-${{ matrix.image }}
