@@ -66,12 +66,17 @@ npm install
 npm run dev
 ```
 
-3. Run the controller locally, from the `go` folder:
+3. Run the tools-server locally, from the `go` folder:
 
 ```bash
-go run controller/cmd/main.go
+make run/tool-server
 ```
 
+4. Run the controller locally, from the `go` folder:
+
+```bash
+make run 
+```
 ## How to run everything in Kubernetes
 
 1. Create a cluster:
