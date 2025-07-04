@@ -27,40 +27,6 @@ jobs:
       - name: Cache setup complete
         run: echo "Docker buildx and QEMU setup complete"
 
-  build:
-    needs: setup
-    env:
-      VERSION: v0.0.1-test
-    strategy:
-      matrix:
-        image:
-          - controller
-          - ui
-          - app
-          - cli
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Run make build
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDX_BUILDER_NAME: kagent-builder-main
-          DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=kagent-${{ matrix.image }}
-            --cache-to=type=gha,mode=max,scope=kagent-${{ matrix.image }}
-            --platform=linux/amd64,linux/arm64
-            --output=type=tar,dest=/dev/null
-          DOCKER_REPO: "${{ github.repository_owner }}/kagent"
-          DOCKER_BUILDER: "docker buildx"
-        run: make build-${{ matrix.image }}
-        working-directory: ./
-    # - name: Upload artifact
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: ${{matrix.image}}.tar
-    #     path: ${{ runner.temp }}
-
   e2e-test:
     needs: setup
     env:
@@ -107,6 +73,7 @@ jobs:
           export KAGENT_A2A_URL="http://${GW_IP}:8083/api/a2a"
           cd go
           go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
+
 
   go-unit-tests:
     runs-on: ubuntu-latest
@@ -169,3 +136,40 @@ jobs:
       - name: Run tests
         working-directory: ./ui
         run: npm run test
+
+  build:
+    needs:
+      - setup
+      - e2e-test
+    env:
+      VERSION: v0.0.1-test
+    strategy:
+      matrix:
+        image:
+          - controller
+          - ui
+          - app
+          - cli
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run make build
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDX_BUILDER_NAME: kagent-builder-main
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=kagent-${{ matrix.image }}
+            --cache-to=type=gha,mode=max,scope=kagent-${{ matrix.image }}
+            --platform=linux/amd64,linux/arm64
+            --output=type=tar,dest=/dev/null
+          DOCKER_REPO: "${{ github.repository_owner }}/kagent"
+          DOCKER_BUILDER: "docker buildx"
+        run: make build-${{ matrix.image }}
+        working-directory: ./
+    # - name: Upload artifact
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: ${{matrix.image}}.tar
+    #     path: ${{ runner.temp }}
+
