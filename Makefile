@@ -203,15 +203,12 @@ build-app: buildx-create
 .PHONY: kind-load-docker-images
 kind-load-docker-images: retag-docker-images use-kind-cluster
 	docker images | grep $(VERSION) | grep $(DOCKER_REGISTRY) || true
-	@if [ "$$(kubectl config current-context)" == "kind-$(KIND_CLUSTER_NAME)" ]; then 	\
-		echo "Loading docker images into kind cluster $(KIND_CLUSTER_NAME)...";			\
-		kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG);	\
-		kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG);			\
-		kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG);			\
-		kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_TOOLS_IMG);		\
-	else \
-		echo "Not in kind cluster $(KIND_CLUSTER_NAME), skipping image loading."; \
-	fi
+	echo "Loading docker images into kind cluster $(KIND_CLUSTER_NAME)..."
+	kind get clusters || true
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
+	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_TOOLS_IMG)
 
 .PHONY: retag-docker-images
 retag-docker-images: build
