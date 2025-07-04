@@ -39,6 +39,8 @@ jobs:
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=kagent
             --cache-to=type=gha,mode=max,scope=kagent
+            --cache-from=type=inline
+            --cache-to=type=inline,mode=max
             --platform=linux/amd64,linux/arm64
             --output=type=tar,dest=/dev/null
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
@@ -58,6 +60,8 @@ jobs:
       DOCKER_BUILD_ARGS: >-
         --cache-from=type=gha,scope=kagent
         --cache-to=type=gha,mode=max,scope=kagent
+        --cache-from=type=inline
+        --cache-to=type=inline,mode=max
         --platform=linux/amd64
         --load
     runs-on: ubuntu-latest
