@@ -7,9 +7,17 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  # Cache key components for better organization
+  CACHE_KEY_PREFIX: kagent-v2
+  BRANCH_CACHE_KEY: ${{ github.head_ref || github.ref_name }}
+  
 jobs:
   setup:
     runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+      base-cache-key: ${{ steps.cache-key.outputs.base-key }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -17,6 +25,11 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64
+      - name: Generate cache keys
+        id: cache-key
+        run: |
+          echo "key=${CACHE_KEY_PREFIX}-${BRANCH_CACHE_KEY}-${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "base-key=${CACHE_KEY_PREFIX}-base-${{ hashFiles('**/Dockerfile*', '**/go.mod', '**/go.sum', '**/package*.json') }}" >> $GITHUB_OUTPUT
 
   # This job builds the Docker images for the controller, UI, app, and CLI on local amd64 platform.
   build-local:
@@ -48,8 +61,9 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDX_BUILDER_NAME: kagent-builder-${{ matrix.image }}
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=kagent-${{ matrix.image }}
-            --cache-to=type=gha,mode=max,scope=kagent-${{ matrix.image }}
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
+            --cache-to=type=gha,mode=max,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
+            --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
             --platform=linux/amd64
             --output=type=tar,dest=/dev/null
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
@@ -64,16 +78,6 @@ jobs:
     env:
       VERSION: v0.0.1-test
       BUILDX_BUILDER_NAME: kagent-builder-main
-      #we will reuse cache from matrix build
-      DOCKER_BUILD_ARGS: >-
-        --cache-from=type=gha,scope=kagent-controller
-        --cache-from=type=gha,scope=kagent-ui
-        --cache-from=type=gha,scope=kagent-app
-        --cache-from=type=gha,scope=kagent-tools
-        --cache-from=type=gha,scope=kagent-cli
-        --cache-to=type=gha,mode=max,scope=kagent-main
-        --platform=linux/amd64
-        --load
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -103,6 +107,15 @@ jobs:
       - name: Install Kagent
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-controller
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-ui
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-app
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-tools
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --platform=linux/amd64
+            --load
         run: |
           make helm-install
           kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
@@ -176,11 +189,10 @@ jobs:
         working-directory: ./ui
         run: npm run test
 
-  # This job builds the Docker images for the controller, UI, app, and CLI on amd64 and arm64 platforms.
-  build:
+  # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
+  build-arm64:
     needs:
       - setup
-      - build-local
     env:
       VERSION: v0.0.1-test
     strategy:
@@ -198,26 +210,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          name: kagent-builder-${{ matrix.image }}
+          name: kagent-builder-arm64-${{ matrix.image }}
           platforms: linux/amd64,linux/arm64
           version: latest
           use: 'true'
       - name: Run make build
         env:
           DOCKER_BUILDKIT: 1
-          BUILDX_BUILDER_NAME: kagent-builder-${{ matrix.image }}
+          BUILDX_BUILDER_NAME: kagent-builder-arm64-${{ matrix.image }}
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=kagent-${{ matrix.image }}
-            --cache-to=type=gha,mode=max,scope=kagent-${{ matrix.image }}
-            --platform=linux/amd64,linux/arm64
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}-arm64
+            --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}-arm64
+            --platform=linux/arm64
             --output=type=tar,dest=/dev/null
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx"
         run: make build-${{ matrix.image }}
         working-directory: ./
-    # - name: Upload artifact
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: ${{matrix.image}}.tar
-    #     path: ${{ runner.temp }}
 
