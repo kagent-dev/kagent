@@ -201,7 +201,7 @@ build-app: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
 
 .PHONY: kind-load-docker-images
-kind-load-docker-images: retag-docker-images
+kind-load-docker-images: retag-docker-images use-kind-cluster
 	docker images | grep $(VERSION) | grep $(DOCKER_REGISTRY) || true
 	@if [ "$$(kubectl config current-context)" == "kind-$(KIND_CLUSTER_NAME)" ]; then 	\
 		echo "Loading docker images into kind cluster $(KIND_CLUSTER_NAME)...";			\
