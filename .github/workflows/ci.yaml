@@ -39,6 +39,7 @@ jobs:
           - controller
           - ui
           - app
+          - tools
           - cli
     runs-on: ubuntu-latest
     steps:
@@ -185,6 +186,7 @@ jobs:
           - ui
           - app
           - cli
+          - tools
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
