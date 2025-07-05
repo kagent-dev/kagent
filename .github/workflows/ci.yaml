@@ -27,12 +27,10 @@ jobs:
       - name: Generate cache keys
         id: cache-key
         run: |
-          echo "key=${CACHE_KEY_PREFIX}-${BRANCH_CACHE_KEY}-${{ github.sha }}" >> $GITHUB_OUTPUT
-          echo "base-key=${CACHE_KEY_PREFIX}-base-${{ hashFiles('**/Dockerfile*', '**/go.mod', '**/go.sum', '**/package*.json') }}" >> $GITHUB_OUTPUT
+          echo "key=${CACHE_KEY_PREFIX}-${BRANCH_CACHE_KEY}" >> $GITHUB_OUTPUT
       - name: cache
         run: |
           echo "Cache key: ${{ steps.cache-key.outputs.key }}"
-          echo "Base cache key: ${{ steps.cache-key.outputs.base-key }}"
 
   e2e-test:
     needs:
@@ -71,6 +69,10 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-controller
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-ui
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-app
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-tools
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --platform=linux/amd64
@@ -182,6 +184,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDX_BUILDER_NAME: kagent-builder-main
           DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
             --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
             --platform=linux/amd64,linux/arm64
