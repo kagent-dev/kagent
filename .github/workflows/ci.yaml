@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
-      base-cache-key: ${{ steps.cache-key.outputs.base-key }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,6 +29,10 @@ jobs:
         run: |
           echo "key=${CACHE_KEY_PREFIX}-${BRANCH_CACHE_KEY}-${{ github.sha }}" >> $GITHUB_OUTPUT
           echo "base-key=${CACHE_KEY_PREFIX}-base-${{ hashFiles('**/Dockerfile*', '**/go.mod', '**/go.sum', '**/package*.json') }}" >> $GITHUB_OUTPUT
+      - name: cache
+        run: |
+          echo "Cache key: ${{ steps.cache-key.outputs.key }}"
+          echo "Base cache key: ${{ steps.cache-key.outputs.base-key }}"
 
   # This job builds the Docker images for the controller, UI, app, and CLI on local amd64 platform.
   build-local:
@@ -62,7 +65,6 @@ jobs:
           BUILDX_BUILDER_NAME: kagent-builder-${{ matrix.image }}
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.base-cache-key }}-${{ matrix.image }}
             --cache-to=type=gha,mode=max,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
             --platform=linux/amd64
             --output=type=tar,dest=/dev/null
@@ -112,10 +114,7 @@ jobs:
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-ui
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-app
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-tools
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.base-cache-key }}-controller
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.base-cache-key }}-ui
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.base-cache-key }}-app
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.base-cache-key }}-tools
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --platform=linux/amd64
             --load
@@ -227,8 +226,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDX_BUILDER_NAME: kagent-builder-arm64
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.base-cache-key }}-${{ matrix.image }}
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}-arm64
             --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}-arm64
             --platform=linux/arm64
             --output=type=tar,dest=/dev/null
