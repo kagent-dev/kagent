@@ -55,14 +55,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          name: kagent-builder-${{ matrix.image }}
+          name: kagent-builder-main
           platforms: linux/amd64,linux/arm64
           version: latest
           use: 'true'
       - name: Run make build
         env:
           DOCKER_BUILDKIT: 1
-          BUILDX_BUILDER_NAME: kagent-builder-${{ matrix.image }}
+          BUILDX_BUILDER_NAME: kagent-builder-main
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
             --cache-to=type=gha,mode=max,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
