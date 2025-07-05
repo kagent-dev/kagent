@@ -10,7 +10,6 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
-	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -233,32 +232,19 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	// --- Secret Creation ---
+	// --- ModelConfig Creation First ---
 	providerTypeEnum := v1alpha1.ModelProvider(req.Provider.Type)
 	modelConfigSpec := v1alpha1.ModelConfigSpec{
 		Model:    req.Model,
 		Provider: providerTypeEnum,
 	}
-	secret := &corev1.Secret{}
 
-	// If the provider is Ollama, we don't need to create a secret.
-	if providerTypeEnum == v1alpha1.Ollama || req.APIKey == "" {
-		log.V(1).Info("Ollama provider or empty API key, skipping secret creation")
-	} else {
-		// TODO(sbx0r): should handle situation where the secret already exist
-		apiKey := req.APIKey
+	// Set secret references if needed, but don't create secret yet
+	if providerTypeEnum != v1alpha1.Ollama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretNamespace := modelConfigRef.Namespace
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-		log.V(1).Info("Creating API key secret", "secretName", secretName, "secretNamespace", secretNamespace, "secretKey", secretKey)
-		secret, err = CreateSecret(h.KubeClient, secretName, secretNamespace, map[string]string{secretKey: apiKey})
-		if err != nil {
-			log.Error(err, "Failed to create API key secret")
-			w.RespondWithError(errors.NewInternalServerError("Failed to create API key secret", err))
-			return
-		}
-		log.V(1).Info("Successfully created API key secret")
-		modelConfigSpec.APIKeySecretRef = common.GetObjectRef(secret)
+		modelConfigSpec.APIKeySecretRef = common.ResourceRefString(secretNamespace, secretName)
 		modelConfigSpec.APIKeySecretKey = secretKey
 	}
 
@@ -311,28 +297,39 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 
 	if providerConfigErr != nil {
 		log.Error(providerConfigErr, "Failed to assign provider config")
-		// Clean up the created secret if config assignment fails
-		log.V(1).Info("Attempting to clean up secret due to config assignment failure")
-		if providerTypeEnum != v1alpha1.Ollama {
-			if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
-				log.Error(cleanupErr, "Failed to cleanup secret after config assignment failure")
-			}
-		}
 		w.RespondWithError(errors.NewBadRequestError(providerConfigErr.Error(), providerConfigErr))
 		return
 	}
 
 	if err := h.KubeClient.Create(r.Context(), modelConfig); err != nil {
 		log.Error(err, "Failed to create ModelConfig resource")
-		// If we fail to create the ModelConfig, we should clean up the secret
-		log.V(1).Info("Attempting to clean up secret after ModelConfig creation failure")
-		if providerTypeEnum != v1alpha1.Ollama {
-			if cleanupErr := h.KubeClient.Delete(r.Context(), secret); cleanupErr != nil {
-				log.Error(cleanupErr, "Failed to cleanup secret after ModelConfig creation failure")
-			}
-		}
 		w.RespondWithError(errors.NewInternalServerError("Failed to create ModelConfig", err))
 		return
+	}
+	log.V(1).Info("Successfully created ModelConfig")
+
+	if providerTypeEnum != v1alpha1.Ollama && req.APIKey != "" {
+		secretName := modelConfigRef.Name
+		secretNamespace := modelConfigRef.Namespace
+		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
+
+		log.V(1).Info("Creating API key secret with OwnerReference",
+			"secretName", secretName,
+			"secretNamespace", secretNamespace,
+			"secretKey", secretKey,
+		)
+
+		err := createSecretWithOwnerReference(
+			r.Context(),
+			h.KubeClient,
+			map[string]string{secretKey: req.APIKey},
+			modelConfig,
+		)
+		if err != nil {
+			log.Error(err, "Failed to create API key secret")
+		} else {
+			log.V(1).Info("Successfully created API key secret with OwnerReference")
+		}
 	}
 
 	log.Info("Successfully created ModelConfig")
@@ -406,68 +403,33 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	modelConfig.Spec = v1alpha1.ModelConfigSpec{
-		Model:       req.Model,
-		Provider:    v1alpha1.ModelProvider(req.Provider.Type),
-		OpenAI:      nil,
-		Anthropic:   nil,
-		AzureOpenAI: nil,
-		Ollama:      nil,
+		Model:           req.Model,
+		Provider:        v1alpha1.ModelProvider(req.Provider.Type),
+		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
+		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
+		OpenAI:          nil,
+		Anthropic:       nil,
+		AzureOpenAI:     nil,
+		Ollama:          nil,
 	}
 
-	// --- Update Secret if API Key is provided (and not Ollama or using AI API Gateway) ---
+	// --- Update Secret if API Key is provided (and not Ollama) ---
 	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.Ollama
 	if shouldUpdateSecret {
-		secretNamespace := namespace
-		secretName := configName
-		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-		log.V(1).Info("Updating API key secret",
-			"secretName", secretName,
-			"secretNamespace", secretNamespace,
-			"secretKey", secretKey,
-		)
-		existingSecret := &corev1.Secret{}
-		err = common.GetObject(
+		log.V(1).Info("Updating API key secret")
+
+		err := createOrUpdateSecretWithOwnerReference(
 			r.Context(),
 			h.KubeClient,
-			existingSecret,
-			secretName,
-			secretNamespace,
+			map[string]string{modelConfig.Spec.APIKeySecretKey: *req.APIKey},
+			modelConfig,
 		)
-		if err != nil && !k8serrors.IsNotFound(err) {
-			log.Error(err, "Failed to get existing secret for update")
-			w.RespondWithError(errors.NewInternalServerError("Failed to get API key secret", err))
+		if err != nil {
+			log.Error(err, "Failed to create or update API key secret")
+			w.RespondWithError(errors.NewInternalServerError("Failed to create or update API key secret", err))
 			return
 		}
-		if k8serrors.IsNotFound(err) {
-			// Secret doesn't exist, create it (edge case, should normally exist)
-			log.Info("Secret not found for update, creating new one",
-				"secretName", secretName,
-				"secretNamespace", secretNamespace,
-			)
-			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: secretNamespace},
-				StringData: map[string]string{secretKey: *req.APIKey},
-			}
-			if err := h.KubeClient.Create(r.Context(), secret); err != nil {
-				log.Error(err, "Failed to create new API key secret during update")
-				w.RespondWithError(errors.NewInternalServerError("Failed to create API key secret", err))
-				return
-			}
-		} else {
-			// Secret exists, update it
-			if existingSecret.StringData == nil {
-				existingSecret.StringData = make(map[string]string)
-			}
-			existingSecret.StringData[secretKey] = *req.APIKey
-			if err := h.KubeClient.Update(r.Context(), existingSecret); err != nil {
-				log.Error(err, "Failed to update API key secret")
-				w.RespondWithError(errors.NewInternalServerError("Failed to update API key secret", err))
-				return
-			}
-		}
 		log.V(1).Info("Successfully updated API key secret")
-		modelConfig.Spec.APIKeySecretRef = common.ResourceRefString(secretNamespace, secretName)
-		modelConfig.Spec.APIKeySecretKey = secretKey
 	}
 
 	var providerConfigErr error

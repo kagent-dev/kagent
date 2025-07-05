@@ -133,20 +133,6 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		memorySpec.Pinecone = req.PineconeParams
 	}
 
-	apiKey := req.APIKey
-	_, err = CreateSecret(
-		h.KubeClient,
-		memoryRef.Name,
-		memoryRef.Namespace,
-		map[string]string{memorySpec.APIKeySecretKey: apiKey},
-	)
-	if err != nil {
-		log.Error(err, "Failed to create Memory API key secret")
-		w.RespondWithError(errors.NewInternalServerError("Failed to create Memory API key secret", err))
-		return
-	}
-	log.V(1).Info("Successfully created Memory API key secret")
-
 	memory := &v1alpha1.Memory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      memoryRef.Name,
@@ -159,6 +145,19 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		log.Error(err, "Failed to create Memory")
 		w.RespondWithError(errors.NewInternalServerError("Failed to create Memory", err))
 		return
+	}
+	log.V(1).Info("Successfully created Memory")
+
+	err = createSecretWithOwnerReference(
+		r.Context(),
+		h.KubeClient,
+		map[string]string{memorySpec.APIKeySecretKey: req.APIKey},
+		memory,
+	)
+	if err != nil {
+		log.Error(err, "Failed to create Memory API key secret")
+	} else {
+		log.V(1).Info("Successfully created Memory API key secret with OwnerReference")
 	}
 
 	log.Info("Memory created successfully")
