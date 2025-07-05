@@ -5,6 +5,13 @@ import (
 	"net/http"
 )
 
+// ErrorResponse represents the JSON structure returned for API errors
+type ErrorResponse struct {
+	Error   string `json:"error" example:"Resource not found"`
+	Message string `json:"message,omitempty" example:"The requested ModelConfig was not found"`
+	Code    int    `json:"code" example:"404"`
+}
+
 // APIError represents an API error with HTTP status code and message
 type APIError struct {
 	Code    int
