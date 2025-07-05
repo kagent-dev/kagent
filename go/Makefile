@@ -96,10 +96,18 @@ build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-da
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./controller/cmd/main.go
 
+.PHONY: test
+test:
+	CGO_ENABLED=0 go mod tidy -v
+	CGO_ENABLED=0 go test ./cli/...
+	CGO_ENABLED=0 go test ./tools/...
+#	CGO_ENABLED=0 go test ./controller/...
+
 .PHONY: build/tool-server
 build/tool-server:
 	go mod tidy -v
-	go build -ldflags "$(LDFLAGS)" -o bin/tool-server-local ./tools/cmd/tool-server
+	go build -ldflags "$(LDFLAGS)" -o bin/tool-server-local        ./tools/cmd/tool-server
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/tool-server-linux-amd64  ./tools/cmd/tool-server
 
 .PHONY: run/tool-server
 run/tool-server: build/tool-server ## Run the tool server from your host.

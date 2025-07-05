@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/joho/godotenv"
+	"github.com/kagent-dev/kagent/go/internal/version"
+	"github.com/kagent-dev/kagent/go/tools/pkg/logger"
 	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"net/http"
 	"os"
@@ -12,9 +15,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/kagent-dev/kagent/go/internal/version"
-	"github.com/kagent-dev/kagent/go/tools/pkg/logger"
 
 	"github.com/kagent-dev/kagent/go/tools/pkg/argo"
 	"github.com/kagent-dev/kagent/go/tools/pkg/cilium"
@@ -27,9 +27,10 @@ import (
 )
 
 var (
-	port  int
-	stdio bool
-	tools []string
+	port       int
+	stdio      bool
+	tools      []string
+	kubeconfig *string
 
 	// These variables should be set during build time using -ldflags
 	Name      = "kagent-tools-server"
@@ -48,6 +49,12 @@ func init() {
 	rootCmd.Flags().IntVarP(&port, "port", "p", 8084, "Port to run the server on")
 	rootCmd.Flags().BoolVar(&stdio, "stdio", false, "Use stdio for communication instead of HTTP")
 	rootCmd.Flags().StringSliceVar(&tools, "tools", []string{}, "List of tools to register. If empty, all tools are registered.")
+	kubeconfig = rootCmd.Flags().String("kubeconfig", "", "kubeconfig file path (optional, defaults to in-cluster config)")
+
+	// if found .env file, load it
+	if _, err := os.Stat(".env"); err == nil {
+		_ = godotenv.Load(".env")
+	}
 }
 
 func main() {
@@ -73,7 +80,7 @@ func run(cmd *cobra.Command, args []string) {
 	)
 
 	// Register tools
-	registerMCP(mcp, tools)
+	registerMCP(mcp, tools, *kubeconfig)
 
 	// Create wait group for server goroutines
 	var wg sync.WaitGroup
@@ -140,9 +147,9 @@ func runStdioServer(ctx context.Context, mcp *server.MCPServer) {
 	}
 }
 
-func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
+func registerMCP(mcp *server.MCPServer, enabledToolProviders []string, kubeconfig string) {
 
-	var toolProviderMap = map[string]func(*server.MCPServer){
+	var toolProviderMap = map[string]func(*server.MCPServer, string){
 		"utils":      utils.RegisterDateTimeTools,
 		"k8s":        k8s.RegisterK8sTools,
 		"prometheus": prometheus.RegisterPrometheusTools,
@@ -152,12 +159,16 @@ func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
 		"cilium":     cilium.RegisterCiliumTools,
 	}
 
+	if len(kubeconfig) > 0 {
+		logger.Get().Info("Using kubeconfig file", "path", kubeconfig)
+	}
+
 	// If no tools specified, register all tools
 	if len(enabledToolProviders) == 0 {
 		logger.Get().Info("No specific tools provided, registering all tools")
 		for toolProvider, registerFunc := range toolProviderMap {
 			logger.Get().Info("Registering tools", "provider", toolProvider)
-			registerFunc(mcp)
+			registerFunc(mcp, kubeconfig)
 		}
 		return
 	}
@@ -167,7 +178,7 @@ func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
 	for _, toolProviderName := range enabledToolProviders {
 		if registerFunc, ok := toolProviderMap[strings.ToLower(toolProviderName)]; ok {
 			logger.Get().Info("Registering tool", "provider", toolProviderName)
-			registerFunc(mcp)
+			registerFunc(mcp, kubeconfig)
 		} else {
 			logger.Get().Error(nil, "Unknown tool specified", "provider", toolProviderName)
 		}

@@ -10,6 +10,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+var kubeConfig = "" // Global variable to hold kubeconfig path
+
 // Istio proxy status
 func handleIstioProxyStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	podName := mcp.ParseString(request, "pod_name", "")
@@ -25,12 +27,20 @@ func handleIstioProxyStatus(ctx context.Context, request mcp.CallToolRequest) (*
 		args = append(args, podName)
 	}
 
-	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
+	result, err := runIstioCtl(ctx, args)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("istioctl proxy-status failed: %v", err)), nil
 	}
 
 	return mcp.NewToolResultText(result), nil
+}
+
+func runIstioCtl(ctx context.Context, args []string) (string, error) {
+	if kubeConfig != "" {
+		args = append(args, "--kubeconfig", kubeConfig)
+	}
+	result, err := utils.RunCommandWithContext(ctx, "istioctl", args)
+	return result, err
 }
 
 // Istio proxy config
@@ -288,7 +298,9 @@ func handleZtunnelConfig(ctx context.Context, request mcp.CallToolRequest) (*mcp
 }
 
 // Register Istio tools
-func RegisterIstioTools(s *server.MCPServer) {
+func RegisterIstioTools(s *server.MCPServer, kubeconfig string) {
+	kubeConfig = kubeconfig
+
 	// Istio proxy status
 	s.AddTool(mcp.NewTool("istio_proxy_status",
 		mcp.WithDescription("Get Envoy proxy status for pods, retrieves last sent and acknowledged xDS sync from Istiod to each Envoy in the mesh"),

@@ -3,7 +3,6 @@ package k8s
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"math/rand"
@@ -11,171 +10,62 @@ import (
 	"slices"
 	"strings"
 
-	"k8s.io/client-go/tools/clientcmd"
-
 	"github.com/kagent-dev/kagent/go/tools/pkg/logger"
 	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
-	v1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
-// K8sClient wraps Kubernetes client operations
-type K8sClient struct {
-	clientset kubernetes.Interface
-	config    *rest.Config
-}
-
-// NewK8sClient creates a new Kubernetes client
-func NewK8sClient() (*K8sClient, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		// Fallback to kubeconfig
-		config, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create k8s config: %v", err)
-		}
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create k8s clientset: %v", err)
-	}
-
-	return &K8sClient{
-		clientset: clientset,
-		config:    config,
-	}, nil
-}
-
-// K8sTool struct to hold the client
+// K8sTool struct to hold the LLM model
 type K8sTool struct {
-	client   *K8sClient
-	llmModel llms.Model
+	kubeconfig string
+	llmModel   llms.Model
 }
 
-func NewK8sTool(llmModel llms.Model) (*K8sTool, error) {
-	client, err := NewK8sClient()
-	if err != nil {
-		return nil, err
+func NewK8sTool(llmModel llms.Model) *K8sTool {
+	return &K8sTool{llmModel: llmModel}
+}
+
+func NewK8sToolWithConfig(kubeconfig string, llmModel llms.Model) *K8sTool {
+	return &K8sTool{kubeconfig: kubeconfig, llmModel: llmModel}
+}
+
+// Enhanced kubectl get
+func (k *K8sTool) handleKubectlGetEnhanced(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	resourceType := mcp.ParseString(request, "resource_type", "")
+	resourceName := mcp.ParseString(request, "resource_name", "")
+	namespace := mcp.ParseString(request, "namespace", "")
+	allNamespaces := mcp.ParseString(request, "all_namespaces", "") == "true"
+	output := mcp.ParseString(request, "output", "json")
+
+	if resourceType == "" {
+		return mcp.NewToolResultError("resource_type parameter is required"), nil
 	}
 
-	return &K8sTool{client: client, llmModel: llmModel}, nil
-}
-func (k *K8sTool) getPodsNative(ctx context.Context, name, namespace string, allNamespaces bool, output string) (*mcp.CallToolResult, error) {
-	var pods *corev1.PodList
-	var err error
+	args := []string{"get", resourceType}
 
-	if name != "" {
-		pod, err := k.client.clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to get pod: %v", err)), nil
-		}
-		pods = &corev1.PodList{Items: []corev1.Pod{*pod}}
-	} else if allNamespaces {
-		pods, err = k.client.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if resourceName != "" {
+		args = append(args, resourceName)
+	}
+
+	if allNamespaces {
+		args = append(args, "--all-namespaces")
+	} else if namespace != "" {
+		args = append(args, "-n", namespace)
+	}
+
+	if output != "" {
+		args = append(args, "-o", output)
 	} else {
-		pods, err = k.client.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		args = append(args, "-o", "json")
 	}
 
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to list pods: %v", err)), nil
-	}
-
-	return formatResourceOutput(pods, output)
+	return k.runKubectlCommand(ctx, args)
 }
 
-func (k *K8sTool) getServicesNative(ctx context.Context, name, namespace string, allNamespaces bool, output string) (*mcp.CallToolResult, error) {
-	var services *corev1.ServiceList
-	var err error
-
-	if name != "" {
-		service, err := k.client.clientset.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to get service: %v", err)), nil
-		}
-		services = &corev1.ServiceList{Items: []corev1.Service{*service}}
-	} else if allNamespaces {
-		services, err = k.client.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
-	} else {
-		services, err = k.client.clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
-	}
-
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to list services: %v", err)), nil
-	}
-
-	return formatResourceOutput(services, output)
-}
-
-func (k *K8sTool) getDeploymentsNative(ctx context.Context, name, namespace string, allNamespaces bool, output string) (*mcp.CallToolResult, error) {
-	var deployments *v1.DeploymentList
-	var err error
-
-	if name != "" {
-		deployment, err := k.client.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to get deployment: %v", err)), nil
-		}
-		deployments = &v1.DeploymentList{Items: []v1.Deployment{*deployment}}
-	} else if allNamespaces {
-		deployments, err = k.client.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
-	} else {
-		deployments, err = k.client.clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
-	}
-
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to list deployments: %v", err)), nil
-	}
-
-	return formatResourceOutput(deployments, output)
-}
-
-func (k *K8sTool) getConfigMapsNative(ctx context.Context, name, namespace string, allNamespaces bool, output string) (*mcp.CallToolResult, error) {
-	var configMaps *corev1.ConfigMapList
-	var err error
-
-	if name != "" {
-		configMap, err := k.client.clientset.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to get configmap: %v", err)), nil
-		}
-		configMaps = &corev1.ConfigMapList{Items: []corev1.ConfigMap{*configMap}}
-	} else if allNamespaces {
-		configMaps, err = k.client.clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
-	} else {
-		configMaps, err = k.client.clientset.CoreV1().ConfigMaps(namespace).List(ctx, metav1.ListOptions{})
-	}
-
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to list configmaps: %v", err)), nil
-	}
-
-	return formatResourceOutput(configMaps, output)
-}
-
-func formatResourceOutput(data interface{}, output string) (*mcp.CallToolResult, error) {
-	if output == "json" || output == "" {
-		jsonData, err := json.MarshalIndent(data, "", "  ")
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal JSON: %v", err)), nil
-		}
-		return mcp.NewToolResultText(string(jsonData)), nil
-	}
-
-	// For other output formats, convert to string representation
-	jsonData, _ := json.Marshal(data)
-	return mcp.NewToolResultText(string(jsonData)), nil
-}
-
-// Enhanced get pod logs with native client
+// Get pod logs
 func (k *K8sTool) handleKubectlLogsEnhanced(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	podName := mcp.ParseString(request, "pod_name", "")
 	namespace := mcp.ParseString(request, "namespace", "default")
@@ -186,24 +76,20 @@ func (k *K8sTool) handleKubectlLogsEnhanced(ctx context.Context, request mcp.Cal
 		return mcp.NewToolResultError("pod_name parameter is required"), nil
 	}
 
-	lines := int64(tailLines)
-	logOptions := &corev1.PodLogOptions{
-		TailLines: &lines,
-	}
+	args := []string{"logs", podName, "-n", namespace}
 
 	if container != "" {
-		logOptions.Container = container
+		args = append(args, "-c", container)
 	}
 
-	logs, err := k.client.clientset.CoreV1().Pods(namespace).GetLogs(podName, logOptions).DoRaw(ctx)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get pod logs: %v", err)), nil
+	if tailLines > 0 {
+		args = append(args, "--tail", fmt.Sprintf("%d", tailLines))
 	}
 
-	return mcp.NewToolResultText(string(logs)), nil
+	return k.runKubectlCommand(ctx, args)
 }
 
-// Scale deployment using native client
+// Scale deployment
 func (k *K8sTool) handleScaleDeployment(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	deploymentName := mcp.ParseString(request, "name", "")
 	namespace := mcp.ParseString(request, "namespace", "default")
@@ -213,23 +99,12 @@ func (k *K8sTool) handleScaleDeployment(ctx context.Context, request mcp.CallToo
 		return mcp.NewToolResultError("name parameter is required"), nil
 	}
 
-	deployment, err := k.client.clientset.AppsV1().Deployments(namespace).Get(ctx, deploymentName, metav1.GetOptions{})
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get deployment: %v", err)), nil
-	}
+	args := []string{"scale", "deployment", deploymentName, "--replicas", fmt.Sprintf("%d", replicas), "-n", namespace}
 
-	replicasInt32 := int32(replicas)
-	deployment.Spec.Replicas = &replicasInt32
-
-	_, err = k.client.clientset.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to scale deployment: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(fmt.Sprintf("Deployment %s scaled to %d replicas", deploymentName, replicas)), nil
+	return k.runKubectlCommand(ctx, args)
 }
 
-// Patch resource using native client
+// Patch resource
 func (k *K8sTool) handlePatchResource(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceName := mcp.ParseString(request, "resource_name", "")
@@ -240,12 +115,9 @@ func (k *K8sTool) handlePatchResource(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultError("resource_type, resource_name, and patch parameters are required"), nil
 	}
 
-	_, err := k.client.clientset.CoreV1().Pods(namespace).Patch(ctx, resourceName, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{})
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to patch resource: %v", err)), nil
-	}
+	args := []string{"patch", resourceType, resourceName, "-p", patch, "-n", namespace}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s patched successfully", resourceType, resourceName)), nil
+	return k.runKubectlCommand(ctx, args)
 }
 
 // Apply manifest from content
@@ -256,9 +128,6 @@ func (k *K8sTool) handleApplyManifest(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultError("manifest parameter is required"), nil
 	}
 
-	// This handler still uses kubectl apply, which is not ideal for native Go implementation.
-	// For a pure Go approach, we would parse the manifest and use the appropriate client to create/update resources.
-	// This is a complex task and for now we will keep the kubectl fallback.
 	tmpFile, err := os.CreateTemp("", "manifest-*.yaml")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to create temp file: %v", err)), nil
@@ -273,7 +142,7 @@ func (k *K8sTool) handleApplyManifest(ctx context.Context, request mcp.CallToolR
 	return k.runKubectlCommand(ctx, []string{"apply", "-f", tmpFile.Name()})
 }
 
-// Delete resource using native client
+// Delete resource
 func (k *K8sTool) handleDeleteResource(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceName := mcp.ParseString(request, "resource_name", "")
@@ -283,30 +152,9 @@ func (k *K8sTool) handleDeleteResource(ctx context.Context, request mcp.CallTool
 		return mcp.NewToolResultError("resource_type and resource_name parameters are required"), nil
 	}
 
-	deletePolicy := metav1.DeletePropagationForeground
-	deleteOptions := metav1.DeleteOptions{
-		PropagationPolicy: &deletePolicy,
-	}
+	args := []string{"delete", resourceType, resourceName, "-n", namespace}
 
-	var err error
-	switch resourceType {
-	case "pods", "pod":
-		err = k.client.clientset.CoreV1().Pods(namespace).Delete(ctx, resourceName, deleteOptions)
-	case "services", "service", "svc":
-		err = k.client.clientset.CoreV1().Services(namespace).Delete(ctx, resourceName, deleteOptions)
-	case "deployments", "deployment", "deploy":
-		err = k.client.clientset.AppsV1().Deployments(namespace).Delete(ctx, resourceName, deleteOptions)
-	case "configmaps", "configmap", "cm":
-		err = k.client.clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, resourceName, deleteOptions)
-	default:
-		return mcp.NewToolResultError(fmt.Sprintf("Unsupported resource type for deletion: %s", resourceType)), nil
-	}
-
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to delete resource: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s deleted successfully", resourceType, resourceName)), nil
+	return k.runKubectlCommand(ctx, args)
 }
 
 // Check service connectivity
@@ -318,36 +166,41 @@ func (k *K8sTool) handleCheckServiceConnectivity(ctx context.Context, request mc
 		return mcp.NewToolResultError("service_name parameter is required"), nil
 	}
 
-	// This is a complex operation to perform natively, involving creating a temporary pod.
-	// We'll keep the kubectl approach for this tool for now.
+	// Create a temporary curl pod for connectivity check
 	podName := fmt.Sprintf("curl-test-%d", rand.Intn(10000))
 	defer k.runKubectlCommand(ctx, []string{"delete", "pod", podName, "-n", namespace, "--ignore-not-found"})
 
+	// Create the curl pod
 	_, err := k.runKubectlCommand(ctx, []string{"run", podName, "--image=curlimages/curl", "-n", namespace, "--restart=Never", "--", "sleep", "3600"})
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to create curl pod: %v", err)), nil
 	}
 
+	// Wait for pod to be ready
 	_, err = k.runKubectlCommand(ctx, []string{"wait", "--for=condition=ready", "pod/" + podName, "-n", namespace, "--timeout=60s"})
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to wait for curl pod: %v", err)), nil
 	}
 
+	// Execute curl command
 	return k.runKubectlCommand(ctx, []string{"exec", podName, "-n", namespace, "--", "curl", "-s", serviceName})
 }
 
-// Get cluster events using native client
+// Get cluster events
 func (k *K8sTool) handleGetEvents(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	namespace := mcp.ParseString(request, "namespace", "")
 
-	events, err := k.client.clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get events: %v", err)), nil
+	args := []string{"get", "events", "-o", "json"}
+	if namespace != "" {
+		args = append(args, "-n", namespace)
+	} else {
+		args = append(args, "--all-namespaces")
 	}
-	return formatResourceOutput(events, "json")
+
+	return k.runKubectlCommand(ctx, args)
 }
 
-// Execute command in pod using native client
+// Execute command in pod
 func (k *K8sTool) handleExecCommand(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	podName := mcp.ParseString(request, "pod_name", "")
 	namespace := mcp.ParseString(request, "namespace", "default")
@@ -357,46 +210,22 @@ func (k *K8sTool) handleExecCommand(ctx context.Context, request mcp.CallToolReq
 		return mcp.NewToolResultError("pod_name and command parameters are required"), nil
 	}
 
-	// This handler uses kubectl exec.
-	return k.runKubectlCommand(ctx, []string{"exec", podName, "-n", namespace, "--", command})
-}
-
-// Fallback to kubectl command for get operations
-func (k *K8sTool) handleKubectlGetTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resourceType := mcp.ParseString(request, "resource_type", "")
-	resourceName := mcp.ParseString(request, "resource_name", "")
-	namespace := mcp.ParseString(request, "namespace", "")
-	output := mcp.ParseString(request, "output", "wide")
-	allNamespaces := mcp.ParseBoolean(request, "all_namespaces", false)
-
-	if resourceType == "" {
-		return mcp.NewToolResultError("resource_type parameter is required"), nil
-	}
-
-	args := []string{"get", resourceType}
-
-	if resourceName != "" {
-		args = append(args, resourceName)
-	}
-
-	if namespace != "" {
-		args = append(args, "-n", namespace)
-	}
-
-	if allNamespaces {
-		args = append(args, "-A")
-	}
-
-	if output != "" {
-		args = append(args, "-o", output)
-	} else {
-		args = append(args, "-o", "json")
-	}
+	args := []string{"exec", podName, "-n", namespace, "--", command}
 
 	return k.runKubectlCommand(ctx, args)
 }
 
-// Fallback to kubectl command for describe operations
+// Get available API resources
+func (k *K8sTool) handleGetAvailableAPIResources(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return k.runKubectlCommand(ctx, []string{"api-resources", "-o", "json"})
+}
+
+// Kubectl get tool (fallback)
+func (k *K8sTool) handleKubectlGetTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return k.handleKubectlGetEnhanced(ctx, request)
+}
+
+// Kubectl describe tool
 func (k *K8sTool) handleKubectlDescribeTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceName := mcp.ParseString(request, "resource_name", "")
@@ -414,29 +243,7 @@ func (k *K8sTool) handleKubectlDescribeTool(ctx context.Context, request mcp.Cal
 	return k.runKubectlCommand(ctx, args)
 }
 
-func (k *K8sTool) runKubectlCommand(ctx context.Context, args []string) (*mcp.CallToolResult, error) {
-	result, err := utils.RunCommandWithContext(ctx, "kubectl", args)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	return mcp.NewToolResultText(result), nil
-}
-
-func (k *K8sTool) handleGetAvailableAPIResources(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	serverResources, err := k.client.clientset.Discovery().ServerPreferredResources()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get available API resources: %v", err)), nil
-	}
-
-	// We can format this into a more readable string or return the JSON
-	jsonData, err := json.MarshalIndent(serverResources, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal JSON: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonData)), nil
-}
-
+// Rollout operations
 func (k *K8sTool) handleRollout(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	action := mcp.ParseString(request, "action", "")
 	resourceType := mcp.ParseString(request, "resource_type", "")
@@ -455,10 +262,12 @@ func (k *K8sTool) handleRollout(ctx context.Context, request mcp.CallToolRequest
 	return k.runKubectlCommand(ctx, args)
 }
 
+// Get cluster configuration
 func (k *K8sTool) handleGetClusterConfiguration(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return k.runKubectlCommand(ctx, []string{"config", "view"})
 }
 
+// Remove annotation
 func (k *K8sTool) handleRemoveAnnotation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceName := mcp.ParseString(request, "resource_name", "")
@@ -477,6 +286,7 @@ func (k *K8sTool) handleRemoveAnnotation(ctx context.Context, request mcp.CallTo
 	return k.runKubectlCommand(ctx, args)
 }
 
+// Remove label
 func (k *K8sTool) handleRemoveLabel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceName := mcp.ParseString(request, "resource_name", "")
@@ -495,6 +305,7 @@ func (k *K8sTool) handleRemoveLabel(ctx context.Context, request mcp.CallToolReq
 	return k.runKubectlCommand(ctx, args)
 }
 
+// Annotate resource
 func (k *K8sTool) handleAnnotateResource(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceName := mcp.ParseString(request, "resource_name", "")
@@ -515,6 +326,7 @@ func (k *K8sTool) handleAnnotateResource(ctx context.Context, request mcp.CallTo
 	return k.runKubectlCommand(ctx, args)
 }
 
+// Label resource
 func (k *K8sTool) handleLabelResource(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceName := mcp.ParseString(request, "resource_name", "")
@@ -535,6 +347,7 @@ func (k *K8sTool) handleLabelResource(ctx context.Context, request mcp.CallToolR
 	return k.runKubectlCommand(ctx, args)
 }
 
+// Create resource from URL
 func (k *K8sTool) handleCreateResourceFromURL(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	url := mcp.ParseString(request, "url", "")
 	namespace := mcp.ParseString(request, "namespace", "")
@@ -551,6 +364,7 @@ func (k *K8sTool) handleCreateResourceFromURL(ctx context.Context, request mcp.C
 	return k.runKubectlCommand(ctx, args)
 }
 
+// Resource generation embeddings
 var (
 	//go:embed resources/istio/peer_auth.md
 	istioAuthPolicy string
@@ -594,6 +408,7 @@ var (
 	resourceTypes = maps.Keys(resourceMap)
 )
 
+// Generate resource using LLM
 func (k *K8sTool) handleGenerateResource(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceDescription := mcp.ParseString(request, "resource_description", "")
@@ -620,7 +435,6 @@ func (k *K8sTool) handleGenerateResource(ctx context.Context, request mcp.CallTo
 				llms.TextContent{Text: systemPrompt},
 			},
 		},
-
 		{
 			Role: llms.ChatMessageTypeHuman,
 			Parts: []llms.ContentPart{
@@ -642,7 +456,20 @@ func (k *K8sTool) handleGenerateResource(ctx context.Context, request mcp.CallTo
 	return mcp.NewToolResultText(c1.Content), nil
 }
 
-func RegisterK8sTools(s *server.MCPServer) {
+// Helper function to run kubectl commands
+func (k *K8sTool) runKubectlCommand(ctx context.Context, args []string) (*mcp.CallToolResult, error) {
+	if k.kubeconfig != "" {
+		args = append([]string{"--kubeconfig", k.kubeconfig}, args...)
+	}
+	result, err := utils.RunCommandWithContext(ctx, "kubectl", args)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(result), nil
+}
+
+// RegisterK8sTools registers all k8s tools with the MCP server
+func RegisterK8sTools(s *server.MCPServer, kubeconfig string) {
 	var llm llms.Model
 	if openAiClient, err := openai.New(); err == nil {
 		llm = openAiClient
@@ -650,25 +477,19 @@ func RegisterK8sTools(s *server.MCPServer) {
 		logger.Get().Error(err, "Failed to initialize OpenAI LLM, k8s_generate_resource tool will not be available")
 	}
 
-	k8sTool, err := NewK8sTool(llm)
-	if err != nil {
-		// Log the error and proceed without native tool implementations
-		logger.Get().Info("Failed to initialize Kubernetes client, falling back to kubectl commands",
-			"level", "warn", "error", err.Error())
-		// Here you could register the pure-kubectl versions of the tools as a fallback
-		return
-	}
+	k8sTool := NewK8sToolWithConfig(kubeconfig, llm)
+
 	s.AddTool(mcp.NewTool("k8s_get_resources",
-		mcp.WithDescription("Get Kubernetes resources using kubectl with enhanced native client support"),
+		mcp.WithDescription("Get Kubernetes resources using kubectl"),
 		mcp.WithString("resource_type", mcp.Description("Type of resource (pod, service, deployment, etc.)"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("Name of specific resource (optional)")),
 		mcp.WithString("namespace", mcp.Description("Namespace to query (optional)")),
-		mcp.WithBoolean("all_namespaces", mcp.Description("Query all namespaces (true/false)")),
+		mcp.WithString("all_namespaces", mcp.Description("Query all namespaces (true/false)")),
 		mcp.WithString("output", mcp.Description("Output format (json, yaml, wide, etc.)")),
-	), k8sTool.handleKubectlGetTool)
+	), k8sTool.handleKubectlGetEnhanced)
 
 	s.AddTool(mcp.NewTool("k8s_get_pod_logs",
-		mcp.WithDescription("Get logs from a Kubernetes pod with enhanced native client support"),
+		mcp.WithDescription("Get logs from a Kubernetes pod"),
 		mcp.WithString("pod_name", mcp.Description("Name of the pod"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace of the pod (default: default)")),
 		mcp.WithString("container", mcp.Description("Container name (for multi-container pods)")),
@@ -676,7 +497,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 	), k8sTool.handleKubectlLogsEnhanced)
 
 	s.AddTool(mcp.NewTool("k8s_scale",
-		mcp.WithDescription("Scale a Kubernetes deployment using native client"),
+		mcp.WithDescription("Scale a Kubernetes deployment"),
 		mcp.WithString("name", mcp.Description("Name of the deployment"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace of the deployment (default: default)")),
 		mcp.WithNumber("replicas", mcp.Description("Number of replicas"), mcp.Required()),
@@ -696,7 +517,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 	), k8sTool.handleApplyManifest)
 
 	s.AddTool(mcp.NewTool("k8s_delete_resource",
-		mcp.WithDescription("Delete a Kubernetes resource using native client"),
+		mcp.WithDescription("Delete a Kubernetes resource"),
 		mcp.WithString("resource_type", mcp.Description("Type of resource (pod, service, deployment, etc.)"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("Name of the resource"), mcp.Required()),
 		mcp.WithString("namespace", mcp.Description("Namespace of the resource (default: default)")),
@@ -709,7 +530,7 @@ func RegisterK8sTools(s *server.MCPServer) {
 	), k8sTool.handleCheckServiceConnectivity)
 
 	s.AddTool(mcp.NewTool("k8s_get_events",
-		mcp.WithDescription("Get Kubernetes cluster events using native client"),
+		mcp.WithDescription("Get Kubernetes cluster events"),
 		mcp.WithString("namespace", mcp.Description("Namespace to query events from (optional, default: all namespaces)")),
 	), k8sTool.handleGetEvents)
 

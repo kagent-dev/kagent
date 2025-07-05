@@ -18,7 +18,7 @@ func handleGetCurrentDateTimeTool(ctx context.Context, request mcp.CallToolReque
 	return mcp.NewToolResultText(now.Format(time.RFC3339)), nil
 }
 
-func RegisterDateTimeTools(s *server.MCPServer) {
+func RegisterDateTimeTools(s *server.MCPServer, kubeconfig string) {
 	// Register the GetCurrentDateTime tool to match Python implementation exactly
 	s.AddTool(mcp.NewTool("datetime_get_current_time",
 		mcp.WithDescription("Returns the current date and time in ISO 8601 format."),
