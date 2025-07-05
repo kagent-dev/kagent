@@ -69,15 +69,12 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-controller
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-ui
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-app
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-tools
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --platform=linux/amd64
             --load
         run: |
+          echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
           kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
 
@@ -184,9 +181,8 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDX_BUILDER_NAME: kagent-builder-main
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
-            --cache-to=type=gha,mode=min,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
             --platform=linux/amd64,linux/arm64
             --output=type=tar,dest=/dev/null
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
