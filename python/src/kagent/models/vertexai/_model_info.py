@@ -6,19 +6,27 @@ from .types import ModelInfoDict
 
 # https://ai.google.dev/gemini-api/docs/models
 _MODEL_INFO: ModelInfoDict = {
-    "gemini-2.5-flash-preview-05-20": {
+    "gemini-2.5-flash": {
         "vision": False,
         "function_calling": True,
         "json_output": True,
-        "family": "gemini-2.0-flash",
+        "family": "gemini-2.5-flash",
         "structured_output": True,
         "multiple_system_messages": False,
     },
-    "gemini-2.5-pro-preview-05-06": {
+    "gemini-2.5-pro": {
         "vision": False,
         "function_calling": True,
         "json_output": True,
         "family": "gemini-2.5-pro",
+        "structured_output": True,
+        "multiple_system_messages": False,
+    },
+    "gemini-2.5-flash-lite-preview-06-17": {
+        "vision": False,
+        "function_calling": True,
+        "json_output": True,
+        "family": "gemini-2.5-flash",
         "structured_output": True,
         "multiple_system_messages": False,
     },
@@ -106,8 +114,9 @@ _MODEL_INFO: ModelInfoDict = {
 
 # Model token limits (context window size)
 _MODEL_TOKEN_LIMITS: Dict[str, int] = {
-    "gemini-2.5-flash-preview-05-20": 1_048_576,
-    "gemini-2.5-pro-preview-05-06": 1_048_576,
+    "gemini-2.5-flash": 1_048_576,
+    "gemini-2.5-pro": 1_048_576,
+    "gemini-2.5-flash-lite-preview-06-17": 1_048_576,
     "gemini-2.0-flash": 1_048_576,
     "gemini-2.0-flash-lite": 1_048_576,
     "claude-sonnet-4@20250514": 64_000,
