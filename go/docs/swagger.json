@@ -7,6 +7,262 @@
         "version": "1.0"
     },
     "paths": {
+        "/api/modelconfigs": {
+            "get": {
+                "description": "Retrieves a list of all ModelConfig resources across all namespaces",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ModelConfigs"
+                ],
+                "summary": "List all ModelConfigs",
+                "responses": {
+                    "200": {
+                        "description": "List of ModelConfigs",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/controller_internal_httpserver_handlers.ModelConfigResponse"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a new ModelConfig resource with the specified configuration",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ModelConfigs"
+                ],
+                "summary": "Create a new ModelConfig",
+                "parameters": [
+                    {
+                        "description": "ModelConfig creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/controller_internal_httpserver_handlers.CreateModelConfigRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created ModelConfig",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelConfig"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request - invalid input",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict - ModelConfig already exists",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/modelconfigs/{namespace}/{configName}": {
+            "get": {
+                "description": "Retrieves a specific ModelConfig by namespace and name",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ModelConfigs"
+                ],
+                "summary": "Get a specific ModelConfig",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Namespace of the ModelConfig",
+                        "name": "namespace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Name of the ModelConfig",
+                        "name": "configName",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ModelConfig details",
+                        "schema": {
+                            "$ref": "#/definitions/controller_internal_httpserver_handlers.ModelConfigResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request - invalid parameters",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "ModelConfig not found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Updates an existing ModelConfig resource",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ModelConfigs"
+                ],
+                "summary": "Update an existing ModelConfig",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Namespace of the ModelConfig",
+                        "name": "namespace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Name of the ModelConfig",
+                        "name": "configName",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "ModelConfig update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/controller_internal_httpserver_handlers.UpdateModelConfigRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Updated ModelConfig",
+                        "schema": {
+                            "$ref": "#/definitions/controller_internal_httpserver_handlers.ModelConfigResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request - invalid input",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "ModelConfig not found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Deletes a specific ModelConfig resource",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ModelConfigs"
+                ],
+                "summary": "Delete a ModelConfig",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Namespace of the ModelConfig",
+                        "name": "namespace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Name of the ModelConfig",
+                        "name": "configName",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ModelConfig deleted successfully",
+                        "schema": {}
+                    },
+                    "400": {
+                        "description": "Bad request - invalid parameters",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "ModelConfig not found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns 200 OK if the service is alive",
@@ -24,6 +280,695 @@
                             "type": "string"
                         }
                     }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "controller_internal_httpserver_handlers.CreateModelConfigRequest": {
+            "type": "object",
+            "properties": {
+                "anthropic": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AnthropicConfig"
+                },
+                "apiKey": {
+                    "type": "string"
+                },
+                "azureOpenAI": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AzureOpenAIConfig"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "ollama": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.OllamaConfig"
+                },
+                "openAI": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.OpenAIConfig"
+                },
+                "provider": {
+                    "$ref": "#/definitions/controller_internal_httpserver_handlers.Provider"
+                },
+                "ref": {
+                    "type": "string"
+                }
+            }
+        },
+        "controller_internal_httpserver_handlers.ModelConfigResponse": {
+            "type": "object",
+            "properties": {
+                "apiKeySecretKey": {
+                    "type": "string"
+                },
+                "apiKeySecretRef": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "modelParams": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "providerName": {
+                    "type": "string"
+                },
+                "ref": {
+                    "type": "string"
+                }
+            }
+        },
+        "controller_internal_httpserver_handlers.Provider": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "controller_internal_httpserver_handlers.UpdateModelConfigRequest": {
+            "type": "object",
+            "properties": {
+                "anthropic": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AnthropicConfig"
+                },
+                "apiKey": {
+                    "type": "string"
+                },
+                "azureOpenAI": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AzureOpenAIConfig"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "ollama": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.OllamaConfig"
+                },
+                "openAI": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.OpenAIConfig"
+                },
+                "provider": {
+                    "$ref": "#/definitions/controller_internal_httpserver_handlers.Provider"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AnthropicConfig": {
+            "type": "object",
+            "properties": {
+                "baseUrl": {
+                    "description": "Base URL for the Anthropic API (overrides default)\n+optional",
+                    "type": "string"
+                },
+                "maxTokens": {
+                    "description": "Maximum tokens to generate\n+optional",
+                    "type": "integer"
+                },
+                "temperature": {
+                    "description": "Temperature for sampling\n+optional",
+                    "type": "string"
+                },
+                "topK": {
+                    "description": "Top-k sampling parameter\n+optional",
+                    "type": "integer"
+                },
+                "topP": {
+                    "description": "Top-p sampling parameter\n+optional",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AnthropicVertexAIConfig": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "description": "The project location\n+required",
+                    "type": "string"
+                },
+                "maxTokens": {
+                    "description": "Maximum tokens to generate\n+optional",
+                    "type": "integer"
+                },
+                "projectID": {
+                    "description": "The project ID\n+required",
+                    "type": "string"
+                },
+                "stopSequences": {
+                    "description": "Stop sequences\n+optional",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "temperature": {
+                    "description": "Temperature\n+optional",
+                    "type": "string"
+                },
+                "topK": {
+                    "description": "Top-k sampling parameter\n+optional",
+                    "type": "string"
+                },
+                "topP": {
+                    "description": "Top-p sampling parameter\n+optional",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AzureOpenAIConfig": {
+            "type": "object",
+            "properties": {
+                "apiVersion": {
+                    "description": "API version for the Azure OpenAI API\n+required",
+                    "type": "string"
+                },
+                "azureAdToken": {
+                    "description": "Azure AD token for authentication\n+optional",
+                    "type": "string"
+                },
+                "azureDeployment": {
+                    "description": "Deployment name for the Azure OpenAI API\n+optional",
+                    "type": "string"
+                },
+                "azureEndpoint": {
+                    "description": "Endpoint for the Azure OpenAI API\n+required",
+                    "type": "string"
+                },
+                "maxTokens": {
+                    "description": "Maximum tokens to generate\n+optional",
+                    "type": "integer"
+                },
+                "temperature": {
+                    "description": "Temperature for sampling\n+optional",
+                    "type": "string"
+                },
+                "topP": {
+                    "description": "Top-p sampling parameter\n+optional",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.GeminiVertexAIConfig": {
+            "type": "object",
+            "properties": {
+                "candidateCount": {
+                    "description": "Candidate count\n+optional",
+                    "type": "integer"
+                },
+                "location": {
+                    "description": "The project location\n+required",
+                    "type": "string"
+                },
+                "maxOutputTokens": {
+                    "description": "Maximum output tokens\n+optional",
+                    "type": "integer"
+                },
+                "projectID": {
+                    "description": "The project ID\n+required",
+                    "type": "string"
+                },
+                "responseMimeType": {
+                    "description": "Response mime type\n+optional",
+                    "type": "string"
+                },
+                "stopSequences": {
+                    "description": "Stop sequences\n+optional",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "temperature": {
+                    "description": "Temperature\n+optional",
+                    "type": "string"
+                },
+                "topK": {
+                    "description": "Top-k sampling parameter\n+optional",
+                    "type": "string"
+                },
+                "topP": {
+                    "description": "Top-p sampling parameter\n+optional",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelConfig": {
+            "type": "object",
+            "properties": {
+                "apiVersion": {
+                    "description": "APIVersion defines the versioned schema of this representation of an object.\nServers should convert recognized schemas to the latest internal value, and\nmay reject unrecognized values.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources\n+optional",
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is a string value representing the REST resource this object represents.\nServers may infer this from the endpoint the client submits requests to.\nCannot be updated.\nIn CamelCase.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds\n+optional",
+                    "type": "string"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/v1.ObjectMeta"
+                },
+                "spec": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelConfigSpec"
+                },
+                "status": {
+                    "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelConfigStatus"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelConfigSpec": {
+            "type": "object",
+            "properties": {
+                "anthropic": {
+                    "description": "Anthropic-specific configuration\n+optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AnthropicConfig"
+                        }
+                    ]
+                },
+                "anthropicVertexAI": {
+                    "description": "Anthropic-specific configuration\n+optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AnthropicVertexAIConfig"
+                        }
+                    ]
+                },
+                "apiKeySecretKey": {
+                    "description": "The key in the secret that contains the API key\n+optional",
+                    "type": "string"
+                },
+                "apiKeySecretRef": {
+                    "description": "The reference to the secret that contains the API key. Can either be a reference to the name of a secret in the same namespace as the referencing ModelConfig, or a reference to the name of a Secret in a different namespace in the form \u003cnamespace\u003e/\u003cname\u003e\n+optional",
+                    "type": "string"
+                },
+                "azureOpenAI": {
+                    "description": "Azure OpenAI-specific configuration\n+optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.AzureOpenAIConfig"
+                        }
+                    ]
+                },
+                "defaultHeaders": {
+                    "description": "+optional",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "geminiVertexAI": {
+                    "description": "Gemini-specific configuration\n+optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.GeminiVertexAIConfig"
+                        }
+                    ]
+                },
+                "model": {
+                    "type": "string"
+                },
+                "modelInfo": {
+                    "description": "ModelInfo contains information about the model.\nThis field is required if the model is not one of the\npre-defined autogen models. That list can be found here:\n+optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelInfo"
+                        }
+                    ]
+                },
+                "ollama": {
+                    "description": "Ollama-specific configuration\n+optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.OllamaConfig"
+                        }
+                    ]
+                },
+                "openAI": {
+                    "description": "OpenAI-specific configuration\n+optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.OpenAIConfig"
+                        }
+                    ]
+                },
+                "provider": {
+                    "description": "The provider of the model\n+kubebuilder:default=OpenAI",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelProvider"
+                        }
+                    ]
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelConfigStatus": {
+            "type": "object",
+            "properties": {
+                "conditions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/v1.Condition"
+                    }
+                },
+                "observedGeneration": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelInfo": {
+            "type": "object",
+            "properties": {
+                "family": {
+                    "description": "+optional",
+                    "type": "string"
+                },
+                "functionCalling": {
+                    "description": "+optional",
+                    "type": "boolean"
+                },
+                "jsonOutput": {
+                    "description": "+optional",
+                    "type": "boolean"
+                },
+                "multipleSystemMessages": {
+                    "description": "+optional",
+                    "type": "boolean"
+                },
+                "structuredOutput": {
+                    "description": "+optional",
+                    "type": "boolean"
+                },
+                "vision": {
+                    "description": "+optional",
+                    "type": "boolean"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.ModelProvider": {
+            "type": "string",
+            "enum": [
+                "Anthropic",
+                "AzureOpenAI",
+                "OpenAI",
+                "Ollama",
+                "GeminiVertexAI",
+                "AnthropicVertexAI"
+            ],
+            "x-enum-varnames": [
+                "Anthropic",
+                "AzureOpenAI",
+                "OpenAI",
+                "Ollama",
+                "GeminiVertexAI",
+                "AnthropicVertexAI"
+            ]
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.OllamaConfig": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "description": "Host for the Ollama API\n+optional",
+                    "type": "string"
+                },
+                "options": {
+                    "description": "Options for the Ollama API\n+optional",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_api_v1alpha1.OpenAIConfig": {
+            "type": "object",
+            "properties": {
+                "baseUrl": {
+                    "description": "Base URL for the OpenAI API (overrides default)\n+optional",
+                    "type": "string"
+                },
+                "frequencyPenalty": {
+                    "description": "Frequency penalty\n+optional",
+                    "type": "string"
+                },
+                "maxTokens": {
+                    "description": "Maximum tokens to generate\n+optional",
+                    "type": "integer"
+                },
+                "n": {
+                    "description": "N value",
+                    "type": "integer"
+                },
+                "organization": {
+                    "description": "Organization ID for the OpenAI API\n+optional",
+                    "type": "string"
+                },
+                "presencePenalty": {
+                    "description": "Presence penalty\n+optional",
+                    "type": "string"
+                },
+                "seed": {
+                    "description": "Seed value\n+optional",
+                    "type": "integer"
+                },
+                "temperature": {
+                    "description": "Temperature for sampling\n+optional",
+                    "type": "string"
+                },
+                "timeout": {
+                    "description": "Timeout",
+                    "type": "integer"
+                },
+                "topP": {
+                    "description": "Top-p sampling parameter\n+optional",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kagent-dev_kagent_go_controller_internal_httpserver_errors.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer",
+                    "example": 404
+                },
+                "error": {
+                    "type": "string",
+                    "example": "Resource not found"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "The requested ModelConfig was not found"
+                }
+            }
+        },
+        "k8s_io_apimachinery_pkg_apis_meta_v1.ConditionStatus": {
+            "type": "string",
+            "enum": [
+                "True",
+                "False",
+                "Unknown"
+            ],
+            "x-enum-varnames": [
+                "ConditionTrue",
+                "ConditionFalse",
+                "ConditionUnknown"
+            ]
+        },
+        "v1.Condition": {
+            "type": "object",
+            "properties": {
+                "lastTransitionTime": {
+                    "description": "lastTransitionTime is the last time the condition transitioned from one status to another.\nThis should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.\n+required\n+kubebuilder:validation:Required\n+kubebuilder:validation:Type=string\n+kubebuilder:validation:Format=date-time",
+                    "type": "string"
+                },
+                "message": {
+                    "description": "message is a human readable message indicating details about the transition.\nThis may be an empty string.\n+required\n+kubebuilder:validation:Required\n+kubebuilder:validation:MaxLength=32768",
+                    "type": "string"
+                },
+                "observedGeneration": {
+                    "description": "observedGeneration represents the .metadata.generation that the condition was set based upon.\nFor instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date\nwith respect to the current state of the instance.\n+optional\n+kubebuilder:validation:Minimum=0",
+                    "type": "integer"
+                },
+                "reason": {
+                    "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition.\nProducers of specific condition types may define expected values and meanings for this field,\nand whether the values are considered a guaranteed API.\nThe value should be a CamelCase string.\nThis field may not be empty.\n+required\n+kubebuilder:validation:Required\n+kubebuilder:validation:MaxLength=1024\n+kubebuilder:validation:MinLength=1\n+kubebuilder:validation:Pattern=`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "status of the condition, one of True, False, Unknown.\n+required\n+kubebuilder:validation:Required\n+kubebuilder:validation:Enum=True;False;Unknown",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/k8s_io_apimachinery_pkg_apis_meta_v1.ConditionStatus"
+                        }
+                    ]
+                },
+                "type": {
+                    "description": "type of condition in CamelCase or in foo.example.com/CamelCase.\n---\nMany .condition.type values are consistent across resources like Available, but because arbitrary conditions can be\nuseful (see .node.status.conditions), the ability to deconflict is important.\nThe regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)\n+required\n+kubebuilder:validation:Required\n+kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`\n+kubebuilder:validation:MaxLength=316",
+                    "type": "string"
+                }
+            }
+        },
+        "v1.FieldsV1": {
+            "type": "object"
+        },
+        "v1.ManagedFieldsEntry": {
+            "type": "object",
+            "properties": {
+                "apiVersion": {
+                    "description": "APIVersion defines the version of this resource that this field set\napplies to. The format is \"group/version\" just like the top-level\nAPIVersion field. It is necessary to track the version of a field\nset because it cannot be automatically converted.",
+                    "type": "string"
+                },
+                "fieldsType": {
+                    "description": "FieldsType is the discriminator for the different fields format and version.\nThere is currently only one possible value: \"FieldsV1\"",
+                    "type": "string"
+                },
+                "fieldsV1": {
+                    "description": "FieldsV1 holds the first JSON version format as described in the \"FieldsV1\" type.\n+optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/v1.FieldsV1"
+                        }
+                    ]
+                },
+                "manager": {
+                    "description": "Manager is an identifier of the workflow managing these fields.",
+                    "type": "string"
+                },
+                "operation": {
+                    "description": "Operation is the type of operation which lead to this ManagedFieldsEntry being created.\nThe only valid values for this field are 'Apply' and 'Update'.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/v1.ManagedFieldsOperationType"
+                        }
+                    ]
+                },
+                "subresource": {
+                    "description": "Subresource is the name of the subresource used to update that object, or\nempty string if the object was updated through the main resource. The\nvalue of this field is used to distinguish between managers, even if they\nshare the same name. For example, a status update will be distinct from a\nregular update using the same manager name.\nNote that the APIVersion field is not related to the Subresource field and\nit always corresponds to the version of the main resource.",
+                    "type": "string"
+                },
+                "time": {
+                    "description": "Time is the timestamp of when the ManagedFields entry was added. The\ntimestamp will also be updated if a field is added, the manager\nchanges any of the owned fields value or removes a field. The\ntimestamp does not update when a field is removed from the entry\nbecause another manager took it over.\n+optional",
+                    "type": "string"
+                }
+            }
+        },
+        "v1.ManagedFieldsOperationType": {
+            "type": "string",
+            "enum": [
+                "Apply",
+                "Update"
+            ],
+            "x-enum-varnames": [
+                "ManagedFieldsOperationApply",
+                "ManagedFieldsOperationUpdate"
+            ]
+        },
+        "v1.ObjectMeta": {
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "description": "Annotations is an unstructured key value map stored with a resource that may be\nset by external tools to store and retrieve arbitrary metadata. They are not\nqueryable and should be preserved when modifying objects.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations\n+optional",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "creationTimestamp": {
+                    "description": "CreationTimestamp is a timestamp representing the server time when this object was\ncreated. It is not guaranteed to be set in happens-before order across separate operations.\nClients may not set this value. It is represented in RFC3339 form and is in UTC.\n\nPopulated by the system.\nRead-only.\nNull for lists.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata\n+optional",
+                    "type": "string"
+                },
+                "deletionGracePeriodSeconds": {
+                    "description": "Number of seconds allowed for this object to gracefully terminate before\nit will be removed from the system. Only set when deletionTimestamp is also set.\nMay only be shortened.\nRead-only.\n+optional",
+                    "type": "integer"
+                },
+                "deletionTimestamp": {
+                    "description": "DeletionTimestamp is RFC 3339 date and time at which this resource will be deleted. This\nfield is set by the server when a graceful deletion is requested by the user, and is not\ndirectly settable by a client. The resource is expected to be deleted (no longer visible\nfrom resource lists, and not reachable by name) after the time in this field, once the\nfinalizers list is empty. As long as the finalizers list contains items, deletion is blocked.\nOnce the deletionTimestamp is set, this value may not be unset or be set further into the\nfuture, although it may be shortened or the resource may be deleted prior to this time.\nFor example, a user may request that a pod is deleted in 30 seconds. The Kubelet will react\nby sending a graceful termination signal to the containers in the pod. After that 30 seconds,\nthe Kubelet will send a hard termination signal (SIGKILL) to the container and after cleanup,\nremove the pod from the API. In the presence of network partitions, this object may still\nexist after this timestamp, until an administrator or automated process can determine the\nresource is fully terminated.\nIf not set, graceful deletion of the object has not been requested.\n\nPopulated by the system when a graceful deletion is requested.\nRead-only.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata\n+optional",
+                    "type": "string"
+                },
+                "finalizers": {
+                    "description": "Must be empty before the object is deleted from the registry. Each entry\nis an identifier for the responsible component that will remove the entry\nfrom the list. If the deletionTimestamp of the object is non-nil, entries\nin this list can only be removed.\nFinalizers may be processed and removed in any order.  Order is NOT enforced\nbecause it introduces significant risk of stuck finalizers.\nfinalizers is a shared field, any actor with permission can reorder it.\nIf the finalizer list is processed in order, then this can lead to a situation\nin which the component responsible for the first finalizer in the list is\nwaiting for a signal (field value, external system, or other) produced by a\ncomponent responsible for a finalizer later in the list, resulting in a deadlock.\nWithout enforced ordering finalizers are free to order amongst themselves and\nare not vulnerable to ordering changes in the list.\n+optional\n+patchStrategy=merge\n+listType=set",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "generateName": {
+                    "description": "GenerateName is an optional prefix, used by the server, to generate a unique\nname ONLY IF the Name field has not been provided.\nIf this field is used, the name returned to the client will be different\nthan the name passed. This value will also be combined with a unique suffix.\nThe provided value has the same validation rules as the Name field,\nand may be truncated by the length of the suffix required to make the value\nunique on the server.\n\nIf this field is specified and the generated name exists, the server will return a 409.\n\nApplied only if Name is not specified.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#idempotency\n+optional",
+                    "type": "string"
+                },
+                "generation": {
+                    "description": "A sequence number representing a specific generation of the desired state.\nPopulated by the system. Read-only.\n+optional",
+                    "type": "integer"
+                },
+                "labels": {
+                    "description": "Map of string keys and values that can be used to organize and categorize\n(scope and select) objects. May match selectors of replication controllers\nand services.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels\n+optional",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "managedFields": {
+                    "description": "ManagedFields maps workflow-id and version to the set of fields\nthat are managed by that workflow. This is mostly for internal\nhousekeeping, and users typically shouldn't need to set or\nunderstand this field. A workflow can be the user's name, a\ncontroller's name, or the name of a specific apply path like\n\"ci-cd\". The set of fields is always in the version that the\nworkflow used when modifying the object.\n\n+optional\n+listType=atomic",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/v1.ManagedFieldsEntry"
+                    }
+                },
+                "name": {
+                    "description": "Name must be unique within a namespace. Is required when creating resources, although\nsome resources may allow a client to request the generation of an appropriate name\nautomatically. Name is primarily intended for creation idempotence and configuration\ndefinition.\nCannot be updated.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names\n+optional",
+                    "type": "string"
+                },
+                "namespace": {
+                    "description": "Namespace defines the space within which each name must be unique. An empty namespace is\nequivalent to the \"default\" namespace, but \"default\" is the canonical representation.\nNot all objects are required to be scoped to a namespace - the value of this field for\nthose objects will be empty.\n\nMust be a DNS_LABEL.\nCannot be updated.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces\n+optional",
+                    "type": "string"
+                },
+                "ownerReferences": {
+                    "description": "List of objects depended by this object. If ALL objects in the list have\nbeen deleted, this object will be garbage collected. If this object is managed by a controller,\nthen an entry in this list will point to this controller, with the controller field set to true.\nThere cannot be more than one managing controller.\n+optional\n+patchMergeKey=uid\n+patchStrategy=merge\n+listType=map\n+listMapKey=uid",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/v1.OwnerReference"
+                    }
+                },
+                "resourceVersion": {
+                    "description": "An opaque value that represents the internal version of this object that can\nbe used by clients to determine when objects have changed. May be used for optimistic\nconcurrency, change detection, and the watch operation on a resource or set of resources.\nClients must treat these values as opaque and passed unmodified back to the server.\nThey may only be valid for a particular resource or set of resources.\n\nPopulated by the system.\nRead-only.\nValue must be treated as opaque by clients and .\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency\n+optional",
+                    "type": "string"
+                },
+                "selfLink": {
+                    "description": "Deprecated: selfLink is a legacy read-only field that is no longer populated by the system.\n+optional",
+                    "type": "string"
+                },
+                "uid": {
+                    "description": "UID is the unique in time and space value for this object. It is typically generated by\nthe server on successful creation of a resource and is not allowed to change on PUT\noperations.\n\nPopulated by the system.\nRead-only.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#uids\n+optional",
+                    "type": "string"
+                }
+            }
+        },
+        "v1.OwnerReference": {
+            "type": "object",
+            "properties": {
+                "apiVersion": {
+                    "description": "API version of the referent.",
+                    "type": "string"
+                },
+                "blockOwnerDeletion": {
+                    "description": "If true, AND if the owner has the \"foregroundDeletion\" finalizer, then\nthe owner cannot be deleted from the key-value store until this\nreference is removed.\nSee https://kubernetes.io/docs/concepts/architecture/garbage-collection/#foreground-deletion\nfor how the garbage collector interacts with this field and enforces the foreground deletion.\nDefaults to false.\nTo set this field, a user needs \"delete\" permission of the owner,\notherwise 422 (Unprocessable Entity) will be returned.\n+optional",
+                    "type": "boolean"
+                },
+                "controller": {
+                    "description": "If true, this reference points to the managing controller.\n+optional",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "description": "Kind of the referent.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name of the referent.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names",
+                    "type": "string"
+                },
+                "uid": {
+                    "description": "UID of the referent.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#uids",
+                    "type": "string"
                 }
             }
         }

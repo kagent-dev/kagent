@@ -37,6 +37,14 @@ func NewModelConfigHandler(base *Base) *ModelConfigHandler {
 }
 
 // HandleListModelConfigs handles GET /api/modelconfigs requests
+// @Summary List all ModelConfigs
+// @Description Retrieves a list of all ModelConfig resources across all namespaces
+// @Tags ModelConfigs
+// @Accept json
+// @Produce json
+// @Success 200 {array} ModelConfigResponse "List of ModelConfigs"
+// @Failure 500 {object} errors.ErrorResponse "Internal server error"
+// @Router /api/modelconfigs [get]
 func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "list")
 	log.Info("Listing ModelConfigs")
@@ -80,6 +88,18 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 }
 
 // HandleGetModelConfig handles GET /api/modelconfigs/{namespace}/{configName} requests
+// @Summary Get a specific ModelConfig
+// @Description Retrieves a specific ModelConfig by namespace and name
+// @Tags ModelConfigs
+// @Accept json
+// @Produce json
+// @Param namespace path string true "Namespace of the ModelConfig"
+// @Param configName path string true "Name of the ModelConfig"
+// @Success 200 {object} ModelConfigResponse "ModelConfig details"
+// @Failure 400 {object} errors.ErrorResponse "Bad request - invalid parameters"
+// @Failure 404 {object} errors.ErrorResponse "ModelConfig not found"
+// @Failure 500 {object} errors.ErrorResponse "Internal server error"
+// @Router /api/modelconfigs/{namespace}/{configName} [get]
 func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "get")
 	log.Info("Received request to get ModelConfig")
@@ -184,7 +204,18 @@ type Provider struct {
 	Type string `json:"type"`
 }
 
-// HandleCreateToolServer handles POST /api/modelconfigs requests
+// HandleCreateModelConfig handles POST /api/modelconfigs requests
+// @Summary Create a new ModelConfig
+// @Description Creates a new ModelConfig resource with the specified configuration
+// @Tags ModelConfigs
+// @Accept json
+// @Produce json
+// @Param request body CreateModelConfigRequest true "ModelConfig creation request"
+// @Success 201 {object} v1alpha1.ModelConfig "Created ModelConfig"
+// @Failure 400 {object} errors.ErrorResponse "Bad request - invalid input"
+// @Failure 409 {object} errors.ErrorResponse "Conflict - ModelConfig already exists"
+// @Failure 500 {object} errors.ErrorResponse "Internal server error"
+// @Router /api/modelconfigs [post]
 func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "create")
 	log.Info("Received request to create ModelConfig")
@@ -351,7 +382,20 @@ type UpdateModelConfigRequest struct {
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
 }
 
-// HandleUpdateModelConfig handles POST /api/modelconfigs/{namespace}/{configName} requests
+// HandleUpdateModelConfig handles PUT /api/modelconfigs/{namespace}/{configName} requests
+// @Summary Update an existing ModelConfig
+// @Description Updates an existing ModelConfig resource
+// @Tags ModelConfigs
+// @Accept json
+// @Produce json
+// @Param namespace path string true "Namespace of the ModelConfig"
+// @Param configName path string true "Name of the ModelConfig"
+// @Param request body UpdateModelConfigRequest true "ModelConfig update request"
+// @Success 200 {object} ModelConfigResponse "Updated ModelConfig"
+// @Failure 400 {object} errors.ErrorResponse "Bad request - invalid input"
+// @Failure 404 {object} errors.ErrorResponse "ModelConfig not found"
+// @Failure 500 {object} errors.ErrorResponse "Internal server error"
+// @Router /api/modelconfigs/{namespace}/{configName} [put]
 func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "update")
 	log.Info("Received request to update ModelConfig")
@@ -548,6 +592,18 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 }
 
 // HandleDeleteModelConfig handles DELETE /api/modelconfigs/{namespace}/{configName} requests
+// @Summary Delete a ModelConfig
+// @Description Deletes a specific ModelConfig resource
+// @Tags ModelConfigs
+// @Accept json
+// @Produce json
+// @Param namespace path string true "Namespace of the ModelConfig"
+// @Param configName path string true "Name of the ModelConfig"
+// @Success 200 {object} interface{} "ModelConfig deleted successfully"
+// @Failure 400 {object} errors.ErrorResponse "Bad request - invalid parameters"
+// @Failure 404 {object} errors.ErrorResponse "ModelConfig not found"
+// @Failure 500 {object} errors.ErrorResponse "Internal server error"
+// @Router /api/modelconfigs/{namespace}/{configName} [delete]
 func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "delete")
 	log.Info("Received request to delete ModelConfig")
