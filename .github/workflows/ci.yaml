@@ -11,12 +11,28 @@ env:
   # Cache key components for better organization
   CACHE_KEY_PREFIX: kagent-v2
   BRANCH_CACHE_KEY: ${{ github.head_ref || github.ref_name }}
-  
+  # Consistent builder configuration
+  BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
+  BUILDX_VERSION: v0.23.0
 jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - name: Generate cache keys
+        id: cache-key
+        run: |
+          # Generate branch-based cache key
+          BRANCH_KEY="${CACHE_KEY_PREFIX}-${BRANCH_CACHE_KEY}"
+          echo "key=${BRANCH_KEY}" >> $GITHUB_OUTPUT
+          echo "::notice title=Cache Key::Branch: ${BRANCH_KEY}"
+  test-e2e:
+    needs:
+      - setup
+    env:
+      VERSION: v0.0.1-test
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,30 +40,12 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64
-      - name: Generate cache keys
-        id: cache-key
-        run: |
-          echo "key=${CACHE_KEY_PREFIX}-${BRANCH_CACHE_KEY}" >> $GITHUB_OUTPUT
-      - name: cache
-        run: |
-          echo "Cache key: ${{ steps.cache-key.outputs.key }}"
-
-  e2e-test:
-    needs:
-      - setup
-    env:
-      VERSION: v0.0.1-test
-      BUILDX_BUILDER_NAME: kagent-builder-e2e
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          name: kagent-builder-e2e
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
           platforms: linux/amd64,linux/arm64
-          version: latest
           use: 'true'
 
       - name: Set up Helm
@@ -68,9 +66,11 @@ jobs:
       - name: Install Kagent
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
             --platform=linux/amd64
             --load
         run: |
@@ -148,9 +148,8 @@ jobs:
         run: npm run test
 
   # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
-  build-arm64:
-    needs:
-      - setup
+  build-multiarch:
+    needs: setup
     env:
       VERSION: v0.0.1-test
     strategy:
@@ -168,21 +167,21 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          name: kagent-builder-main
+          name: ${{ env.BUILDX_BUILDER_NAME }}
           platforms: linux/amd64,linux/arm64
-          version: latest
+          version: ${{ env.BUILDX_VERSION }}
           use: 'true'
       - name: Run make build
         env:
-          DOCKER_BUILDKIT: 1
-          BUILDX_BUILDER_NAME: kagent-builder-main
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
             --platform=linux/amd64,linux/arm64
             --output=type=tar,dest=/dev/null
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
