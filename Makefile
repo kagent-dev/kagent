@@ -53,6 +53,7 @@ TOOLS_UV_VERSION ?= 0.7.2
 TOOLS_BUN_VERSION ?= 1.2.16
 TOOLS_NODE_VERSION ?= 22.16.0
 TOOLS_PYTHON_VERSION ?= 3.12
+TOOLS_KIND_IMAGE_VERSION ?= 1.30.13
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
@@ -100,6 +101,7 @@ build-all: buildx-create
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
+	docker pull kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) || true
 	kind create cluster --name $(KIND_CLUSTER_NAME) --image kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) --config ./scripts/kind/kind-config.yaml
 
 .PHONY: use-kind-cluster
