@@ -16,6 +16,7 @@ ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_ROLLOUTS_VERSION
 ARG TOOLS_KUBECTL_VERSION
 ARG TOOLS_GRAFANA_MCP_VERSION
+ARG TOOLS_K8SGPT_VERSION
 
 WORKDIR /downloads
 
@@ -39,6 +40,13 @@ RUN curl -Lo helm.tar.gz https://get.helm.sh/helm-v${TOOLS_HELM_VERSION}-linux-$
 RUN curl -Lo /downloads/kubectl-argo-rollouts https://github.com/argoproj/argo-rollouts/releases/download/v${TOOLS_ARGO_ROLLOUTS_VERSION}/kubectl-argo-rollouts-linux-${TARGETARCH} \
     && chmod +x /downloads/kubectl-argo-rollouts \
     && /downloads/kubectl-argo-rollouts version
+
+# Install k8sgpt
+RUN curl -s -Lo k8sgpt.tar.gz https://github.com/k8sgpt-ai/k8sgpt/releases/download/v${TOOLS_K8SGPT_VERSION}/k8sgpt_Linux_${TARGETARCH}.tar.gz \
+    && tar -xvf k8sgpt.tar.gz \
+    && chmod +x k8sgpt \
+    && mv k8sgpt /downloads/k8sgpt \
+    && /downloads/k8sgpt version
 
 ### STAGE 2: build-tools MCP
 ARG BASE_IMAGE_REGISTRY=cgr.dev
@@ -85,6 +93,8 @@ COPY --from=tools --chown=65532:65532 /downloads/kubectl               /bin/kube
 COPY --from=tools --chown=65532:65532 /downloads/istioctl              /bin/istioctl
 COPY --from=tools --chown=65532:65532 /downloads/helm                  /bin/helm
 COPY --from=tools --chown=65532:65532 /downloads/kubectl-argo-rollouts /bin/kubectl-argo-rollouts
+COPY --from=tools --chown=65532:65532 /downloads/k8sgpt                /bin/k8sgpt
+
 # Copy the tool-server binary
 COPY --from=builder --chown=65532:65532 /workspace/tool-server           /tool-server
 

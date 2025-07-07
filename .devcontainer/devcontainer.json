@@ -9,7 +9,8 @@
       "TOOLS_K9S_VERSION": "0.50.4",
       "TOOLS_KIND_VERSION": "0.27.0",
       "TOOLS_ISTIO_VERSION": "1.26.0",
-      "TOOLS_KUBECTL_VERSION": "1.33.4"
+      "TOOLS_KUBECTL_VERSION": "1.33.4",
+      "TOOLS_K8SGPT_VERSION": "0.4.20"
     }
   },
   "features": {

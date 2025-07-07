@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +11,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/tools/pkg/k8sgpt"
+	"github.com/kagent-dev/kagent/go/tools/pkg/utils"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/tools/pkg/logger"
@@ -150,6 +152,7 @@ func registerMCP(mcp *server.MCPServer, enabledToolProviders []string) {
 		"istio":      istio.RegisterIstioTools,
 		"argo":       argo.RegisterArgoTools,
 		"cilium":     cilium.RegisterCiliumTools,
+		"k8sgpt":     k8sgpt.RegisterK8sgptTools,
 	}
 
 	// If no tools specified, register all tools
