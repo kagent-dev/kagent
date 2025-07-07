@@ -63,7 +63,7 @@ controller:
 tools:
   loglevel: "debug"
   image:
-    registry: cr.kagent.dev
+    registry: ghcr.io
     repository: kagent-dev/kagent/tools
     tag: "0.0.4"
     pullPolicy: IfNotPresent
