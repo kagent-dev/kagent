@@ -1,9 +1,8 @@
+import logging
+
 import os
 import typer
 from mcp.server.fastmcp import FastMCP
-
-import logging
-
 from autogen_core import ROOT_LOGGER_NAME
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
