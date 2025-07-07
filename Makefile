@@ -24,24 +24,20 @@ KIND_CLUSTER_NAME ?= kagent
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
-TOOLS_IMAGE_NAME ?= tools
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
-TOOLS_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-TOOLS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(TOOLS_IMAGE_NAME):$(TOOLS_IMAGE_TAG)
 
 # Retagged image variables for kind loading; the Helm chart uses these
 RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
 RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-RETAGGED_TOOLS_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(TOOLS_IMAGE_NAME):$(TOOLS_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -56,14 +52,7 @@ LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSIO
 TOOLS_UV_VERSION ?= 0.7.2
 TOOLS_BUN_VERSION ?= 1.2.16
 TOOLS_NODE_VERSION ?= 22.16.0
-TOOLS_ISTIO_VERSION ?= 1.26.2
-TOOLS_ARGO_CD_VERSION ?= 3.0.6
-TOOLS_ARGO_ROLLOUTS_VERSION ?= 1.8.3
-TOOLS_KUBECTL_VERSION ?= 1.33.2
-TOOLS_HELM_VERSION ?= 3.18.3
 TOOLS_PYTHON_VERSION ?= 3.12
-TOOLS_GRAFANA_MCP_VERSION ?= 0.5.0
-TOOLS_KIND_IMAGE_VERSION ?= 1.33.1
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
@@ -74,12 +63,6 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ARGO_CD_VERSION=$(TOOLS_ARGO_CD_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ARGO_ROLLOUTS_VERSION=$(TOOLS_ARGO_ROLLOUTS_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KUBECTL_VERSION=$(TOOLS_KUBECTL_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_HELM_VERSION=$(TOOLS_HELM_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GRAFANA_MCP_VERSION=$(TOOLS_GRAFANA_MCP_VERSION)
 
 HELM_ACTION=upgrade --install
 
@@ -150,7 +133,7 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app build-tools
+build: buildx-create build-controller build-ui build-app
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
@@ -188,10 +171,6 @@ controller-manifests:
 build-controller: buildx-create controller-manifests
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
-.PHONY: build-tools
-build-tools: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(TOOLS_IMG) -f go/tools/Dockerfile ./go
-
 .PHONY: build-ui
 build-ui: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
@@ -208,14 +187,12 @@ kind-load-docker-images: retag-docker-images use-kind-cluster
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
 	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_TOOLS_IMG)
 
 .PHONY: retag-docker-images
 retag-docker-images: build
 	docker tag $(CONTROLLER_IMG) $(RETAGGED_CONTROLLER_IMG)
 	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
 	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
-	docker tag $(TOOLS_IMG) $(RETAGGED_TOOLS_IMG)
 
 .PHONY: helm-cleanup
 helm-cleanup:
@@ -327,7 +304,6 @@ docker/push: retag-docker-images
 	docker push $(RETAGGED_UI_IMG)
 	docker push $(RETAGGED_APP_IMG)
 	docker push $(RETAGGED_CONTROLLER_IMG)
-	docker push $(RETAGGED_TOOLS_IMG)
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
@@ -366,4 +342,3 @@ report/image-cve: build
 	grype docker:$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype docker:$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
-	grype docker:$(TOOLS_IMG)      -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/tools-cve.csv

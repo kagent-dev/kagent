@@ -65,7 +65,7 @@ tools:
   image:
     registry: cr.kagent.dev
     repository: kagent-dev/kagent/tools
-    tag: "" # Will default to global, then Chart version
+    tag: "0.0.4"
     pullPolicy: IfNotPresent
   resources:
     requests:
