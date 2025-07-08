@@ -148,7 +148,7 @@ jobs:
         run: npm run test
 
   # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
-  build-multiarch:
+  build:
     needs: setup
     env:
       VERSION: v0.0.1-test
