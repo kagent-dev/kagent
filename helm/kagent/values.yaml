@@ -63,9 +63,9 @@ controller:
 tools:
   loglevel: "debug"
   image:
-    registry: cr.kagent.dev
+    registry: ghcr.io
     repository: kagent-dev/kagent/tools
-    tag: "" # Will default to global, then Chart version
+    tag: "0.0.7"
     pullPolicy: IfNotPresent
   resources:
     requests:
