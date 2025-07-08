@@ -2,8 +2,10 @@ name: Lint Python Code
 
 on:
   pull_request:
+    paths-ignore:
+      - !include .github/workflow-configs/paths-ignore.yml:python_ignores
     paths:
-      - '**/*.py'  # Only trigger on changes to Python files
+      - '**/*.py'  # Ensure we only run on Python files
       - 'python/pyproject.toml'
       - 'python/uv.lock'
 

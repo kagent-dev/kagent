@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths-ignore:
+      - !include .github/workflow-configs/paths-ignore.yml:common_ignores
   workflow_dispatch:
 
 env:
