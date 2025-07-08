@@ -19,6 +19,7 @@ import (
 type ErrorResponseWriter interface {
 	http.ResponseWriter
 	RespondWithError(err error)
+	Flush()
 }
 
 func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}) {

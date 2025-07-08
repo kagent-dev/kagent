@@ -536,28 +536,6 @@ spec:
 	})
 }
 
-func TestHandleKubectlGetEnhanced(t *testing.T) {
-	ctx := context.Background()
-	clientset := fake.NewSimpleClientset()
-	k8sTool := newTestK8sTool(clientset)
-
-	t.Run("missing resource_type", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		result, err := k8sTool.handleKubectlGetEnhanced(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.True(t, result.IsError)
-	})
-
-	t.Run("valid resource_type", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{"resource_type": "pods"}
-		result, err := k8sTool.handleKubectlGetEnhanced(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
-	})
-}
-
 func TestHandleKubectlLogsEnhanced(t *testing.T) {
 	ctx := context.Background()
 	clientset := fake.NewSimpleClientset()

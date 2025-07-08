@@ -24,7 +24,7 @@ import (
 
 func TestModelConfigHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
-	
+
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
@@ -292,10 +292,10 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			reqBody := handlers.CreateModelConfigRequest{
-				Ref:      "default/test-azure",
-				Provider: handlers.Provider{Type: "AzureOpenAI"},
-				Model:    "gpt-4",
-				APIKey:   "test-api-key",
+				Ref:         "default/test-azure",
+				Provider:    handlers.Provider{Type: "AzureOpenAI"},
+				Model:       "gpt-4",
+				APIKey:      "test-api-key",
 				AzureParams: &v1alpha1.AzureOpenAIConfig{
 					// Missing required Endpoint and APIVersion
 				},

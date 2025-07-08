@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -109,14 +110,11 @@ func (m *InMemoryAutogenClient) GetTeamByID(teamID int, userID string) (*autogen
 }
 
 func (m *InMemoryAutogenClient) InvokeTask(req *autogen_client.InvokeTaskRequest) (*autogen_client.InvokeTaskResult, error) {
-	// For in-memory implementation, return a basic result
+	// For in-memory implementation, return a basic result with properly formatted TextMessage
 	return &autogen_client.InvokeTaskResult{
 		TaskResult: autogen_client.TaskResult{
-			Messages: []autogen_client.TaskMessageMap{
-				{
-					"role":    "assistant",
-					"content": fmt.Sprintf("Task completed: %s", req.Task),
-				},
+			Messages: []json.RawMessage{
+				json.RawMessage(fmt.Sprintf(`{"type": "TextMessage", "content": "Task completed: %s", "source": "assistant"}`, req.Task)),
 			},
 		},
 	}, nil
@@ -144,11 +142,8 @@ func (m *InMemoryAutogenClient) InvokeSession(sessionID int, userID string, requ
 
 	return &autogen_client.TeamResult{
 		TaskResult: autogen_client.TaskResult{
-			Messages: []autogen_client.TaskMessageMap{
-				{
-					"role":    "assistant",
-					"content": fmt.Sprintf("Session task completed: %s", request.Task),
-				},
+			Messages: []json.RawMessage{
+				json.RawMessage(fmt.Sprintf(`{"type": "TextMessage", "content": "Session task completed: %s", "source": "assistant"}`, request.Task)),
 			},
 		},
 	}, nil
@@ -370,7 +365,7 @@ func (m *InMemoryAutogenClient) InvokeSessionStream(sessionID int, userID string
 		defer close(ch)
 		ch <- &autogen_client.SseEvent{
 			Event: "message",
-			Data:  []byte(fmt.Sprintf("Session stream task completed: %s", request.Task)),
+			Data:  []byte(fmt.Sprintf(`{"type": "TextMessage", "content": "Session stream task completed: %s", "source": "assistant"}`, request.Task)),
 		}
 	}()
 
@@ -383,7 +378,7 @@ func (m *InMemoryAutogenClient) InvokeTaskStream(req *autogen_client.InvokeTaskR
 		defer close(ch)
 		ch <- &autogen_client.SseEvent{
 			Event: "message",
-			Data:  []byte(fmt.Sprintf("Task stream completed: %s", req.Task)),
+			Data:  []byte(fmt.Sprintf(`{"type": "TextMessage", "content": "Task stream completed: %s", "source": "assistant"}`, req.Task)),
 		}
 	}()
 

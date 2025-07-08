@@ -69,34 +69,6 @@ func NewK8sTool(llmModel llms.Model) (*K8sTool, error) {
 
 	return &K8sTool{client: client, llmModel: llmModel}, nil
 }
-
-// Enhanced kubectl get with native K8s client
-func (k *K8sTool) handleKubectlGetEnhanced(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resourceType := mcp.ParseString(request, "resource_type", "")
-	resourceName := mcp.ParseString(request, "resource_name", "")
-	namespace := mcp.ParseString(request, "namespace", "")
-	allNamespaces := mcp.ParseString(request, "all_namespaces", "") == "true"
-	output := mcp.ParseString(request, "output", "json")
-
-	if resourceType == "" {
-		return mcp.NewToolResultError("resource_type parameter is required"), nil
-	}
-
-	switch resourceType {
-	case "pods", "pod":
-		return k.getPodsNative(ctx, resourceName, namespace, allNamespaces, output)
-	case "services", "service", "svc":
-		return k.getServicesNative(ctx, resourceName, namespace, allNamespaces, output)
-	case "deployments", "deployment", "deploy":
-		return k.getDeploymentsNative(ctx, resourceName, namespace, allNamespaces, output)
-	case "configmaps", "configmap", "cm":
-		return k.getConfigMapsNative(ctx, resourceName, namespace, allNamespaces, output)
-	default:
-		// Fallback to kubectl for unsupported resource types
-		return k.handleKubectlGetTool(ctx, request)
-	}
-}
-
 func (k *K8sTool) getPodsNative(ctx context.Context, name, namespace string, allNamespaces bool, output string) (*mcp.CallToolResult, error) {
 	var pods *corev1.PodList
 	var err error
@@ -394,7 +366,8 @@ func (k *K8sTool) handleKubectlGetTool(ctx context.Context, request mcp.CallTool
 	resourceType := mcp.ParseString(request, "resource_type", "")
 	resourceName := mcp.ParseString(request, "resource_name", "")
 	namespace := mcp.ParseString(request, "namespace", "")
-	output := mcp.ParseString(request, "output", "")
+	output := mcp.ParseString(request, "output", "wide")
+	allNamespaces := mcp.ParseBoolean(request, "all_namespaces", false)
 
 	if resourceType == "" {
 		return mcp.NewToolResultError("resource_type parameter is required"), nil
@@ -408,6 +381,10 @@ func (k *K8sTool) handleKubectlGetTool(ctx context.Context, request mcp.CallTool
 
 	if namespace != "" {
 		args = append(args, "-n", namespace)
+	}
+
+	if allNamespaces {
+		args = append(args, "-A")
 	}
 
 	if output != "" {
@@ -686,9 +663,9 @@ func RegisterK8sTools(s *server.MCPServer) {
 		mcp.WithString("resource_type", mcp.Description("Type of resource (pod, service, deployment, etc.)"), mcp.Required()),
 		mcp.WithString("resource_name", mcp.Description("Name of specific resource (optional)")),
 		mcp.WithString("namespace", mcp.Description("Namespace to query (optional)")),
-		mcp.WithString("all_namespaces", mcp.Description("Query all namespaces (true/false)")),
+		mcp.WithBoolean("all_namespaces", mcp.Description("Query all namespaces (true/false)")),
 		mcp.WithString("output", mcp.Description("Output format (json, yaml, wide, etc.)")),
-	), k8sTool.handleKubectlGetEnhanced)
+	), k8sTool.handleKubectlGetTool)
 
 	s.AddTool(mcp.NewTool("k8s_get_pod_logs",
 		mcp.WithDescription("Get logs from a Kubernetes pod with enhanced native client support"),

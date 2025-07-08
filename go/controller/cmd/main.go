@@ -21,11 +21,12 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/kagent-dev/kagent/go/internal/version"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/internal/version"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"

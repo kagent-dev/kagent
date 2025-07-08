@@ -57,7 +57,7 @@ func setupTestHandler(objects ...client.Object) (*TeamsHandler, string) {
 
 	userID := common.GetGlobalUserID()
 	autogenClient := autogen_fake.NewInMemoryAutogenClient()
-	
+
 	base := &Base{
 		KubeClient:    kubeClient,
 		AutogenClient: autogenClient,
@@ -66,7 +66,7 @@ func setupTestHandler(objects ...client.Object) (*TeamsHandler, string) {
 			Namespace: "default",
 		},
 	}
-	
+
 	return NewTeamsHandler(base), userID
 }
 
@@ -87,7 +87,7 @@ func TestHandleGetTeam(t *testing.T) {
 	t.Run("gets team successfully", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		team := createTestAgent("test-team", modelConfig)
-		
+
 		handler, userID := setupTestHandler(team, modelConfig)
 		createAutogenTeam(handler.Base.AutogenClient.(*autogen_fake.InMemoryAutogenClient), userID, team)
 
@@ -98,7 +98,7 @@ func TestHandleGetTeam(t *testing.T) {
 		handler.HandleGetTeam(&testErrorResponseWriter{w}, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		
+
 		var response TeamResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestHandleUpdateTeam(t *testing.T) {
 		handler.HandleUpdateTeam(&testErrorResponseWriter{w}, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		
+
 		var response v1alpha1.Agent
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
@@ -170,7 +170,7 @@ func TestHandleListTeams(t *testing.T) {
 	t.Run("lists teams successfully", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		team := createTestAgent("test-team", modelConfig)
-		
+
 		handler, userID := setupTestHandler(team, modelConfig)
 		createAutogenTeam(handler.Base.AutogenClient.(*autogen_fake.InMemoryAutogenClient), userID, team)
 
@@ -180,7 +180,7 @@ func TestHandleListTeams(t *testing.T) {
 		handler.HandleListTeams(&testErrorResponseWriter{w}, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		
+
 		var response []TeamResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
@@ -190,7 +190,7 @@ func TestHandleListTeams(t *testing.T) {
 
 	t.Run("returns 400 for missing user ID", func(t *testing.T) {
 		handler, _ := setupTestHandler()
-		
+
 		req := httptest.NewRequest("GET", "/api/teams", nil)
 		w := httptest.NewRecorder()
 
@@ -234,7 +234,7 @@ func TestHandleCreateTeam(t *testing.T) {
 		handler.HandleCreateTeam(&testErrorResponseWriter{w}, req)
 
 		assert.Equal(t, http.StatusCreated, w.Code)
-		
+
 		var response v1alpha1.Agent
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
@@ -247,7 +247,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 		team := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 		}
-		
+
 		handler, _ := setupTestHandler(team)
 
 		req := httptest.NewRequest("DELETE", "/api/teams/default/test-team", nil)

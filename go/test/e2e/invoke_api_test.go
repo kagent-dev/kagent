@@ -6,8 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
+	"github.com/kagent-dev/kagent/go/controller/utils/a2autils"
 	"github.com/stretchr/testify/require"
 	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
@@ -32,14 +31,11 @@ func TestInvokeAPI(t *testing.T) {
 		a2aClient, err := client.NewA2AClient(a2aURL)
 		require.NoError(t, err)
 
-		t.Run("should successfully handle an agent invocation", func(t *testing.T) {
+		t.Run("should successfully handle a synchronous agent invocation", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			// Send task using A2A protocol
-			task, err := a2aClient.SendTasks(ctx, protocol.SendTaskParams{
-				ID:        "kagent-test-task-" + uuid.NewString(),
-				SessionID: nil, // New session
+			msg, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
 				Message: protocol.Message{
 					Role:  protocol.MessageRoleUser,
 					Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
@@ -47,24 +43,33 @@ func TestInvokeAPI(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			require.NotEmpty(t, task.ID)
-			assert.Contains(t, []protocol.TaskState{
-				protocol.TaskStateSubmitted,
-				protocol.TaskStateWorking,
-				protocol.TaskStateCompleted,
-			}, task.Status.State)
+			msgResult, ok := msg.Result.(*protocol.Message)
+			require.True(t, ok)
+			text := a2autils.ExtractText(*msgResult)
+			require.Contains(t, text, "kube-scheduler-kagent-control-plane")
+		})
 
-			// Wait for task completion
-			finalTask, err := waitForTaskCompletion(ctx, a2aClient, task.ID, 30*time.Second)
+		t.Run("should successfully handle a streaming agent invocation", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			msg, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
+				Message: protocol.Message{
+					Role:  protocol.MessageRoleUser,
+					Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
+				},
+			})
 			require.NoError(t, err)
 
-			assert.Equal(t, protocol.TaskStateCompleted, finalTask.Status.State)
-			assert.NotEmpty(t, finalTask.Artifacts)
-			assert.NotEmpty(t, finalTask.Artifacts[0].Parts)
-			assert.NotEmpty(t, finalTask.Artifacts[0].Parts[0])
-			textPart, ok := finalTask.Artifacts[0].Parts[0].(protocol.TextPart)
-			assert.True(t, ok)
-			assert.Contains(t, textPart.Text, "kube-scheduler-kagent-control-plane")
+			var text string
+			for event := range msg {
+				msgResult, ok := event.Result.(*protocol.Message)
+				if !ok {
+					continue
+				}
+				text += a2autils.ExtractText(*msgResult)
+			}
+			require.Contains(t, text, "kube-scheduler-kagent-control-plane")
 		})
 	})
 }

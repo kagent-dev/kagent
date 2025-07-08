@@ -8,9 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
-	"github.com/kagent-dev/kagent/go/controller/utils/a2autils"
 	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -21,6 +19,7 @@ type A2ACfg struct {
 	Task      string
 	Timeout   time.Duration
 	Config    *config.Config
+	Stream    bool
 }
 
 func A2ARun(ctx context.Context, cfg *A2ACfg) {
@@ -33,41 +32,19 @@ func A2ARun(ctx context.Context, cfg *A2ACfg) {
 		sessionID = &cfg.SessionID
 	}
 
-	result, err := runTask(ctx, cfg.Config.Namespace, cfg.AgentName, cfg.Task, sessionID, cfg.Timeout, cfg.Config)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error running task: %v\n", err)
-		return
+	if !cfg.Stream {
+		err := runTask(ctx, cfg.Config.Namespace, cfg.AgentName, cfg.Task, sessionID, cfg.Timeout, cfg.Config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error running task: %v\n", err)
+			return
+		}
+	} else {
+		if err := runTaskStream(ctx, cfg.Config.Namespace, cfg.AgentName, cfg.Task, sessionID, cfg.Timeout, cfg.Config); err != nil {
+			fmt.Fprintf(os.Stderr, "Error running task: %v\n", err)
+			return
+		}
 	}
 
-	switch result.Status.State {
-	case protocol.TaskStateUnknown:
-		fmt.Fprintln(os.Stderr, "Task state is unknown.")
-		if result.Status.Message != nil {
-			fmt.Fprintln(os.Stderr, "Message:", a2autils.ExtractText(*result.Status.Message))
-		} else {
-			fmt.Fprintln(os.Stderr, "No message provided.")
-		}
-	case protocol.TaskStateCanceled:
-		fmt.Fprintln(os.Stderr, "Task was canceled.")
-	case protocol.TaskStateFailed:
-		fmt.Fprintln(os.Stderr, "Task failed.")
-		if result.Status.Message != nil {
-			fmt.Fprintln(os.Stderr, "Error:", a2autils.ExtractText(*result.Status.Message))
-		} else {
-			fmt.Fprintln(os.Stderr, "No error message provided.")
-		}
-	case protocol.TaskStateCompleted:
-		fmt.Fprintln(os.Stderr, "Task completed successfully:")
-		for _, artifact := range result.Artifacts {
-			var text string
-			for _, part := range artifact.Parts {
-				if textPart, ok := part.(protocol.TextPart); ok {
-					text += textPart.Text
-				}
-			}
-			fmt.Fprintln(os.Stdout, text)
-		}
-	}
 }
 
 func startPortForward(ctx context.Context) func() {
@@ -84,7 +61,6 @@ func startPortForward(ctx context.Context) func() {
 	// Ensure the context is cancelled when the shell is closed
 	return func() {
 		cancel()
-		// cmd.Wait()
 		if err := a2aPortFwdCmd.Wait(); err != nil {
 			// These 2 errors are expected
 			if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "exec: not started") {
@@ -94,6 +70,46 @@ func startPortForward(ctx context.Context) func() {
 	}
 }
 
+func runTaskStream(
+	ctx context.Context,
+	agentNamespace, agentName string,
+	userPrompt string,
+	sessionID *string,
+	timeout time.Duration,
+	cfg *config.Config,
+) error {
+
+	a2aURL := fmt.Sprintf("%s/%s/%s", cfg.A2AURL, agentNamespace, agentName)
+	a2a, err := client.NewA2AClient(a2aURL)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	result, err := a2a.StreamMessage(ctx, protocol.SendMessageParams{
+		Message: protocol.Message{
+			Role:      protocol.MessageRoleUser,
+			ContextID: sessionID,
+			Parts:     []protocol.Part{protocol.NewTextPart(userPrompt)},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	for event := range result {
+		json, err := event.MarshalJSON()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stdout, "%+v\n", string(json))
+	}
+
+	return nil
+}
+
 func runTask(
 	ctx context.Context,
 	agentNamespace, agentName string,
@@ -101,54 +117,33 @@ func runTask(
 	sessionID *string,
 	timeout time.Duration,
 	cfg *config.Config,
-) (*protocol.Task, error) {
+) error {
 	a2aURL := fmt.Sprintf("%s/%s/%s", cfg.A2AURL, agentNamespace, agentName)
 	a2a, err := client.NewA2AClient(a2aURL)
 	if err != nil {
-		return nil, err
-	}
-	task, err := a2a.SendTasks(ctx, protocol.SendTaskParams{
-		ID:        "kagent-task-" + uuid.NewString(),
-		SessionID: sessionID,
-		Message: protocol.Message{
-			Role:  protocol.MessageRoleUser,
-			Parts: []protocol.Part{protocol.NewTextPart(userPrompt)},
-		},
-	})
-	if err != nil {
-		return nil, err
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Process the task
-	return waitForTaskResult(ctx, a2a, task.ID)
-}
-
-func waitForTaskResult(ctx context.Context, a2a *client.A2AClient, taskID string) (*protocol.Task, error) {
-	// poll task result every 2s
-	ticker := time.NewTicker(2 * time.Second)
-	for {
-		select {
-		case <-ticker.C:
-			task, err := a2a.GetTasks(ctx, protocol.TaskQueryParams{
-				ID: taskID,
-			})
-			if err != nil {
-				return nil, err
-			}
-
-			switch task.Status.State {
-			case protocol.TaskStateSubmitted,
-				protocol.TaskStateWorking:
-				continue
-			}
-
-			return task, nil
-
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	result, err := a2a.SendMessage(ctx, protocol.SendMessageParams{
+		Message: protocol.Message{
+			Role:      protocol.MessageRoleUser,
+			ContextID: sessionID,
+			Parts:     []protocol.Part{protocol.NewTextPart(userPrompt)},
+		},
+	})
+	if err != nil {
+		return err
 	}
+
+	jsn, err := result.MarshalJSON()
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stdout, "%+v\n", string(jsn))
+
+	return nil
 }

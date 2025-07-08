@@ -42,11 +42,6 @@ func GetGlobalUserID() string {
 	return "admin@kagent.dev"
 }
 
-// MakePtr is a helper function to create a pointer to a value.
-func MakePtr[T any](v T) *T {
-	return &v
-}
-
 // ResourceRefString formats namespace and name as a string reference in "namespace/name" format.
 func ResourceRefString(namespace, name string) string {
 	return fmt.Sprintf("%s/%s", namespace, name)
@@ -86,6 +81,7 @@ func validateDNS1123Subdomain(value, fieldName string) error {
 }
 
 type EmptyReferenceError struct{}
+
 func (e *EmptyReferenceError) Error() string {
 	return "empty reference string"
 }

@@ -150,6 +150,4 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 			}
 		}
 	}
-
-	return
 }
