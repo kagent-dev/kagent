@@ -64,13 +64,17 @@ jobs:
         - { name: scn1_ch23, scenario: scenario1, challenge: missing-service-selector.yaml}
         - { name: scn1_ch24, scenario: scenario1, challenge: pod-security-context-issue.yaml}
     runs-on: ['ubuntu-latest']
-
     steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
     - uses: actions/checkout@v4
-    
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-
+      with:
+        name: kagent-builder-v0.23.0
+        platforms: linux/amd64,linux/arm64
+        version: v0.23.0
+        use: 'true'
     - name: 'Build Images'
       env:
         DOCKER_BUILD_ARGS: "--load --platform linux/amd64"

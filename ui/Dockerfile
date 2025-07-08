@@ -1,13 +1,17 @@
-### STAGE 1: base image
+### STAGE 1: Dependencies and Build
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
-
+ARG BUILDPLATFORM
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS deps
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-RUN apk update \
+# This is used to print the build platform in the logs
+ARG BUILDPLATFORM
+
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    echo "Installing on $BUILDPLATFORM" \
+    && apk update \
     && apk add curl bash openssl unzip ca-certificates nginx supervisor \
-    && update-ca-certificates \
-    && rm -rf /var/cache/apk/*
+    && update-ca-certificates
 
 ARG TOOLS_BUN_VERSION
 ARG TARGETARCH
@@ -16,10 +20,8 @@ ENV DO_NOT_TRACK=1
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV BUN_INSTALL=/usr/local/bun
-ENV NVM_DIR=/usr/local/nvm
 ENV NODE_ENV=production
 ENV CYPRESS_INSTALL_BINARY=0
-ENV NODE_PATH=/cache/node_modules
 ENV PATH=$BUN_INSTALL/bin:$PATH
 
 # Install Bun (uses official install script)
@@ -31,28 +33,39 @@ RUN --mount=type=cache,target=/cache/bun,rw \
 
 WORKDIR /app/ui
 
-#copy the package.json
-COPY package*.json .
-RUN bun install                   \
-    && bun pm ls --all            \
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN --mount=type=cache,target=/cache/node_modules,rw \
+    bun install --frozen-lockfile \
+    && bun pm ls --all \
     && bun pm hash
 
-#copy the rest of the files
+### STAGE 2: Build
+FROM --platform=$BUILDPLATFORM deps AS builder
+
+# Copy source files
 COPY . .
-RUN export NEXT_TELEMETRY_DEBUG=1 \
-    && bun install                \
-    && bun run build  --no-lint   \
+
+# Build the application (native compilation for speed)
+RUN --mount=type=cache,target=/cache/node_modules,rw \
+    --mount=type=cache,target=/app/ui/.next/cache,rw \
+    export NEXT_TELEMETRY_DEBUG=1 \
+    && bun install --frozen-lockfile \
+    && bun run build --no-lint --turbopack \
     && mkdir -p /app/ui/public
 
-### STAGE 3: final
+### STAGE 3: Runtime
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
-
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-RUN apk update \
+# This is used to print the build platform in the logs
+ARG BUILDPLATFORM
+
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    echo "Installing on $BUILDPLATFORM" \
+    && apk update \
     && apk add curl bash openssl unzip ca-certificates nginx supervisor \
-    && update-ca-certificates \
-    && rm -rf /var/cache/apk/*
+    && update-ca-certificates
 
 ARG TOOLS_BUN_VERSION
 ENV BUN_INSTALL=/usr/local/bun
@@ -76,11 +89,11 @@ COPY conf/nginx.conf /etc/nginx/nginx.conf
 COPY conf/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 WORKDIR /app/ui
-COPY --from=base-os /app/ui/next.config.ts ./
-COPY --from=base-os /app/ui/public ./public
-COPY --from=base-os /app/ui/package.json ./package.json
-COPY --from=base-os --chown=nextjs:nginx /app/ui/.next/standalone ./
-COPY --from=base-os --chown=nextjs:nginx /app/ui/.next/static ./.next/static
+COPY --from=builder /app/ui/next.config.ts ./
+COPY --from=builder /app/ui/public ./public
+COPY --from=builder /app/ui/package.json ./package.json
+COPY --from=builder --chown=nextjs:nginx /app/ui/.next/standalone ./
+COPY --from=builder --chown=nextjs:nginx /app/ui/.next/static ./.next/static
 
 # Ensure correct permissions
 RUN chown -R nextjs:nginx /app/ui && \
