@@ -105,6 +105,22 @@ jobs:
         fi
         make build-cli
         make helm-version
+
+     # GitIngest setup and run
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install GitIngest
+      run: pip install gitingest==0.4.2
+
+    - name: Run GitIngest
+      run: |
+        echo "⚙️ Running GitIngest..."
+        gitingest --repo-url https://github.com/kagent-dev/kagent > ingest.log
+        echo " GitIngest completed."
+    
     - name: Release
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/')
@@ -112,3 +128,4 @@ jobs:
         files: |
           go/bin/kagent-*
           kagent-*.tgz
+          ingest.log
