@@ -11,6 +11,7 @@ import { OpenAI } from './icons/OpenAI';
 import { Anthropic } from './icons/Anthropic';
 import { Ollama } from './icons/Ollama';
 import { Azure } from './icons/Azure';
+import { VertexAI } from './icons/VertexAI';
 
 interface ComboboxOption {
     label: string; // e.g., "OpenAI - gpt-4o"
@@ -60,6 +61,8 @@ export function ModelProviderCombobox({
         'anthropic': Anthropic,
         'ollama': Ollama,
         'azure-openai': Azure,
+        'gemini-vertex-ai': VertexAI,
+        'anthropic-vertex-ai': VertexAI,
     };
 
     const getProviderIcon = (providerKey: ModelProviderKey | undefined): React.ReactNode | null => {

@@ -80,6 +80,15 @@ export interface OllamaConfigPayload {
     options?: Record<string, string>;
 }
 
+export interface VertexAIConfigPayload {
+  projectID: string;
+  location: string;
+  temperature?: string;
+  topP?: string;
+  topK?: string;
+  stopSequences?: string[];
+}
+
 export interface CreateModelConfigPayload {
   ref: string;
   provider: Pick<Provider, "name" | "type">;
@@ -89,6 +98,8 @@ export interface CreateModelConfigPayload {
   anthropic?: AnthropicConfigPayload;
   azureOpenAI?: AzureOpenAIConfigPayload;
   ollama?: OllamaConfigPayload;
+  geminiVertexAI?: VertexAIConfigPayload;
+  anthropicVertexAI?: VertexAIConfigPayload;
 }
 
 export interface UpdateModelConfigPayload {

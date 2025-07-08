@@ -1,6 +1,5 @@
-
-export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama";
-export const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
+export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "GeminiVertexAI" | "AnthropicVertexAI";
+export const modelProviders = ["openai", "azure-openai", "anthropic", "ollama", "gemini-vertex-ai", "anthropic-vertex-ai"] as const;
 export type ModelProviderKey = typeof modelProviders[number];
 
 
@@ -41,6 +40,20 @@ export const PROVIDERS_INFO: {
         modelDocsLink: "https://github.com/kagent-dev/autogen/blob/main/python/packages/autogen-ext/src/autogen_ext/models/ollama/_model_info.py",
         help: "No API key needed. Ensure Ollama is running and accessible."
     },
+    "gemini-vertex-ai": {
+        name: "Gemini Vertex AI",
+        type: "GeminiVertexAI",
+        apiKeyLink: "https://console.cloud.google.com/apis/credentials",
+        modelDocsLink: "https://cloud.google.com/vertex-ai/docs/generative-ai/learn/models",
+        help: "Get your Google Cloud credentials from the Google Cloud Console."
+    },
+    "anthropic-vertex-ai": {
+        name: "Anthropic Vertex AI",
+        type: "AnthropicVertexAI",
+        apiKeyLink: "https://console.cloud.google.com/apis/credentials",
+        modelDocsLink: "https://cloud.google.com/vertex-ai/docs/generative-ai/learn/models",
+        help: "Get your Google Cloud credentials from the Google Cloud Console."
+    },
 };
 
 export const isValidProviderInfoKey = (key: string): key is ModelProviderKey => {
@@ -54,6 +67,8 @@ export const getApiKeyForProviderFormKey = (providerFormKey: ModelProviderKey): 
         case 'azure-openai': return 'azureOpenAI';
         case 'anthropic': return 'anthropic';
         case 'ollama': return 'ollama';
+        case 'gemini-vertex-ai': return 'geminiVertexAI';
+        case 'anthropic-vertex-ai': return 'anthropicVertexAI';
         default: return providerFormKey;
     }
 };
