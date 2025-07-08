@@ -5,8 +5,8 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
 spec:
   config:
-    sse:
+    streamableHttp:
       sseReadTimeout: 5m0s
       timeout: 30s
-      url: http://localhost:8084/sse
-  description: "Built In Tool Server"
+      url: {{ printf "http://localhost:%v/mcp" .Values.service.ports.tools.targetPort }}
+  description: "KAgent Tool Server"

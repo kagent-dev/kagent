@@ -31,7 +31,6 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -96,16 +95,11 @@ build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-da
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./controller/cmd/main.go
 
-.PHONY: build/tool-server
-build/tool-server:
-	go mod tidy -v
-	go build -ldflags "$(LDFLAGS)" -o bin/tool-server-local ./tools/cmd/tool-server
-
-.PHONY: run/tool-server
-run/tool-server: build/tool-server ## Run the tool server from your host.
-	echo "Running tool server on http://localhost:8084/sse ..."
-	echo "Use:  npx @modelcontextprotocol/inspector to connect to the tool server"
-	./bin/tool-server-local
+.PHONY: test
+test:
+	CGO_ENABLED=0 go mod tidy -v
+	CGO_ENABLED=0 go test ./cli/...
+#	CGO_ENABLED=0 go test ./controller/...
 
 .PHONY: install
 install: manifests
