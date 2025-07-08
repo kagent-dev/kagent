@@ -10,6 +10,8 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
 	"github.com/kagent-dev/kagent/go/controller/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	_ "github.com/kagent-dev/kagent/go/docs"
+	httpswagger "github.com/swaggo/http-swagger"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -18,6 +20,7 @@ import (
 const (
 	// API Path constants
 	APIPathHealth      = "/health"
+	SwaggerPath        = "/swagger/"
 	APIPathModelConfig = "/api/modelconfigs"
 	APIPathRuns        = "/api/runs"
 	APIPathSessions    = "/api/sessions"
@@ -178,11 +181,17 @@ func (s *HTTPServer) setupRoutes() {
 	// A2A
 	s.router.PathPrefix(APIPathA2A).Handler(s.config.A2AHandler)
 
+	// Swagger docs
+	s.router.PathPrefix(SwaggerPath).Handler(httpswagger.Handler(
+		httpswagger.URL(SwaggerPath+"doc.json"),
+	))
+
 	// Use middleware for common functionality
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)
 }
+
 
 func adaptHandler(h func(handlers.ErrorResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
