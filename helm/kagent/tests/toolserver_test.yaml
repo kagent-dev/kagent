@@ -14,21 +14,21 @@ tests:
           value: NAMESPACE
       - equal:
           path: spec.description
-          value: "Built In Tool Server"
+          value: "KAgent Tool Server"
       - hasDocuments:
           count: 1
 
   - it: should have correct SSE configuration
     asserts:
       - equal:
-          path: spec.config.sse.sseReadTimeout
+          path: spec.config.streamableHttp.sseReadTimeout
           value: 5m0s
       - equal:
-          path: spec.config.sse.timeout
+          path: spec.config.streamableHttp.timeout
           value: 30s
       - equal:
-          path: spec.config.sse.url
-          value: http://localhost:8084/sse
+          path: spec.config.streamableHttp.url
+          value: http://localhost:8084/mcp
 
   - it: should not have labels (toolserver template doesn't include common labels)
     asserts:
@@ -54,8 +54,8 @@ tests:
   - it: should have hardcoded port 8084 in SSE URL
     asserts:
       - equal:
-          path: spec.config.sse.url
-          value: http://localhost:8084/sse
+          path: spec.config.streamableHttp.url
+          value: http://localhost:8084/mcp
 
   - it: should have correct APIVersion and Kind
     asserts:
