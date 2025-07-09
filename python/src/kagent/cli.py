@@ -5,11 +5,6 @@ import typer
 from mcp.server.fastmcp import FastMCP
 from autogen_core import ROOT_LOGGER_NAME
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(level=LOG_LEVEL)
-logger = logging.getLogger(ROOT_LOGGER_NAME)
-logger.setLevel(LOG_LEVEL)
-
 app = typer.Typer()
 
 mcp = FastMCP("KAgent")
@@ -47,6 +42,10 @@ def serve(
 
 
 def run():
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(level=LOG_LEVEL)
+    logger = logging.getLogger(ROOT_LOGGER_NAME)
+    logger.setLevel(LOG_LEVEL)
     app()
 
 
