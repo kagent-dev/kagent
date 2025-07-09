@@ -58,7 +58,7 @@ export default function ToolsPage() {
       const serversMap = new Map<string, { name: string; label: string; config: ToolServerConfiguration }>();
       const toolsFromServers: Component<ToolConfig>[] = [];
 
-      if (serversResponse.success && serversResponse.data) {
+      if (!serversResponse.error && serversResponse.data) {
         serversResponse.data.forEach(server => {
           serversMap.set(server.ref, {
             name: server.ref,
@@ -81,9 +81,7 @@ export default function ToolsPage() {
 
       // Process DB tools
       let allTools: Component<ToolConfig>[] = [];
-      if (toolsResponse.success && toolsResponse.data) {
-        allTools = [...toolsResponse.data];
-      }
+      allTools = [...toolsResponse];
       
       // Combine tools from both sources (prioritizing DB tools if there are duplicates)
       // This assumes getToolIdentifier returns a unique identifier for each tool

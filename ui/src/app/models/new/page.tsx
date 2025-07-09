@@ -138,14 +138,15 @@ function ModelPageContent() {
         ]);
 
         if (!isMounted) return;
-
-        if (providersResponse.success && providersResponse.data) {
+        
+        console.log('providers response', providersResponse);
+        if (!providersResponse.error && providersResponse.data) {
           setProviders(providersResponse.data);
         } else {
           throw new Error(providersResponse.error || "Failed to fetch supported providers");
         }
 
-        if (modelsResponse.success && modelsResponse.data) {
+        if (!modelsResponse.error && modelsResponse.data) {
           setProviderModelsData(modelsResponse.data);
         } else {
           throw new Error(modelsResponse.error || "Failed to fetch available models");
@@ -180,7 +181,7 @@ function ModelPageContent() {
           );
           if (!isMounted) return;
 
-          if (!response.success || !response.data) {
+          if (response.error || !response.data) {
             throw new Error(response.error || "Failed to fetch model");
           }
           const modelData = response.data;
@@ -467,7 +468,7 @@ function ModelPageContent() {
         response = await createModelConfig(payload);
       }
 
-      if (response.success) {
+      if (!response.error) {
         toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
         router.push("/models");
       } else {

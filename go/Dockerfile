@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
      go mod download
 
 # Copy the go source
-COPY autogen autogen
+COPY pkg pkg
 COPY internal internal
 COPY controller controller
 # Build
@@ -39,7 +39,7 @@ FROM gcr.io/distroless/static:nonroot
 ARG TARGETPLATFORM
 
 WORKDIR /
-COPY --from=builder /workspace/manager .
+COPY --from=builder /workspace/manager /manager
 USER 65532:65532
 ARG VERSION
 

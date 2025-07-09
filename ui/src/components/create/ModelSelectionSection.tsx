@@ -15,7 +15,7 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
     <>
       <label className="text-base mb-2 block font-bold">Model</label>
       <p className="text-xs mb-2 block text-muted-foreground">
-        This is the model that will be used to generate the agent's responses.
+        This is the model that will be used to generate the agent&apos;s responses.
       </p>
       <Select 
         value={selectedModel?.ref || ""} 

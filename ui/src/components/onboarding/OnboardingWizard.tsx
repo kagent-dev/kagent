@@ -117,7 +117,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
               tools: onboardingData.selectedTools || [],
           };
           const result = await createNewAgent(agentPayload);
-          if (result.success) {
+          if (!result.error) {
               toast.success(`Agent '${onboardingData.agentRef}' created successfully!`);
               setCurrentStep(5);
           } else {

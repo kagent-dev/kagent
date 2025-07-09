@@ -80,8 +80,8 @@ jobs:
 
       - name: Run e2e tests
         run: |
-          export GW_IP=$(kubectl get svc -n kagent kagent -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          export KAGENT_A2A_URL="http://${GW_IP}:8083/api/a2a"
+          export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083/api"
+          echo $KAGENT_API_URL
           cd go
           go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
 

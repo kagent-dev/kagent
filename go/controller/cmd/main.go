@@ -21,6 +21,8 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,14 +33,15 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	autogen "github.com/kagent-dev/kagent/go/controller/internal/autogen"
+	"github.com/kagent-dev/kagent/go/controller/translator"
+	"github.com/kagent-dev/kagent/go/internal/a2a"
+	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
+	"github.com/kagent-dev/kagent/go/internal/database"
 
-	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
-	"github.com/kagent-dev/kagent/go/controller/internal/autogen"
-	"github.com/kagent-dev/kagent/go/controller/internal/utils/syncutils"
-
-	"github.com/kagent-dev/kagent/go/controller/internal/httpserver"
-	utils_internal "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	a2a_reconciler "github.com/kagent-dev/kagent/go/controller/internal/a2a"
+	"github.com/kagent-dev/kagent/go/internal/httpserver"
+	common "github.com/kagent-dev/kagent/go/internal/utils"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -53,6 +56,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -65,7 +69,7 @@ import (
 var (
 	scheme          = runtime.NewScheme()
 	setupLog        = ctrl.Log.WithName("setup")
-	kagentNamespace = utils_internal.GetResourceNamespace()
+	kagentNamespace = common.GetResourceNamespace()
 
 	// These variables should be set during build time using -ldflags
 	Version   = version.Version
@@ -97,6 +101,9 @@ func main() {
 	var httpServerAddr string
 	var watchNamespaces string
 	var a2aBaseUrl string
+	var databasePath string
+	var databaseType string
+	var databaseURL string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -122,6 +129,9 @@ func main() {
 	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
 	flag.StringVar(&httpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
 	flag.StringVar(&a2aBaseUrl, "a2a-base-url", "http://127.0.0.1:8083", "The base URL of the A2A Server endpoint, as advertised to clients.")
+	flag.StringVar(&databaseType, "database-type", "sqlite", "The type of the database to use. Supported values: sqlite, postgres.")
+	flag.StringVar(&databasePath, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
+	flag.StringVar(&databaseURL, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
 
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -250,13 +260,32 @@ func main() {
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, "unable to create manager")
 		os.Exit(1)
 	}
 
-	// TODO(ilackarms): aliases for builtin autogen tools
-	builtinTools := syncutils.NewAtomicMap[string, string]()
-	builtinTools.Set("k8s-get-pod", "k8s.get_pod")
+	// Initialize database
+	dbManager, err := database.NewManager(&database.Config{
+		DatabaseType: database.DatabaseType(databaseType),
+		SqliteConfig: &database.SqliteConfig{
+			DatabasePath: databasePath,
+		},
+		PostgresConfig: &database.PostgresConfig{
+			URL: databaseURL,
+		},
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to initialize database")
+		os.Exit(1)
+	}
+
+	// Initialize database tables
+	if err := dbManager.Initialize(); err != nil {
+		setupLog.Error(err, "unable to initialize database")
+		os.Exit(1)
+	}
+
+	dbClient := database.NewClient(dbManager)
 
 	autogenClient := autogen_client.New(
 		autogenStudioBaseURL,
@@ -270,23 +299,25 @@ func main() {
 
 	kubeClient := mgr.GetClient()
 
-	apiTranslator := autogen.NewAutogenApiTranslator(
+	apiTranslator := translator.NewAutogenApiTranslator(
 		kubeClient,
 		defaultModelConfig,
 	)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, dbClient)
 
-	a2aReconciler := a2a.NewAutogenReconciler(
+	a2aReconciler := a2a_reconciler.NewAutogenReconciler(
 		autogenClient,
 		a2aHandler,
 		a2aBaseUrl+httpserver.APIPathA2A,
+		dbClient,
 	)
 
 	autogenReconciler := autogen.NewAutogenReconciler(
 		apiTranslator,
 		kubeClient,
 		autogenClient,
+		dbClient,
 		defaultModelConfig,
 		a2aReconciler,
 	)
@@ -365,12 +396,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	httpServer := httpserver.NewHTTPServer(httpserver.ServerConfig{
+	if err := mgr.Add(&adminServer{port: ":6060"}); err != nil {
+		setupLog.Error(err, "unable to set up admin server")
+		os.Exit(1)
+	}
+
+	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		BindAddr:          httpServerAddr,
 		AutogenClient:     autogenClient,
 		KubeClient:        kubeClient,
 		A2AHandler:        a2aHandler,
 		WatchedNamespaces: watchNamespacesList,
+		DbClient:          dbClient,
 	})
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")
@@ -455,4 +492,27 @@ func filterValidNamespaces(namespaces []string) []string {
 	}
 
 	return validNamespaces
+}
+
+var _ manager.Runnable = &adminServer{}
+
+type adminServer struct {
+	port string
+}
+
+func (a *adminServer) Start(ctx context.Context) error {
+	setupLog.Info("starting pprof server")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("/debug/pprof/goroutine", pprof.Handler("goroutine").ServeHTTP)
+	mux.HandleFunc("/debug/pprof/heap", pprof.Handler("heap").ServeHTTP)
+	mux.HandleFunc("/debug/pprof/block", pprof.Handler("block").ServeHTTP)
+	mux.HandleFunc("/debug/pprof/threadcreate", pprof.Handler("threadcreate").ServeHTTP)
+	mux.HandleFunc("/debug/pprof/mutex", pprof.Handler("mutex").ServeHTTP)
+	mux.HandleFunc("/debug/pprof/allocs", pprof.Handler("allocs").ServeHTTP)
+	setupLog.Info("pprof server started", "address", a.port)
+	return http.ListenAndServe(a.port, mux)
 }

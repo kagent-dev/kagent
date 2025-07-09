@@ -26,6 +26,11 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kagent.fullname" . }}
+      volumes:
+      - name: sqlite-volume
+        emptyDir:
+          sizeLimit: 500Mi
+          medium: Memory
       containers:
         - name: controller
           args:
@@ -36,6 +41,15 @@ spec:
             - {{ .Values.controller.loglevel }}
             - -watch-namespaces
             - "{{ include "kagent.watchNamespaces" . }}"
+            - -database-type
+            - {{ .Values.database.type }}
+            {{- if eq .Values.database.type "sqlite" }}
+            - -sqlite-database-path
+            - /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
+            {{- else if eq .Values.database.type "postgres" }}
+            - -postgres-database-url
+            - {{ .Values.database.postgres.url }}
+            {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.global.tag .Values.controller.image.tag .Chart.Version }}"
@@ -60,6 +74,9 @@ spec:
               port: http-controller
             initialDelaySeconds: 15
             periodSeconds: 15
+          volumeMounts:
+            - name: sqlite-volume
+              mountPath: /sqlite-volume
         - name: app
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

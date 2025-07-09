@@ -1,0 +1,92 @@
+{
+  "CreatedAt": "0001-01-01T00:00:00Z",
+  "DeletedAt": null,
+  "ID": 0,
+  "UpdatedAt": "0001-01-01T00:00:00Z",
+  "component": {
+    "component_type": "team",
+    "component_version": 0,
+    "config": {
+      "participants": [
+        {
+          "component_type": "agent",
+          "component_version": 0,
+          "config": {
+            "description": "An agent with vector memory and model from different namespaces",
+            "memory": [
+              {
+                "component_type": "memory",
+                "component_version": 0,
+                "config": {
+                  "api_key": "pinecone-api-key",
+                  "index_host": "https://test-index.pinecone.io",
+                  "namespace": "test-namespace",
+                  "record_fields": [
+                    "content",
+                    "metadata"
+                  ],
+                  "score_threshold": 0.699999988079071,
+                  "top_k": 5
+                },
+                "description": "",
+                "label": "",
+                "provider": "kagent.memory.PineconeMemory",
+                "version": 1
+              }
+            ],
+            "model_client": {
+              "component_type": "model",
+              "component_version": 0,
+              "config": {
+                "api_key": "sk-test-api-key",
+                "model": "gpt-4o",
+                "stream_options": {
+                  "include_usage": true
+                }
+              },
+              "description": "",
+              "label": "",
+              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
+              "version": 1
+            },
+            "model_client_stream": true,
+            "model_context": {
+              "component_type": "chat_completion_context",
+              "component_version": 0,
+              "config": {},
+              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
+              "label": "UnboundedChatCompletionContext",
+              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
+              "version": 1
+            },
+            "name": "test_agent__NS__agent_with_cross_ns_resources",
+            "reflect_on_tool_use": false,
+            "system_message": "You are an assistant with access to cross-namespace resources.",
+            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
+            "tools": null
+          },
+          "description": "An agent with vector memory and model from different namespaces",
+          "label": "",
+          "provider": "autogen_agentchat.agents.AssistantAgent",
+          "version": 1
+        }
+      ],
+      "termination_condition": {
+        "component_type": "termination",
+        "component_version": 0,
+        "config": {
+          "source": "test_agent__NS__agent_with_cross_ns_resources"
+        },
+        "description": "",
+        "label": "",
+        "provider": "kagent.conditions.FinalTextMessageTermination",
+        "version": 1
+      }
+    },
+    "description": "An agent with vector memory and model from different namespaces",
+    "label": "test-agent/agent-with-cross-ns-resources",
+    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
+    "version": 1
+  },
+  "name": "test-agent/agent-with-cross-ns-resources"
+}

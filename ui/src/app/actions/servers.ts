@@ -10,16 +10,16 @@ import { revalidatePath } from "next/cache";
  */
 export async function getServers(): Promise<BaseResponse<ToolServerWithTools[]>> {
   try {
-    const response = await fetchApi<ToolServerWithTools[]>("/toolservers");
+    const response = await fetchApi<BaseResponse<ToolServerWithTools[]>>(`/toolservers`);
 
     if (!response) {
       throw new Error("Failed to get tool servers");
     }
 
     return {
-      success: true,
-      data: response,
-    };
+      message: "Tool servers fetched successfully",
+      data: response.data,
+    };  
   } catch (error) {
     return createErrorResponse<ToolServerWithTools[]>(error, "Error getting tool servers");
   }
@@ -40,7 +40,7 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
     });
 
     revalidatePath("/servers");
-    return { success: true };
+    return { message: "Tool server deleted successfully" };
   } catch (error) {
     return createErrorResponse<void>(error, "Error deleting tool server");
   }
@@ -53,7 +53,7 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
  */
 export async function createServer(serverData: ToolServer): Promise<BaseResponse<ToolServer>> {
   try {
-    const response = await fetchApi<ToolServer>("/toolservers", {
+    const response = await fetchApi<BaseResponse<ToolServer>>("/toolservers", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -62,8 +62,8 @@ export async function createServer(serverData: ToolServer): Promise<BaseResponse
     });
 
     return {
-      success: true,
-      data: response,
+      message: "Tool server created successfully",
+      data: response.data,
     };
   } catch (error) {
     return createErrorResponse<ToolServer>(error, "Error creating tool server");

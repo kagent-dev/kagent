@@ -41,7 +41,8 @@ export default function ChatMessage({ message, allMessages }: ChatMessageProps) 
     return <ToolCallDisplay currentMessage={message} allMessages={allMessages} />;
   }
 
-  let { content, source } = message;
+  const { source } = message;
+  let { content } = message;
 
   const isErrorMessage = messageUtils.isErrorMessageContent(message);
   if (isErrorMessage) {

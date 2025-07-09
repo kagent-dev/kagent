@@ -15,15 +15,15 @@ export interface NamespaceResponse {
  */
 export async function listNamespaces(): Promise<BaseResponse<NamespaceResponse[]>> {
   try {
-    const response = await fetchApi<NamespaceResponse[]>('/namespaces');
+    const response = await fetchApi<BaseResponse<NamespaceResponse[]>>('/namespaces');
     
     if (!response) {
       throw new Error("Failed to get namespaces");
     }
 
     return {
-      success: true,
-      data: response,
+      message: "Namespaces fetched successfully",
+      data: response.data,
     };
   } catch (error) {
     return createErrorResponse<NamespaceResponse[]>(error, "Error getting namespaces");

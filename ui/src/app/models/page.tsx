@@ -34,7 +34,7 @@ export default function ModelsPage() {
         try {
             setLoading(true);
             const response = await getModelConfigs();
-            if (!response.success || !response.data) {
+            if (response.error || !response.data) {
                 throw new Error(response.error || "Failed to fetch models");
             }
             setModels(response.data);
@@ -71,7 +71,7 @@ export default function ModelsPage() {
 
         try {
             const response = await deleteModelConfig(modelToDelete.ref);
-            if (!response.success) {
+            if (response.error) {
                 throw new Error(response.error || "Failed to delete model");
             }
             toast.success(`Model "${modelToDelete.ref}" deleted successfully`);

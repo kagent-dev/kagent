@@ -46,7 +46,7 @@ export function NamespaceCombobox({
       setError(null);
       const response = await listNamespaces();
       
-      if (response.success) {
+      if (!response.error) {
         setNamespaces(response.data || []);
         setError(null);
         onError?.(null);

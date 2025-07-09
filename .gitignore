@@ -194,6 +194,7 @@ cython_debug/
 #.idea/
 
 go/bin/
+*.db
 .vscode/
 
 ## Helm

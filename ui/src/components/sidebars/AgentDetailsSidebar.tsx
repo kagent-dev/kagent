@@ -14,12 +14,12 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
 interface AgentDetailsSidebarProps {
-  selectedAgentId: number;
+  selectedAgentName: string;
   currentAgent: AgentResponse;
   allTools: Component<ToolConfig>[];
 }
 
-export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }: AgentDetailsSidebarProps) {
+export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools }: AgentDetailsSidebarProps) {
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const router = useRouter();
@@ -236,7 +236,7 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
                   asChild
                   aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
                 >
-                  <Link href={`/agents/new?edit=true&id=${selectedAgentId}`}>
+                  <Link href={`/agents/new?edit=true&name=${selectedAgentName}`}>
                     <Edit className="h-3.5 w-3.5" />
                   </Link>
                 </Button>

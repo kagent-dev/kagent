@@ -93,7 +93,7 @@ export function ModelConfigStep({
             setProviderModelsError(null);
             try {
                 const result = await getModels();
-                if (result.success && result.data) {
+                if (!result.error && result.data) {
                     setProviderModelsData(result.data);
                 } else {
                     throw new Error(result.error || 'Failed to fetch available models.');
@@ -114,7 +114,7 @@ export function ModelConfigStep({
             setProvidersError(null);
             try {
                 const result = await getSupportedModelProviders();
-                if (result.success && result.data) {
+                if (!result.error && result.data) {
                     setSupportedProviders(result.data);
                 } else {
                     throw new Error(result.error || 'Failed to fetch supported providers.');
@@ -203,7 +203,7 @@ export function ModelConfigStep({
 
         try {
             const result = await createModelConfig(payload);
-            if (result.success) {
+            if (!result.error) {
                 const configRef = k8sRefUtils.toRef(values.configNamespace || K8S_AGENT_DEFAULTS.namespace, values.configName)
                 toast.success(`Model configuration '${configRef}' created successfully!`);
                 onNext(configRef, values.modelName); // Pass data to parent

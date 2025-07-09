@@ -3,9 +3,11 @@ package a2a
 import (
 	"context"
 
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	"github.com/kagent-dev/kagent/go/internal/a2a"
+	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
+	"github.com/kagent-dev/kagent/go/internal/database"
+	common "github.com/kagent-dev/kagent/go/internal/utils"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -17,7 +19,7 @@ type A2AReconciler interface {
 	ReconcileAutogenAgent(
 		ctx context.Context,
 		agent *v1alpha1.Agent,
-		autogenTeam *autogen_client.Team,
+		autogenTeam *database.Agent,
 	) error
 
 	ReconcileAutogenAgentDeletion(
@@ -28,16 +30,17 @@ type A2AReconciler interface {
 type a2aReconciler struct {
 	a2aTranslator AutogenA2ATranslator
 	autogenClient autogen_client.Client
-	a2aHandler    A2AHandlerMux
+	a2aHandler    a2a.A2AHandlerMux
 }
 
 func NewAutogenReconciler(
 	autogenClient autogen_client.Client,
-	a2aHandler A2AHandlerMux,
+	a2aHandler a2a.A2AHandlerMux,
 	a2aBaseUrl string,
+	dbService database.Client,
 ) A2AReconciler {
 	return &a2aReconciler{
-		a2aTranslator: NewAutogenA2ATranslator(a2aBaseUrl, autogenClient),
+		a2aTranslator: NewAutogenA2ATranslator(a2aBaseUrl, autogenClient, dbService),
 		autogenClient: autogenClient,
 		a2aHandler:    a2aHandler,
 	}
@@ -46,7 +49,7 @@ func NewAutogenReconciler(
 func (a *a2aReconciler) ReconcileAutogenAgent(
 	ctx context.Context,
 	agent *v1alpha1.Agent,
-	autogenTeam *autogen_client.Team,
+	autogenTeam *database.Agent,
 ) error {
 	params, err := a.a2aTranslator.TranslateHandlerForAgent(ctx, agent, autogenTeam)
 	if err != nil {

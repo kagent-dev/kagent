@@ -10,16 +10,8 @@ import { fetchApi } from "./utils";
  */
 export async function getSupportedModelProviders(): Promise<BaseResponse<Provider[]>> {
     try {
-      const response = await fetchApi<Provider[]>("/providers/models");
-  
-      if (!response) {
-        throw new Error("Failed to get supported model providers");
-      }
-  
-      return {
-        success: true,
-        data: response,
-      };
+      const response = await fetchApi<BaseResponse<Provider[]>>("/providers/models");
+      return response;
     } catch (error) {
       return createErrorResponse<Provider[]>(error, "Error getting supported providers");
     }
@@ -31,15 +23,15 @@ export async function getSupportedModelProviders(): Promise<BaseResponse<Provide
    */
 export async function getSupportedMemoryProviders(): Promise<BaseResponse<Provider[]>> {
     try {
-      const response = await fetchApi<Provider[]>("/providers/memories");
+      const response = await fetchApi<BaseResponse<Provider[]>>("/providers/memories");
   
       if (!response) {
         throw new Error("Failed to get supported memory providers");
       }
   
       return {
-        success: true,
-        data: response,
+        message: "Supported memory providers fetched successfully",
+        data: response.data,
       };
     } catch (error) {
       return createErrorResponse<Provider[]>(error, "Error getting supported memory providers");

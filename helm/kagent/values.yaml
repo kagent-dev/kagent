@@ -36,6 +36,13 @@ providers:
       azureDeployment: ""
       azureEndpoint: ""
 
+database:
+  type: sqlite
+  sqlite:
+    databaseName: kagent.db
+  postgres:
+    url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
+
 controller:
   loglevel: "info"
 

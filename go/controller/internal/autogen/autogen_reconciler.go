@@ -3,22 +3,25 @@ package autogen
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/kagent-dev/kagent/go/autogen/api"
-	"k8s.io/apimachinery/pkg/api/errors"
+	"gorm.io/gorm"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
-	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	"github.com/kagent-dev/kagent/go/controller/translator"
+	"github.com/kagent-dev/kagent/go/internal/autogen/api"
+	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
+	"github.com/kagent-dev/kagent/go/internal/database"
+	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,20 +41,22 @@ type AutogenReconciler interface {
 }
 
 type autogenReconciler struct {
-	autogenTranslator ApiTranslator
+	autogenTranslator translator.ApiTranslator
 	a2aReconciler     a2a.A2AReconciler
 
 	kube          client.Client
 	autogenClient autogen_client.Client
+	dbClient      database.Client
 
 	defaultModelConfig types.NamespacedName
 	upsertLock         sync.Mutex
 }
 
 func NewAutogenReconciler(
-	translator ApiTranslator,
+	translator translator.ApiTranslator,
 	kube client.Client,
 	autogenClient autogen_client.Client,
+	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
 	a2aReconciler a2a.A2AReconciler,
 ) AutogenReconciler {
@@ -59,6 +64,7 @@ func NewAutogenReconciler(
 		autogenTranslator:  translator,
 		kube:               kube,
 		autogenClient:      autogenClient,
+		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
 		a2aReconciler:      a2aReconciler,
 	}
@@ -98,15 +104,7 @@ func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
 	// remove a2a handler if it exists
 	a.a2aReconciler.ReconcileAutogenAgentDeletion(req.NamespacedName.String())
 
-	// TODO(sbx0r): temporary mock on GlobalUserID.
-	//              This block will be removed after resolving previous TODO
-	team, err := a.autogenClient.GetTeam(req.NamespacedName.String(), common.GetGlobalUserID())
-	if err != nil {
-		return fmt.Errorf("failed to get agent on agent deletion %s/%s: %w",
-			req.Namespace, req.Name, err)
-	}
-
-	if err = a.autogenClient.DeleteTeam(team.Id, team.UserID); err != nil {
+	if err := a.dbClient.DeleteAgent(req.NamespacedName.String()); err != nil {
 		return fmt.Errorf("failed to delete agent %s: %w",
 			req.NamespacedName.String(), err)
 	}
@@ -314,13 +312,13 @@ func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req 
 		return fmt.Errorf("failed to get tool server %s: %v", req.Name, err)
 	}
 
-	serverID, reconcileErr := a.reconcileToolServer(ctx, toolServer)
+	reconcileErr := a.reconcileToolServer(ctx, toolServer)
 
 	// update the tool server status as the agents depend on it
 	if err := a.reconcileToolServerStatus(
 		ctx,
 		toolServer,
-		serverID,
+		common.GetObjectRef(toolServer),
 		reconcileErr,
 	); err != nil {
 		return fmt.Errorf("failed to reconcile tool server %s: %v", req.Name, err)
@@ -342,10 +340,10 @@ func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req 
 func (a *autogenReconciler) reconcileToolServerStatus(
 	ctx context.Context,
 	toolServer *v1alpha1.ToolServer,
-	serverID int,
+	serverRef string,
 	err error,
 ) error {
-	discoveredTools, discoveryErr := a.getDiscoveredMCPTools(serverID)
+	discoveredTools, discoveryErr := a.getDiscoveredMCPTools(ctx, serverRef)
 	if discoveryErr != nil {
 		err = multierror.Append(err, discoveryErr)
 	}
@@ -392,7 +390,7 @@ func (a *autogenReconciler) reconcileToolServerStatus(
 func (a *autogenReconciler) ReconcileAutogenMemory(ctx context.Context, req ctrl.Request) error {
 	memory := &v1alpha1.Memory{}
 	if err := a.kube.Get(ctx, req.NamespacedName, memory); err != nil {
-		if errors.IsNotFound(err) {
+		if k8s_errors.IsNotFound(err) {
 			return a.handleMemoryDeletion(req)
 		}
 
@@ -456,7 +454,7 @@ func (a *autogenReconciler) reconcileTeams(ctx context.Context, teams ...*v1alph
 				"failed to translate team %s/%s: %v", team.Namespace, team.Name, err)
 			continue
 		}
-		if err := a.upsertTeam(autogenTeam); err != nil {
+		if err := a.upsertAgent(ctx, autogenTeam); err != nil {
 			errs[types.NamespacedName{Name: team.Name, Namespace: team.Namespace}] = fmt.Errorf(
 				"failed to upsert team %s/%s: %v", team.Namespace, team.Name, err)
 			continue
@@ -496,87 +494,93 @@ func (a *autogenReconciler) reconcileAgent(ctx context.Context, agent *v1alpha1.
 	if err := a.reconcileA2A(ctx, autogenTeam, agent); err != nil {
 		return fmt.Errorf("failed to reconcile A2A for agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
-	if err := a.upsertTeam(autogenTeam); err != nil {
+	if err := a.upsertAgent(ctx, autogenTeam); err != nil {
 		return fmt.Errorf("failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
 
 	return nil
 }
 
-func (a *autogenReconciler) reconcileToolServer(ctx context.Context, server *v1alpha1.ToolServer) (int, error) {
+func (a *autogenReconciler) reconcileToolServer(ctx context.Context, server *v1alpha1.ToolServer) error {
 	toolServer, err := a.autogenTranslator.TranslateToolServer(ctx, server)
 	if err != nil {
-		return 0, fmt.Errorf("failed to translate tool server %s/%s: %v", server.Namespace, server.Name, err)
+		return fmt.Errorf("failed to translate tool server %s/%s: %v", server.Namespace, server.Name, err)
 	}
-	serverID, err := a.upsertToolServer(toolServer)
+	err = a.upsertToolServer(ctx, toolServer)
 	if err != nil {
-		return 0, fmt.Errorf("failed to upsert tool server %s/%s: %v", server.Namespace, server.Name, err)
+		return fmt.Errorf("failed to upsert tool server %s/%s: %v", server.Namespace, server.Name, err)
 	}
 
-	return serverID, nil
+	return nil
 }
 
-func (a *autogenReconciler) upsertTeam(team *autogen_client.Team) error {
+func (a *autogenReconciler) upsertAgent(ctx context.Context, agent *database.Agent) error {
 	// lock to prevent races
 	a.upsertLock.Lock()
 	defer a.upsertLock.Unlock()
 	// validate the team
 	req := autogen_client.ValidationRequest{
-		Component: team.Component,
+		Component: &agent.Component,
 	}
-	resp, err := a.autogenClient.Validate(&req)
+	resp, err := a.autogenClient.Validate(ctx, &req)
 	if err != nil {
-		return fmt.Errorf("failed to validate team %s: %v", team.Component.Label, err)
+		return fmt.Errorf("failed to validate agent %s: %v", agent.Name, err)
 	}
 	if !resp.IsValid {
-		return fmt.Errorf("team %s is invalid: %v", team.Component.Label, resp.ErrorMsg())
+		return fmt.Errorf("agent %s is invalid: %v", agent.Name, resp.ErrorMsg())
 	}
 
 	// delete if team exists
-	existingTeam, err := a.autogenClient.GetTeam(team.Component.Label, common.GetGlobalUserID())
-	if err != nil && err != autogen_client.NotFoundError {
-		return fmt.Errorf("failed to get existing team %s: %v", team.Component.Label, err)
+	existingAgent, err := a.dbClient.GetAgent(agent.Name)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("failed to get existing agent %s: %v", agent.Name, err)
 	}
-	if existingTeam != nil {
-		team.Id = existingTeam.Id
+	if existingAgent != nil {
+		agent.ID = existingAgent.ID
 	}
 
-	return a.autogenClient.CreateTeam(team)
+	return a.dbClient.UpsertAgent(agent)
 }
 
-func (a *autogenReconciler) upsertToolServer(toolServer *autogen_client.ToolServer) (int, error) {
+func (a *autogenReconciler) upsertToolServer(ctx context.Context, toolServer *database.ToolServer) error {
 	// lock to prevent races
 	a.upsertLock.Lock()
 	defer a.upsertLock.Unlock()
 
 	// delete if toolServer exists
-	existingToolServer, err := a.autogenClient.GetToolServerByLabel(toolServer.Component.Label, common.GetGlobalUserID())
+	existingToolServer, err := a.dbClient.GetToolServer(toolServer.Component.Label)
 	if err != nil && !strings.Contains(err.Error(), "not found") {
-		return 0, fmt.Errorf("failed to get existing toolServer %s: %v", toolServer.Component.Label, err)
+		return fmt.Errorf("failed to get existing toolServer %s: %v", toolServer.Component.Label, err)
 	}
 	if existingToolServer != nil {
-		toolServer.Id = existingToolServer.Id
-		err = a.autogenClient.UpdateToolServer(toolServer, common.GetGlobalUserID())
+		toolServer.ID = existingToolServer.ID
+		err = a.dbClient.UpdateToolServer(toolServer)
 		if err != nil {
-			return 0, fmt.Errorf("failed to delete existing toolServer %s: %v", toolServer.Component.Label, err)
+			return fmt.Errorf("failed to delete existing toolServer %s: %v", toolServer.Component.Label, err)
 		}
 	} else {
-		existingToolServer, err = a.autogenClient.CreateToolServer(toolServer, common.GetGlobalUserID())
+		existingToolServer, err = a.dbClient.CreateToolServer(toolServer)
 		if err != nil {
-			return 0, fmt.Errorf("failed to create toolServer %s: %v", toolServer.Component.Label, err)
+			return fmt.Errorf("failed to create toolServer %s: %v", toolServer.Component.Label, err)
 		}
-		existingToolServer, err = a.autogenClient.GetToolServerByLabel(toolServer.Component.Label, common.GetGlobalUserID())
+		existingToolServer, err = a.dbClient.GetToolServer(toolServer.Component.Label)
 		if err != nil {
-			return 0, fmt.Errorf("failed to get existing toolServer %s: %v", toolServer.Component.Label, err)
+			return fmt.Errorf("failed to get existing toolServer %s: %v", toolServer.Component.Label, err)
 		}
 	}
 
-	err = a.autogenClient.RefreshToolServer(existingToolServer.Id, common.GetGlobalUserID())
+	tools, err := a.autogenClient.FetchTools(ctx, &autogen_client.ToolServerRequest{
+		Server: &existingToolServer.Component,
+	})
 	if err != nil {
-		return 0, fmt.Errorf("failed to refresh toolServer %s: %v", toolServer.Component.Label, err)
+		return fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Component.Label, err)
 	}
 
-	return existingToolServer.Id, nil
+	if err := a.dbClient.RefreshToolsForServer(toolServer.Component.Label, tools.Tools); err != nil {
+		return fmt.Errorf("failed to refresh tools for toolServer %s: %v", toolServer.Component.Label, err)
+	}
+
+	return nil
 }
 
 func (a *autogenReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
@@ -855,16 +859,16 @@ func (a *autogenReconciler) findAgentsUsingToolServer(ctx context.Context, req c
 
 }
 
-func (a *autogenReconciler) getDiscoveredMCPTools(serverID int) ([]*v1alpha1.MCPTool, error) {
-	allTools, err := a.autogenClient.ListTools(common.GetGlobalUserID())
+func (a *autogenReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef string) ([]*v1alpha1.MCPTool, error) {
+	allTools, err := a.dbClient.ListTools()
 	if err != nil {
 		return nil, err
 	}
 
 	var discoveredTools []*v1alpha1.MCPTool
 	for _, tool := range allTools {
-		if tool.ServerID != nil && *tool.ServerID == serverID {
-			mcpTool, err := convertTool(tool)
+		if tool.ServerName == serverRef {
+			mcpTool, err := convertTool(&tool)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert tool: %v", err)
 			}
@@ -877,14 +881,14 @@ func (a *autogenReconciler) getDiscoveredMCPTools(serverID int) ([]*v1alpha1.MCP
 
 func (a *autogenReconciler) reconcileA2A(
 	ctx context.Context,
-	team *autogen_client.Team,
+	team *database.Agent,
 	agent *v1alpha1.Agent,
 ) error {
 	return a.a2aReconciler.ReconcileAutogenAgent(ctx, agent, team)
 }
 
-func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {
-	if tool.Component == nil || tool.Component.Config == nil {
+func convertTool(tool *database.Tool) (*v1alpha1.MCPTool, error) {
+	if tool.Component.Config == nil {
 		return nil, fmt.Errorf("missing component or config")
 	}
 	config := tool.Component.Config
@@ -892,7 +896,7 @@ func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {
 	if err := unmarshalFromMap(config, &mcpToolConfig); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal tool config: %v", err)
 	}
-	component, err := convertComponentToApiType(tool.Component)
+	component, err := convertComponentToApiType(&tool.Component)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert component: %v", err)
 	}
@@ -901,70 +905,6 @@ func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {
 		Name:      mcpToolConfig.Tool.Name,
 		Component: component,
 	}, nil
-	//
-	//inputSchema, err := convertToAnyType(mcpToolConfig.Tool.InputSchema)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to convert input schema: %v", err)
-	//}
-	//
-	//serverParams := mcpToolConfig.ServerParams
-	//if serverParams == nil {
-	//	return nil, fmt.Errorf("missing server params")
-	//}
-	//serverParamsMap, ok := serverParams.(map[string]interface{})
-	//if !ok {
-	//	return nil, fmt.Errorf("invalid server params")
-	//}
-	//
-	//// if serevr params contains "command", parse it as Stdio, else look for "url" and parse it as Sse
-	//_, hasCommand := serverParamsMap["command"]
-	//_, hasUrl := serverParamsMap["url"]
-	//
-	//var (
-	//	stdio *v1alpha1.StdioMcpServerConfig
-	//	sse   *v1alpha1.SseMcpServerConfig
-	//)
-	//switch {
-	//case hasCommand:
-	//	stdioConfig := &api.StdioMcpServerConfig{}
-	//	if err := unmarshalFromMap(serverParamsMap, stdioConfig); err != nil {
-	//		return nil, fmt.Errorf("failed to unmarshal stdio config: %v", err)
-	//	}
-	//	stderr, ok := stdioConfig.Stderr.(string)
-	//	if !ok {
-	//		stderr = ""
-	//	}
-	//
-	//	stdio = &v1alpha1.StdioMcpServerConfig{
-	//		Command: stdioConfig.Command,
-	//		Args:    stdioConfig.Args,
-	//		Env:     stdioConfig.Env,
-	//		Stderr:  stderr,
-	//		Cwd:     stdioConfig.Cwd,
-	//	}
-	//case hasUrl:
-	//	sseConfig := &api.SseMcpServerConfig{}
-	//	if err := unmarshalFromMap(serverParamsMap, sseConfig); err != nil {
-	//		return nil, fmt.Errorf("failed to unmarshal sse config: %v", err)
-	//	}
-	//
-	//	sse = &v1alpha1.SseMcpServerConfig{
-	//		URL:            sseConfig.URL,
-	//		Headers:        sseConfig.Headers,
-	//		Timeout:        convertTimeout(sseConfig.Timeout),
-	//		SseReadTimeout: convertTimeout(sseConfig.SseReadTimeout),
-	//	}
-	//}
-	//
-	//return &v1alpha1.MCPTool{
-	//	Name:        mcpToolConfig.Tool.Name,
-	//	Description: mcpToolConfig.Tool.Description,
-	//	InputSchema: inputSchema,
-	//	ServerParams: v1alpha1.MCPToolServerParams{
-	//		Stdio: stdio,
-	//		Sse:   sse,
-	//	},
-	//}, nil
 }
 
 func convertComponentToApiType(component *api.Component) (v1alpha1.Component, error) {

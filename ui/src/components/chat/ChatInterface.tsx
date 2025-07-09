@@ -12,9 +12,9 @@ import StreamingMessage from "./StreamingMessage";
 import TokenStatsDisplay from "./TokenStats";
 import { TokenStats } from "@/lib/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionMessages, checkSessionExists, updateSession } from "@/app/actions/sessions";
+import { createSession, getSessionMessages, checkSessionExists } from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
-import { getTeam } from "@/app/actions/teams";
+import { getAgent } from "@/app/actions/agents";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers } from "@/lib/messageHandlers";
@@ -22,12 +22,13 @@ import { createMessageHandlers } from "@/lib/messageHandlers";
 export type ChatStatus = "ready" | "thinking" | "error";
 
 interface ChatInterfaceProps {
-  selectedAgentId: number;
+  selectedAgentName: string;
+  selectedNamespace: string;
   selectedSession?: Session | null;
   sessionId?: string;
 }
 
-export default function ChatInterface({ selectedAgentId, selectedSession, sessionId }: ChatInterfaceProps) {
+export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -76,14 +77,14 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
 
       try {
         const sessionExistsResponse = await checkSessionExists(sessionId);
-        if (!sessionExistsResponse.success || !sessionExistsResponse.data) {
+        if (sessionExistsResponse.error || !sessionExistsResponse.data) {
           setSessionNotFound(true);
           setIsLoading(false);
           return;
         }
 
         const messagesResponse = await getSessionMessages(sessionId);
-        if (!messagesResponse.success) {
+        if (messagesResponse.error) {
           toast.error("Failed to load messages");
           setIsLoading(false);
           return;
@@ -103,7 +104,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
     }
 
     initializeChat();
-  }, [sessionId, selectedAgentId, isFirstMessage]);
+  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -117,8 +118,8 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
   useEffect(() => {
     async function loadTeamConfig() {
       try {
-        const teamResponse = await getTeam(selectedAgentId);
-        if (teamResponse.success && teamResponse.data) {
+        const teamResponse = await getAgent(selectedAgentName, selectedNamespace);
+        if (!teamResponse.error && teamResponse.data) {
           setTeamConfig(teamResponse.data.component);
         }
       } catch (error) {
@@ -126,11 +127,11 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
       }
     }
     loadTeamConfig();
-  }, [selectedAgentId]);
+  }, [selectedAgentName, selectedNamespace]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentInputMessage.trim() || !selectedAgentId) {
+    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
       return;
     }
 
@@ -158,11 +159,11 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
 
           const newSessionResponse = await createSession({
             user_id: await getCurrentUserId(),
-            team_id: String(selectedAgentId),
+            agent_ref: `${selectedNamespace}/${selectedAgentName}`,
             name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
           });
 
-          if (!newSessionResponse.success || !newSessionResponse.data) {
+          if (newSessionResponse.error || !newSessionResponse.data) {
             toast.error("Failed to create session");
             setChatStatus("error");
             setCurrentInputMessage(userMessageText);
@@ -174,14 +175,14 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
           setSession(newSessionResponse.data);
 
           // Update URL without triggering navigation or component reload
-          const newUrl = `/agents/${selectedAgentId}/chat/${currentSessionId}`;
+          const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
           window.history.replaceState({}, '', newUrl);
 
           // Dispatch a custom event to notify that a new session was created
           // Include the full session object to avoid needing a DB reload
           const newSessionEvent = new CustomEvent('new-session-created', {
             detail: {
-              agentId: selectedAgentId,
+              agentRef: `${selectedNamespace}/${selectedAgentName}`,
               session: newSessionResponse.data
             }
           });
@@ -193,21 +194,6 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
           setCurrentInputMessage(userMessageText);
           isCreatingSessionRef.current = false;
           return;
-        }
-      } else if (messages.length === 0) {
-        // Rename session if this is the first message (for existing sessions with no messages)
-        try {
-          const sessionTitle = userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : "");
-          await updateSession({
-            id: Number(currentSessionId),
-            name: sessionTitle,
-            team_id: selectedAgentId,
-            user_id: session?.user_id || "",
-            created_at: session?.created_at || "",
-            updated_at: session?.updated_at || ""
-          });
-        } catch (error) {
-          console.error("Failed to rename session:", error);
         }
       }
 
@@ -320,7 +306,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentId) {
+      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace) {
         handleSendMessage(e);
       }
     }
@@ -331,7 +317,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
       <div className="flex flex-col items-center justify-center w-full h-full">
         <div className="text-xl font-semibold mb-4">Session not found</div>
         <p className="text-muted-foreground mb-6">This chat session may have been deleted or does not exist.</p>
-        <Button onClick={() => router.push(`/agents/${selectedAgentId}/chat`)}>
+        <Button onClick={() => router.push(`/agents/${selectedNamespace}/${selectedAgentName}/chat`)}>
           Start a new chat
         </Button>
       </div>

@@ -1,0 +1,145 @@
+{
+  "CreatedAt": "0001-01-01T00:00:00Z",
+  "DeletedAt": null,
+  "ID": 0,
+  "UpdatedAt": "0001-01-01T00:00:00Z",
+  "component": {
+    "component_type": "team",
+    "component_version": 0,
+    "config": {
+      "participants": [
+        {
+          "component_type": "agent",
+          "component_version": 0,
+          "config": {
+            "description": "A parent agent that can delegate to specialists",
+            "model_client": {
+              "component_type": "model",
+              "component_version": 0,
+              "config": {
+                "api_key": "sk-test-api-key",
+                "model": "gpt-4o",
+                "stream_options": {
+                  "include_usage": true
+                }
+              },
+              "description": "",
+              "label": "",
+              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
+              "version": 1
+            },
+            "model_client_stream": true,
+            "model_context": {
+              "component_type": "chat_completion_context",
+              "component_version": 0,
+              "config": {},
+              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
+              "label": "UnboundedChatCompletionContext",
+              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
+              "version": 1
+            },
+            "name": "test__NS__parent_agent",
+            "reflect_on_tool_use": false,
+            "system_message": "You are a coordinating agent that can delegate tasks to specialists.",
+            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
+            "tools": [
+              {
+                "component_type": "tool",
+                "component_version": 0,
+                "config": {
+                  "description": "A specialist agent for math problems",
+                  "name": "test__NS__specialist_agent",
+                  "team": {
+                    "component_type": "team",
+                    "component_version": 0,
+                    "config": {
+                      "participants": [
+                        {
+                          "component_type": "agent",
+                          "component_version": 0,
+                          "config": {
+                            "description": "A specialist agent for math problems",
+                            "model_client": {
+                              "component_type": "model",
+                              "component_version": 0,
+                              "config": {
+                                "api_key": "sk-test-api-key",
+                                "model": "gpt-4o"
+                              },
+                              "description": "",
+                              "label": "",
+                              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
+                              "version": 1
+                            },
+                            "model_client_stream": false,
+                            "model_context": {
+                              "component_type": "chat_completion_context",
+                              "component_version": 0,
+                              "config": {},
+                              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
+                              "label": "UnboundedChatCompletionContext",
+                              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
+                              "version": 1
+                            },
+                            "name": "test__NS__specialist_agent",
+                            "reflect_on_tool_use": false,
+                            "system_message": "You are a math specialist. Focus on solving mathematical problems step by step.",
+                            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
+                            "tools": null
+                          },
+                          "description": "A specialist agent for math problems",
+                          "label": "",
+                          "provider": "autogen_agentchat.agents.AssistantAgent",
+                          "version": 1
+                        }
+                      ],
+                      "termination_condition": {
+                        "component_type": "termination",
+                        "component_version": 0,
+                        "config": {
+                          "source": "test__NS__specialist_agent"
+                        },
+                        "description": "",
+                        "label": "",
+                        "provider": "kagent.conditions.FinalTextMessageTermination",
+                        "version": 1
+                      }
+                    },
+                    "description": "A specialist agent for math problems",
+                    "label": "test/specialist-agent",
+                    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
+                    "version": 1
+                  }
+                },
+                "description": "",
+                "label": "",
+                "provider": "autogen_agentchat.tools.TeamTool",
+                "version": 1
+              }
+            ]
+          },
+          "description": "A parent agent that can delegate to specialists",
+          "label": "",
+          "provider": "autogen_agentchat.agents.AssistantAgent",
+          "version": 1
+        }
+      ],
+      "termination_condition": {
+        "component_type": "termination",
+        "component_version": 0,
+        "config": {
+          "source": "test__NS__parent_agent"
+        },
+        "description": "",
+        "label": "",
+        "provider": "kagent.conditions.FinalTextMessageTermination",
+        "version": 1
+      }
+    },
+    "description": "A parent agent that can delegate to specialists",
+    "label": "test/parent-agent",
+    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
+    "version": 1
+  },
+  "name": "test/parent-agent"
+}
