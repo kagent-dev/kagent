@@ -1,5 +1,9 @@
+import logging
+
+import os
 import typer
 from mcp.server.fastmcp import FastMCP
+from autogen_core import ROOT_LOGGER_NAME
 
 app = typer.Typer()
 
@@ -24,9 +28,6 @@ def serve(
 
     from autogenstudio.cli import ui
 
-    LOGLEVEL = os.getenv("LOGLEVEL", "INFO").upper()
-    logging.basicConfig(level=LOGLEVEL)
-
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     if tracing_enabled:
         logging.info("Enabling tracing")
@@ -41,6 +42,10 @@ def serve(
 
 
 def run():
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(level=LOG_LEVEL)
+    logger = logging.getLogger(ROOT_LOGGER_NAME)
+    logger.setLevel(LOG_LEVEL)
     app()
 
 
