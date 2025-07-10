@@ -115,6 +115,31 @@ func (h *TeamsHandler) HandleListTeams(w ErrorResponseWriter, r *http.Request) {
 					log.Error(err, "Failed to parse agent tool reference", "toolRef", toolCopy.Agent.Ref)
 					continue
 				}
+
+				// Below is code to populate the description field for the agents.
+				// This handler is currently used to get references to existing agents.
+				// Fetching the description for _every_ agent would be redundant and could be an unnecessary performance hit.
+
+				// Fetch the referenced agent to get its description
+				// agentRef, err := common.ParseRefString(toolCopy.Agent.Ref, team.Namespace)
+				// if err != nil {
+				// 	// Log an error, but keep the agent without description
+				// 	log.Error(err, "Failed to parse agent reference for description lookup", "agentRef", toolCopy.Agent.Ref)
+				// 	tools = append(tools, toolCopy)
+				// 	continue
+				// }
+
+				// referencedAgent := &v1alpha1.Agent{}
+				// if err := common.GetObject(r.Context(), h.KubeClient, referencedAgent, agentRef.Name, agentRef.Namespace); err != nil {
+				// 	log.Error(err, "Failed to get referenced agent for description", "agentRef", toolCopy.Agent.Ref)
+				// 	// Continue without description
+				// 	tools = append(tools, toolCopy)
+				// 	continue
+				// }
+
+				// // Populate the description field
+				// toolCopy.Agent.Description = referencedAgent.Spec.Description
+
 				tools = append(tools, toolCopy)
 
 			case v1alpha1.ToolProviderType_McpServer:
@@ -382,6 +407,25 @@ func (h *TeamsHandler) HandleGetTeam(w ErrorResponseWriter, r *http.Request) {
 				log.Error(err, "Failed to parse agent tool reference", "toolRef", toolCopy.Agent.Ref)
 				continue
 			}
+
+			// Fetch the referenced agent to get its description
+			agentRef, err := common.ParseRefString(toolCopy.Agent.Ref, team.Namespace)
+			if err != nil {
+				log.Error(err, "Failed to parse agent reference for description lookup", "agentRef", toolCopy.Agent.Ref)
+				tools = append(tools, toolCopy)
+				continue
+			}
+
+			referencedAgent := &v1alpha1.Agent{}
+			if err := common.GetObject(r.Context(), h.KubeClient, referencedAgent, agentRef.Name, agentRef.Namespace); err != nil {
+				log.Error(err, "Failed to get referenced agent for description", "agentRef", toolCopy.Agent.Ref)
+				// Continue without description
+				tools = append(tools, toolCopy)
+				continue
+			}
+
+			// Populate the description field
+			toolCopy.Agent.Description = referencedAgent.Spec.Description
 			tools = append(tools, toolCopy)
 
 		case v1alpha1.ToolProviderType_McpServer:
