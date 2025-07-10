@@ -45,6 +45,7 @@ def run():
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(level=LOG_LEVEL)
     logger = logging.getLogger(ROOT_LOGGER_NAME)
+    logger.setLevel(LOG_LEVEL)
     app()
 
 
