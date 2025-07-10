@@ -137,6 +137,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "kagent.fullname" . }}-openai
                   key: OPENAI_API_KEY
+                  optional: true # if the secret is not found, the tool will not be available
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
