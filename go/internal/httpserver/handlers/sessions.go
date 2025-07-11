@@ -147,16 +147,16 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	RespondWithJSON(w, http.StatusCreated, data)
 }
 
-// HandleGetSession handles GET /api/sessions/{session_name} requests using database
+// HandleGetSession handles GET /api/sessions/{session_id} requests using database
 func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "get-db")
 
-	sessionName, err := GetPathParam(r, "session_name")
+	sessionName, err := GetPathParam(r, "session_id")
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get session name from path", err))
 		return
 	}
-	log = log.WithValues("session_name", sessionName)
+	log = log.WithValues("session_id", sessionName)
 
 	userID, err := GetUserID(r)
 	if err != nil {
@@ -224,7 +224,7 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// HandleDeleteSession handles DELETE /api/sessions/{session_name} requests using database
+// HandleDeleteSession handles DELETE /api/sessions/{session_id} requests using database
 func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "delete-db")
 
@@ -235,12 +235,12 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("userID", userID)
 
-	sessionName, err := GetPathParam(r, "session_name")
+	sessionName, err := GetPathParam(r, "session_id")
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
 		return
 	}
-	log = log.WithValues("session_name", sessionName)
+	log = log.WithValues("session_id", sessionName)
 
 	if err := h.DatabaseService.DeleteSession(sessionName, userID); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete session", err))
@@ -252,16 +252,16 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// HandleListSessionRuns handles GET /api/sessions/{session_name}/tasks requests using database
+// HandleListSessionRuns handles GET /api/sessions/{session_id}/tasks requests using database
 func (h *SessionsHandler) HandleListSessionTasks(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "list-tasks-db")
 
-	sessionName, err := GetPathParam(r, "session_name")
+	sessionName, err := GetPathParam(r, "session_id")
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
 		return
 	}
-	log = log.WithValues("session_name", sessionName)
+	log = log.WithValues("session_id", sessionName)
 
 	userID, err := GetUserID(r)
 	if err != nil {
@@ -285,7 +285,7 @@ func (h *SessionsHandler) HandleListSessionTasks(w ErrorResponseWriter, r *http.
 func (h *SessionsHandler) HandleInvokeSession(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "invoke-session")
 
-	sessionName, err := GetPathParam(r, "session_name")
+	sessionName, err := GetPathParam(r, "session_id")
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
 		return
@@ -341,7 +341,7 @@ func (h *SessionsHandler) HandleInvokeSession(w ErrorResponseWriter, r *http.Req
 func (h *SessionsHandler) HandleInvokeSessionStream(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "invoke-session")
 
-	sessionName, err := GetPathParam(r, "session_name")
+	sessionName, err := GetPathParam(r, "session_id")
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
 		return
@@ -398,4 +398,43 @@ func (h *SessionsHandler) HandleInvokeSessionStream(w ErrorResponseWriter, r *ht
 		w.Write([]byte(event.String()))
 		w.Flush()
 	}
+}
+
+func (h *SessionsHandler) HandleListSessionMessages(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "list-messages-db")
+
+	sessionID, err := GetPathParam(r, "session_id")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("session_id", sessionID)
+
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	messages, err := h.DatabaseService.ListMessagesForSession(sessionID, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to get messages for session", err))
+		return
+	}
+
+	parsedMessages, err := database.ParseMessages(messages)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to parse messages", err))
+		return
+	}
+
+	autogenEvents, err := utils.ConvertMessagesToAutogenEvents(parsedMessages)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to convert messages to autogen events", err))
+		return
+	}
+
+	data := api.NewResponse(autogenEvents, "Successfully retrieved session messages", false)
+	RespondWithJSON(w, http.StatusOK, data)
 }
