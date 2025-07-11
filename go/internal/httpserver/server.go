@@ -152,7 +152,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleCreateSession)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathSessions+"/agent/{namespace}/{name}", adaptHandler(s.handlers.Sessions.HandleGetSessionsForAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleGetSession)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions+"{session_id}/messages", adaptHandler(s.handlers.Sessions.HandleListSessionMessages)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/messages", adaptHandler(s.handlers.Sessions.HandleListSessionMessages)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/tasks", adaptHandler(s.handlers.Sessions.HandleListSessionTasks)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut)
