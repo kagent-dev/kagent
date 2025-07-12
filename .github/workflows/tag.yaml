@@ -117,8 +117,8 @@ jobs:
 
     - name: Run GitIngest
       run: |
-        echo "⚙️ Running GitIngest..."
-        gitingest --repo-url https://github.com/kagent-dev/kagent > ingest.log
+        echo "⚙️ Running GitIngest using local checkout..."
+        gitingest . > gitingest.log
         echo " GitIngest completed."
     
     - name: Release
@@ -128,4 +128,4 @@ jobs:
         files: |
           go/bin/kagent-*
           kagent-*.tgz
-          ingest.log
+          gitingest.log
