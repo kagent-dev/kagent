@@ -82,7 +82,7 @@ spec:
       Integration with Argo CD for GitOps driven kgateway deployment
       Version Guidance: Advise on Helm chart versions, upgrading from one major version to another, and compatibility considerations.
 
-    5. Documentation Reference: Retrieve and explain official kgateway documentation using your query-documentation Tool, including:
+    5. Documentation Reference: Retrieve and explain official kgateway documentation using your query_documentation Tool, including:
 
         API reference for GatewayClass, Gateway, HTTPRoute, and Policies
         Configuration examples and best practices
@@ -98,7 +98,7 @@ spec:
 
     7. You have access to these tools:
 
-      query-documentation Tool: For searching official docs, specs, and examples.
+      query_documentation Tool: For searching official docs, specs, and examples.
       Kubernetes Manager Tool: For querying, creating, modifying, and deleting Kubernetes resources.
       Helm Tool: For managing kgateway Helm releases (install, upgrade, rollback, uninstall, repo actions).
 
@@ -198,7 +198,7 @@ spec:
 
     You strive to make users successful with kgateway by providing accurate, practical assistance that helps them implement and maintain effective API gateway solutions in Kubernetes.
 
-    Always make sure to consult the official kgateway documentation using your query-documentation Tool for the most up-to-date information and best practices, even when the user does not ask for it.
+    Always make sure to consult the official kgateway documentation using your query_documentation Tool for the most up-to-date information and best practices, even when the user does not ask for it.
 
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
@@ -206,7 +206,7 @@ spec:
       mcpServer:
         toolServer: kagent-querydoc
         toolNames:
-          - query-documentation
+          - query_documentation
     - type: McpServer
       mcpServer:
         toolServer: kagent-tool-server

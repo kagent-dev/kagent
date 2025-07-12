@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { getToolDescription, getToolDisplayName, getToolIdentifier, isAgentTool, isMcpTool, isMcpProvider } from "@/lib/toolUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
-import { getTeams } from "@/app/actions/teams";
+import { getAgents } from "@/app/actions/agents";
 import KagentLogo from "../kagent-logo";
 
 interface ToolsSectionProps {
@@ -26,8 +26,8 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
   useEffect(() => {
     const fetchAgents = async () => {
       setLoadingAgents(true);
-      const response = await getTeams();
-      if (response.success && response.data) {
+      const response = await getAgents();
+      if (!response.error && response.data) {
         const filteredAgents = currentAgentName
           ? response.data.filter((agentResp: AgentResponse) => agentResp.agent.metadata.name !== currentAgentName)
           : response.data;

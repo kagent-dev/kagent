@@ -34,28 +34,11 @@ type TeamSpec struct {
 	// +kubebuilder:validation:Optional
 	RoundRobinTeamConfig *RoundRobinTeamConfig `json:"roundRobinTeamConfig"`
 	// +kubebuilder:validation:Optional
-	SelectorTeamConfig *SelectorTeamConfig `json:"selectorTeamConfig"`
-	// +kubebuilder:validation:Optional
-	MagenticOneTeamConfig *MagenticOneTeamConfig `json:"magenticOneTeamConfig"`
-	// +kubebuilder:validation:Optional
-	SwarmTeamConfig      *SwarmTeamConfig     `json:"swarmTeamConfig"`
 	TerminationCondition TerminationCondition `json:"terminationCondition"`
 	MaxTurns             int64                `json:"maxTurns"`
 }
 
 type RoundRobinTeamConfig struct{}
-
-type SelectorTeamConfig struct {
-	SelectorPrompt string `json:"selectorPrompt"`
-}
-
-type MagenticOneTeamConfig struct {
-	MaxStalls         int    `json:"maxStalls"`
-	FinalAnswerPrompt string `json:"finalAnswerPrompt"`
-}
-
-type SwarmTeamConfig struct {
-}
 
 type TerminationCondition struct {
 	// ONEOF: maxMessageTermination, textMentionTermination, orTermination

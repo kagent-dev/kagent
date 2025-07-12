@@ -22,11 +22,11 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider } }
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    router.push(`/agents/new?edit=true&id=${id}`);
+    router.push(`/agents/new?edit=true&name=${agent.metadata.name}&namespace=${agent.metadata.namespace}`);
   };
 
   return (
-    <Link href={`/agents/${id}/chat`} passHref>
+    <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
       <Card className={`group transition-colors cursor-pointer hover:border-violet-500`}>
         <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
           <CardTitle className="flex items-center gap-2">

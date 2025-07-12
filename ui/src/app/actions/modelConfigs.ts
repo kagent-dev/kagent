@@ -10,18 +10,18 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
  */
 export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
   try {
-    const response = await fetchApi<ModelConfig[]>("/modelconfigs");
+    const response = await fetchApi<BaseResponse<ModelConfig[]>>("/modelconfigs");
 
     if (!response) {
       throw new Error("Failed to get model configs");
     }
 
     // Sort models by name
-    response.sort((a, b) => a.ref.localeCompare(b.ref));
+    response.data?.sort((a, b) => a.ref.localeCompare(b.ref));
 
     return {
-      success: true,
-      data: response,
+      message: "Models fetched successfully",
+      data: response.data,
     };
   } catch (error) {
     return createErrorResponse<ModelConfig[]>(error, "Error getting model configs");
@@ -35,15 +35,15 @@ export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
  */
 export async function getModelConfig(configRef: string): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>(`/modelconfigs/${configRef}`);
+    const response = await fetchApi<BaseResponse<ModelConfig>>(`/modelconfigs/${configRef}`);
 
     if (!response) {
       throw new Error("Failed to get model config");
     }
 
     return {
-      success: true,
-      data: response,
+      message: "Model config fetched successfully",
+      data: response.data,
     };
   } catch (error) {
     return createErrorResponse<ModelConfig>(error, "Error getting model");
@@ -57,7 +57,7 @@ export async function getModelConfig(configRef: string): Promise<BaseResponse<Mo
  */
 export async function createModelConfig(config: CreateModelConfigPayload): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>("/modelconfigs", {
+    const response = await fetchApi<BaseResponse<ModelConfig>>("/modelconfigs", {
       method: "POST",
       body: JSON.stringify(config),
     });
@@ -67,8 +67,8 @@ export async function createModelConfig(config: CreateModelConfigPayload): Promi
     }
 
     return {
-      success: true,
-      data: response,
+      message: "Model config created successfully",
+      data: response.data,
     };
   } catch (error) {
     return createErrorResponse<ModelConfig>(error, "Error creating model configuration");
@@ -86,7 +86,7 @@ export async function updateModelConfig(
   config: UpdateModelConfigPayload
 ): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<ModelConfig>(`/modelconfigs/${configRef}`, {
+    const response = await fetchApi<BaseResponse<ModelConfig>>(`/modelconfigs/${configRef}`, {
       method: "PUT", // Or PATCH depending on backend implementation
       body: JSON.stringify(config),
       headers: {
@@ -104,8 +104,8 @@ export async function updateModelConfig(
     revalidatePath(`/models/new?edit=true&name=${ref.name}&namespace=${ref.namespace}`); // Revalidate edit page if needed
 
     return {
-      success: true,
-      data: response,
+      message: "Model config updated successfully",
+      data: response.data,
     };
   } catch (error) {
     return createErrorResponse<ModelConfig>(error, "Error updating model configuration");
@@ -127,7 +127,7 @@ export async function deleteModelConfig(configRef: string): Promise<BaseResponse
     });
     
     revalidatePath("/models");
-    return { success: true };
+    return { message: "Model config deleted successfully" };
   } catch (error) {
     return createErrorResponse<void>(error, "Error deleting model configuration");
   }

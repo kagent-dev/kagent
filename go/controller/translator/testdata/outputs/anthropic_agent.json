@@ -1,0 +1,72 @@
+{
+  "CreatedAt": "0001-01-01T00:00:00Z",
+  "DeletedAt": null,
+  "ID": 0,
+  "UpdatedAt": "0001-01-01T00:00:00Z",
+  "component": {
+    "component_type": "team",
+    "component_version": 0,
+    "config": {
+      "participants": [
+        {
+          "component_type": "agent",
+          "component_version": 0,
+          "config": {
+            "description": "An agent using Anthropic Claude",
+            "model_client": {
+              "component_type": "model",
+              "component_version": 0,
+              "config": {
+                "api_key": "anthropic-api-key",
+                "max_tokens": 4096,
+                "model": "claude-3-sonnet-20240229",
+                "temperature": 0.3,
+                "top_k": 40,
+                "top_p": 0.9
+              },
+              "description": "",
+              "label": "",
+              "provider": "autogen_ext.models.anthropic.AnthropicChatCompletionClient",
+              "version": 1
+            },
+            "model_client_stream": true,
+            "model_context": {
+              "component_type": "chat_completion_context",
+              "component_version": 0,
+              "config": {},
+              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
+              "label": "UnboundedChatCompletionContext",
+              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
+              "version": 1
+            },
+            "name": "test__NS__anthropic_agent",
+            "reflect_on_tool_use": false,
+            "system_message": "You are Claude, an AI assistant created by Anthropic.",
+            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
+            "tools": null
+          },
+          "description": "An agent using Anthropic Claude",
+          "label": "",
+          "provider": "autogen_agentchat.agents.AssistantAgent",
+          "version": 1
+        }
+      ],
+      "termination_condition": {
+        "component_type": "termination",
+        "component_version": 0,
+        "config": {
+          "source": "test__NS__anthropic_agent"
+        },
+        "description": "",
+        "label": "",
+        "provider": "kagent.conditions.FinalTextMessageTermination",
+        "version": 1
+      }
+    },
+    "description": "An agent using Anthropic Claude",
+    "label": "test/anthropic-agent",
+    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
+    "version": 1
+  },
+  "name": "test/anthropic-agent"
+}

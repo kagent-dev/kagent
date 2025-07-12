@@ -7,7 +7,7 @@ HELM_DIST_FOLDER ?= dist
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-$(GIT_COMMIT)")
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0+$(GIT_COMMIT)")
 
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
@@ -247,12 +247,15 @@ helm-install-provider: helm-version check-openai-key
 		--namespace kagent \
 		--create-namespace \
 		--history-max 2    \
+		--timeout 5m 			\
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait
 	helm $(HELM_ACTION) kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
 		--history-max 2    \
-		--timeout 3m       \
+		--timeout 5m       \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
 		--set service.type=LoadBalancer \
 		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
@@ -279,8 +282,8 @@ helm-test-install: helm-install-provider
 
 .PHONY: helm-uninstall
 helm-uninstall:
-	helm uninstall kagent --namespace kagent
-	helm uninstall kagent-crds --namespace kagent
+	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
+	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
 .PHONY: helm-publish
 helm-publish: helm-version

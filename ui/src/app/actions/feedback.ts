@@ -6,6 +6,7 @@ import { fetchApi, getCurrentUserId } from "./utils";
 /**
  * Submit feedback to the server
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function submitFeedback(feedbackData: FeedbackData): Promise<any> {
     const userID = await getCurrentUserId();
     const body = { 

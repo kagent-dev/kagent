@@ -26,6 +26,11 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kagent.fullname" . }}
+      volumes:
+      - name: sqlite-volume
+        emptyDir:
+          sizeLimit: 500Mi
+          medium: Memory
       containers:
         - name: controller
           args:
@@ -36,6 +41,15 @@ spec:
             - {{ .Values.controller.loglevel }}
             - -watch-namespaces
             - "{{ include "kagent.watchNamespaces" . }}"
+            - -database-type
+            - {{ .Values.database.type }}
+            {{- if eq .Values.database.type "sqlite" }}
+            - -sqlite-database-path
+            - /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
+            {{- else if eq .Values.database.type "postgres" }}
+            - -postgres-database-url
+            - {{ .Values.database.postgres.url }}
+            {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.global.tag .Values.controller.image.tag .Chart.Version }}"
@@ -60,12 +74,17 @@ spec:
               port: http-controller
             initialDelaySeconds: 15
             periodSeconds: 15
+          volumeMounts:
+            - name: sqlite-volume
+              mountPath: /sqlite-volume
         - name: app
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ coalesce .Values.global.tag .Values.app.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
           env:
+            - name: LOG_LEVEL
+              value: {{ .Values.app.loglevel | quote }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -137,6 +156,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "kagent.fullname" . }}-openai
                   key: OPENAI_API_KEY
+                  optional: true # if the secret is not found, the tool will not be available
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

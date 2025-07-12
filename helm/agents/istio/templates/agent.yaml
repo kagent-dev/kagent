@@ -67,7 +67,7 @@ spec:
       - `Version`: Get Istio CLI client version, control plane and data plane versions
 
     4. Documentation and Information:
-      - `query-documentation`: Query documentation and best practices
+      - `query_documentation`: Query documentation and best practices
 
     Operational Protocol:
 
@@ -195,7 +195,7 @@ spec:
       mcpServer:
         toolServer: kagent-querydoc
         toolNames:
-          - query-documentation
+          - query_documentation
     - type: McpServer
       mcpServer:
         toolServer: kagent-tool-server
@@ -294,5 +294,5 @@ spec:
           - "My requests to 'service-x' are failing with 503 errors, can you help troubleshoot?"
           - "How can I view the Istio telemetry for the 'payment-service'?"
           - "The sidecar injection is not working for pods in 'app-ns'. What should I check?"
-          - "query-documentation for best practices on Istio performance tuning."
+          - "query_documentation for best practices on Istio performance tuning."
           - "Describe the Istio ingress gateway pods in 'istio-system' namespace."

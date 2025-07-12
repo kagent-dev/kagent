@@ -1,0 +1,35 @@
+suite: test multiple toolsets
+tests:
+  - it: should create multiple toolservers for different toolsets
+    template: templates/toolserver.yaml
+    set:
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readwrite: true
+      tools.issues.readonly: true
+      tools.pullRequests.readwrite: true
+      tools.pullRequests.readonly: true
+    asserts:
+      - hasDocuments:
+          count: 4
+      - isKind:
+          of: ToolServer
+
+  - it: should handle mixed configurations correctly
+    template: templates/toolserver.yaml
+    set:
+      baseUrl: "https://custom.api.com/mcp"
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readwrite: true
+      tools.repositories.timeout: "60s"
+      tools.issues.readonly: true
+      tools.issues.description: "Custom issues description"
+      tools.pullRequests.readwrite: true
+      tools.pullRequests.readonly: true
+    asserts:
+      - hasDocuments:
+          count: 4
+      # Check that all generated resources are ToolServers
+      - isKind:
+          of: ToolServer

@@ -16,7 +16,7 @@ from autogen_core import EVENT_LOGGER_NAME, CancellationToken, ComponentModel
 from autogen_core.logging import LLMCallEvent
 from opentelemetry import trace
 
-from ..datamodel.types import EnvironmentVariable, LLMCallEventMessage, TeamResult
+from ..datamodel.types import LLMCallEventMessage, TeamResult
 from ..web.managers.run_context import RunContext
 
 logger = logging.getLogger(__name__)

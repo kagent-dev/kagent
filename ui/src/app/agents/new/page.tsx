@@ -34,7 +34,8 @@ interface ValidationErrors {
 
 interface AgentPageContentProps {
   isEditMode: boolean;
-  agentId: string | null;
+  agentName: string | null;
+  agentNamespace: string | null;
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
@@ -51,9 +52,9 @@ const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
     - If you created any artifacts such as files or resources, you will include those in your response as well`
 
 // Inner component that uses useSearchParams, wrapped in Suspense
-function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
+function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageContentProps) {
   const router = useRouter();
-  const { models, tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
+  const { models, tools, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
 
   // Basic form state
   const [name, setName] = useState("");
@@ -86,10 +87,10 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   // Fetch existing agent data if in edit mode
   useEffect(() => {
     const fetchAgentData = async () => {
-      if (isEditMode && agentId) {
+      if (isEditMode && agentName && agentNamespace) {
         try {
           setIsLoading(true);
-          const agentResponse = await getAgentById(agentId);
+          const agentResponse = await getAgent(agentName, agentNamespace);
 
           if (!agentResponse) {
             toast.error("Agent not found");
@@ -131,7 +132,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
     };
 
     fetchAgentData();
-  }, [isEditMode, agentId, getAgentById]);
+  }, [isEditMode, agentName, agentNamespace, getAgent]);
 
   useEffect(() => {
     const fetchMemories = async () => {
@@ -209,16 +210,16 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 
       let result;
 
-      if (isEditMode && agentId) {
+      if (isEditMode && agentName && agentNamespace) {
         // Update existing agent
-        result = await updateAgent(agentId, agentData);
+        result = await updateAgent(agentData);
       } else {
         // Create new agent
         result = await createNewAgent(agentData);
       }
 
-      if (!result.success) {
-        throw new Error(result.error || `Failed to ${isEditMode ? "update" : "create"} agent`);
+      if (result.error) {
+        throw new Error(result.error);
       }
 
       router.push(`/agents`);
@@ -284,7 +285,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 <div>
                   <label className="text-sm mb-2 block">Description</label>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    This is a description of the agent. It's for your reference only and it's not going to be used by the agent.
+                    This is a description of the agent. It&apos;s for your reference only and it&apos;s not going to be used by the agent.
                   </p>
                   <Textarea
                     value={description}
@@ -325,7 +326,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   Memory
                 </CardTitle>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    The memories that the agent will use to answer the user's questions.
+                    The memories that the agent will use to answer the user&apos;s questions.
                   </p>
               </CardHeader>
               <CardContent>
@@ -388,14 +389,15 @@ export default function AgentPage() {
   // Determine if in edit mode
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get("edit") === "true";
-  const agentId = searchParams.get("id");
+  const agentName = searchParams.get("name");
+  const agentNamespace = searchParams.get("namespace");
   
   // Create a key based on the edit mode and agent ID
-  const formKey = isEditMode ? `edit-${agentId}` : 'create';
+  const formKey = isEditMode ? `edit-${agentName}-${agentNamespace}` : 'create';
   
   return (
     <Suspense fallback={<LoadingState />}>
-      <AgentPageContent key={formKey} isEditMode={isEditMode} agentId={agentId} />
+      <AgentPageContent key={formKey} isEditMode={isEditMode} agentName={agentName} agentNamespace={agentNamespace} />
     </Suspense>
   );
 }

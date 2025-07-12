@@ -3,10 +3,10 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"iter"
 	"slices"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/spf13/viper"
 )
 
@@ -17,37 +17,16 @@ const (
 	OutputFormatTable OutputFormat = "table"
 )
 
-// Map returns an iterator over the slice, applying the function f to each element.
-func Map[E any, F any](s iter.Seq[E], f func(E) F) iter.Seq[F] {
-	return func(yield func(F) bool) {
-		for v := range s {
-			if !yield(f(v)) {
-				return
-			}
-		}
-	}
-}
-
-func Filter[E any](s iter.Seq[E], f func(E) bool) iter.Seq[E] {
-	return func(yield func(E) bool) {
-		for v := range s {
-			if f(v) && !yield(v) {
-				return
-			}
-		}
-	}
-}
-
 func printOutput(data interface{}, tableHeaders []string, tableRows [][]string) error {
 	format := OutputFormat(viper.GetString("output_format"))
 
 	tw := table.NewWriter()
-	headers := slices.Collect(Map(slices.Values(tableHeaders), func(header string) interface{} {
+	headers := slices.Collect(utils.Map(slices.Values(tableHeaders), func(header string) interface{} {
 		return header
 	}))
 	tw.AppendHeader(headers)
-	rows := slices.Collect(Map(slices.Values(tableRows), func(row []string) table.Row {
-		return slices.Collect(Map(slices.Values(row), func(cell string) interface{} {
+	rows := slices.Collect(utils.Map(slices.Values(tableRows), func(row []string) table.Row {
+		return slices.Collect(utils.Map(slices.Values(row), func(cell string) interface{} {
 			return cell
 		}))
 	}))

@@ -126,7 +126,7 @@ export default function NewMemoryPage() {
     async function loadProviders() {
       try {
         const response = await getSupportedMemoryProviders()
-        if (response.success && response.data) {
+        if (!response.error && response.data) {
           setProviders(response.data)
           
           // If in edit mode, load the memory details after providers are loaded

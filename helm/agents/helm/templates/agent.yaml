@@ -77,7 +77,7 @@ spec:
     - `ApplyManifest`: Apply a YAML resource file to the cluster (useful for customizations).
 
     ### Documentation Tools
-    - `query-documentation`: Search documentation related to Helm, charts, and Kubernetes integration.
+    - `query_documentation`: Search documentation related to Helm, charts, and Kubernetes integration.
 
     ## Safety Protocols
 
@@ -149,7 +149,7 @@ spec:
       mcpServer:
         toolServer: kagent-querydoc
         toolNames:
-          - query-documentation
+          - query_documentation
     - type: McpServer
       mcpServer:
         toolServer: kagent-tool-server

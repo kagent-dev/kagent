@@ -36,6 +36,13 @@ providers:
       azureDeployment: ""
       azureEndpoint: ""
 
+database:
+  type: sqlite
+  sqlite:
+    databaseName: kagent.db
+  postgres:
+    url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
+
 controller:
   loglevel: "info"
 
@@ -89,7 +96,7 @@ mcp:
     image:
       registry: ghcr.io
       repository: kagent-dev/doc2vec/mcp
-      tag: 1.1.7
+      tag: 1.1.8
       pullPolicy: IfNotPresent
     resources:
       requests:
@@ -100,6 +107,7 @@ mcp:
         memory: 512Mi
 
 app:
+  loglevel: "info"
   image:
     registry: cr.kagent.dev
     repository: kagent-dev/kagent/app

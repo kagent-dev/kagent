@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { getTeams, createAgent } from "@/app/actions/teams";
+import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { Component, ToolConfig, Agent, Tool, AgentResponse } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
 import type { BaseResponse, ModelConfig } from "@/lib/types";
@@ -37,8 +37,8 @@ interface AgentsContextType {
   tools: Component<ToolConfig>[];
   refreshTeams: () => Promise<void>;
   createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
-  updateAgent: (id: string, agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
-  getAgentById: (id: string) => Promise<AgentResponse | null>;
+  updateAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
+  getAgent: (name: string, namespace: string) => Promise<AgentResponse | null>;
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
 }
 
@@ -66,13 +66,13 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const fetchTeams = async () => {
     try {
       setLoading(true);
-      const teamsResult = await getTeams();
+      const agentsResult = await getAgents();
 
-      if (!teamsResult.data || teamsResult.error) {
-        throw new Error(teamsResult.error || "Failed to fetch teams");
+      if (!agentsResult.data || agentsResult.error) {
+        throw new Error(agentsResult.error || "Failed to fetch teams");
       }
 
-      setAgents(teamsResult.data);
+      setAgents(agentsResult.data);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
@@ -103,10 +103,8 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     try {
       setLoading(true);
       const response = await getTools();
-      if (response.success && response.data) {
-        setTools(response.data);
-        setError("");
-      }
+      setTools(response);
+      setError("");
     } catch (err) {
       console.error("Error fetching tools:", error);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
@@ -151,28 +149,25 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   };
 
   // Get agent by ID function
-  const getAgentById = async (id: string): Promise<AgentResponse | null> => {
+  const getAgent = async (name: string, namespace: string): Promise<AgentResponse | null> => {
     try {
       // Fetch all teams
-      const teamsResult = await getTeams();
-      if (!teamsResult.data || teamsResult.error) {
-        console.error("Failed to get teams:", teamsResult.error);
-        setError("Failed to get teams");
+      const agentResult = await getAgentAction(name, namespace);
+      if (!agentResult.data || agentResult.error) {
+        console.error("Failed to get agent:", agentResult.error);
+        setError("Failed to get agent");
         return null;
       }
 
-      const teams = teamsResult.data;
+      const agent = agentResult.data;
       
-      // Find the team/agent with the matching ID
-      const agent = teams.find((team) => String(team.id) === id);
-
       if (!agent) {
-        console.warn(`Agent with ID ${id} not found`);
+        console.warn(`Agent with name ${name} and namespace ${namespace} not found`);
         return null;
       }
       return agent;
     } catch (error) {
-      console.error("Error getting agent by ID:", error);
+      console.error("Error getting agent by name and namespace:", error);
       setError(error instanceof Error ? error.message : "Failed to get agent");
       return null;
     }
@@ -183,12 +178,12 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     try {
       const errors = validateAgentData(agentData);
       if (Object.keys(errors).length > 0) {
-        return { success: false, error: "Validation failed", data: {} as Agent };
+        return { message: "Validation failed", error: "Validation failed", data: {} as Agent };
       }
 
       const result = await createAgent(agentData);
 
-      if (result.success) {
+      if (!result.error) {
         // Refresh teams to get the newly created one
         await fetchTeams();
       }
@@ -197,26 +192,26 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } catch (error) {
       console.error("Error creating agent:", error);
       return {
-        success: false,
+        message: "Failed to create agent",
         error: error instanceof Error ? error.message : "Failed to create agent",
       };
     }
   };
 
   // Update existing agent
-  const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
+  const updateAgent = async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
     try {
       const errors = validateAgentData(agentData);
 
       if (Object.keys(errors).length > 0) {
         console.log("Errors validating agent data", errors);
-        return { success: false, error: "Validation failed", data: {} as Agent };
+        return { message: "Validation failed", error: "Validation failed", data: {} as Agent };
       }
 
       // Use the same createTeam endpoint for updates
       const result = await createAgent(agentData, true);
 
-      if (result.success) {
+      if (!result.error) {
         // Refresh teams to get the updated one
         await fetchTeams();
       }
@@ -225,7 +220,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } catch (error) {
       console.error("Error updating agent:", error);
       return {
-        success: false,
+        message: "Failed to update agent",
         error: error instanceof Error ? error.message : "Failed to update agent",
       };
     }
@@ -247,7 +242,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     refreshTeams: fetchTeams,
     createNewAgent,
     updateAgent,
-    getAgentById,
+    getAgent,
     validateAgentData,
   };
 

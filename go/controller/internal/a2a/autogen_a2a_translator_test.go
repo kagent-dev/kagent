@@ -7,23 +7,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kagent-dev/kagent/go/autogen/api"
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
-	"github.com/kagent-dev/kagent/go/autogen/client/fake"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
-	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	"github.com/kagent-dev/kagent/go/internal/autogen/api"
+	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
+	"github.com/kagent-dev/kagent/go/internal/autogen/client/fake"
+	"github.com/kagent-dev/kagent/go/internal/database"
+	fake_db "github.com/kagent-dev/kagent/go/internal/database/fake"
+	common "github.com/kagent-dev/kagent/go/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
 
 // Helper function to create a mock autogen team with proper Component
-func createMockAutogenTeam(id int, label string) *autogen_client.Team {
-	return &autogen_client.Team{
-		BaseObject: autogen_client.BaseObject{
-			Id: id,
-		},
-		Component: &api.Component{
+func createMockAutogenTeam(id int, label string) *database.Agent {
+	return &database.Agent{
+		Component: api.Component{
 			Provider:      "test.provider",
 			ComponentType: "team",
 			Version:       1,
@@ -37,8 +36,9 @@ func createMockAutogenTeam(id int, label string) *autogen_client.Team {
 func TestNewAutogenA2ATranslator(t *testing.T) {
 	mockClient := fake.NewMockAutogenClient()
 	baseURL := "http://localhost:8083"
+	dbService := fake_db.NewClient()
 
-	translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+	translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 	assert.NotNil(t, translator)
 	assert.Implements(t, (*a2a.AutogenA2ATranslator)(nil), translator)
@@ -50,7 +50,8 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 
 	t.Run("should return handler params for valid agent with A2A config", func(t *testing.T) {
 		mockClient := fake.NewMockAutogenClient()
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		dbService := fake_db.NewClient()
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -91,7 +92,8 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 
 	t.Run("should return nil for agent without A2A config", func(t *testing.T) {
 		mockClient := fake.NewMockAutogenClient()
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		dbService := fake_db.NewClient()
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -114,7 +116,8 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 
 	t.Run("should return error for agent with A2A config but no skills", func(t *testing.T) {
 		mockClient := fake.NewMockAutogenClient()
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		dbService := fake_db.NewClient()
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -148,17 +151,20 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		task := "test task"
 
 		mockClient := fake.NewMockAutogenClient()
+		dbService := fake_db.NewClient()
 
 		// Create a session in the in-memory client
-		session, err := mockClient.CreateSession(&autogen_client.CreateSession{
-			Name:   sessionID,
-			UserID: "admin@kagent.dev",
-		})
+		session := &database.Session{
+			ID:      sessionID,
+			UserID:  "admin@kagent.dev",
+			AgentID: ptr.To(uint(1)),
+		}
+		err := dbService.CreateSession(session)
 		require.NoError(t, err)
-		assert.Equal(t, sessionID, session.Name)
-		assert.Equal(t, 1, session.ID) // The in-memory client assigns ID 1 for the first session
+		assert.Equal(t, sessionID, session.ID)
+		assert.Equal(t, "test-session", session.ID)
 
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -183,7 +189,7 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler
-		events, err := result.TaskHandler.HandleMessage(ctx, task, sessionID)
+		events, err := result.TaskHandler.HandleMessage(ctx, task, ptr.To(sessionID))
 		require.NoError(t, err)
 		require.Len(t, events, 1)
 
@@ -199,9 +205,10 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		task := "test task"
 
 		mockClient := fake.NewMockAutogenClient()
+		dbService := fake_db.NewClient()
 		// Don't create any session - this will trigger the NotFound behavior
 
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -226,7 +233,7 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler - this should create a new session and then invoke it
-		events, err := result.TaskHandler.HandleMessage(ctx, task, sessionID)
+		events, err := result.TaskHandler.HandleMessage(ctx, task, ptr.To(sessionID))
 		require.NoError(t, err)
 		require.Len(t, events, 1)
 
@@ -236,9 +243,9 @@ func TestTaskHandlerWithSession(t *testing.T) {
 		assert.Equal(t, "Session task completed: test task", textMsg.Content)
 
 		// Verify the session was created
-		createdSession, err := mockClient.GetSession(sessionID, "admin@kagent.dev")
+		createdSession, err := dbService.GetSession(sessionID, "admin@kagent.dev")
 		require.NoError(t, err)
-		assert.Equal(t, sessionID, createdSession.Name)
+		assert.Equal(t, sessionID, createdSession.ID)
 	})
 }
 
@@ -250,8 +257,9 @@ func TestTaskHandlerWithoutSession(t *testing.T) {
 		task := "test task"
 
 		mockClient := fake.NewMockAutogenClient()
+		dbService := fake_db.NewClient()
 
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -276,14 +284,14 @@ func TestTaskHandlerWithoutSession(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler without session ID
-		events, err := result.TaskHandler.HandleMessage(ctx, task, "")
+		events, err := result.TaskHandler.HandleMessage(ctx, task, nil)
 		require.NoError(t, err)
 		require.Len(t, events, 1)
 
 		// Check that we got a TextMessage with the expected content
 		textMsg, ok := events[0].(*autogen_client.TextMessage)
 		require.True(t, ok, "Expected TextMessage event")
-		assert.Equal(t, "Task completed: test task", textMsg.Content)
+		assert.Equal(t, "Session task completed: test task", textMsg.Content)
 		assert.Equal(t, "assistant", textMsg.Source)
 	})
 
@@ -291,8 +299,9 @@ func TestTaskHandlerWithoutSession(t *testing.T) {
 		task := "test task"
 
 		mockClient := fake.NewMockAutogenClient()
+		dbService := fake_db.NewClient()
 
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -317,14 +326,14 @@ func TestTaskHandlerWithoutSession(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler with empty session ID
-		events, err := result.TaskHandler.HandleMessage(ctx, task, "")
+		events, err := result.TaskHandler.HandleMessage(ctx, task, nil)
 		require.NoError(t, err)
 		require.Len(t, events, 1)
 
 		// Check that we got a TextMessage with the expected content
 		textMsg, ok := events[0].(*autogen_client.TextMessage)
 		require.True(t, ok, "Expected TextMessage event")
-		assert.Equal(t, "Task completed: test task", textMsg.Content)
+		assert.Equal(t, "Session task completed: test task", textMsg.Content)
 	})
 }
 
@@ -336,8 +345,9 @@ func TestTaskHandlerMessageContentExtraction(t *testing.T) {
 		task := "test task"
 
 		mockClient := fake.NewMockAutogenClient()
+		dbService := fake_db.NewClient()
 
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -362,13 +372,13 @@ func TestTaskHandlerMessageContentExtraction(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test the handler
-		events, err := result.TaskHandler.HandleMessage(ctx, task, "")
+		events, err := result.TaskHandler.HandleMessage(ctx, task, nil)
 		require.NoError(t, err)
 		require.Len(t, events, 1)
 
 		// Test that GetLastStringMessage works correctly
 		lastString := autogen_client.GetLastStringMessage(events)
-		assert.Equal(t, "Task completed: test task", lastString)
+		assert.Equal(t, "Session task completed: test task", lastString)
 	})
 
 	t.Run("should handle empty event list", func(t *testing.T) {
@@ -386,8 +396,8 @@ func TestTaskHandlerStreamingSupport(t *testing.T) {
 		task := "test task"
 
 		mockClient := fake.NewMockAutogenClient()
-
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		dbService := fake_db.NewClient()
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -412,7 +422,7 @@ func TestTaskHandlerStreamingSupport(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test streaming
-		eventChan, err := result.TaskHandler.HandleMessageStream(ctx, task, "")
+		eventChan, err := result.TaskHandler.HandleMessageStream(ctx, task, nil)
 		require.NoError(t, err)
 		require.NotNil(t, eventChan)
 
@@ -425,7 +435,7 @@ func TestTaskHandlerStreamingSupport(t *testing.T) {
 		require.Len(t, events, 1)
 		textMsg, ok := events[0].(*autogen_client.TextMessage)
 		require.True(t, ok, "Expected TextMessage event")
-		assert.Equal(t, "Task stream completed: test task", textMsg.Content)
+		assert.Equal(t, "Session task completed: test task", textMsg.Content)
 	})
 
 	t.Run("should support streaming with session", func(t *testing.T) {
@@ -433,15 +443,16 @@ func TestTaskHandlerStreamingSupport(t *testing.T) {
 		task := "test task"
 
 		mockClient := fake.NewMockAutogenClient()
+		dbService := fake_db.NewClient()
 
 		// Create a session
-		_, err := mockClient.CreateSession(&autogen_client.CreateSession{
-			Name:   sessionID,
+		err := dbService.CreateSession(&database.Session{
+			ID:     sessionID,
 			UserID: "admin@kagent.dev",
 		})
 		require.NoError(t, err)
 
-		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient)
+		translator := a2a.NewAutogenA2ATranslator(baseURL, mockClient, dbService)
 
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{
@@ -466,7 +477,7 @@ func TestTaskHandlerStreamingSupport(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Test streaming with session
-		eventChan, err := result.TaskHandler.HandleMessageStream(ctx, task, sessionID)
+		eventChan, err := result.TaskHandler.HandleMessageStream(ctx, task, ptr.To(sessionID))
 		require.NoError(t, err)
 		require.NotNil(t, eventChan)
 
@@ -479,6 +490,6 @@ func TestTaskHandlerStreamingSupport(t *testing.T) {
 		require.Len(t, events, 1)
 		textMsg, ok := events[0].(*autogen_client.TextMessage)
 		require.True(t, ok, "Expected TextMessage event")
-		assert.Equal(t, "Session stream task completed: test task", textMsg.Content)
+		assert.Equal(t, "Session task completed: test task", textMsg.Content)
 	})
 }

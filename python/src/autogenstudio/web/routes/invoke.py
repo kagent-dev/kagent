@@ -1,11 +1,14 @@
 import json
 import logging
-from typing import Any, Union
+from typing import Any, List, Sequence
 
 from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import (
+    BaseChatMessage,
+    ChatMessage,
     HandoffMessage,
     MemoryQueryEvent,
+    MessageFactory,
     ModelClientStreamingChunkEvent,
     StopMessage,
     TextMessage,
@@ -25,17 +28,24 @@ router = APIRouter()
 team_manager = TeamManager()
 logger = logging.getLogger(__name__)
 
+message_factory = MessageFactory()
+
 
 class InvokeTaskRequest(BaseModel):
     task: str
     team_config: dict
+    messages: List[dict] | None = None
 
 
 @router.post("/")
 async def invoke(request: InvokeTaskRequest):
     response = Response(message="Task successfully completed", status=True, data=None)
     try:
-        result_message = await team_manager.run(task=request.task, team_config=request.team_config)
+        previous_messages = _convert_message_config_to_chat_message(request.messages or [])
+        task = _prepare_task_with_history(request.task, previous_messages)
+        result_message: TeamResult = await team_manager.run(task=task, team_config=request.team_config)
+        # remove the previous messages from the result messages
+        result_message.task_result.messages = result_message.task_result.messages[len(previous_messages) :]
         formatted_result = format_team_result(result_message)
         response.data = formatted_result
     except Exception as e:
@@ -110,7 +120,13 @@ async def stream(request: InvokeTaskRequest):
 
     async def event_generator():
         try:
-            async for event in team_manager.run_stream(task=request.task, team_config=request.team_config):
+            previous_messages = _convert_message_config_to_chat_message(request.messages or [])
+            num_previous_messages = len(previous_messages)
+            task = _prepare_task_with_history(request.task, previous_messages)
+            async for event in team_manager.run_stream(task=task, team_config=request.team_config):
+                if num_previous_messages > 0:
+                    num_previous_messages -= 1
+                    continue
                 if isinstance(event, TeamResult):
                     yield f"event: task_result\ndata: {json.dumps(format_message(event))}\n\n"
                 else:
@@ -124,3 +140,34 @@ async def stream(request: InvokeTaskRequest):
                 logger.error(f"Error yielding error message to client: {yield_err}", exc_info=True)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+def _convert_message_config_to_chat_message(raw_messages: list[dict]) -> list[BaseChatMessage]:
+    """Convert MessageConfig to appropriate BaseChatMessage type using MessageFactory"""
+
+    messages = []
+    for message_config in raw_messages:
+        message = message_factory.create(message_config)
+        if isinstance(message, BaseChatMessage):
+            messages.append(message)
+
+    return messages
+
+
+def _prepare_task_with_history(
+    task: str | BaseChatMessage | Sequence[BaseChatMessage] | None,
+    previous_messages: Sequence[BaseChatMessage],
+) -> str | BaseChatMessage | Sequence[BaseChatMessage] | None:
+    """Combine previous messages with current task for team execution"""
+    if not previous_messages:
+        return task
+
+    # If we have previous messages, combine them with the current task
+    if isinstance(task, str):
+        return list(previous_messages) + [TextMessage(source="user", content=task)]
+    elif isinstance(task, ChatMessage):
+        return list(previous_messages) + [task]
+    elif isinstance(task, list):
+        return list(previous_messages) + list(task)
+    else:
+        return list(previous_messages)

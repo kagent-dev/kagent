@@ -303,7 +303,6 @@ export interface DBModel {
   user_id?: string;
   created_at?: string;
   updated_at?: string;
-  version?: number;
 }
 
 export interface DBTool extends DBModel {
@@ -344,12 +343,14 @@ export interface Team extends DBModel {
   component: Component<TeamConfig>;
 }
 
-export interface Session extends DBModel {
+export interface Session {
+  id: string;
   name: string;
-  team_id: number;
+  agent_id: number;
   user_id: string;
   created_at: string;
   updated_at: string;
+  deleted_at: string;
 }
 
 export interface TaskResult {

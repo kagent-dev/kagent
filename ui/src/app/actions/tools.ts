@@ -5,19 +5,36 @@ import { fetchApi, createErrorResponse } from "./utils";
 import { Component, ToolConfig, MCPToolConfig } from "@/types/datamodel";
 import { isMcpProvider } from "@/lib/toolUtils";
 
+interface ToolResponse {
+  name: string;
+  component: Component<ToolConfig>;
+  server_name: string;
+}
+
 /**
  * Gets all available tools
  * @returns A promise with all tools
  */
-export async function getTools(): Promise<BaseResponse<Component<ToolConfig>[]>> {
+export async function getTools(): Promise<Component<ToolConfig>[]> {
   try {
-    const response = await fetchApi<Component<ToolConfig>[]>("/tools");
+    const response = await fetchApi<BaseResponse<ToolResponse[]>>("/tools");
     if (!response) {
       throw new Error("Failed to get built-in tools");
     }
 
+    const toolsComponents = response.data?.map((t) => {
+      // set the label in component to the server_name, because we use the server name (kagent-tool-server) to determine
+      // whether a tool is a built-in tool or not.
+      // TODO (peterj): Ideally, instead of returning the Component<ToolConfig> we could just directly return the actual ToolResponse.
+      t.component.label = t.server_name;
+      return t.component;
+    });
+    if (!toolsComponents) {
+      throw new Error("Failed to get built-in tools");
+    }
+
     // Convert API components to Component<ToolConfig> format
-    const convertedTools = response.map((tool) => {
+    const convertedTools = toolsComponents.map((tool) => {
       // Convert to Component<ToolConfig> format
       return {
         provider: tool.provider,
@@ -28,9 +45,9 @@ export async function getTools(): Promise<BaseResponse<Component<ToolConfig>[]>>
       } as Component<ToolConfig>;
     });
 
-    return { success: true, data: convertedTools };
+    return convertedTools || [];
   } catch (error) {
-    return createErrorResponse<Component<ToolConfig>[]>(error, "Error getting built-in tools");
+    throw new Error("Error getting built-in tools");
   }
 }
 

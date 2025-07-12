@@ -10,63 +10,18 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from ..version import VERSION
-from .auth import authroutes
-from .auth.middleware import AuthMiddleware
 from .config import settings
-from .deps import cleanup_managers, init_auth_manager, init_managers, register_auth_dependencies
-from .initialization import AppInitializer
 from .routes import (
-    feedback,
     invoke,
     models,
-    runs,
-    sessions,
-    teams,
     tool_servers,
-    tools,
     validation,
 )
 
 # Initialize application
-app_file_path = os.path.dirname(os.path.abspath(__file__))
-initializer = AppInitializer(settings, app_file_path)
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """
-    Handles initialization and cleanup of application resources.
-    """
-
-    try:
-        # Initialize managers (DB, Connection, Team)
-        await init_managers(initializer.database_uri, initializer.config_dir, initializer.app_root)
-
-        await register_auth_dependencies(app, auth_manager)
-
-        # Any other initialization code
-        logger.info(
-            f"Application startup complete. Navigate to http://{os.environ.get('AUTOGENSTUDIO_HOST', '127.0.0.1')}:{os.environ.get('AUTOGENSTUDIO_PORT', '8081')}"
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to initialize application: {str(e)}")
-        raise
-
-    yield  # Application runs here
-
-    # Shutdown
-    try:
-        logger.info("Cleaning up application resources...")
-        await cleanup_managers()
-        logger.info("Application shutdown complete")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {str(e)}")
-
-
-auth_manager = init_auth_manager(initializer.config_dir)
 # Create FastAPI application
-app = FastAPI(lifespan=lifespan, debug=True)
+app = FastAPI(debug=True)
 
 # CORS middleware configuration
 app.add_middleware(
@@ -81,7 +36,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(AuthMiddleware, auth_manager=auth_manager)
 
 # Create API router with version and documentation
 api = FastAPI(
@@ -94,37 +48,9 @@ api = FastAPI(
 
 # Include all routers with their prefixes
 api.include_router(
-    sessions.router,
-    prefix="/sessions",
-    tags=["sessions"],
-    responses={404: {"description": "Not found"}},
-)
-
-api.include_router(
-    runs.router,
-    prefix="/runs",
-    tags=["runs"],
-    responses={404: {"description": "Not found"}},
-)
-
-api.include_router(
-    teams.router,
-    prefix="/teams",
-    tags=["teams"],
-    responses={404: {"description": "Not found"}},
-)
-
-api.include_router(
     validation.router,
     prefix="/validate",
     tags=["validation"],
-    responses={404: {"description": "Not found"}},
-)
-
-api.include_router(
-    tools.router,
-    prefix="/tools",
-    tags=["tools"],
     responses={404: {"description": "Not found"}},
 )
 
@@ -146,13 +72,6 @@ api.include_router(
     invoke.router,
     prefix="/invoke",
     tags=["invoke"],
-    responses={404: {"description": "Not found"}},
-)
-
-api.include_router(
-    feedback.router,
-    prefix="/feedback",
-    tags=["feedback"],
     responses={404: {"description": "Not found"}},
 )
 
@@ -181,15 +100,7 @@ async def health_check():
     }
 
 
-# Mount static file directories
 app.mount("/api", api)
-app.mount(
-    "/files",
-    StaticFiles(directory=initializer.static_root, html=True),
-    name="files",
-)
-app.mount("/", StaticFiles(directory=initializer.ui_root, html=True), name="ui")
-
 # Error handlers
 
 
@@ -199,7 +110,7 @@ async def internal_error_handler(request, exc):
     return {
         "status": False,
         "message": "Internal server error",
-        "detail": str(exc) if settings.API_DOCS else "Internal server error",
+        "detail": "Internal server error",
     }
 
 

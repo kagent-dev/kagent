@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { deleteTeam } from "@/app/actions/teams";
+import { deleteAgent } from "@/app/actions/agents";
 import { useAgents } from "./AgentsProvider";
 
 interface DeleteButtonProps {
@@ -23,7 +23,7 @@ export function DeleteButton({ teamLabel }: DeleteButtonProps) {
 
     try {
       setIsDeleting(true);
-      await deleteTeam(teamLabel);
+      await deleteAgent(teamLabel);
 
       await refreshTeams();
     } catch (error) {

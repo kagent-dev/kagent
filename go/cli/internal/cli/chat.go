@@ -1,16 +1,21 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
+	"time"
 
 	"github.com/abiosoft/ishell/v2"
 	"github.com/abiosoft/readline"
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	"github.com/spf13/pflag"
+	"k8s.io/utils/ptr"
+	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 const (
@@ -29,55 +34,56 @@ func ChatCmd(c *ishell.Context) {
 	}
 
 	cfg := config.GetCfg(c)
-	client := config.GetClient(c)
+	clientSet := config.GetClient(c)
 
-	var team *autogen_client.Team
+	var agentResp *api.AgentResponse
 	if len(flagSet.Args()) > 0 {
-		teamName := flagSet.Args()[0]
+		agentName := flagSet.Args()[0]
 		var err error
-		team, err = client.GetTeam(teamName, cfg.UserID)
+		agtResp, err := clientSet.Agent.GetAgent(context.Background(), agentName)
 		if err != nil {
 			c.Println(err)
 			return
 		}
+		agentResp = agtResp.Data
 	}
 	// If team is not found or not passed as an argument, prompt the user to select from available teams
-	if team == nil {
+	if agentResp == nil {
 		c.Printf("Please select from available teams.\n")
 		// Get the teams based on the input + userID
-		teams, err := client.ListTeams(cfg.UserID)
+		agentListResp, err := clientSet.Agent.ListAgents(context.Background(), cfg.UserID)
 		if err != nil {
 			c.Println(err)
 			return
 		}
 
-		if len(teams) == 0 {
+		if len(agentListResp.Data) == 0 {
 			c.Println("No teams found, please create one via the web UI or CRD before chatting.")
 			return
 		}
 
-		teamNames := make([]string, len(teams))
-		for i, team := range teams {
+		agentNames := make([]string, len(agentListResp.Data))
+		for i, team := range agentListResp.Data {
 			if team.Component.Label == "" {
 				continue
 			}
-			teamNames[i] = team.Component.Label
+			agentNames[i] = team.Component.Label
 		}
 
-		selectedTeamIdx := c.MultiChoice(teamNames, "Select an agent:")
-		team = teams[selectedTeamIdx]
+		selectedTeamIdx := c.MultiChoice(agentNames, "Select an agent:")
+		agentResp = &agentListResp.Data[selectedTeamIdx]
 	}
 
-	sessions, err := client.ListSessions(cfg.UserID)
+	sessions, err := clientSet.Session.ListSessions(context.Background(), cfg.UserID)
 	if err != nil {
 		c.Println(err)
 		return
 	}
 
-	existingSessions := slices.Collect(Filter(slices.Values(sessions), func(session *autogen_client.Session) bool { return true }))
+	existingSessions := slices.Collect(utils.Filter(slices.Values(sessions.Data), func(session *api.Session) bool { return true }))
 
-	existingSessionNames := slices.Collect(Map(slices.Values(existingSessions), func(session *autogen_client.Session) string {
-		return session.Name
+	existingSessionNames := slices.Collect(utils.Map(slices.Values(existingSessions), func(session *api.Session) string {
+		return session.ID
 	}))
 
 	// Add the new session option to the beginning of the list
@@ -89,7 +95,7 @@ func ChatCmd(c *ishell.Context) {
 		selectedSessionIdx = c.MultiChoice(existingSessionNames, "Select a session:")
 	}
 
-	var session *autogen_client.Session
+	var session *api.Session
 	if selectedSessionIdx == 0 {
 		c.ShowPrompt(false)
 		c.Print("Enter a session name: ")
@@ -100,19 +106,32 @@ func ChatCmd(c *ishell.Context) {
 			return
 		}
 		c.ShowPrompt(true)
-		session, err = client.CreateSession(&autogen_client.CreateSession{
+		sessionResp, err := clientSet.Session.CreateSession(context.Background(), &api.SessionRequest{
 			UserID: cfg.UserID,
-			Name:   sessionName,
+			Name:   ptr.To(sessionName),
 		})
 		if err != nil {
 			c.Printf("Failed to create session: %v\n", err)
 			return
 		}
+		session = sessionResp.Data
 	} else {
 		session = existingSessions[selectedSessionIdx-1]
 	}
 
-	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", team.Component.Label, session.Name))
+	// Setup A2A client
+	a2aURL := fmt.Sprintf("%s/a2a/%s/%s", cfg.APIURL, cfg.Namespace, agentResp.Component.Label)
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	if err != nil {
+		c.Printf("Failed to create A2A client: %v\n", err)
+		return
+	}
+
+	// Start port forwarding for A2A
+	cancel := startPortForward(context.Background())
+	defer cancel()
+
+	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", agentResp.Component.Label, session.ID))
 	c.SetPrompt(promptStr)
 	c.ShowPrompt(true)
 
@@ -137,24 +156,24 @@ func ChatCmd(c *ishell.Context) {
 			continue
 		}
 
-		usage := &autogen_client.ModelsUsage{}
+		// Use A2A client to send message
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 
-		ch, err := client.InvokeSessionStream(session.ID, cfg.UserID, &autogen_client.InvokeRequest{
-			Task:       task,
-			TeamConfig: team.Component,
+		sessionID := session.ID
+		result, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
+			Message: protocol.Message{
+				Role:      protocol.MessageRoleUser,
+				ContextID: &sessionID,
+				Parts:     []protocol.Part{protocol.NewTextPart(task)},
+			},
 		})
 		if err != nil {
 			c.Printf("Failed to invoke session: %v\n", err)
-			return
+			cancel()
+			continue
 		}
 
-		StreamEvents(ch, usage, verbose)
+		StreamA2AEvents(result, verbose)
+		cancel()
 	}
-}
-
-// Yes, this is AI generated, and so is this comment.
-var thinkingVerbs = []string{"thinking", "processing", "mulling over", "pondering", "reflecting", "evaluating", "analyzing", "synthesizing", "interpreting", "inferring", "deducing", "reasoning", "evaluating", "synthesizing", "interpreting", "inferring", "deducing", "reasoning"}
-
-func getThinkingVerb() string {
-	return thinkingVerbs[rand.Intn(len(thinkingVerbs))]
 }

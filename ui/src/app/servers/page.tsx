@@ -34,7 +34,7 @@ export default function ServersPage() {
       setIsLoading(true);
 
       const serversResponse = await getServers();
-      if (serversResponse.success && serversResponse.data) {
+      if (!serversResponse.error && serversResponse.data) {
         const sortedServers = [...serversResponse.data].sort((a, b) => {
           return (a.ref || '').localeCompare(b.ref || '');
         });
@@ -61,7 +61,7 @@ export default function ServersPage() {
 
       const response = await deleteServer(serverName);
 
-      if (response.success) {
+      if (!response.error) {
         toast.success("Server deleted successfully");
         fetchServers();
       } else {
@@ -83,7 +83,7 @@ export default function ServersPage() {
 
       const response = await createServer(server);
 
-      if (!response.success) {
+      if (response.error) {
         throw new Error(response.error || "Failed to add server");
       }
 

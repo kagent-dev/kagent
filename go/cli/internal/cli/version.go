@@ -3,12 +3,13 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"github.com/kagent-dev/kagent/go/internal/version"
 	"os"
 	"time"
 
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/internal/version"
+
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/pkg/client"
 )
 
 func VersionCmd(cfg *config.Config) {
@@ -19,12 +20,12 @@ func VersionCmd(cfg *config.Config) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	client := autogen_client.New(cfg.APIURL)
-	version, err := client.GetVersion(ctx)
+	client := client.New(cfg.APIURL)
+	version, err := client.Version.GetVersion(ctx)
 	if err != nil {
 		versionInfo["backend_version"] = "unknown"
 	} else {
-		versionInfo["backend_version"] = version
+		versionInfo["backend_version"] = version.KAgentVersion
 	}
 
 	json.NewEncoder(os.Stdout).Encode(versionInfo)

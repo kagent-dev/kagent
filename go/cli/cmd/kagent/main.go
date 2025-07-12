@@ -6,14 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/abiosoft/ishell/v2"
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/pkg/client"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 func main() {
@@ -31,10 +29,9 @@ func main() {
 
 	cfg := &config.Config{}
 
-	rootCmd.PersistentFlags().StringVar(&cfg.APIURL, "api-url", "http://localhost:8081/api", "API URL")
+	rootCmd.PersistentFlags().StringVar(&cfg.APIURL, "api-url", "http://localhost:8083/api", "API URL")
 	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", "admin@kagent.dev", "User ID")
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
-	rootCmd.PersistentFlags().StringVar(&cfg.A2AURL, "a2a-url", "http://localhost:8083/api/a2a", "A2A URL")
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
 	installCmd := &cobra.Command{
@@ -72,14 +69,14 @@ func main() {
 	invokeCmd.Flags().StringVarP(&invokeCfg.Session, "session", "s", "", "Session")
 	invokeCmd.Flags().StringVarP(&invokeCfg.Agent, "agent", "a", "", "Agent")
 	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
-	invokeCmd.MarkFlagRequired("task")
+	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "File to read the task from")
 
 	bugReportCmd := &cobra.Command{
 		Use:   "bug-report",
 		Short: "Generate a bug report",
 		Long:  `Generate a bug report`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := autogen_client.New(cfg.APIURL)
+			client := client.New(cfg.APIURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -93,7 +90,7 @@ func main() {
 		Short: "Print the kagent version",
 		Long:  `Print the kagent version`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := autogen_client.New(cfg.APIURL)
+			client := client.New(cfg.APIURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -111,25 +108,6 @@ func main() {
 		},
 	}
 
-	a2aCfg := &cli.A2ACfg{
-		Config: cfg,
-	}
-
-	a2aCmd := &cobra.Command{
-		Use:   "a2a",
-		Short: "Interact with an Agent over the A2A protocol",
-		Long:  `Interact with an Agent over the A2A protocol`,
-		Run: func(cmd *cobra.Command, args []string) {
-			cli.A2ARun(ctx, a2aCfg)
-		},
-	}
-
-	a2aCmd.Flags().StringVarP(&a2aCfg.SessionID, "session-id", "s", "", "Session ID")
-	a2aCmd.Flags().StringVarP(&a2aCfg.AgentName, "agent-name", "a", "", "Agent Name")
-	a2aCmd.Flags().StringVarP(&a2aCfg.Task, "task", "t", "", "Task")
-	a2aCmd.Flags().DurationVarP(&a2aCfg.Timeout, "timeout", "T", 300*time.Second, "Timeout")
-	a2aCmd.Flags().BoolVarP(&a2aCfg.Stream, "stream", "S", false, "Stream the response")
-
 	getCmd := &cobra.Command{
 		Use:   "get",
 		Short: "Get a kagent resource",
@@ -146,7 +124,7 @@ func main() {
 		Short: "Get a session or list all sessions",
 		Long:  `Get a session by ID or list all sessions`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := autogen_client.New(cfg.APIURL)
+			client := client.New(cfg.APIURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -159,30 +137,12 @@ func main() {
 		},
 	}
 
-	getRunCmd := &cobra.Command{
-		Use:   "run [run_id]",
-		Short: "Get a run or list all runs",
-		Long:  `Get a run by ID or list all runs`,
-		Run: func(cmd *cobra.Command, args []string) {
-			client := autogen_client.New(cfg.APIURL)
-			if err := cli.CheckServerConnection(client); err != nil {
-				pf := cli.NewPortForward(ctx, cfg)
-				defer pf.Stop()
-			}
-			resourceName := ""
-			if len(args) > 0 {
-				resourceName = args[0]
-			}
-			cli.GetRunCmd(cfg, resourceName)
-		},
-	}
-
 	getAgentCmd := &cobra.Command{
 		Use:   "agent [agent_name]",
 		Short: "Get an agent or list all agents",
 		Long:  `Get an agent by name or list all agents`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := autogen_client.New(cfg.APIURL)
+			client := client.New(cfg.APIURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -200,7 +160,7 @@ func main() {
 		Short: "Get tools",
 		Long:  `List all available tools`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := autogen_client.New(cfg.APIURL)
+			client := client.New(cfg.APIURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -209,9 +169,9 @@ func main() {
 		},
 	}
 
-	getCmd.AddCommand(getSessionCmd, getRunCmd, getAgentCmd, getToolCmd)
+	getCmd.AddCommand(getSessionCmd, getAgentCmd, getToolCmd)
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, a2aCmd)
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd)
 
 	// Initialize config
 	if err := config.Init(); err != nil {
@@ -232,7 +192,7 @@ func runInteractive() {
 		os.Exit(1)
 	}
 
-	client := autogen_client.New(cfg.APIURL)
+	client := client.New(cfg.APIURL)
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
 	// Error connecting to server, port-forward the server
@@ -314,43 +274,6 @@ Examples:
 
 	shell.AddCmd(runCmd)
 
-	a2aCmd := &ishell.Cmd{
-		Name: "a2a",
-		Help: "Interact with an Agent over the A2A protocol.",
-	}
-	a2aCmd.AddCmd(&ishell.Cmd{
-		Name: "run",
-		Help: "Run a task with an agent using the A2A protocol.",
-		LongHelp: `Run a task with an agent using the A2A protocol.
-The task is sent to the agent, and the result is printed to the console.
-
-Example:
-a2a run [--namespace <agent-namespace>] <agent-name> <task>
-`,
-		Func: func(c *ishell.Context) {
-			if len(c.RawArgs) < 4 {
-				c.Println("Usage: a2a run [--namespace <agent-namespace>] <agent-name> <task>")
-				return
-			}
-			flagSet := pflag.NewFlagSet(c.RawArgs[0], pflag.ContinueOnError)
-			timeout := flagSet.Duration("timeout", 300*time.Second, "Timeout for the task")
-			if err := flagSet.Parse(c.Args); err != nil {
-				c.Printf("Failed to parse flags: %v\n", err)
-				return
-			}
-			agentName := flagSet.Arg(0)
-			prompt := flagSet.Arg(1)
-			cli.A2ARun(ctx, &cli.A2ACfg{
-				Config:    cfg,
-				AgentName: agentName,
-				Task:      prompt,
-				Timeout:   *timeout,
-			})
-		},
-	})
-
-	shell.AddCmd(a2aCmd)
-
 	getCmd := &ishell.Cmd{
 		Name:    "get",
 		Aliases: []string{"g"},
@@ -360,7 +283,6 @@ a2a run [--namespace <agent-namespace>] <agent-name> <task>
 		get [resource_type] [resource_name]
 
 Examples:
-  get run
   get agents
   `,
 	}
@@ -386,31 +308,6 @@ Examples:
 				cli.GetSessionCmd(cfg, c.Args[0])
 			} else {
 				cli.GetSessionCmd(cfg, "")
-			}
-		},
-	})
-
-	getCmd.AddCmd(&ishell.Cmd{
-		Name:    "run",
-		Aliases: []string{"r", "runs"},
-		Help:    "get a run.",
-		LongHelp: `get a run.
-
-If no resource name is provided, then a list of available resources will be returned.
-Examples:
-  get run [run_id]
-  get run
-  `,
-		Func: func(c *ishell.Context) {
-			if err := cli.CheckServerConnection(client); err != nil {
-				c.Println(err)
-				return
-			}
-			cfg := config.GetCfg(c)
-			if len(c.Args) > 0 {
-				cli.GetRunCmd(cfg, c.Args[0])
-			} else {
-				cli.GetRunCmd(cfg, "")
 			}
 		},
 	})
@@ -489,29 +386,6 @@ Example:
 	}
 
 	shell.AddCmd(bugReportCmd)
-
-	shell.NotFound(func(c *ishell.Context) {
-		// Hidden create command
-		if len(c.Args) > 0 && c.Args[0] == "create" {
-			c.Args = c.Args[1:]
-			if err := cli.CheckServerConnection(client); err != nil {
-				c.Println(err)
-				return
-			}
-			cli.CreateCmd(c)
-			c.SetPrompt(config.BoldBlue("kagent >> "))
-		} else if len(c.Args) > 0 && c.Args[0] == "delete" {
-			c.Args = c.Args[1:]
-			if err := cli.CheckServerConnection(client); err != nil {
-				c.Println(err)
-				return
-			}
-			cli.DeleteCmd(c)
-			c.SetPrompt(config.BoldBlue("kagent >> "))
-		} else {
-			c.Println("Command not found. Type 'help' to see available commands.")
-		}
-	})
 
 	shell.AddCmd(&ishell.Cmd{
 		Name:    "version",
