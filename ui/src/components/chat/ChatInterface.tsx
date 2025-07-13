@@ -323,7 +323,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       </div>
     );
   }
-
   return (
     <div className="w-full h-screen flex flex-col justify-center min-w-full items-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">

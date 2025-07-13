@@ -7,6 +7,7 @@ import (
 	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"gorm.io/gorm"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // InMemmoryFakeClient is a fake implementation of database.Client for testing
@@ -52,6 +53,15 @@ func (c *InMemmoryFakeClient) CreateFeedback(feedback *database.Feedback) error 
 
 	key := fmt.Sprintf("%d", newFeedback.ID)
 	c.feedback[key] = &newFeedback
+	return nil
+}
+
+// CreateMessages creates a new message record
+
+func (c *InMemmoryFakeClient) CreateMessages(messages ...*protocol.Message) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return nil
 }
 

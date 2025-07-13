@@ -121,6 +121,7 @@ const (
 func ParseEvent(event []byte) (Event, error) {
 	var baseEvent BaseEvent
 	if err := json.Unmarshal(event, &baseEvent); err != nil {
+		fmt.Printf("Failed to unmarshal event: %s", string(event))
 		return nil, err
 	}
 
