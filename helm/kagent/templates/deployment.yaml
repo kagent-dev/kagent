@@ -174,7 +174,6 @@ spec:
               port: http-tools
             initialDelaySeconds: 15
             periodSeconds: 15
-        {{ if and .Values.mcp.doc2vec.enabled (eq .Values.providers.default "openAI") }}
         - name: querydoc
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -194,11 +193,13 @@ spec:
               value: "{{ .Values.service.ports.querydoc.targetPort }}"
             - name: TRANSPORT_TYPE
               value: "http"
+            {{- if and .Values.mcp.doc2vec.enabled (eq .Values.providers.default "openAI") }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kagent.fullname" . }}-openai
                   key: OPENAI_API_KEY
+            {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -211,4 +212,3 @@ spec:
             - name: http-querydoc
               containerPort: {{ .Values.service.ports.querydoc.targetPort }}
               protocol: TCP
-        {{ end }}

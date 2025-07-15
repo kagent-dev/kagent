@@ -21,14 +21,6 @@ tests:
       - hasDocuments:
           count: 1
 
-  - it: should not render when provider is not openAI
-    set:
-      providers:
-        default: "ollama"
-    asserts:
-      - hasDocuments:
-          count: 0
-
   - it: should have correct streamableHttp configuration when provider is openAI
     set:
       providers:
@@ -96,19 +88,3 @@ tests:
       - equal:
           path: kind
           value: ToolServer
-
-  - it: should test with anthropic provider (should not render)
-    set:
-      providers:
-        default: "anthropic"
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: should test with azureOpenAI provider (should not render)
-    set:
-      providers:
-        default: "azureOpenAI"
-    asserts:
-      - hasDocuments:
-          count: 0

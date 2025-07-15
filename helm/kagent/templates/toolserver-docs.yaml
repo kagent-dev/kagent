@@ -1,4 +1,3 @@
-{{- if eq .Values.providers.default "openAI" }}
 apiVersion: kagent.dev/v1alpha1
 kind: ToolServer
 metadata:
@@ -11,4 +10,3 @@ spec:
       timeout: 30s
       url: {{ printf "http://localhost:%v/mcp" .Values.service.ports.querydoc.targetPort }}
   description: "Documentation Query Tool Server"
-{{- end }}
