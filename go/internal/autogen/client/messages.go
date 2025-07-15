@@ -86,6 +86,7 @@ type ToolCallRequestEvent struct {
 }
 
 type FunctionExecutionResult struct {
+	Name    string `json:"name"`
 	CallID  string `json:"call_id"`
 	Content string `json:"content"`
 }
@@ -102,6 +103,7 @@ type MemoryQueryEvent struct {
 
 type ToolCallSummaryMessage struct {
 	BaseChatMessage `json:",inline"`
+	Content         string                    `json:"content"`
 	ToolCalls       []FunctionCall            `json:"tool_calls"`
 	Results         []FunctionExecutionResult `json:"results"`
 }
@@ -111,7 +113,6 @@ const (
 	ToolCallRequestEventLabel           = "ToolCallRequestEvent"
 	ToolCallExecutionEventLabel         = "ToolCallExecutionEvent"
 	StopMessageLabel                    = "StopMessage"
-	HandoffMessageLabel                 = "HandoffMessage"
 	ModelClientStreamingChunkEventLabel = "ModelClientStreamingChunkEvent"
 	LLMCallEventMessageLabel            = "LLMCallEventMessage"
 	MemoryQueryEventLabel               = "MemoryQueryEvent"
