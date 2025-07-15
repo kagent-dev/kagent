@@ -193,6 +193,8 @@ spec:
               value: "{{ .Values.service.ports.querydoc.targetPort }}"
             - name: TRANSPORT_TYPE
               value: "http"
+            - name: STRICT_MODE
+              value: "false"
             {{- if and .Values.mcp.doc2vec.enabled (eq .Values.providers.default "openAI") }}
             - name: OPENAI_API_KEY
               valueFrom:
