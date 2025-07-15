@@ -155,7 +155,7 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 		status = metav1.ConditionFalse
 		message = err.Error()
 		reason = "AgentReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile agent", "agent", agent)
+		reconcileLog.Error(err, "failed to reconcile agent", "agent", common.GetObjectRef(agent))
 	} else {
 		status = metav1.ConditionTrue
 		reason = "AgentReconciled"
@@ -216,7 +216,7 @@ func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, mode
 		status = metav1.ConditionFalse
 		message = err.Error()
 		reason = "ModelConfigReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile model config", "modelConfig", modelConfig)
+		reconcileLog.Error(err, "failed to reconcile model config", "modelConfig", common.GetObjectRef(modelConfig))
 	} else {
 		status = metav1.ConditionTrue
 		reason = "ModelConfigReconciled"
@@ -258,7 +258,7 @@ func (a *autogenReconciler) reconcileTeamStatus(ctx context.Context, team *v1alp
 	if err != nil {
 		status = metav1.ConditionFalse
 		message = err.Error()
-		reconcileLog.Error(err, "failed to reconcile team", "team", team)
+		reconcileLog.Error(err, "failed to reconcile team", "team", common.GetObjectRef(team))
 		reason = "TeamReconcileFailed"
 	} else {
 		status = metav1.ConditionTrue
@@ -331,7 +331,7 @@ func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req 
 	}
 
 	if err := a.reconcileAgents(ctx, agents...); err != nil {
-		return fmt.Errorf("failed to reconcile agents for tool server %s: %v", req.Name, err)
+		return fmt.Errorf("failed to reconcile agents for tool server %s, see status for more details", req.Name)
 	}
 
 	return nil
@@ -357,7 +357,7 @@ func (a *autogenReconciler) reconcileToolServerStatus(
 		status = metav1.ConditionFalse
 		message = err.Error()
 		reason = "AgentReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile agent", "agent", toolServer)
+		reconcileLog.Error(err, "failed to reconcile agent", "tool_server", common.GetObjectRef(toolServer))
 	} else {
 		status = metav1.ConditionTrue
 		reason = "AgentReconciled"
@@ -422,7 +422,7 @@ func (a *autogenReconciler) reconcileMemoryStatus(ctx context.Context, memory *v
 		status = metav1.ConditionFalse
 		message = err.Error()
 		reason = "MemoryReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile memory", "memory", memory)
+		reconcileLog.Error(err, "failed to reconcile memory", "memory", common.GetObjectRef(memory))
 	} else {
 		status = metav1.ConditionTrue
 		reason = "MemoryReconciled"

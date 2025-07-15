@@ -105,6 +105,7 @@ mcp:
       limits:
         cpu: 500m
         memory: 512Mi
+    env: [] # Additional environment variables for the doc2vec can be added here
 
 app:
   loglevel: "info"

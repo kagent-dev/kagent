@@ -165,6 +165,9 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+          {{- with .Values.tools.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http-tools
               containerPort: {{ .Values.service.ports.tools.targetPort }}
@@ -210,6 +213,9 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+          {{- with .Values.mcp.doc2vec.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http-querydoc
               containerPort: {{ .Values.service.ports.querydoc.targetPort }}
