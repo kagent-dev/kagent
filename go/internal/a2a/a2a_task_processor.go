@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kagent-dev/kagent/go/internal/autogen/client"
+	"github.com/kagent-dev/kagent/go/internal/utils"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
@@ -121,9 +122,15 @@ func (a *a2aMessageProcessor) ProcessMessage(
 		}
 
 		for event := range events {
-			err := taskSubscriber.Send(convertAutogenTypeToA2AType(event, &taskID, message.ContextID))
-			if err != nil {
-				processorLog.Error(err, "Failed to send event to task subscriber")
+			events := utils.ConvertAutogenEventsToMessages(&taskID, message.ContextID, event)
+			for _, event := range events {
+				event := protocol.StreamingMessageEvent{
+					Result: event,
+				}
+				err := taskSubscriber.Send(event)
+				if err != nil {
+					processorLog.Error(err, "Failed to send event to task subscriber")
+				}
 			}
 		}
 
@@ -141,110 +148,4 @@ func buildError(err error) *protocol.Message {
 	return &protocol.Message{
 		Parts: []protocol.Part{protocol.NewTextPart(err.Error())},
 	}
-}
-
-func convertAutogenTypeToA2AType(event client.Event, taskId, contextId *string) protocol.StreamingMessageEvent {
-	switch typed := event.(type) {
-	case *client.TextMessage:
-		return protocol.StreamingMessageEvent{
-			Result: newMessage(
-				protocol.MessageRoleAgent,
-				[]protocol.Part{protocol.NewTextPart(typed.Content)},
-				taskId,
-				contextId,
-				typed.Metadata,
-				typed.ModelsUsage,
-			),
-		}
-	case *client.ModelClientStreamingChunkEvent:
-		return protocol.StreamingMessageEvent{
-			Result: newMessage(
-				protocol.MessageRoleAgent,
-				[]protocol.Part{protocol.NewTextPart(typed.Content)},
-				taskId,
-				contextId,
-				typed.Metadata,
-				typed.ModelsUsage,
-			),
-		}
-	case *client.ToolCallRequestEvent:
-		return protocol.StreamingMessageEvent{
-			Result: newMessage(
-				protocol.MessageRoleAgent,
-				[]protocol.Part{protocol.NewDataPart(typed.Content)},
-				taskId,
-				contextId,
-				typed.Metadata,
-				typed.ModelsUsage,
-			),
-		}
-	case *client.ToolCallExecutionEvent:
-		return protocol.StreamingMessageEvent{
-			Result: newMessage(
-				protocol.MessageRoleAgent,
-				[]protocol.Part{protocol.NewDataPart(typed.Content)},
-				taskId,
-				contextId,
-				typed.Metadata,
-				typed.ModelsUsage,
-			),
-		}
-	case *client.MemoryQueryEvent:
-		return protocol.StreamingMessageEvent{
-			Result: newMessage(
-				protocol.MessageRoleAgent,
-				[]protocol.Part{protocol.NewDataPart(typed.Content)},
-				taskId,
-				contextId,
-				typed.Metadata,
-				typed.ModelsUsage,
-			),
-		}
-	case *client.ToolCallSummaryMessage:
-		return protocol.StreamingMessageEvent{
-			Result: newMessage(
-				protocol.MessageRoleAgent,
-				[]protocol.Part{protocol.NewDataPart(typed.ToolCalls), protocol.NewDataPart(typed.Results)},
-				taskId,
-				contextId,
-				typed.Metadata,
-				typed.ModelsUsage,
-			),
-		}
-	default:
-		return protocol.StreamingMessageEvent{
-			Result: &protocol.Message{
-				Parts: []protocol.Part{protocol.NewTextPart(fmt.Sprintf("Unsupported event type: %T", event))},
-			},
-		}
-	}
-}
-
-func newMessage(
-	role protocol.MessageRole,
-	parts []protocol.Part,
-	taskId,
-	contextId *string,
-	metadata map[string]string,
-	modelsUsage *client.ModelsUsage,
-) *protocol.Message {
-	msg := protocol.NewMessageWithContext(
-		role,
-		parts,
-		taskId,
-		contextId,
-	)
-	msg.Metadata = buildMetadata(metadata, modelsUsage)
-	return &msg
-}
-
-func buildMetadata(metadata map[string]string, modelsUsage *client.ModelsUsage) map[string]interface{} {
-	result := make(map[string]interface{})
-	for k, v := range metadata {
-		result[k] = v
-	}
-	if modelsUsage != nil {
-		result["usage"] = modelsUsage.ToMap()
-	}
-	return result
 }

@@ -1,39 +1,55 @@
 package fake
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 
 	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"gorm.io/gorm"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // InMemmoryFakeClient is a fake implementation of database.Client for testing
 type InMemmoryFakeClient struct {
-	mu             sync.RWMutex
-	feedback       map[string]*database.Feedback
-	tasks          map[string]*database.Task    // changed from runs, key: taskID
-	sessions       map[string]*database.Session // key: sessionID_userID
-	agents         map[string]*database.Agent   // changed from teams
-	toolServers    map[string]*database.ToolServer
-	tools          map[string]*database.Tool
-	messages       map[string][]*database.Message // key: taskID
-	nextFeedbackID int
+	mu                sync.RWMutex
+	feedback          map[string]*database.Feedback
+	tasks             map[string]*database.Task    // changed from runs, key: taskID
+	sessions          map[string]*database.Session // key: sessionID_userID
+	agents            map[string]*database.Agent   // changed from teams
+	toolServers       map[string]*database.ToolServer
+	tools             map[string]*database.Tool
+	messagesBySession map[string][]*database.Message // key: sessionId
+	messagesByTask    map[string][]*database.Message // key: taskID
+	nextFeedbackID    int
 }
 
 // NewClient creates a new fake database client
 func NewClient() database.Client {
 	return &InMemmoryFakeClient{
-		feedback:       make(map[string]*database.Feedback),
-		tasks:          make(map[string]*database.Task),
-		sessions:       make(map[string]*database.Session),
-		agents:         make(map[string]*database.Agent),
-		toolServers:    make(map[string]*database.ToolServer),
-		tools:          make(map[string]*database.Tool),
-		messages:       make(map[string][]*database.Message),
-		nextFeedbackID: 1,
+		feedback:          make(map[string]*database.Feedback),
+		tasks:             make(map[string]*database.Task),
+		sessions:          make(map[string]*database.Session),
+		agents:            make(map[string]*database.Agent),
+		toolServers:       make(map[string]*database.ToolServer),
+		tools:             make(map[string]*database.Tool),
+		messagesBySession: make(map[string][]*database.Message),
+		messagesByTask:    make(map[string][]*database.Message),
+		nextFeedbackID:    1,
 	}
+}
+func (c *InMemmoryFakeClient) messageKey(message *protocol.Message) string {
+	taskId := "none"
+	if message.TaskID != nil {
+		taskId = *message.TaskID
+	}
+	contextId := "none"
+	if message.ContextID != nil {
+		contextId = *message.ContextID
+	}
+	return fmt.Sprintf("%s_%s", taskId, contextId)
 }
 
 func (c *InMemmoryFakeClient) sessionKey(sessionID, userID string) string {
@@ -52,6 +68,32 @@ func (c *InMemmoryFakeClient) CreateFeedback(feedback *database.Feedback) error 
 
 	key := fmt.Sprintf("%d", newFeedback.ID)
 	c.feedback[key] = &newFeedback
+	return nil
+}
+
+// CreateMessages creates a new message record
+
+func (c *InMemmoryFakeClient) CreateMessages(messages ...*protocol.Message) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, message := range messages {
+		jsn, err := json.Marshal(message)
+		if err != nil {
+			return err
+		}
+		marshaledMessage := &database.Message{
+			ID:   message.MessageID,
+			Data: string(jsn),
+		}
+		if message.TaskID != nil {
+			c.messagesByTask[*message.TaskID] = append(c.messagesByTask[*message.TaskID], marshaledMessage)
+		}
+		if message.ContextID != nil {
+			c.messagesBySession[*message.ContextID] = append(c.messagesBySession[*message.ContextID], marshaledMessage)
+		}
+	}
+
 	return nil
 }
 
@@ -223,6 +265,9 @@ func (c *InMemmoryFakeClient) ListSessions(userID string) ([]database.Session, e
 			result = append(result, *session)
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 	return result, nil
 }
 
@@ -237,6 +282,9 @@ func (c *InMemmoryFakeClient) ListSessionsForAgent(agentID uint, userID string) 
 			result = append(result, *session)
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 	return result, nil
 }
 
@@ -300,7 +348,7 @@ func (c *InMemmoryFakeClient) ListMessagesForTask(taskID, userID string) ([]data
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	messages, exists := c.messages[taskID]
+	messages, exists := c.messagesByTask[taskID]
 	if !exists {
 		return []database.Message{}, nil
 	}
@@ -318,26 +366,15 @@ func (c *InMemmoryFakeClient) ListMessagesForSession(sessionID, userID string) (
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	messages, exists := c.sessions[sessionID]
+	messages, exists := c.messagesBySession[sessionID]
 	if !exists {
 		return []database.Message{}, nil
 	}
 
-	// get all tasks for the session
-	tasks, err := c.ListSessionTasks(sessionID, messages.UserID)
-	if err != nil {
-		return []database.Message{}, err
+	result := make([]database.Message, len(messages))
+	for i, msg := range messages {
+		result[i] = *msg
 	}
-
-	var result []database.Message
-	for _, task := range tasks {
-		taskMessages, err := c.ListMessagesForTask(task.ID, userID)
-		if err != nil {
-			return []database.Message{}, err
-		}
-		result = append(result, taskMessages...)
-	}
-
 	return result, nil
 }
 
@@ -388,19 +425,6 @@ func (c *InMemmoryFakeClient) UpdateTask(task *database.Task) error {
 	return nil
 }
 
-// Helper methods for testing
-
-// AddMessage adds a message to a task for testing purposes
-func (c *InMemmoryFakeClient) AddMessage(taskID string, message *database.Message) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.messages[taskID] == nil {
-		c.messages[taskID] = []*database.Message{}
-	}
-	c.messages[taskID] = append(c.messages[taskID], message)
-}
-
 // AddTool adds a tool for testing purposes
 func (c *InMemmoryFakeClient) AddTool(tool *database.Tool) {
 	c.mu.Lock()
@@ -428,6 +452,7 @@ func (c *InMemmoryFakeClient) Clear() {
 	c.agents = make(map[string]*database.Agent)
 	c.toolServers = make(map[string]*database.ToolServer)
 	c.tools = make(map[string]*database.Tool)
-	c.messages = make(map[string][]*database.Message)
+	c.messagesBySession = make(map[string][]*database.Message)
+	c.messagesByTask = make(map[string][]*database.Message)
 	c.nextFeedbackID = 1
 }

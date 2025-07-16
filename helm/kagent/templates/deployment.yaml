@@ -165,6 +165,9 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+          {{- with .Values.tools.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http-tools
               containerPort: {{ .Values.service.ports.tools.targetPort }}
@@ -174,7 +177,6 @@ spec:
               port: http-tools
             initialDelaySeconds: 15
             periodSeconds: 15
-        {{ if and .Values.mcp.doc2vec.enabled (eq .Values.providers.default "openAI") }}
         - name: querydoc
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -194,11 +196,15 @@ spec:
               value: "{{ .Values.service.ports.querydoc.targetPort }}"
             - name: TRANSPORT_TYPE
               value: "http"
+            - name: STRICT_MODE
+              value: "false"
+            {{- if and .Values.mcp.doc2vec.enabled (eq .Values.providers.default "openAI") }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kagent.fullname" . }}-openai
                   key: OPENAI_API_KEY
+            {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -207,8 +213,10 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+          {{- with .Values.mcp.doc2vec.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http-querydoc
               containerPort: {{ .Values.service.ports.querydoc.targetPort }}
               protocol: TCP
-        {{ end }}

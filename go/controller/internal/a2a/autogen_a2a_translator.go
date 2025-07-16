@@ -162,17 +162,7 @@ func (t *taskHandler) HandleMessage(ctx context.Context, task string, contextID 
 		taskResult = &resp.TaskResult
 	}
 
-	events := make([]autogen_client.Event, len(taskResult.Messages))
-	for i, msg := range taskResult.Messages {
-		parsedEvent, err := autogen_client.ParseEvent(msg)
-		if err != nil {
-			log.Printf("failed to parse event: %v", err)
-			continue
-		}
-		events[i] = parsedEvent
-	}
-
-	return events, nil
+	return taskResult.Messages, nil
 }
 
 // getOrCreateSession gets a session from the database or creates a new one if it doesn't exist

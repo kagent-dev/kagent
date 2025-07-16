@@ -232,3 +232,44 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "namespace-1,namespace-2" 
+
+  - it: should add additional environment variables to doc2vec container
+    set:
+      mcp:
+        doc2vec:
+          env:
+            - name: DEBUG
+              value: "true"
+            - name: LOG_FORMAT
+              value: "json"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[4].env
+          content:
+            name: DEBUG
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[4].env
+          content:
+            name: LOG_FORMAT
+            value: "json"
+
+  - it: should add additional environment variables to tools container
+    set:
+      tools:
+        env:
+          - name: DEBUG
+            value: "true"
+          - name: LOG_FORMAT
+            value: "json"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[3].env
+          content:
+            name: DEBUG
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[3].env
+          content:
+            name: LOG_FORMAT
+            value: "json"

@@ -23,7 +23,7 @@ func list[T Model](db *gorm.DB, clauses ...Clause) ([]T, error) {
 		query = query.Where(fmt.Sprintf("%s = ?", clause.Key), clause.Value)
 	}
 
-	err := query.Order("created_at DESC").Find(&models).Error
+	err := query.Order("created_at ASC").Find(&models).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list models: %w", err)
 	}

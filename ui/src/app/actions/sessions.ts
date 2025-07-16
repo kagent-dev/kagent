@@ -86,8 +86,8 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
  */
 export async function getSessionMessages(sessionId: string): Promise<BaseResponse<AgentMessageConfig[]>> {
   try {
-    const data = await fetchApi<AgentMessageConfig[]>(`/sessions/${sessionId}/messages`);
-    return { message: "Session messages fetched successfully", data };
+    const data = await fetchApi<BaseResponse<AgentMessageConfig[]>>(`/sessions/${sessionId}/messages`);
+    return data;
   } catch (error) {
     return createErrorResponse<AgentMessageConfig[]>(error, "Error getting session messages");
   }

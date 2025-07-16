@@ -17,6 +17,7 @@ type Client interface {
 	CreateSession(session *Session) error
 	CreateAgent(agent *Agent) error
 	CreateToolServer(toolServer *ToolServer) (*ToolServer, error)
+	CreateMessages(messages ...*protocol.Message) error
 
 	UpsertAgent(agent *Agent) error
 
@@ -38,7 +39,7 @@ type Client interface {
 
 	ListTools() ([]Tool, error)
 	ListFeedback(userID string) ([]Feedback, error)
-	ListSessionTasks(sessionName string, userID string) ([]Task, error)
+	ListSessionTasks(sessionID string, userID string) ([]Task, error)
 	ListSessions(userID string) ([]Session, error)
 	ListSessionsForAgent(agentID uint, userID string) ([]Session, error)
 	ListAgents() ([]Agent, error)
@@ -151,6 +152,19 @@ func (c *clientImpl) ListFeedback(userID string) ([]Feedback, error) {
 	return feedback, nil
 }
 
+func (c *clientImpl) CreateMessages(messages ...*protocol.Message) error {
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		err := c.StoreMessage(*message)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ListRuns lists all runs for a user
 func (c *clientImpl) ListTasks(userID string) ([]Task, error) {
 	tasks, err := list[Task](c.db, Clause{Key: "user_id", Value: userID})
@@ -161,9 +175,9 @@ func (c *clientImpl) ListTasks(userID string) ([]Task, error) {
 }
 
 // ListSessionRuns lists all runs for a specific session
-func (c *clientImpl) ListSessionTasks(sessionName string, userID string) ([]Task, error) {
+func (c *clientImpl) ListSessionTasks(sessionID string, userID string) ([]Task, error) {
 	return list[Task](c.db,
-		Clause{Key: "session_id", Value: sessionName},
+		Clause{Key: "session_id", Value: sessionID},
 		Clause{Key: "user_id", Value: userID})
 }
 

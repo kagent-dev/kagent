@@ -38,26 +38,24 @@ func (m *InMemoryAutogenClient) InvokeTask(ctx context.Context, req *autogen_cli
 	// Determine the response based on context (session/no session)
 	// If Messages is set (even if empty), it's a session-based call
 
-	// Create a proper TextMessage event in JSON format
-	textEvent := map[string]interface{}{
-		"type":     "TextMessage",
-		"source":   "assistant",
-		"content":  fmt.Sprintf("Session task completed: %s", req.Task),
-		"metadata": map[string]string{},
-		"models_usage": map[string]interface{}{
-			"prompt_tokens":     0,
-			"completion_tokens": 0,
-		},
-	}
-
-	jsonData, err := json.Marshal(textEvent)
-	if err != nil {
-		return nil, err
-	}
-
 	return &autogen_client.InvokeTaskResult{
 		TaskResult: autogen_client.TaskResult{
-			Messages: []json.RawMessage{jsonData},
+			Messages: []autogen_client.Event{
+				&autogen_client.TextMessage{
+					BaseChatMessage: autogen_client.BaseChatMessage{
+						BaseEvent: autogen_client.BaseEvent{
+							Type: "TextMessage",
+						},
+						Source:   "assistant",
+						Metadata: map[string]string{},
+						ModelsUsage: &autogen_client.ModelsUsage{
+							PromptTokens:     0,
+							CompletionTokens: 0,
+						},
+					},
+					Content: fmt.Sprintf("Session task completed: %s", req.Task),
+				},
+			},
 		},
 	}, nil
 }

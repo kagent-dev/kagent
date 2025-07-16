@@ -122,7 +122,7 @@ func TestStreamSseResponse(t *testing.T) {
 		case event := <-ch:
 			require.NotNil(t, event)
 			assert.Equal(t, "empty", event.Event)
-			assert.Equal(t, []byte(""), event.Data)
+			assert.Equal(t, ([]byte)(nil), event.Data)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for event")
 		}
