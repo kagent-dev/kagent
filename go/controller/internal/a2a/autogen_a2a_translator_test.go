@@ -81,7 +81,7 @@ func TestTranslateHandlerForAgent(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Equal(t, "test-namespace/test-agent", result.AgentCard.Name)
 		assert.Equal(t, "Test agent", result.AgentCard.Description)
-		assert.Equal(t, "http://localhost:8083/test-namespace/test-agent", result.AgentCard.URL)
+		assert.Equal(t, "http://localhost:8083/test-namespace/test-agent/", result.AgentCard.URL)
 		assert.Equal(t, "1", result.AgentCard.Version)
 		assert.Equal(t, []string{"text"}, result.AgentCard.DefaultInputModes)
 		assert.Equal(t, []string{"text"}, result.AgentCard.DefaultOutputModes)
