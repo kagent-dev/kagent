@@ -369,5 +369,5 @@ sigs.k8s.io/structured-merge-diff/v4 v4.6.0 h1:IUA9nvMmnKWcj5jl84xn+T5MnlZKThmUW
 sigs.k8s.io/structured-merge-diff/v4 v4.6.0/go.mod h1:dDy58f92j70zLsuZVuUX5Wp9vtxXpaZnkPGWeqDfCps=
 sigs.k8s.io/yaml v1.4.0 h1:Mk1wCc2gy/F0THH0TAp1QYyJNzRm2KCLy3o5ASXVI5E=
 sigs.k8s.io/yaml v1.4.0/go.mod h1:Ejl7/uTz7PSA4eKMyQCUTnhZYNmLIl+5c2lQPGR2BPY=
-trpc.group/trpc-go/trpc-a2a-go v0.2.0 h1:ByVRkuNXzwAV8Eb39VgPeMTTdgKkw65wPqBdZjqJNkM=
-trpc.group/trpc-go/trpc-a2a-go v0.2.0/go.mod h1:lu052zH/pTlTBwWMU/E3UckR0U9ajL1NlhiRkIF9R6A=
+trpc.group/trpc-go/trpc-a2a-go v0.2.1 h1:v2U4e74wAmgD019+Xw8GTSn7ZJaz+enBfWbLshyhZQs=
+trpc.group/trpc-go/trpc-a2a-go v0.2.1/go.mod h1:lu052zH/pTlTBwWMU/E3UckR0U9ajL1NlhiRkIF9R6A=

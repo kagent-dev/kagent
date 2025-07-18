@@ -100,7 +100,7 @@ func (a *a2aMessageProcessor) ProcessMessage(
 		}, nil
 	}
 
-	taskSubscriber, err := handle.SubScribeTask(ptr.To(taskID))
+	taskSubscriber, err := handle.SubscribeTask(ptr.To(taskID))
 	if err != nil {
 		return nil, err
 	}

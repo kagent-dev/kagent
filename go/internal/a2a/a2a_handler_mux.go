@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -60,6 +61,8 @@ func (a *handlerMux) SetAgentHandler(
 	if err != nil {
 		return fmt.Errorf("failed to create A2A server: %w", err)
 	}
+
+	slog.Info("A2A server info", "agentRef", agentRef, "srv", srv)
 
 	a.lock.Lock()
 	defer a.lock.Unlock()

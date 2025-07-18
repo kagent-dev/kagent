@@ -95,6 +95,7 @@ spec:
                       required:
                       - id
                       - name
+                      - tags
                       type: object
                     minItems: 1
                     type: array
