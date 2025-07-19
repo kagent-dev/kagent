@@ -38,7 +38,7 @@ func ConvertMessagesToAutogenEvents(messages []protocol.Message) ([]autogen_clie
 
 func ConvertAutogenEventsToMessages(taskId, contextId *string, events ...client.Event) []*protocol.Message {
 	result := make([]*protocol.Message, 0, len(events))
-	
+
 	for _, event := range events {
 		role := protocol.MessageRoleUser
 		switch typed := event.(type) {

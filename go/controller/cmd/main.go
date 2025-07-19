@@ -36,6 +36,7 @@ import (
 	autogen "github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"github.com/kagent-dev/kagent/go/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
+	a2a_manager "github.com/kagent-dev/kagent/go/internal/a2a/manager"
 	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
 	"github.com/kagent-dev/kagent/go/internal/database"
 
@@ -304,7 +305,9 @@ func main() {
 		defaultModelConfig,
 	)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, dbClient)
+	a2aStorage := a2a_manager.NewStorage(dbClient)
+
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, a2aStorage)
 
 	a2aReconciler := a2a_reconciler.NewAutogenReconciler(
 		autogenClient,

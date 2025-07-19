@@ -96,7 +96,7 @@ type Task struct {
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 	Data      string         `gorm:"type:text;not null" json:"data"` // JSON serialized task data
-	SessionID *string        `gorm:"index" json:"session_id"`
+	SessionID string         `gorm:"index" json:"session_id"`
 }
 
 func (t *Task) Parse() (protocol.Task, error) {

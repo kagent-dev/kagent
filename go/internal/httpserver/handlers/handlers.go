@@ -21,6 +21,7 @@ type Handlers struct {
 	Memory      *MemoryHandler
 	Feedback    *FeedbackHandler
 	Namespaces  *NamespacesHandler
+	Tasks       *TasksHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -52,5 +53,6 @@ func NewHandlers(kubeClient client.Client, autogenClient autogen_client.Client, 
 		Memory:      NewMemoryHandler(base),
 		Feedback:    NewFeedbackHandler(base),
 		Namespaces:  NewNamespacesHandler(base, watchedNamespaces),
+		Tasks:       NewTasksHandler(base),
 	}
 }
