@@ -1,0 +1,66 @@
+suite: test tool-server configmap
+templates:
+  - configmap.yaml
+tests:
+  - it: should render configmap with default values
+    release:
+      name: tool-server
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: tool-server
+      - hasDocuments:
+          count: 1
+
+  - it: should have correct labels
+    release:
+      name: tool-server
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: tool-server
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: tool-server
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm
+
+  - it: should include custom config when provided
+    set:
+      config:
+        DEBUG: "true"
+        LOG_LEVEL: "debug"
+    asserts:
+      - equal:
+          path: data.DEBUG
+          value: "true"
+      - equal:
+          path: data.LOG_LEVEL
+          value: "debug"
+
+  - it: should include OTEL configuration
+    set:
+      otel:
+        tracing:
+          enabled: true
+          exporter:
+            otlp:
+              endpoint: "http://jaeger:4317"
+              timeout: 30000
+              insecure: false
+    asserts:
+      - equal:
+          path: data.OTEL_TRACING_ENABLED
+          value: "true"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://jaeger:4317"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+          value: "30000"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_INSECURE
+          value: "true"

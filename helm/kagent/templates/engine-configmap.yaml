@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-engine
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.engine.labels" . | nindent 4 }}
+data:
+  # Default OTEL configuration
+  OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+
+  # Autogen configuration
+  AUTOGEN_DISABLE_RUNTIME_TRACING: "true"
+  LOG_LEVEL: {{ .Values.engine.loglevel | quote }}
+
+  # Custom configuration
+  {{- with .Values.engine.config }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}

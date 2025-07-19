@@ -1,0 +1,63 @@
+suite: test ui service
+templates:
+  - ui-service.yaml
+tests:
+  - it: should render ui service with default values
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ui
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - hasDocuments:
+          count: 1
+
+  - it: should have correct port configuration
+    asserts:
+      - equal:
+          path: spec.ports[0].name
+          value: ui
+      - equal:
+          path: spec.ports[0].port
+          value: 80
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 8080
+      - equal:
+          path: spec.ports[0].protocol
+          value: TCP
+
+  - it: should have correct selector labels
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/name"]
+          value: kagent
+      - equal:
+          path: spec.selector["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: ui
+
+  - it: should have correct metadata labels
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: kagent
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm
+      - isNotEmpty:
+          path: metadata.labels["helm.sh/chart"]
+
+  - it: should be in correct namespace
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE

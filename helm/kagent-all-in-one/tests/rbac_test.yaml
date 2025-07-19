@@ -1,0 +1,122 @@
+suite: test rbac
+templates:
+  - serviceaccount.yaml
+  - clusterrole.yaml
+  - clusterrolebinding.yaml
+tests:
+  - it: should render serviceaccount
+    template: serviceaccount.yaml
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME
+      - hasDocuments:
+          count: 1
+
+  - it: should render two clusterroles
+    template: clusterrole.yaml
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - hasDocuments:
+          count: 2
+
+  - it: should have correct clusterrole names
+    template: clusterrole.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-getter-role
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-writer-role
+        documentIndex: 1
+
+  - it: should render two clusterrolebindings
+    template: clusterrolebinding.yaml
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - hasDocuments:
+          count: 2
+
+  - it: clusterrolebinding should reference correct serviceaccount
+    template: clusterrolebinding.yaml
+    asserts:
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME
+      - equal:
+          path: subjects[0].namespace
+          value: NAMESPACE
+
+  - it: clusterrolebinding should reference correct clusterroles
+    template: clusterrolebinding.yaml
+    asserts:
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-getter-role
+        documentIndex: 0
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-writer-role
+        documentIndex: 1
+      - equal:
+          path: roleRef.apiGroup
+          value: rbac.authorization.k8s.io
+
+  - it: getter clusterrole should have read permissions
+    template: clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["*"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0
+
+  - it: writer clusterrole should have write permissions
+    template: clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["*"]
+            verbs: ["create", "update", "patch", "delete"]
+        documentIndex: 1
+
+  - it: should use custom namespace when overridden
+    set:
+      namespaceOverride: "custom-namespace"
+    template: serviceaccount.yaml
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace
+
+  - it: should have correct labels on all resources
+    templates:
+      - serviceaccount.yaml
+      - clusterrole.yaml
+      - clusterrolebinding.yaml
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: kagent
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm 

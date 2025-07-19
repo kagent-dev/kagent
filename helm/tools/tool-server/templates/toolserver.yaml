@@ -1,0 +1,13 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: {{ include "tools.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tools.labels" . | nindent 4 }}
+spec:
+  config:
+    streamableHttp:
+      timeout: 30s
+      url: {{ include "tools.serverUrl" . }}
+  description: "Kagent's Tool Server"

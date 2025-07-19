@@ -1,11 +1,4 @@
 {{/*
-Expand the name of the chart.
-*/}}
-{{- define "kagent.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
 Create a default fully qualified app name.
 */}}
 {{- define "kagent.fullname" -}}
@@ -21,17 +14,10 @@ Create a default fully qualified app name.
 {{- end }}
 
 {{/*
-Create chart name and version as used by the chart label.
-*/}}
-{{- define "kagent.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
 Common labels
 */}}
 {{- define "kagent.labels" -}}
-helm.sh/chart: {{ include "kagent.chart" . }}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{ include "kagent.selectorLabels" . }}
 {{- if .Chart.Version }}
 app.kubernetes.io/version: {{ .Chart.Version | quote }}
@@ -43,13 +29,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 Selector labels
 */}}
 {{- define "kagent.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "kagent.name" . }}
+app.kubernetes.io/name: {{ default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}
-
-{{/*Default provider name*/}}
-{{- define "kagent.defaultProviderName" -}}
-{{ .Values.providers.default | default "openAI" | lower}}
 {{- end }}
 
 {{/*Default model name*/}}
@@ -73,3 +54,51 @@ Removes duplicates
 {{- $nsSet := dict }}
 {{- .Values.controller.watchNamespaces | default list | uniq | join "," }}
 {{- end -}}
+
+{{/*
+UI selector labels
+*/}}
+{{- define "kagent.ui.selectorLabels" -}}
+{{ include "kagent.selectorLabels" . }}
+app.kubernetes.io/component: ui
+{{- end }}
+
+{{/*
+Controller selector labels
+*/}}
+{{- define "kagent.controller.selectorLabels" -}}
+{{ include "kagent.selectorLabels" . }}
+app.kubernetes.io/component: controller
+{{- end }}
+
+{{/*
+Engine selector labels
+*/}}
+{{- define "kagent.engine.selectorLabels" -}}
+{{ include "kagent.selectorLabels" . }}
+app.kubernetes.io/component: engine
+{{- end }}
+
+{{/*
+Controller labels
+*/}}
+{{- define "kagent.controller.labels" -}}
+{{ include "kagent.labels" . }}
+app.kubernetes.io/component: controller
+{{- end }}
+
+{{/*
+UI labels
+*/}}
+{{- define "kagent.ui.labels" -}}
+{{ include "kagent.labels" . }}
+app.kubernetes.io/component: ui
+{{- end }}
+
+{{/*
+Engine labels
+*/}}
+{{- define "kagent.engine.labels" -}}
+{{ include "kagent.labels" . }}
+app.kubernetes.io/component: engine
+{{- end }}

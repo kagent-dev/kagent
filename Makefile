@@ -209,6 +209,7 @@ helm-test: helm-version
 	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key		| tee tmp/azureOpenAI.yaml	| grep ^kind: | wc -l)
 	helm plugin ls | grep unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git
 	helm unittest helm/kagent
+	helm unittest helm/kagent-all-in-one
 
 .PHONY: helm-agents
 helm-agents:
@@ -233,13 +234,23 @@ helm-agents:
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-manager
 
+.PHONY: helm-tools
+helm-tools:
+	VERSION=$(VERSION) envsubst < helm/tools/tool-server/Chart-template.yaml > helm/tools/tool-server/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/tools/tool-server
+	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
+
 .PHONY: helm-version
-helm-version: helm-cleanup helm-agents
+helm-version: helm-cleanup helm-agents helm-tools
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
+	VERSION=$(VERSION) envsubst < helm/kagent-all-in-one/Chart-template.yaml > helm/kagent-all-in-one/Chart.yaml
 	helm dependency update helm/kagent
+	helm dependency update helm/kagent-all-in-one
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent
+	helm package -d $(HELM_DIST_FOLDER) helm/kagent-all-in-one
 
 .PHONY: helm-install-provider
 helm-install-provider: helm-version check-openai-key
@@ -257,6 +268,43 @@ helm-install-provider: helm-version check-openai-key
 		--timeout 5m       \
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
+		--set ui.service.type=LoadBalancer \
+		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set ui.image.tag=$(UI_IMAGE_TAG) \
+		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
+		--set controller.service.type=LoadBalancer \
+		--set engine.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set engine.image.tag=$(APP_IMAGE_TAG) \
+		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
+		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
+		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
+		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		--set tool-server.openai.apiKey=$(OPENAI_API_KEY) \
+		$(KAGENT_HELM_EXTRA_ARGS)
+
+.PHONY: helm-install
+helm-install: kind-load-docker-images
+helm-install: helm-install-provider
+
+.PHONY: helm-install-provider-aio
+helm-install-provider-aio: kind-load-docker-images helm-version check-openai-key
+	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
+		--namespace kagent \
+		--create-namespace \
+		--history-max 2    \
+		--timeout 5m 			\
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--wait
+	helm $(HELM_ACTION) kagent helm/kagent-all-in-one \
+		--namespace kagent \
+		--create-namespace \
+		--history-max 2    \
+		--timeout 5m       \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--wait \
+		--set fullnameOverride=kagent \
 		--set service.type=LoadBalancer \
 		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
 		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
@@ -270,9 +318,9 @@ helm-install-provider: helm-version check-openai-key
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
-.PHONY: helm-install
-helm-install: kind-load-docker-images
-helm-install: helm-install-provider
+.PHONY: helm-install-aio
+helm-install-aio: kind-load-docker-images
+helm-install-aio: helm-install-provider-aio
 
 .PHONY: helm-test-install
 helm-test-install: HELM_ACTION+="--dry-run"
@@ -289,6 +337,7 @@ helm-uninstall:
 helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
 	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
+	helm push ./$(HELM_DIST_FOLDER)/kagent-all-in-one-$(VERSION).tgz $(HELM_REPO)/kagent-all-in-one/helm
 	helm push ./$(HELM_DIST_FOLDER)/helm-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents

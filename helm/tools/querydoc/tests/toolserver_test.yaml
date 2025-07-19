@@ -1,0 +1,45 @@
+suite: test querydoc toolserver
+templates:
+  - toolserver.yaml
+tests:
+  - it: should render toolserver with default values
+    asserts:
+      - isKind:
+          of: ToolServer
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-querydoc
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - hasDocuments:
+          count: 1
+
+  - it: should have correct spec configuration
+    asserts:
+      - equal:
+          path: spec.config.streamableHttp.sseReadTimeout
+          value: 5m0s
+      - equal:
+          path: spec.config.streamableHttp.timeout
+          value: 30s
+      - isNotEmpty:
+          path: spec.config.streamableHttp.url
+
+  - it: should have correct description
+    asserts:
+      - equal:
+          path: spec.description
+          value: "Documentation Query Tool Server"
+
+  - it: should have correct labels
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: querydoc
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm
