@@ -113,7 +113,7 @@ jobs:
         python-version: '3.10'
 
     - name: Install GitIngest
-      run: pip install gitingest==0.4.2
+      run: pip install gitingest==0.1.5
 
     - name: Run GitIngest
       run: |
