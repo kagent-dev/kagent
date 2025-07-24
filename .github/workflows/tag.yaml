@@ -117,7 +117,7 @@ jobs:
 
     - name: Run GitIngest
       run: |
-        echo "⚙️ Running GitIngest using local checkout..."
+        echo "Running GitIngest using local checkout..."
         gitingest . > gitingest.log
         echo " GitIngest completed."
     
