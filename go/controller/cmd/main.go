@@ -66,6 +66,7 @@ import (
 
 	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/controller"
+	"github.com/kagent-dev/kagent/go/internal/goruntime"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -144,7 +145,11 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	logger := zap.New(zap.UseFlagOptions(&opts))
+
+	ctrl.SetLogger(logger)
+
+	goruntime.SetMaxProcs(logger)
 
 	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
 
