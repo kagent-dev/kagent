@@ -43,6 +43,12 @@ database:
   postgres:
     url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
 
+# -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+tolerations: []
+
+# -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+nodeSelector: {}
+
 controller:
   loglevel: "info"
 
