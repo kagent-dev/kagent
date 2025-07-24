@@ -1,0 +1,64 @@
+suite: test tool-server deployment
+templates:
+  - deployment.yaml
+  - configmap.yaml
+  - secret.yaml
+tests:
+  - it: should render deployment with default values
+    template: deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-tool-server
+      - equal:
+          path: spec.replicas
+          value: 1
+      - hasDocuments:
+          count: 1
+
+  - it: should render deployment with custom replica count
+    template: deployment.yaml
+    set:
+      replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should have correct container image
+    template: deployment.yaml
+    set:
+      image:
+        registry: ghcr.io
+        repository: kagent-dev/kagent-tools
+        tag: v1.0.0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: tools
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/kagent-dev/kagent-tools:v1.0.0
+
+  - it: should have correct container port
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8080
+
+  - it: should have correct service account name
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-tool-server
+
+  - it: should have readiness probe
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
+          value: http

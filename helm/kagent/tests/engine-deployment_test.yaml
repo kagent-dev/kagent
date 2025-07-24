@@ -1,0 +1,87 @@
+suite: test engine deployment
+templates:
+  - engine-deployment.yaml
+  - engine-configmap.yaml
+tests:
+  - it: should render engine deployment with default values
+    template: engine-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-engine
+      - equal:
+          path: spec.replicas
+          value: 1
+      - hasDocuments:
+          count: 1
+
+  - it: should render engine deployment with custom replica count
+    template: engine-deployment.yaml
+    set:
+      engine:
+        replicas: 2
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: should have correct engine container image
+    template: engine-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: engine
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/app:.+"
+
+  - it: should use global tag when set
+    template: engine-deployment.yaml
+    set:
+      tag: "v1.0.0"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: cr.kagent.dev/kagent-dev/kagent/app:v1.0.0
+
+  - it: should have correct engine resources
+    template: engine-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 256Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 1000m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi
+
+  - it: should have correct service account name
+    template: engine-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-engine
+
+  - it: should have correct container port
+    template: engine-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8081
+
+  - it: should have readiness probe for engine container
+    template: engine-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /api/version
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: http

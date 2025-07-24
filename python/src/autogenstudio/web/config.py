@@ -14,5 +14,4 @@ class Settings(BaseSettings):
 
     model_config = {"env_prefix": "AUTOGENSTUDIO_"}
 
-
 settings = Settings()

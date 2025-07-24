@@ -89,7 +89,7 @@ spec:
         - k8s_get_available_api_resources
     - type: McpServer
       mcpServer:
-        toolServer: kagent/mcp-grafana
+        toolServer: kagent/kagent-mcp-grafana
         toolNames:
         - update_dashboard
         - search_dashboards

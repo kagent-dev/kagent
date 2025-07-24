@@ -79,10 +79,11 @@ jobs:
           kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
+        working-directory: go
         run: |
-          export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083/api"
+          export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083/api"
           echo $KAGENT_API_URL
-          cd go
+
           go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
 
   go-unit-tests:

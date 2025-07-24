@@ -30,12 +30,12 @@ RUN addgroup -g 1001 pythongroup                       && \
 USER python
 WORKDIR /app/python
 
-### STAGE 2 : download tools
+### STAGE 3 : download tools
 FROM mcp/grafana:latest AS mcp-grafana
 ARG TOOLS_GRAFANA_MCP_VERSION
 LABEL org.opencontainers.image.source="mcp/grafana${TOOLS_GRAFANA_MCP_VERSION}"
 
-### STAGE 3: final
+### STAGE 4: final
 FROM python-os AS final
 ARG TOOLS_PYTHON_VERSION
 
