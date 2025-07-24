@@ -21,8 +21,10 @@ type InMemmoryFakeClient struct {
 	agents            map[string]*database.Agent   // changed from teams
 	toolServers       map[string]*database.ToolServer
 	tools             map[string]*database.Tool
-	messagesBySession map[string][]*database.Message // key: sessionId
-	messagesByTask    map[string][]*database.Message // key: taskID
+	messagesBySession map[string][]*database.Message                  // key: sessionId
+	messagesByTask    map[string][]*database.Message                  // key: taskID
+	messages          map[string]*database.Message                    // key: messageID
+	pushNotifications map[string]*protocol.TaskPushNotificationConfig // key: taskID
 	nextFeedbackID    int
 }
 
@@ -37,6 +39,8 @@ func NewClient() database.Client {
 		tools:             make(map[string]*database.Tool),
 		messagesBySession: make(map[string][]*database.Message),
 		messagesByTask:    make(map[string][]*database.Message),
+		messages:          make(map[string]*database.Message),
+		pushNotifications: make(map[string]*protocol.TaskPushNotificationConfig),
 		nextFeedbackID:    1,
 	}
 }
@@ -54,6 +58,68 @@ func (c *InMemmoryFakeClient) messageKey(message *protocol.Message) string {
 
 func (c *InMemmoryFakeClient) sessionKey(sessionID, userID string) string {
 	return fmt.Sprintf("%s_%s", sessionID, userID)
+}
+
+func (c *InMemmoryFakeClient) CreatePushNotification(taskID string, config *protocol.TaskPushNotificationConfig) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.pushNotifications[taskID] = config
+	return nil
+}
+
+func (c *InMemmoryFakeClient) GetPushNotification(taskID string) (*protocol.TaskPushNotificationConfig, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.pushNotifications[taskID], nil
+}
+
+func (c *InMemmoryFakeClient) CreateTask(task *protocol.Task) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	jsn, err := json.Marshal(task)
+	if err != nil {
+		return err
+	}
+	c.tasks[task.ID] = &database.Task{
+		ID:   task.ID,
+		Data: string(jsn),
+	}
+	return nil
+}
+
+func (c *InMemmoryFakeClient) GetMessage(messageID string) (*database.Message, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	message, exists := c.messages[messageID]
+	if !exists {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return message, nil
+}
+
+func (c *InMemmoryFakeClient) GetTask(taskID string) (*database.Task, error) {
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	task, exists := c.tasks[taskID]
+	if !exists {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return task, nil
+}
+
+func (c *InMemmoryFakeClient) DeleteTask(taskID string) error {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.tasks, taskID)
+	return nil
 }
 
 // CreateFeedback creates a new feedback record
@@ -247,7 +313,7 @@ func (c *InMemmoryFakeClient) ListSessionTasks(sessionID string, userID string) 
 
 	var result []database.Task
 	for _, task := range c.tasks {
-		if task.SessionID != nil && *task.SessionID == sessionID && task.UserID == userID {
+		if task.SessionID == sessionID && task.UserID == userID {
 			result = append(result, *task)
 		}
 	}

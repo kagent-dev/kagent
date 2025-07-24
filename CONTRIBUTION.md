@@ -29,6 +29,8 @@ See the [DEVELOPMENT.md](DEVELOPMENT.md) file for more information.
 
 ### Making Changes
 
+If you are making significant improvements to the kagent project, please create a design document using the [design template](design/template.md) and submit it as a pull request on GitHub. Additionally, post a notification in the #core-contrib channel on the kagent Discord for offline review, and be prepared to present the design document at an upcoming kagent community meeting. Thank you!
+
 #### Coding Standards
 
 - **Go Code**:

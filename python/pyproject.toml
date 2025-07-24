@@ -43,6 +43,8 @@ dependencies = [
   "magika>=0.6.2",
   "markitdown>=0.1.1",
   "websockets>=11.0",
+  "litellm>=1.74.3",
+  "google-adk>=1.6.1",
   "google-genai>=1.18.0",
   "google-auth>=2.40.2",
   "h11>=0.16.0",
@@ -67,6 +69,7 @@ dependencies = [
   "distro>=1.8.0",
   "jiter>=0.4.0",
   "idna>=3.4",
+  "a2a-sdk>=0.2.12",
 ]
 
 [project.optional-dependencies]

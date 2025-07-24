@@ -93,7 +93,7 @@ func (a *autogenA2ATranslator) translateCardForAgent(
 	return &server.AgentCard{
 		Name:        agentRef,
 		Description: agent.Spec.Description,
-		URL:         fmt.Sprintf("%s/%s", a.a2aBaseUrl, agentRef),
+		URL:         fmt.Sprintf("%s/%s/", a.a2aBaseUrl, agentRef),
 		//Provider:           nil,
 		Version: fmt.Sprintf("%v", agent.Generation),
 		//DocumentationURL:   nil,
