@@ -1,92 +1,161 @@
 {
-  "CreatedAt": "0001-01-01T00:00:00Z",
-  "DeletedAt": null,
-  "ID": 0,
-  "UpdatedAt": "0001-01-01T00:00:00Z",
-  "component": {
-    "component_type": "team",
-    "component_version": 0,
-    "config": {
-      "participants": [
+  "config": {
+    "agent_card": {
+      "capabilities": {
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "streaming": true
+      },
+      "defaultInputModes": [
+        "text"
+      ],
+      "defaultOutputModes": [
+        "text"
+      ],
+      "description": "An agent with vector memory and model from different namespaces",
+      "name": "agent-with-cross-ns-resources",
+      "skills": null,
+      "url": "http://agent-with-cross-ns-resources.test-agent.svc.cluster.local:8080",
+      "version": ""
+    },
+    "agents": null,
+    "description": "An agent with vector memory and model from different namespaces",
+    "http_tools": null,
+    "instruction": "You are an assistant with access to cross-namespace resources.",
+    "kagent_url": "http://kagent.kagent.svc.cluster.local:8080",
+    "model": "gemini-2.0-flash",
+    "name": "test_agent__NS__agent_with_cross_ns_resources",
+    "sse_tools": null
+  },
+  "configHash": 7587701340273478000,
+  "configMap": {
+    "data": {
+      "config.yaml": "{\"kagent_url\":\"http://kagent.kagent.svc.cluster.local:8080\",\"agent_card\":{\"name\":\"agent-with-cross-ns-resources\",\"description\":\"An agent with vector memory and model from different namespaces\",\"url\":\"http://agent-with-cross-ns-resources.test-agent.svc.cluster.local:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":null},\"name\":\"test_agent__NS__agent_with_cross_ns_resources\",\"model\":\"gemini-2.0-flash\",\"description\":\"An agent with vector memory and model from different namespaces\",\"instruction\":\"You are an assistant with access to cross-namespace resources.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+    },
+    "metadata": {
+      "creationTimestamp": null,
+      "name": "agent-with-cross-ns-resources",
+      "namespace": "test-agent",
+      "ownerReferences": [
         {
-          "component_type": "agent",
-          "component_version": 0,
-          "config": {
-            "description": "An agent with vector memory and model from different namespaces",
-            "memory": [
-              {
-                "component_type": "memory",
-                "component_version": 0,
-                "config": {
-                  "api_key": "pinecone-api-key",
-                  "index_host": "https://test-index.pinecone.io",
-                  "namespace": "test-namespace",
-                  "record_fields": [
-                    "content",
-                    "metadata"
-                  ],
-                  "score_threshold": 0.699999988079071,
-                  "top_k": 5
-                },
-                "description": "",
-                "label": "",
-                "provider": "kagent.memory.PineconeMemory",
-                "version": 1
-              }
-            ],
-            "model_client": {
-              "component_type": "model",
-              "component_version": 0,
-              "config": {
-                "api_key": "sk-test-api-key",
-                "model": "gpt-4o",
-                "stream_options": {
-                  "include_usage": true
-                }
-              },
-              "description": "",
-              "label": "",
-              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
-              "version": 1
-            },
-            "model_client_stream": true,
-            "model_context": {
-              "component_type": "chat_completion_context",
-              "component_version": 0,
-              "config": {},
-              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
-              "label": "UnboundedChatCompletionContext",
-              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
-              "version": 1
-            },
-            "name": "test_agent__NS__agent_with_cross_ns_resources",
-            "reflect_on_tool_use": false,
-            "system_message": "You are an assistant with access to cross-namespace resources.",
-            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-            "tools": null
-          },
-          "description": "An agent with vector memory and model from different namespaces",
-          "label": "",
-          "provider": "autogen_agentchat.agents.AssistantAgent",
-          "version": 1
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "agent-with-cross-ns-resources",
+          "uid": ""
         }
       ],
-      "termination_condition": {
-        "component_type": "termination",
-        "component_version": 0,
-        "config": {
-          "source": "test_agent__NS__agent_with_cross_ns_resources"
+      "resourceVersion": "999"
+    }
+  },
+  "deployment": {
+    "metadata": {
+      "creationTimestamp": null,
+      "name": "agent-with-cross-ns-resources",
+      "namespace": "test-agent",
+      "ownerReferences": [
+        {
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "agent-with-cross-ns-resources",
+          "uid": ""
+        }
+      ],
+      "resourceVersion": "999"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "kagent",
+          "kagent": "agent-with-cross-ns-resources",
+          "version": "v1alpha1"
+        }
+      },
+      "strategy": {},
+      "template": {
+        "metadata": {
+          "creationTimestamp": null,
+          "generateName": "agent-with-cross-ns-resources-",
+          "labels": {
+            "app": "kagent",
+            "kagent": "agent-with-cross-ns-resources",
+            "version": "v1alpha1"
+          }
         },
-        "description": "",
-        "label": "",
-        "provider": "kagent.conditions.FinalTextMessageTermination",
-        "version": 1
+        "spec": {
+          "containers": [
+            {
+              "command": [
+                "uv",
+                "run",
+                "kagent",
+                "start",
+                "--config",
+                "/config/config.yaml"
+              ],
+              "image": "kagent-controller:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "name": "kagent",
+              "resources": {},
+              "volumeMounts": [
+                {
+                  "mountPath": "/config",
+                  "name": "config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "kagent-config"
+              },
+              "name": "config"
+            }
+          ]
+        }
       }
     },
-    "description": "An agent with vector memory and model from different namespaces",
-    "label": "test-agent/agent-with-cross-ns-resources",
-    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
-    "version": 1
+    "status": {}
   },
-  "name": "test-agent/agent-with-cross-ns-resources"
+  "service": {
+    "metadata": {
+      "creationTimestamp": null,
+      "name": "agent-with-cross-ns-resources",
+      "namespace": "test-agent",
+      "ownerReferences": [
+        {
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "agent-with-cross-ns-resources",
+          "uid": ""
+        }
+      ],
+      "resourceVersion": "999"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 8080,
+          "targetPort": 8080
+        }
+      ],
+      "selector": {
+        "app": "kagent",
+        "kagent": "agent-with-cross-ns-resources",
+        "version": "v1alpha1"
+      },
+      "type": "ClusterIP"
+    },
+    "status": {
+      "loadBalancer": {}
+    }
+  }
 }

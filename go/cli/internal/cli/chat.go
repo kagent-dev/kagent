@@ -63,11 +63,11 @@ func ChatCmd(c *ishell.Context) {
 		}
 
 		agentNames := make([]string, len(agentListResp.Data))
-		for i, team := range agentListResp.Data {
-			if team.Component.Label == "" {
+		for i, agent := range agentListResp.Data {
+			if agent.Config.Name == "" {
 				continue
 			}
-			agentNames[i] = team.Component.Label
+			agentNames[i] = agent.Config.Name
 		}
 
 		selectedTeamIdx := c.MultiChoice(agentNames, "Select an agent:")
@@ -120,7 +120,7 @@ func ChatCmd(c *ishell.Context) {
 	}
 
 	// Setup A2A client
-	a2aURL := fmt.Sprintf("%s/a2a/%s/%s", cfg.APIURL, cfg.Namespace, agentResp.Component.Label)
+	a2aURL := fmt.Sprintf("%s/a2a/%s/%s", cfg.APIURL, cfg.Namespace, agentResp.Config.Name)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
 	if err != nil {
 		c.Printf("Failed to create A2A client: %v\n", err)
@@ -131,7 +131,7 @@ func ChatCmd(c *ishell.Context) {
 	cancel := startPortForward(context.Background())
 	defer cancel()
 
-	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", agentResp.Component.Label, session.ID))
+	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", agentResp.Config.Name, session.ID))
 	c.SetPrompt(promptStr)
 	c.ShowPrompt(true)
 

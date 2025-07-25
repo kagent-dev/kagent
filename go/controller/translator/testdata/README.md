@@ -1,6 +1,6 @@
-# Autogen API Translator Golden Tests
+# API Translator Golden Tests
 
-This directory contains golden tests for the autogen API translator. Golden tests are a type of test where the expected output is stored in files and compared against the actual output.
+This directory contains golden tests for the API translator. Golden tests are a type of test where the expected output is stored in files and compared against the actual output.
 
 ## Structure
 
@@ -57,17 +57,17 @@ To add a new test case:
 
 ### Run all golden tests:
 ```bash
-go test -run TestGoldenAutogenTranslator ./go/controller/internal/autogen/
+go test -run TestGoldenTranslator ./go/controller/translator/
 ```
 
 ### Update golden files (regenerate expected outputs):
 ```bash
-UPDATE_GOLDEN=true go test -run TestGoldenAutogenTranslator ./go/controller/internal/autogen/
+UPDATE_GOLDEN=true go test -run TestGoldenTranslator ./go/controller/translator/
 ```
 
 ### Run specific test:
 ```bash
-go test -run TestGoldenAutogenTranslator/basic_agent ./go/controller/internal/autogen/
+go test -run TestGoldenTranslator/basic_agent ./go/controller/translator/
 ```
 
 ## Test Coverage

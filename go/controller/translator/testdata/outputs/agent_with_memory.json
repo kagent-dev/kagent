@@ -1,92 +1,225 @@
 {
-  "CreatedAt": "0001-01-01T00:00:00Z",
-  "DeletedAt": null,
-  "ID": 0,
-  "UpdatedAt": "0001-01-01T00:00:00Z",
-  "component": {
-    "component_type": "team",
-    "component_version": 0,
-    "config": {
-      "participants": [
-        {
-          "component_type": "agent",
-          "component_version": 0,
-          "config": {
-            "description": "An agent with vector memory",
-            "memory": [
-              {
-                "component_type": "memory",
-                "component_version": 0,
-                "config": {
-                  "api_key": "pinecone-api-key",
-                  "index_host": "https://test-index.pinecone.io",
-                  "namespace": "test-namespace",
-                  "record_fields": [
-                    "content",
-                    "metadata"
-                  ],
-                  "score_threshold": 0.699999988079071,
-                  "top_k": 5
-                },
-                "description": "",
-                "label": "",
-                "provider": "kagent.memory.PineconeMemory",
-                "version": 1
-              }
-            ],
-            "model_client": {
-              "component_type": "model",
-              "component_version": 0,
-              "config": {
-                "api_key": "sk-test-api-key",
-                "model": "gpt-4o",
-                "stream_options": {
-                  "include_usage": true
-                }
-              },
-              "description": "",
-              "label": "",
-              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
-              "version": 1
-            },
-            "model_client_stream": true,
-            "model_context": {
-              "component_type": "chat_completion_context",
-              "component_version": 0,
-              "config": {},
-              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
-              "label": "UnboundedChatCompletionContext",
-              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
-              "version": 1
-            },
-            "name": "test__NS__agent_with_memory",
-            "reflect_on_tool_use": false,
-            "system_message": "You are an assistant with access to long-term memory.",
-            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-            "tools": null
-          },
-          "description": "An agent with vector memory",
-          "label": "",
-          "provider": "autogen_agentchat.agents.AssistantAgent",
-          "version": 1
-        }
+  "config": {
+    "agent_card": {
+      "capabilities": {
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "streaming": true
+      },
+      "defaultInputModes": [
+        "text"
       ],
-      "termination_condition": {
-        "component_type": "termination",
-        "component_version": 0,
-        "config": {
-          "source": "test__NS__agent_with_memory"
+      "defaultOutputModes": [
+        "text"
+      ],
+      "description": "An agent with vector memory",
+      "name": "agent-with-memory",
+      "skills": null,
+      "url": "http://agent-with-memory.test.svc.cluster.local:8080",
+      "version": ""
+    },
+    "agents": null,
+    "description": "An agent with vector memory",
+    "http_tools": null,
+    "instruction": "You are an assistant with access to long-term memory.",
+    "kagent_url": "http://kagent.kagent.svc.cluster.local:8083",
+    "model": {
+      "base_url": "",
+      "model": "gpt-4o",
+      "type": "openai"
+    },
+    "name": "test__NS__agent_with_memory",
+    "sse_tools": null
+  },
+  "configHash": 12523267895594010000,
+  "configMap": {
+    "apiVersion": "v1",
+    "data": {
+      "config.json": "{\"kagent_url\":\"http://kagent.kagent.svc.cluster.local:8083\",\"agent_card\":{\"name\":\"agent-with-memory\",\"description\":\"An agent with vector memory\",\"url\":\"http://agent-with-memory.test.svc.cluster.local:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__agent_with_memory\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"An agent with vector memory\",\"instruction\":\"You are an assistant with access to long-term memory.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+    },
+    "kind": "ConfigMap",
+    "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+        "app": "kagent",
+        "config.kagent.dev/hash": "12523267895594010222",
+        "kagent": "agent-with-memory",
+        "version": "v1alpha1"
+      },
+      "name": "agent-with-memory",
+      "namespace": "test",
+      "ownerReferences": [
+        {
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "agent-with-memory",
+          "uid": ""
+        }
+      ]
+    }
+  },
+  "deployment": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+        "app": "kagent",
+        "config.kagent.dev/hash": "12523267895594010222",
+        "kagent": "agent-with-memory",
+        "version": "v1alpha1"
+      },
+      "name": "agent-with-memory",
+      "namespace": "test",
+      "ownerReferences": [
+        {
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "agent-with-memory",
+          "uid": ""
+        }
+      ]
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "kagent",
+          "kagent": "agent-with-memory",
+          "version": "v1alpha1"
+        }
+      },
+      "strategy": {},
+      "template": {
+        "metadata": {
+          "creationTimestamp": null,
+          "labels": {
+            "app": "kagent",
+            "config.kagent.dev/hash": "12523267895594010222",
+            "kagent": "agent-with-memory",
+            "version": "v1alpha1"
+          },
+          "name": "agent-with-memory",
+          "namespace": "test"
         },
-        "description": "",
-        "label": "",
-        "provider": "kagent.conditions.FinalTextMessageTermination",
-        "version": 1
+        "spec": {
+          "containers": [
+            {
+              "command": [
+                "uv",
+                "run",
+                "kagent",
+                "static",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8080",
+                "--filepath",
+                "/config/config.json"
+              ],
+              "env": [
+                {
+                  "name": "KAGENT_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "OPENAI_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "api-key",
+                      "name": "openai-secret"
+                    }
+                  }
+                }
+              ],
+              "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+              "imagePullPolicy": "IfNotPresent",
+              "name": "kagent",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 15,
+                "periodSeconds": 3
+              },
+              "resources": {},
+              "volumeMounts": [
+                {
+                  "mountPath": "/config",
+                  "name": "config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "agent-with-memory"
+              },
+              "name": "config"
+            }
+          ]
+        }
       }
     },
-    "description": "An agent with vector memory",
-    "label": "test/agent-with-memory",
-    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
-    "version": 1
+    "status": {}
   },
-  "name": "test/agent-with-memory"
+  "service": {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+        "app": "kagent",
+        "config.kagent.dev/hash": "12523267895594010222",
+        "kagent": "agent-with-memory",
+        "version": "v1alpha1"
+      },
+      "name": "agent-with-memory",
+      "namespace": "test",
+      "ownerReferences": [
+        {
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "agent-with-memory",
+          "uid": ""
+        }
+      ]
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 8080,
+          "targetPort": 8080
+        }
+      ],
+      "selector": {
+        "app": "kagent",
+        "kagent": "agent-with-memory",
+        "version": "v1alpha1"
+      },
+      "type": "ClusterIP"
+    },
+    "status": {
+      "loadBalancer": {}
+    }
+  }
 }

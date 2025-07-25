@@ -54,7 +54,7 @@ func TestModelConfigHandler(t *testing.T) {
 				},
 				Spec: v1alpha1.ModelConfigSpec{
 					Model:           "gpt-4",
-					Provider:        v1alpha1.OpenAI,
+					Provider:        v1alpha1.ModelProviderOpenAI,
 					APIKeySecretRef: "test-secret",
 					APIKeySecretKey: "OPENAI_API_KEY",
 					OpenAI: &v1alpha1.OpenAIConfig{
@@ -132,7 +132,7 @@ func TestModelConfigHandler(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "test-config", config.Data.Name)
 			assert.Equal(t, "default", config.Data.Namespace)
-			assert.Equal(t, v1alpha1.OpenAI, config.Data.Spec.Provider)
+			assert.Equal(t, v1alpha1.ModelProviderOpenAI, config.Data.Spec.Provider)
 			assert.Equal(t, "gpt-4", config.Data.Spec.Model)
 		})
 
@@ -162,7 +162,7 @@ func TestModelConfigHandler(t *testing.T) {
 			var config api.StandardResponse[v1alpha1.ModelConfig]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
 			require.NoError(t, err)
-			assert.Equal(t, v1alpha1.Anthropic, config.Data.Spec.Provider)
+			assert.Equal(t, v1alpha1.ModelProviderAnthropic, config.Data.Spec.Provider)
 		})
 
 		t.Run("Success_Ollama_NoAPIKey", func(t *testing.T) {
@@ -191,7 +191,7 @@ func TestModelConfigHandler(t *testing.T) {
 			var config api.StandardResponse[v1alpha1.ModelConfig]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
 			require.NoError(t, err)
-			assert.Equal(t, v1alpha1.Ollama, config.Data.Spec.Provider)
+			assert.Equal(t, v1alpha1.ModelProviderOllama, config.Data.Spec.Provider)
 			assert.Empty(t, config.Data.Spec.APIKeySecretRef)
 		})
 
@@ -220,7 +220,7 @@ func TestModelConfigHandler(t *testing.T) {
 			var config api.StandardResponse[v1alpha1.ModelConfig]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
 			require.NoError(t, err)
-			assert.Equal(t, v1alpha1.AzureOpenAI, config.Data.Spec.Provider)
+			assert.Equal(t, v1alpha1.ModelProviderAzureOpenAI, config.Data.Spec.Provider)
 		})
 
 		t.Run("InvalidJSON", func(t *testing.T) {
@@ -266,7 +266,7 @@ func TestModelConfigHandler(t *testing.T) {
 				},
 				Spec: v1alpha1.ModelConfigSpec{
 					Model:    "gpt-4",
-					Provider: v1alpha1.OpenAI,
+					Provider: v1alpha1.ModelProviderOpenAI,
 				},
 			}
 			err := kubeClient.Create(context.Background(), existingConfig)
@@ -345,7 +345,7 @@ func TestModelConfigHandler(t *testing.T) {
 				},
 				Spec: v1alpha1.ModelConfigSpec{
 					Model:           "gpt-4",
-					Provider:        v1alpha1.OpenAI,
+					Provider:        v1alpha1.ModelProviderOpenAI,
 					APIKeySecretRef: "test-secret",
 					APIKeySecretKey: "OPENAI_API_KEY",
 					OpenAI: &v1alpha1.OpenAIConfig{
@@ -409,7 +409,7 @@ func TestModelConfigHandler(t *testing.T) {
 				},
 				Spec: v1alpha1.ModelConfigSpec{
 					Model:    "gpt-3.5-turbo",
-					Provider: v1alpha1.OpenAI,
+					Provider: v1alpha1.ModelProviderOpenAI,
 					OpenAI: &v1alpha1.OpenAIConfig{
 						BaseURL:     "https://api.openai.com/v1",
 						Temperature: "0.5",
@@ -508,7 +508,7 @@ func TestModelConfigHandler(t *testing.T) {
 				},
 				Spec: v1alpha1.ModelConfigSpec{
 					Model:    "gpt-4",
-					Provider: v1alpha1.OpenAI,
+					Provider: v1alpha1.ModelProviderOpenAI,
 				},
 			}
 

@@ -48,9 +48,12 @@ func (h *TasksHandler) HandleCreateTask(w ErrorResponseWriter, r *http.Request) 
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
+	if task.ID == "" {
+		task.ID = protocol.GenerateTaskID()
+	}
 	log = log.WithValues("task_id", task.ID)
 
-	if err := h.DatabaseService.CreateTask(&task); err != nil {
+	if err := h.DatabaseService.StoreTask(&task); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create task", err))
 		return
 	}

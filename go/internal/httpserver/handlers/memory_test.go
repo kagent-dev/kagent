@@ -19,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	autogen_fake "github.com/kagent-dev/kagent/go/internal/autogen/client/fake"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
@@ -38,7 +37,6 @@ func TestMemoryHandler(t *testing.T) {
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
-			AutogenClient:      autogen_fake.NewInMemoryAutogenClient(),
 			DatabaseService:    database_fake.NewClient(),
 		}
 		handler := handlers.NewMemoryHandler(base)

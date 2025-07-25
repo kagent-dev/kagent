@@ -19,17 +19,17 @@ package v1alpha1
 import (
 	"encoding/json"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
-const (
-	AgentConditionTypeAccepted = "Accepted"
-)
+type AgentType string
 
 // AgentSpec defines the desired state of Agent.
 type AgentSpec struct {
+	// +optional
 	Description string `json:"description,omitempty"`
 	// +kubebuilder:validation:MinLength=1
 	SystemMessage string `json:"systemMessage,omitempty"`
@@ -53,6 +53,25 @@ type AgentSpec struct {
 	// Read more about the A2A protocol here: https://github.com/google/A2A
 	// +optional
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
+	// +optional
+	Deployment *DeploymentSpec `json:"deployment,omitempty"`
+}
+
+type DeploymentSpec struct {
+	// If not specified, the default value is 1.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
+	// +optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type
@@ -104,10 +123,18 @@ type A2AConfig struct {
 
 type AgentSkill server.AgentSkill
 
+const (
+	AgentConditionTypeAccepted = "Accepted"
+	AgentConditionTypeReady    = "Ready"
+)
+
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
-	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// This is used to determine if the agent config has changed.
+	// If it has changed, the agent will be restarted.
+	ConfigHash uint64             `json:"configHash,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -135,8 +162,4 @@ type AgentList struct {
 
 func init() {
 	SchemeBuilder.Register(&Agent{}, &AgentList{})
-}
-
-func (a *Agent) GetModelConfigName() string {
-	return a.Spec.ModelConfig
 }

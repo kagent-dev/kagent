@@ -29,12 +29,12 @@ const (
 type ModelProvider string
 
 const (
-	Anthropic         ModelProvider = "Anthropic"
-	AzureOpenAI       ModelProvider = "AzureOpenAI"
-	OpenAI            ModelProvider = "OpenAI"
-	Ollama            ModelProvider = "Ollama"
-	GeminiVertexAI    ModelProvider = "GeminiVertexAI"
-	AnthropicVertexAI ModelProvider = "AnthropicVertexAI"
+	ModelProviderAnthropic         ModelProvider = "Anthropic"
+	ModelProviderAzureOpenAI       ModelProvider = "AzureOpenAI"
+	ModelProviderOpenAI            ModelProvider = "OpenAI"
+	ModelProviderOllama            ModelProvider = "Ollama"
+	ModelProviderGeminiVertexAI    ModelProvider = "GeminiVertexAI"
+	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
 )
 
 type BaseVertexAIConfig struct {
@@ -215,7 +215,7 @@ type ModelConfigSpec struct {
 	// +kubebuilder:default=OpenAI
 	Provider ModelProvider `json:"provider"`
 
-	// The reference to the secret that contains the API key. Can either be a reference to the name of a secret in the same namespace as the referencing ModelConfig, or a reference to the name of a Secret in a different namespace in the form <namespace>/<name>
+	// The reference to the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig
 	// +optional
 	APIKeySecretRef string `json:"apiKeySecretRef"`
 

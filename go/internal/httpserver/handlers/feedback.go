@@ -50,7 +50,7 @@ func (h *FeedbackHandler) HandleCreateFeedback(w ErrorResponseWriter, r *http.Re
 		return
 	}
 
-	err = h.DatabaseService.CreateFeedback(&feedbackReq)
+	err = h.DatabaseService.StoreFeedback(&feedbackReq)
 	if err != nil {
 		log.Error(err, "Failed to create feedback")
 		w.RespondWithError(errors.NewInternalServerError("Failed to create feedback", err))

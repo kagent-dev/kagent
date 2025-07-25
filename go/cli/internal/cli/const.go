@@ -1,14 +1,15 @@
 package cli
 
 import (
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"os"
 	"strings"
+
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
 const (
 	// Version is the current version of the kagent CLI
-	DefaultModelProvider   = v1alpha1.OpenAI
+	DefaultModelProvider   = v1alpha1.ModelProviderOpenAI
 	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
 
 	//Provider specific env variables
@@ -31,16 +32,16 @@ func GetModelProvider() v1alpha1.ModelProvider {
 		return DefaultModelProvider
 	}
 	switch modelProvider {
-	case GetModelProviderHelmValuesKey(v1alpha1.OpenAI):
-		return v1alpha1.OpenAI
-	case GetModelProviderHelmValuesKey(v1alpha1.Ollama):
-		return v1alpha1.Ollama
-	case GetModelProviderHelmValuesKey(v1alpha1.Anthropic):
-		return v1alpha1.Anthropic
-	case GetModelProviderHelmValuesKey(v1alpha1.AzureOpenAI):
-		return v1alpha1.AzureOpenAI
+	case GetModelProviderHelmValuesKey(v1alpha1.ModelProviderOpenAI):
+		return v1alpha1.ModelProviderOpenAI
+	case GetModelProviderHelmValuesKey(v1alpha1.ModelProviderOllama):
+		return v1alpha1.ModelProviderOllama
+	case GetModelProviderHelmValuesKey(v1alpha1.ModelProviderAnthropic):
+		return v1alpha1.ModelProviderAnthropic
+	case GetModelProviderHelmValuesKey(v1alpha1.ModelProviderAzureOpenAI):
+		return v1alpha1.ModelProviderAzureOpenAI
 	default:
-		return v1alpha1.OpenAI
+		return v1alpha1.ModelProviderOpenAI
 	}
 }
 
@@ -56,11 +57,11 @@ func GetModelProviderHelmValuesKey(provider v1alpha1.ModelProvider) string {
 // GetProviderAPIKey returns API_KEY env var name from provider type
 func GetProviderAPIKey(provider v1alpha1.ModelProvider) string {
 	switch provider {
-	case v1alpha1.OpenAI:
+	case v1alpha1.ModelProviderOpenAI:
 		return OPENAI_API_KEY
-	case v1alpha1.Anthropic:
+	case v1alpha1.ModelProviderAnthropic:
 		return ANTHROPIC_API_KEY
-	case v1alpha1.AzureOpenAI:
+	case v1alpha1.ModelProviderAzureOpenAI:
 		return AZUREOPENAI_API_KEY
 	default:
 		return ""

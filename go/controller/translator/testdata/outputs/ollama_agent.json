@@ -1,86 +1,219 @@
 {
-  "CreatedAt": "0001-01-01T00:00:00Z",
-  "DeletedAt": null,
-  "ID": 0,
-  "UpdatedAt": "0001-01-01T00:00:00Z",
-  "component": {
-    "component_type": "team",
-    "component_version": 0,
-    "config": {
-      "participants": [
-        {
-          "component_type": "agent",
-          "component_version": 0,
-          "config": {
-            "description": "An agent using Ollama local model",
-            "model_client": {
-              "component_type": "model",
-              "component_version": 0,
-              "config": {
-                "follow_redirects": true,
-                "headers": {
-                  "User-Agent": "kagent/1.0"
-                },
-                "host": "http://localhost:11434",
-                "model": "llama3.2:latest",
-                "model_info": {
-                  "family": "llama",
-                  "function_calling": false,
-                  "json_output": false,
-                  "multiple_system_messages": false,
-                  "structured_output": false,
-                  "vision": false
-                },
-                "options": {
-                  "num_ctx": "2048",
-                  "temperature": "0.8",
-                  "top_p": "0.9"
-                },
-                "timeout": 0
-              },
-              "description": "",
-              "label": "",
-              "provider": "autogen_ext.models.ollama.OllamaChatCompletionClient",
-              "version": 1
-            },
-            "model_client_stream": true,
-            "model_context": {
-              "component_type": "chat_completion_context",
-              "component_version": 0,
-              "config": {},
-              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
-              "label": "UnboundedChatCompletionContext",
-              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
-              "version": 1
-            },
-            "name": "test__NS__ollama_agent",
-            "reflect_on_tool_use": false,
-            "system_message": "You are a helpful AI assistant running locally via Ollama.",
-            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-            "tools": null
-          },
-          "description": "An agent using Ollama local model",
-          "label": "",
-          "provider": "autogen_agentchat.agents.AssistantAgent",
-          "version": 1
-        }
+  "config": {
+    "agent_card": {
+      "capabilities": {
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "streaming": true
+      },
+      "defaultInputModes": [
+        "text"
       ],
-      "termination_condition": {
-        "component_type": "termination",
-        "component_version": 0,
-        "config": {
-          "source": "test__NS__ollama_agent"
+      "defaultOutputModes": [
+        "text"
+      ],
+      "description": "An agent using Ollama local model",
+      "name": "ollama-agent",
+      "skills": null,
+      "url": "http://ollama-agent.test.svc.cluster.local:8080",
+      "version": ""
+    },
+    "agents": null,
+    "description": "An agent using Ollama local model",
+    "http_tools": null,
+    "instruction": "You are a helpful AI assistant running locally via Ollama.",
+    "kagent_url": "http://kagent.kagent.svc.cluster.local:8083",
+    "model": {
+      "model": "llama3.2:latest",
+      "type": "ollama"
+    },
+    "name": "test__NS__ollama_agent",
+    "sse_tools": null
+  },
+  "configHash": 6096063864714739000,
+  "configMap": {
+    "apiVersion": "v1",
+    "data": {
+      "config.json": "{\"kagent_url\":\"http://kagent.kagent.svc.cluster.local:8083\",\"agent_card\":{\"name\":\"ollama-agent\",\"description\":\"An agent using Ollama local model\",\"url\":\"http://ollama-agent.test.svc.cluster.local:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__ollama_agent\",\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"An agent using Ollama local model\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+    },
+    "kind": "ConfigMap",
+    "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+        "app": "kagent",
+        "config.kagent.dev/hash": "6096063864714738673",
+        "kagent": "ollama-agent",
+        "version": "v1alpha1"
+      },
+      "name": "ollama-agent",
+      "namespace": "test",
+      "ownerReferences": [
+        {
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "ollama-agent",
+          "uid": ""
+        }
+      ]
+    }
+  },
+  "deployment": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+        "app": "kagent",
+        "config.kagent.dev/hash": "6096063864714738673",
+        "kagent": "ollama-agent",
+        "version": "v1alpha1"
+      },
+      "name": "ollama-agent",
+      "namespace": "test",
+      "ownerReferences": [
+        {
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "ollama-agent",
+          "uid": ""
+        }
+      ]
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "kagent",
+          "kagent": "ollama-agent",
+          "version": "v1alpha1"
+        }
+      },
+      "strategy": {},
+      "template": {
+        "metadata": {
+          "creationTimestamp": null,
+          "labels": {
+            "app": "kagent",
+            "config.kagent.dev/hash": "6096063864714738673",
+            "kagent": "ollama-agent",
+            "version": "v1alpha1"
+          },
+          "name": "ollama-agent",
+          "namespace": "test"
         },
-        "description": "",
-        "label": "",
-        "provider": "kagent.conditions.FinalTextMessageTermination",
-        "version": 1
+        "spec": {
+          "containers": [
+            {
+              "command": [
+                "uv",
+                "run",
+                "kagent",
+                "static",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8080",
+                "--filepath",
+                "/config/config.json"
+              ],
+              "env": [
+                {
+                  "name": "KAGENT_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "OLLAMA_API_BASE",
+                  "value": "http://localhost:11434"
+                }
+              ],
+              "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+              "imagePullPolicy": "IfNotPresent",
+              "name": "kagent",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 15,
+                "periodSeconds": 3
+              },
+              "resources": {},
+              "volumeMounts": [
+                {
+                  "mountPath": "/config",
+                  "name": "config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "ollama-agent"
+              },
+              "name": "config"
+            }
+          ]
+        }
       }
     },
-    "description": "An agent using Ollama local model",
-    "label": "test/ollama-agent",
-    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
-    "version": 1
+    "status": {}
   },
-  "name": "test/ollama-agent"
+  "service": {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+        "app": "kagent",
+        "config.kagent.dev/hash": "6096063864714738673",
+        "kagent": "ollama-agent",
+        "version": "v1alpha1"
+      },
+      "name": "ollama-agent",
+      "namespace": "test",
+      "ownerReferences": [
+        {
+          "apiVersion": "kagent.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Agent",
+          "name": "ollama-agent",
+          "uid": ""
+        }
+      ]
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 8080,
+          "targetPort": 8080
+        }
+      ],
+      "selector": {
+        "app": "kagent",
+        "kagent": "ollama-agent",
+        "version": "v1alpha1"
+      },
+      "type": "ClusterIP"
+    },
+    "status": {
+      "loadBalancer": {}
+    }
+  }
 }

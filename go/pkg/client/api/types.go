@@ -2,7 +2,7 @@ package api
 
 import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	autogen_api "github.com/kagent-dev/kagent/go/internal/autogen/api"
+	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/database"
 )
 
@@ -77,9 +77,9 @@ type UpdateModelConfigRequest struct {
 // Agent types
 
 type AgentResponse struct {
-	ID             uint                   `json:"id"`
+	ID             string                 `json:"id"`
 	Agent          *v1alpha1.Agent        `json:"agent"`
-	Component      *autogen_api.Component `json:"component"`
+	Config         *adk.AgentConfig       `json:"config"`
 	ModelProvider  v1alpha1.ModelProvider `json:"modelProvider"`
 	Model          string                 `json:"model"`
 	ModelConfigRef string                 `json:"modelConfigRef"`
@@ -94,6 +94,7 @@ type SessionRequest struct {
 	AgentRef *string `json:"agent_ref,omitempty"`
 	Name     *string `json:"name,omitempty"`
 	UserID   string  `json:"user_id"`
+	ID       *string `json:"id,omitempty"`
 }
 
 // Run types
@@ -107,7 +108,7 @@ type RunRequest struct {
 type Task = database.Task
 
 // Message represents a message from the database
-type Message = database.Message
+type Message = database.Event
 
 // Session represents a session from the database
 type Session = database.Session

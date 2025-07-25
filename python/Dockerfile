@@ -6,7 +6,7 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk update && apk add  \
-    curl openssl bash git ca-certificates uv nodejs-22 npm
+    curl openssl bash git ca-certificates uv libstdc++
 
 ### STAGE 2: python
 FROM base-os AS python-os
@@ -30,11 +30,6 @@ RUN addgroup -g 1001 pythongroup                       && \
 USER python
 WORKDIR /app/python
 
-### STAGE 2 : download tools
-FROM mcp/grafana:latest AS mcp-grafana
-ARG TOOLS_GRAFANA_MCP_VERSION
-LABEL org.opencontainers.image.source="mcp/grafana${TOOLS_GRAFANA_MCP_VERSION}"
-
 ### STAGE 3: final
 FROM python-os AS final
 ARG TOOLS_PYTHON_VERSION
@@ -54,18 +49,13 @@ RUN echo "Installing dependencies..."                   \
     && uv venv --python=python$TOOLS_PYTHON_VERSION     \
     && uv sync --locked --refresh                       \
     && uv pip install setuptools wheel                  \
-    && find .venv -name "*playwright*" -name "*node*" -type d -exec rm -rf {} + 2>/dev/null || true \
-    && uv run kagent-engine --help \
     && uv cache prune
 
 # Offline mode
 ENV UV_OFFLINE=1
 
 # Test if the tool is working and fetch all dependencies
-RUN uv run kagent-engine --help
-
- # Grafana MCP
-COPY --from=mcp-grafana /app/mcp-grafana /app/python/bin/mcp-grafana
+RUN uv run kagent --help
 
 EXPOSE 8081
 ARG VERSION
@@ -75,4 +65,4 @@ LABEL org.opencontainers.image.description="Kagent app is the apiserver for runn
 LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 LABEL org.opencontainers.image.version="$VERSION"
 
-CMD ["uv", "run", "kagent-engine", "--host", "0.0.0.0", "--port", "8081"]
+CMD ["uv", "run", "kagent", "--host", "0.0.0.0", "--port", "8081"]

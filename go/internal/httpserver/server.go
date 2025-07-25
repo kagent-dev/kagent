@@ -7,7 +7,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
-	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
@@ -45,7 +44,6 @@ var defaultModelConfig = types.NamespacedName{
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
 	BindAddr          string
-	AutogenClient     autogen_client.Client
 	KubeClient        ctrl_client.Client
 	A2AHandler        a2a.A2AHandlerMux
 	WatchedNamespaces []string
@@ -69,7 +67,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:   config,
 		router:   mux.NewRouter(),
-		handlers: handlers.NewHandlers(config.KubeClient, config.AutogenClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces),
+		handlers: handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces),
 	}, nil
 }
 
@@ -153,12 +151,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleCreateSession)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathSessions+"/agent/{namespace}/{name}", adaptHandler(s.handlers.Sessions.HandleGetSessionsForAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleGetSession)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/messages", adaptHandler(s.handlers.Sessions.HandleListSessionMessages)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/tasks", adaptHandler(s.handlers.Sessions.HandleListSessionTasks)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/tasks", adaptHandler(s.handlers.Sessions.HandleListTasksForSession)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/invoke/stream", adaptHandler(s.handlers.Sessions.HandleInvokeSessionStream)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/invoke", adaptHandler(s.handlers.Sessions.HandleInvokeSession)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleAddEventToSession)).Methods(http.MethodPost)
 
 	// Tasks

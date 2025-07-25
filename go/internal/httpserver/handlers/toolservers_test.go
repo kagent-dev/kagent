@@ -23,6 +23,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	"k8s.io/utils/ptr"
 )
 
 func TestToolServersHandler(t *testing.T) {
@@ -57,17 +58,17 @@ func TestToolServersHandler(t *testing.T) {
 				Spec: v1alpha1.ToolServerSpec{
 					Description: "Test tool server 1",
 					Config: v1alpha1.ToolServerConfig{
-						Stdio: &v1alpha1.StdioMcpServerConfig{
-							Command: "python",
-							Args:    []string{"-m", "test_tool"},
-							Env: map[string]string{
-								"ENV_VAR": "value",
-							},
-							EnvFrom: []v1alpha1.ValueRef{
-								{
-									Name:  "API_KEY",
-									Value: "test-key",
+						Type: v1alpha1.ToolServerTypeStreamableHttp,
+						StreamableHttp: &v1alpha1.StreamableHttpServerConfig{
+							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
+								URL: "https://example.com/streamable",
+								HeadersFrom: []v1alpha1.ValueRef{
+									{
+										Name:  "API_KEY",
+										Value: "test-key",
+									},
 								},
+								Timeout: &metav1.Duration{Duration: 30 * time.Second},
 							},
 						},
 					},
@@ -76,14 +77,6 @@ func TestToolServersHandler(t *testing.T) {
 					DiscoveredTools: []*v1alpha1.MCPTool{
 						{
 							Name: "test-tool",
-							Component: v1alpha1.Component{
-								Provider:         "test-provider",
-								ComponentType:    "tool",
-								Version:          1,
-								ComponentVersion: 1,
-								Description:      "Test tool",
-								Label:            "Test Tool",
-							},
 						},
 					},
 				},
@@ -97,11 +90,19 @@ func TestToolServersHandler(t *testing.T) {
 				Spec: v1alpha1.ToolServerSpec{
 					Description: "Test tool server 2",
 					Config: v1alpha1.ToolServerConfig{
+						Type: v1alpha1.ToolServerTypeSse,
 						Sse: &v1alpha1.SseMcpServerConfig{
 							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
 								URL: "https://example.com/sse",
-								Headers: map[string]v1alpha1.AnyType{
-									"Authorization": {RawMessage: []byte(`"Bearer token"`)},
+								HeadersFrom: []v1alpha1.ValueRef{
+									{
+										Name: "Authorization",
+										ValueFrom: &v1alpha1.ValueSource{
+											Type:     v1alpha1.SecretValueSource,
+											ValueRef: "auth-secret",
+											Key:      "token",
+										},
+									},
 								},
 								Timeout:        &metav1.Duration{Duration: 30 * time.Second},
 								SseReadTimeout: &metav1.Duration{Duration: 60 * time.Second},
@@ -129,16 +130,15 @@ func TestToolServersHandler(t *testing.T) {
 			// Verify first tool server response
 			toolServer := toolServers.Data[0]
 			require.Equal(t, "default/test-toolserver-1", toolServer.Ref)
-			require.NotNil(t, toolServer.Config.Stdio)
-			require.Equal(t, "python", toolServer.Config.Stdio.Command)
-			require.Equal(t, []string{"-m", "test_tool"}, toolServer.Config.Stdio.Args)
+			require.Equal(t, v1alpha1.ToolServerTypeStreamableHttp, toolServer.Config.Type)
+			require.Equal(t, "https://example.com/streamable", toolServer.Config.StreamableHttp.URL)
 			require.Len(t, toolServer.DiscoveredTools, 1)
 			require.Equal(t, "test-tool", toolServer.DiscoveredTools[0].Name)
 
 			// Verify second tool server response
 			toolServer = toolServers.Data[1]
 			require.Equal(t, "test-ns/test-toolserver-2", toolServer.Ref)
-			require.NotNil(t, toolServer.Config.Sse)
+			require.Equal(t, v1alpha1.ToolServerTypeSse, toolServer.Config.Type)
 			require.Equal(t, "https://example.com/sse", toolServer.Config.Sse.URL)
 		})
 
@@ -158,7 +158,7 @@ func TestToolServersHandler(t *testing.T) {
 	})
 
 	t.Run("HandleCreateToolServer", func(t *testing.T) {
-		t.Run("Success_Stdio", func(t *testing.T) {
+		t.Run("Success_StreamableHttp", func(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			reqBody := &v1alpha1.ToolServer{
@@ -169,12 +169,19 @@ func TestToolServersHandler(t *testing.T) {
 				Spec: v1alpha1.ToolServerSpec{
 					Description: "Test tool server",
 					Config: v1alpha1.ToolServerConfig{
-						Stdio: &v1alpha1.StdioMcpServerConfig{
-							Command: "python",
-							Args:    []string{"-m", "test_tool"},
-							Env: map[string]string{
-								"API_KEY": "test-key",
+						Type: v1alpha1.ToolServerTypeStreamableHttp,
+						StreamableHttp: &v1alpha1.StreamableHttpServerConfig{
+							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
+								URL: "https://example.com/streamable",
+								HeadersFrom: []v1alpha1.ValueRef{
+									{
+										Name:  "API-Key",
+										Value: "test-key",
+									},
+								},
+								Timeout: &metav1.Duration{Duration: 30 * time.Second},
 							},
+							TerminateOnClose: ptr.To(true),
 						},
 					},
 				},
@@ -194,8 +201,9 @@ func TestToolServersHandler(t *testing.T) {
 			assert.Equal(t, "test-toolserver", toolServer.Data.Name)
 			assert.Equal(t, "default", toolServer.Data.Namespace)
 			assert.Equal(t, "Test tool server", toolServer.Data.Spec.Description)
-			assert.NotNil(t, toolServer.Data.Spec.Config.Stdio)
-			assert.Equal(t, "python", toolServer.Data.Spec.Config.Stdio.Command)
+			assert.Equal(t, v1alpha1.ToolServerTypeStreamableHttp, toolServer.Data.Spec.Config.Type)
+			assert.Equal(t, "https://example.com/streamable", toolServer.Data.Spec.Config.StreamableHttp.URL)
+			assert.True(t, *toolServer.Data.Spec.Config.StreamableHttp.TerminateOnClose)
 		})
 
 		t.Run("Success_Sse", func(t *testing.T) {
@@ -209,12 +217,10 @@ func TestToolServersHandler(t *testing.T) {
 				Spec: v1alpha1.ToolServerSpec{
 					Description: "Test SSE tool server",
 					Config: v1alpha1.ToolServerConfig{
+						Type: v1alpha1.ToolServerTypeSse,
 						Sse: &v1alpha1.SseMcpServerConfig{
 							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
 								URL: "https://example.com/sse",
-								Headers: map[string]v1alpha1.AnyType{
-									"Authorization": {RawMessage: []byte(`"Bearer token"`)},
-								},
 								HeadersFrom: []v1alpha1.ValueRef{
 									{
 										Name: "X-API-Key",
@@ -246,7 +252,7 @@ func TestToolServersHandler(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "test-sse-toolserver", toolServer.Data.Name)
 			assert.Equal(t, "default", toolServer.Data.Namespace)
-			assert.NotNil(t, toolServer.Data.Spec.Config.Sse)
+			assert.Equal(t, v1alpha1.ToolServerTypeSse, toolServer.Data.Spec.Config.Type)
 			assert.Equal(t, "https://example.com/sse", toolServer.Data.Spec.Config.Sse.URL)
 		})
 
@@ -261,8 +267,11 @@ func TestToolServersHandler(t *testing.T) {
 				Spec: v1alpha1.ToolServerSpec{
 					Description: "Test tool server",
 					Config: v1alpha1.ToolServerConfig{
-						Stdio: &v1alpha1.StdioMcpServerConfig{
-							Command: "python",
+						Type: v1alpha1.ToolServerTypeStreamableHttp,
+						StreamableHttp: &v1alpha1.StreamableHttpServerConfig{
+							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
+								URL: "https://example.com/test",
+							},
 						},
 					},
 				},
@@ -307,8 +316,11 @@ func TestToolServersHandler(t *testing.T) {
 				Spec: v1alpha1.ToolServerSpec{
 					Description: "Existing tool server",
 					Config: v1alpha1.ToolServerConfig{
-						Stdio: &v1alpha1.StdioMcpServerConfig{
-							Command: "python",
+						Type: v1alpha1.ToolServerTypeStreamableHttp,
+						StreamableHttp: &v1alpha1.StreamableHttpServerConfig{
+							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
+								URL: "https://example.com/existing",
+							},
 						},
 					},
 				},
@@ -324,8 +336,11 @@ func TestToolServersHandler(t *testing.T) {
 				Spec: v1alpha1.ToolServerSpec{
 					Description: "New tool server",
 					Config: v1alpha1.ToolServerConfig{
-						Stdio: &v1alpha1.StdioMcpServerConfig{
-							Command: "node",
+						Type: v1alpha1.ToolServerTypeSse,
+						Sse: &v1alpha1.SseMcpServerConfig{
+							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
+								URL: "https://example.com/new",
+							},
 						},
 					},
 				},
@@ -355,8 +370,11 @@ func TestToolServersHandler(t *testing.T) {
 				Spec: v1alpha1.ToolServerSpec{
 					Description: "Tool server to delete",
 					Config: v1alpha1.ToolServerConfig{
-						Stdio: &v1alpha1.StdioMcpServerConfig{
-							Command: "python",
+						Type: v1alpha1.ToolServerTypeStreamableHttp,
+						StreamableHttp: &v1alpha1.StreamableHttpServerConfig{
+							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
+								URL: "https://example.com/delete",
+							},
 						},
 					},
 				},

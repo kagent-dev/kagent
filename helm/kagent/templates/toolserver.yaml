@@ -5,8 +5,10 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
 spec:
   config:
+    type: streamableHttp
     streamableHttp:
+      url: {{ printf "http://kagent.%s.svc.cluster.local:%v/mcp" .Release.Namespace .Values.service.ports.tools.targetPort }}
       sseReadTimeout: 5m0s
       timeout: 30s
-      url: {{ printf "http://localhost:%v/mcp" .Values.service.ports.tools.targetPort }}
+      terminateOnClose: true
   description: "KAgent Tool Server"

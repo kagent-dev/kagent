@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"os"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
 func TestGetModelProvider(t *testing.T) {
@@ -23,29 +24,29 @@ func TestGetModelProvider(t *testing.T) {
 		},
 		{
 			name:            "OpenAI provider",
-			envVarValue:     string(v1alpha1.OpenAI),
-			expectedResult:  v1alpha1.OpenAI,
+			envVarValue:     string(v1alpha1.ModelProviderOpenAI),
+			expectedResult:  v1alpha1.ModelProviderOpenAI,
 			expectedAPIKey:  OPENAI_API_KEY,
 			expectedHelmKey: "openAI",
 		},
 		{
 			name:            "AzureOpenAI provider",
-			envVarValue:     string(v1alpha1.AzureOpenAI),
-			expectedResult:  v1alpha1.AzureOpenAI,
+			envVarValue:     string(v1alpha1.ModelProviderAzureOpenAI),
+			expectedResult:  v1alpha1.ModelProviderAzureOpenAI,
 			expectedAPIKey:  AZUREOPENAI_API_KEY,
 			expectedHelmKey: "azureOpenAI",
 		},
 		{
 			name:            "Anthropic provider",
-			envVarValue:     string(v1alpha1.Anthropic),
-			expectedResult:  v1alpha1.Anthropic,
+			envVarValue:     string(v1alpha1.ModelProviderAnthropic),
+			expectedResult:  v1alpha1.ModelProviderAnthropic,
 			expectedAPIKey:  "ANTHROPIC_API_KEY",
 			expectedHelmKey: "anthropic",
 		},
 		{
 			name:            "Ollama provider",
-			envVarValue:     string(v1alpha1.Ollama),
-			expectedResult:  v1alpha1.Ollama,
+			envVarValue:     string(v1alpha1.ModelProviderOllama),
+			expectedResult:  v1alpha1.ModelProviderOllama,
 			expectedAPIKey:  "",
 			expectedHelmKey: "ollama",
 		},

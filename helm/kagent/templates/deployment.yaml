@@ -70,29 +70,6 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
-          {{- with .Values.controller.env }}
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          ports:
-            - name: http-controller
-              containerPort: {{ .Values.service.ports.controller.targetPort }}
-              protocol: TCP
-          readinessProbe:
-            tcpSocket:
-              port: http-controller
-            initialDelaySeconds: 15
-            periodSeconds: 15
-          volumeMounts:
-            - name: sqlite-volume
-              mountPath: /sqlite-volume
-        - name: app
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ coalesce .Values.global.tag .Values.app.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
-          env:
-            - name: LOG_LEVEL
-              value: {{ .Values.app.loglevel | quote }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -101,23 +78,27 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
-            - name: AUTOGEN_DISABLE_RUNTIME_TRACING
-              value: "true"
-          {{- with .Values.app.env }}
+          {{- with .Values.controller.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
           ports:
-            - name: http-app
-              containerPort: {{ .Values.service.ports.app.targetPort }}
+            - name: http-controller
+              containerPort: {{ .Values.service.ports.controller.targetPort }}
               protocol: TCP
-          resources:
-            {{- toYaml .Values.app.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http-controller
+            periodSeconds: 1
+            initialDelaySeconds: 1
           readinessProbe:
             httpGet:
-              path: /api/version
-              port: http-app
-            initialDelaySeconds: 15
-            periodSeconds: 15
+              path: /health
+              port: http-controller
+            periodSeconds: 30
+          volumeMounts:
+            - name: sqlite-volume
+              mountPath: /sqlite-volume
         - name: ui
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -135,12 +116,17 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http-ui
+            periodSeconds: 1
+            initialDelaySeconds: 1
           readinessProbe:
             httpGet:
-              path: /
+              path: /health
               port: http-ui
-            initialDelaySeconds: 15
-            periodSeconds: 15
+            periodSeconds: 30
         - name: tools
           command:
             - /tool-server
@@ -180,11 +166,17 @@ spec:
             - name: http-tools
               containerPort: {{ .Values.service.ports.tools.targetPort }}
               protocol: TCP
-          readinessProbe:
-            tcpSocket:
+          startupProbe:
+            httpGet:
+              path: /health
               port: http-tools
-            initialDelaySeconds: 15
-            periodSeconds: 15
+            periodSeconds: 1
+            initialDelaySeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http-tools
+            periodSeconds: 30
         - name: querydoc
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -228,3 +220,14 @@ spec:
             - name: http-querydoc
               containerPort: {{ .Values.service.ports.querydoc.targetPort }}
               protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http-querydoc
+            periodSeconds: 1
+            initialDelaySeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http-querydoc
+            periodSeconds: 30

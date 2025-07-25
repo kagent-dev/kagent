@@ -222,7 +222,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	// Set secret references if needed, but don't create secret yet
-	if providerTypeEnum != v1alpha1.Ollama && req.APIKey != "" {
+	if providerTypeEnum != v1alpha1.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretNamespace := modelConfigRef.Namespace
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
@@ -240,21 +240,21 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 
 	var providerConfigErr error
 	switch providerTypeEnum {
-	case v1alpha1.OpenAI:
+	case v1alpha1.ModelProviderOpenAI:
 		if req.OpenAIParams != nil {
 			modelConfig.Spec.OpenAI = req.OpenAIParams
 			log.V(1).Info("Assigned OpenAI params to spec")
 		} else {
 			log.V(1).Info("No OpenAI params provided in create.")
 		}
-	case v1alpha1.Anthropic:
+	case v1alpha1.ModelProviderAnthropic:
 		if req.AnthropicParams != nil {
 			modelConfig.Spec.Anthropic = req.AnthropicParams
 			log.V(1).Info("Assigned Anthropic params to spec")
 		} else {
 			log.V(1).Info("No Anthropic params provided in create.")
 		}
-	case v1alpha1.AzureOpenAI:
+	case v1alpha1.ModelProviderAzureOpenAI:
 		if req.AzureParams == nil {
 			providerConfigErr = fmt.Errorf("azureOpenAI parameters are required for AzureOpenAI provider")
 		} else {
@@ -266,7 +266,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 				log.V(1).Info("Assigned AzureOpenAI params to spec")
 			}
 		}
-	case v1alpha1.Ollama:
+	case v1alpha1.ModelProviderOllama:
 		if req.OllamaParams != nil {
 			modelConfig.Spec.Ollama = req.OllamaParams
 			log.V(1).Info("Assigned Ollama params to spec")
@@ -290,7 +290,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 	log.V(1).Info("Successfully created ModelConfig")
 
-	if providerTypeEnum != v1alpha1.Ollama && req.APIKey != "" {
+	if providerTypeEnum != v1alpha1.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretNamespace := modelConfigRef.Namespace
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
@@ -388,7 +388,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	// --- Update Secret if API Key is provided (and not Ollama) ---
-	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.Ollama
+	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.ModelProviderOllama
 	if shouldUpdateSecret {
 		log.V(1).Info("Updating API key secret")
 
@@ -408,21 +408,21 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 
 	var providerConfigErr error
 	switch modelConfig.Spec.Provider {
-	case v1alpha1.OpenAI:
+	case v1alpha1.ModelProviderOpenAI:
 		if req.OpenAIParams != nil {
 			modelConfig.Spec.OpenAI = req.OpenAIParams
 			log.V(1).Info("Assigned updated OpenAI params to spec")
 		} else {
 			log.V(1).Info("No OpenAI params provided in update.")
 		}
-	case v1alpha1.Anthropic:
+	case v1alpha1.ModelProviderAnthropic:
 		if req.AnthropicParams != nil {
 			modelConfig.Spec.Anthropic = req.AnthropicParams
 			log.V(1).Info("Assigned updated Anthropic params to spec")
 		} else {
 			log.V(1).Info("No Anthropic params provided in update.")
 		}
-	case v1alpha1.AzureOpenAI:
+	case v1alpha1.ModelProviderAzureOpenAI:
 		if req.AzureParams == nil {
 			// Allow clearing Azure params if provider changes AWAY from Azure,
 			// but require params if provider IS Azure.
@@ -436,7 +436,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 				log.V(1).Info("Assigned updated AzureOpenAI params to spec")
 			}
 		}
-	case v1alpha1.Ollama:
+	case v1alpha1.ModelProviderOllama:
 		if req.OllamaParams != nil {
 			modelConfig.Spec.Ollama = req.OllamaParams
 			log.V(1).Info("Assigned updated Ollama params to spec")

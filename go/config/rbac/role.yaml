@@ -36,7 +36,6 @@ rules:
   - agents
   - memories
   - modelconfigs
-  - teams
   verbs:
   - create
   - delete
@@ -51,7 +50,6 @@ rules:
   - agents/finalizers
   - memories/finalizers
   - modelconfigs/finalizers
-  - teams/finalizers
   verbs:
   - update
 - apiGroups:
@@ -60,7 +58,6 @@ rules:
   - agents/status
   - memories/status
   - modelconfigs/status
-  - teams/status
   verbs:
   - get
   - patch

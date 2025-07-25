@@ -6,21 +6,17 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kagent-dev/kagent/go/internal/a2a/manager"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
+	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
-
-type A2AHandlerParams struct {
-	AgentCard   server.AgentCard
-	TaskHandler MessageHandler
-}
 
 // A2AHandlerMux is an interface that defines methods for adding, getting, and removing agentic task handlers.
 type A2AHandlerMux interface {
 	SetAgentHandler(
 		agentRef string,
-		params *A2AHandlerParams,
+		client *client.A2AClient,
+		card server.AgentCard,
 	) error
 	RemoveAgentHandler(
 		agentRef string,
@@ -32,31 +28,23 @@ type handlerMux struct {
 	handlers       map[string]http.Handler
 	lock           sync.RWMutex
 	basePathPrefix string
-	storage        manager.Storage
 }
 
 var _ A2AHandlerMux = &handlerMux{}
 
-func NewA2AHttpMux(pathPrefix string, storage manager.Storage) *handlerMux {
+func NewA2AHttpMux(pathPrefix string) *handlerMux {
 	return &handlerMux{
 		handlers:       make(map[string]http.Handler),
 		basePathPrefix: pathPrefix,
-		storage:        storage,
 	}
 }
 
 func (a *handlerMux) SetAgentHandler(
 	agentRef string,
-	params *A2AHandlerParams,
+	client *client.A2AClient,
+	card server.AgentCard,
 ) error {
-	processor := newA2AMessageProcessor(params.TaskHandler)
-
-	// Create task manager and inject processor.
-	taskManager, err := manager.NewTaskManager(processor, a.storage)
-	if err != nil {
-		return fmt.Errorf("failed to create task manager: %w", err)
-	}
-	srv, err := server.NewA2AServer(params.AgentCard, taskManager)
+	srv, err := server.NewA2AServer(card, NewPassthroughManager(client))
 	if err != nil {
 		return fmt.Errorf("failed to create A2A server: %w", err)
 	}

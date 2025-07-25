@@ -34,10 +34,10 @@ func (c *toolClient) ListTools(ctx context.Context, userID string) ([]api.Tool, 
 		return nil, err
 	}
 
-	var tools []api.Tool
+	var tools api.StandardResponse[[]api.Tool]
 	if err := DecodeResponse(resp, &tools); err != nil {
 		return nil, err
 	}
 
-	return tools, nil
+	return tools.Data, nil
 }

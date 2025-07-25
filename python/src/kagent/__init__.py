@@ -1,5 +1,4 @@
-import importlib.metadata
+from .kagent_session_service import KAgentSessionService
+from .kagent_task_store import KAgentTaskStore
 
-ABOUT = "This is kagent."
-
-__version__ = importlib.metadata.version("kagent")
+__all__ = ["KAgentSessionService", "KAgentTaskStore"]
