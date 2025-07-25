@@ -65,6 +65,8 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
+const defaultMemlimitRatio = 0.0
+
 var (
 	scheme          = runtime.NewScheme()
 	setupLog        = ctrl.Log.WithName("setup")
@@ -102,6 +104,7 @@ func main() {
 	var databasePath string
 	var databaseType string
 	var databaseURL string
+	var memlimitRatio float64
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -129,6 +132,7 @@ func main() {
 	flag.StringVar(&databasePath, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
 	flag.StringVar(&databaseURL, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
 
+	flag.Float64Var(&memlimitRatio, "auto-gomemlimit-ratio", defaultMemlimitRatio, "The ratio of reserved GOMEMLIMIT memory to the detected maximum container or system memory. The value should be greater than 0.0 and less than 1.0. Default: 0.0 (disabled).")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
 	opts := zap.Options{
@@ -142,6 +146,7 @@ func main() {
 	ctrl.SetLogger(logger)
 
 	goruntime.SetMaxProcs(logger)
+	goruntime.SetMemLimit(logger, memlimitRatio)
 
 	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
 
