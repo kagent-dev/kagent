@@ -36,6 +36,7 @@ dependencies = [
   "typing-extensions>=4.8.0",
   "jsonref>=1.1.0",
   "a2a-sdk>=0.2.12",
+  "aiofiles>=24.1.0",
 ]
 
 [project.optional-dependencies]
