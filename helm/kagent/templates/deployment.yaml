@@ -1,3 +1,5 @@
+{{- $dot := . }}
+{{- $model := index $dot.Values.providers $dot.Values.providers.default  }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -159,12 +161,15 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
-            - name: OPENAI_API_KEY
+            {{- if and $model.apiKeySecretRef $model.apiKey }}
+            {{- $apiKeyEnv := default "OPENAI_API_KEY" (default (printf "%s_API_KEY" $model.provider | upper) $model.apiKeySecretKey) }}
+            - name: {{ $apiKeyEnv }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "kagent.fullname" . }}-openai
-                  key: OPENAI_API_KEY
+                  name: {{ $model.apiKeySecretRef }}
+                  key: {{ $apiKeyEnv }}
                   optional: true # if the secret is not found, the tool will not be available
+            {{- end }}
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

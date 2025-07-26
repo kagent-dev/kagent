@@ -300,3 +300,38 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+
+  # manages the secret references
+  - it: should reference the default secret name when no custom secret name is given
+    set:
+      providers:
+        openAI:
+          apiKeySecretKey: OPENAI_API_KEY
+          apiKey: "sk-test-key"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[3].env
+          content:
+            name: OPENAI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: kagent-openai
+                key: OPENAI_API_KEY
+                optional: true
+  - it: should reference the correct secret when the default secret name is overriden
+    set:
+      providers:
+        openAI:
+          apiKeySecretRef: random-secret
+          apiKeySecretKey: OPENAI_API_KEY
+          apiKey: "sk-test-key"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[3].env
+          content:
+            name: OPENAI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: random-secret
+                key: OPENAI_API_KEY
+                optional: true
