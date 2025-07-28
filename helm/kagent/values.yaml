@@ -78,7 +78,7 @@ tools:
   image:
     registry: ghcr.io
     repository: kagent-dev/kagent/tools
-    tag: "0.0.9"
+    tag: "0.0.11"
     pullPolicy: IfNotPresent
   resources:
     requests:
