@@ -12,9 +12,9 @@ description = "kagent is a tool for building and deploying agent-based applicati
 readme = "README.md"
 requires-python = ">=3.12.11"
 dependencies = [
-  "autogen-core @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-core",
-  "autogen-agentchat @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-agentchat",
-  "autogen-ext[anthropic,azure,mcp,ollama,openai] @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-ext",
+  "autogen-core @ git+https://github.com/Microsoft/autogen@1ca7419213027c548eb340b2eb08f3032993e78b#subdirectory=python/packages/autogen-core",
+  "autogen-agentchat @ git+https://github.com/Microsoft/autogen@1ca7419213027c548eb340b2eb08f3032993e78b#subdirectory=python/packages/autogen-agentchat",
+  "autogen-ext[anthropic,azure,mcp,ollama,openai] @ git+https://github.com/Microsoft/autogen@1ca7419213027c548eb340b2eb08f3032993e78b#subdirectory=python/packages/autogen-ext",
   "openai>=1.72.0",
   "tiktoken==0.8.0",
   "python-dotenv>=1.1.0",
@@ -91,6 +91,9 @@ tool_gen = "kagent.tools.utils.tool_gen:main"
 
 [tool.uv.sources]
 kagent = { workspace = true }
+autogen-agentchat = { git = "https://github.com/Microsoft/autogen", subdirectory = "python/packages/autogen-agentchat", rev = "1ca7419213027c548eb340b2eb08f3032993e78b" }
+autogen-core = { git = "https://github.com/Microsoft/autogen", subdirectory = "python/packages/autogen-core", rev = "1ca7419213027c548eb340b2eb08f3032993e78b" }
+autogen-ext = { git = "https://github.com/Microsoft/autogen", subdirectory = "python/packages/autogen-ext", rev = "1ca7419213027c548eb340b2eb08f3032993e78b" }
 
 [tool.ruff]
 line-length = 120

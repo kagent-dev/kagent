@@ -213,20 +213,19 @@ wheels = [
 
 [[package]]
 name = "autogen-agentchat"
-version = "0.6.1"
-source = { git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=c5b893d3f814185c326c8ff95767d2375d95818d#c5b893d3f814185c326c8ff95767d2375d95818d" }
+version = "0.7.1"
+source = { git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=1ca7419213027c548eb340b2eb08f3032993e78b#1ca7419213027c548eb340b2eb08f3032993e78b" }
 dependencies = [
     { name = "autogen-core" },
 ]
 
 [[package]]
 name = "autogen-core"
-version = "0.6.1"
-source = { git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-core&rev=c5b893d3f814185c326c8ff95767d2375d95818d#c5b893d3f814185c326c8ff95767d2375d95818d" }
+version = "0.7.1"
+source = { git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-core&rev=1ca7419213027c548eb340b2eb08f3032993e78b#1ca7419213027c548eb340b2eb08f3032993e78b" }
 dependencies = [
     { name = "jsonref" },
     { name = "opentelemetry-api" },
-    { name = "opentelemetry-semantic-conventions" },
     { name = "pillow" },
     { name = "protobuf" },
     { name = "pydantic" },
@@ -235,8 +234,8 @@ dependencies = [
 
 [[package]]
 name = "autogen-ext"
-version = "0.6.1"
-source = { git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-ext&rev=c5b893d3f814185c326c8ff95767d2375d95818d#c5b893d3f814185c326c8ff95767d2375d95818d" }
+version = "0.7.1"
+source = { git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-ext&rev=1ca7419213027c548eb340b2eb08f3032993e78b#1ca7419213027c548eb340b2eb08f3032993e78b" }
 dependencies = [
     { name = "autogen-core" },
 ]
@@ -1614,7 +1613,7 @@ wheels = [
 
 [[package]]
 name = "kagent"
-version = "0.3.0"
+version = "0.4.4"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -1696,9 +1695,9 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.11.0" },
     { name = "anthropic", extras = ["vertex"], specifier = ">=0.49.0" },
     { name = "anyio", specifier = ">=4.0.0" },
-    { name = "autogen-agentchat", git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=c5b893d3f814185c326c8ff95767d2375d95818d" },
-    { name = "autogen-core", git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-core&rev=c5b893d3f814185c326c8ff95767d2375d95818d" },
-    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-ext&rev=c5b893d3f814185c326c8ff95767d2375d95818d" },
+    { name = "autogen-agentchat", git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-agentchat&rev=1ca7419213027c548eb340b2eb08f3032993e78b" },
+    { name = "autogen-core", git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-core&rev=1ca7419213027c548eb340b2eb08f3032993e78b" },
+    { name = "autogen-ext", extras = ["anthropic", "azure", "mcp", "ollama", "openai"], git = "https://github.com/Microsoft/autogen?subdirectory=python%2Fpackages%2Fautogen-ext&rev=1ca7419213027c548eb340b2eb08f3032993e78b" },
     { name = "azure-ai-inference", specifier = ">=1.0.0b9" },
     { name = "azure-ai-projects", specifier = ">=1.0.0b11" },
     { name = "azure-core", specifier = ">=1.30.0" },
@@ -1915,7 +1914,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.10.1"
+version = "1.12.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1925,13 +1924,14 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "sse-starlette" },
     { name = "starlette" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/68/63045305f29ff680a9cd5be360c755270109e6b76f696ea6824547ddbc30/mcp-1.10.1.tar.gz", hash = "sha256:aaa0957d8307feeff180da2d9d359f2b801f35c0c67f1882136239055ef034c2", size = 392969, upload-time = "2025-06-27T12:03:08.982Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/85/f36d538b1286b7758f35c1b69d93f2719d2df90c01bd074eadd35f6afc35/mcp-1.12.2.tar.gz", hash = "sha256:a4b7c742c50ce6ed6d6a6c096cca0e3893f5aecc89a59ed06d47c4e6ba41edcc", size = 426202, upload-time = "2025-07-24T18:29:05.175Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/3f/435a5b3d10ae242a9d6c2b33175551173c3c61fe637dc893be05c4ed0aaf/mcp-1.10.1-py3-none-any.whl", hash = "sha256:4d08301aefe906dce0fa482289db55ce1db831e3e67212e65b5e23ad8454b3c5", size = 150878, upload-time = "2025-06-27T12:03:07.328Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/cf/3fd38cfe43962452e4bfadc6966b2ea0afaf8e0286cb3991c247c8c33ebd/mcp-1.12.2-py3-none-any.whl", hash = "sha256:b86d584bb60193a42bd78aef01882c5c42d614e416cbf0480149839377ab5a5f", size = 158473, upload-time = "2025-07-24T18:29:03.419Z" },
 ]
 
 [[package]]
@@ -2495,7 +2495,7 @@ dependencies = [
     { name = "pinecone-plugin-interface" },
     { name = "python-dateutil" },
     { name = "typing-extensions" },
-    { name = "urllib3", marker = "python_full_version < '4.0'" },
+    { name = "urllib3", marker = "python_full_version < '4'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fa/38/12731d4af470851b4963eba616605868a8599ef4df51c7b6c928e5f3166d/pinecone-7.3.0.tar.gz", hash = "sha256:307edc155621d487c20dc71b76c3ad5d6f799569ba42064190d03917954f9a7b", size = 235256, upload-time = "2025-06-27T20:03:51.498Z" }
 wheels = [
