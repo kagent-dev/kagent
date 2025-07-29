@@ -99,7 +99,7 @@ export default function GroupedChats({ agentName, agentNamespace, sessions }: Gr
 
   const handleNewChat = () => {
     // Force a full page reload instead of client-side navigation
-    window.location.href = `/agents/${agentName}/chat`;
+    window.location.href = `/agents/${agentNamespace}/${agentName}/chat`;
   };
 
   const hasNoSessions = !groupedChats.today.length && !groupedChats.yesterday.length && !groupedChats.older.length;
