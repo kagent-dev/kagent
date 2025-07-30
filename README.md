@@ -39,8 +39,8 @@
 
 ## Get started
 
-- [Quick Start](https://kagent.dev/docs/getting-started/quickstart)
-- [Installation guide](https://kagent.dev/docs/introduction/installation)
+- [Quick Start](https://kagent.dev/docs/kagent/getting-started/quickstart)
+- [Installation guide](https://kagent.dev/docs/kagent/introduction/installation)
 
 
 ## Documentation
