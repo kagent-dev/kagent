@@ -3,19 +3,29 @@ import React, { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "../ui/button";
 
+const hasChildren = (props: unknown): props is { children: React.ReactNode } => {
+  return typeof props === 'object' && props !== null && 'children' in props;
+};
+
+const extractTextFromReactNode = (node: React.ReactNode): string => {
+  if (typeof node === "string") {
+    return node;
+  }
+  if (Array.isArray(node)) {
+    return node.map(extractTextFromReactNode).join("");
+  }
+  if (React.isValidElement(node) && node.props && hasChildren(node.props)) {
+    return extractTextFromReactNode(node.props.children);
+  }
+  return String(node || "");
+};
+
 const CodeBlock = ({ children, className }: { children: React.ReactNode[]; className: string }) => {
   const [copied, setCopied] = useState(false);
 
   const getCodeContent = (): string => {
     if (!children || children.length === 0) return "";
-    const child = children[0];
-    if (typeof child === "string") {
-      return child;
-    }
-    if (React.isValidElement(child) && child.props && (child.props as any).children) {
-      return String((child.props as any).children);
-    }
-    return String(child);
+    return extractTextFromReactNode(children[0]);
   };
 
   const handleCopy = async () => {
