@@ -15,7 +15,7 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "kagent.dev | Solo.io",
+  title: "kagent.dev",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
