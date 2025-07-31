@@ -127,17 +127,11 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha1.A
 		"kagent": agent.Name,
 	}
 
-	deploymentLabels := maps.Clone(agent.Labels)
-	if deploymentLabels == nil {
-		deploymentLabels = make(map[string]string)
-	}
-	maps.Copy(deploymentLabels, podLabels)
-
 	objMeta := metav1.ObjectMeta{
 		Name:        agent.Name,
 		Namespace:   agent.Namespace,
 		Annotations: agent.Annotations,
-		Labels:      deploymentLabels,
+		Labels:      podLabels,
 	}
 	if agent.Spec.Deployment != nil {
 		envVars = append(envVars, agent.Spec.Deployment.Env...)
