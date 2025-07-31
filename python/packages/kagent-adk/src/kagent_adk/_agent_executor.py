@@ -74,8 +74,6 @@ class A2aAgentExecutor(AgentExecutor):
             if not isinstance(resolved_runner, Runner):
                 raise TypeError(f"Callable must return a Runner instance, got {type(resolved_runner)}")
 
-            # Cache the resolved runner for future calls
-            # self._runner = resolved_runner
             return resolved_runner
 
         raise TypeError(

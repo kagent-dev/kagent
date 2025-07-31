@@ -109,7 +109,11 @@ spec:
             - name: GRAFANA_URL
               value: {{ .Values.tools.grafana.url | quote }}
             - name: GRAFANA_API_KEY
-              value: {{ .Values.tools.grafana.apiKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-mcp-grafana
+                  key: GRAFANA_API_KEY
+                  optional: true
             - name: KAGENT_NAMESPACE
               valueFrom:
                 fieldRef:
