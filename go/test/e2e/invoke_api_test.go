@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -37,16 +38,19 @@ func TestInvokeAPI(t *testing.T) {
 
 			msg, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
 				Message: protocol.Message{
+					Kind:  protocol.KindMessage,
 					Role:  protocol.MessageRoleUser,
 					Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
 				},
 			})
 			require.NoError(t, err)
 
-			msgResult, ok := msg.Result.(*protocol.Message)
+			taskResult, ok := msg.Result.(*protocol.Task)
 			require.True(t, ok)
-			text := a2a.ExtractText(*msgResult)
-			require.Contains(t, text, "kube-scheduler-kagent-control-plane")
+			text := a2a.ExtractText(taskResult.History[len(taskResult.History)-1])
+			jsn, err := json.Marshal(taskResult)
+			require.NoError(t, err)
+			require.Contains(t, text, "kube-scheduler-kagent-control-plane", string(jsn))
 		})
 
 		t.Run("should successfully handle a streaming agent invocation", func(t *testing.T) {
@@ -55,55 +59,28 @@ func TestInvokeAPI(t *testing.T) {
 
 			msg, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
 				Message: protocol.Message{
+					Kind:  protocol.KindMessage,
 					Role:  protocol.MessageRoleUser,
 					Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
 				},
 			})
 			require.NoError(t, err)
 
+			resultList := []protocol.StreamingMessageEvent{}
 			var text string
 			for event := range msg {
-				msgResult, ok := event.Result.(*protocol.Message)
+				msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
 				if !ok {
 					continue
 				}
-				text += a2a.ExtractText(*msgResult)
+				if msgResult.Status.Message != nil {
+					text += a2a.ExtractText(*msgResult.Status.Message)
+				}
+				resultList = append(resultList, event)
 			}
-			require.Contains(t, text, "kube-scheduler-kagent-control-plane")
+			jsn, err := json.Marshal(resultList)
+			require.NoError(t, err)
+			require.Contains(t, string(jsn), "kube-scheduler-kagent-control-plane", string(jsn))
 		})
 	})
-}
-
-// waitForTaskCompletion polls the task until it's completed or times out
-func waitForTaskCompletion(ctx context.Context, a2aClient *client.A2AClient, taskID string, timeout time.Duration) (*protocol.Task, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			task, err := a2aClient.GetTasks(ctx, protocol.TaskQueryParams{
-				ID: taskID,
-			})
-			if err != nil {
-				return nil, err
-			}
-
-			switch task.Status.State {
-			case protocol.TaskStateSubmitted,
-				protocol.TaskStateWorking:
-				continue // Keep polling
-			case protocol.TaskStateCompleted,
-				protocol.TaskStateFailed,
-				protocol.TaskStateCanceled:
-				return task, nil
-			}
-
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
 }

@@ -1,13 +1,3 @@
-import { Component, ToolConfig } from "@/types/datamodel";
-
-export interface CreateAgentFormData {
-  name: string;
-  description: string;
-  system_prompt: string;
-  model: ModelConfig;
-  tools: Component<ToolConfig>[];
-}
-
 export interface ModelConfig {
   ref: string;
   providerName: string;
@@ -19,9 +9,10 @@ export interface ModelConfig {
 }
 
 export interface CreateSessionRequest {
+  agent_ref?: string;
   name?: string;
   user_id: string;
-  agent_ref: string;
+  id?: string;
 }
 
 export interface BaseResponse<T> {

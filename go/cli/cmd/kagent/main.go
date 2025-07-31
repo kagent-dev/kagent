@@ -70,6 +70,8 @@ func main() {
 	invokeCmd.Flags().StringVarP(&invokeCfg.Agent, "agent", "a", "", "Agent")
 	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
 	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "File to read the task from")
+	invokeCmd.Flags().StringVarP(&invokeCfg.URLOverride, "url-override", "u", "", "URL override")
+	invokeCmd.Flags().MarkHidden("url-override")
 
 	bugReportCmd := &cobra.Command{
 		Use:   "bug-report",

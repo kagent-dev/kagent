@@ -2,25 +2,11 @@ import { LLMCall } from "@/components/chat/LLMCallModal";
 import { ImageContent, TaskResultMessage } from "@/types/datamodel";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { CompletionMessage, ErrorMessageConfig, MemoryQueryEvent, ModelClientStreamingChunkEvent, TextMessageConfig, ToolCallExecutionEvent, ToolCallRequestEvent, ToolCallSummaryMessage } from "@/types/datamodel";
+import type { CompletionMessage, ErrorMessageConfig, MemoryQueryEvent, ModelClientStreamingChunkEvent, ToolCallExecutionEvent, ToolCallRequestEvent, ToolCallSummaryMessage } from "@/types/datamodel";
+import { Message as A2AMessage, Task as A2ATask, TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent, TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent } from "@a2a-js/sdk";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
-}
-
-export function getWsUrl() {
-  if (process.env.NEXT_PUBLIC_WS_URL) {
-    return process.env.NEXT_PUBLIC_WS_URL;
-  }
-
-  let url = "";
-  if (process.env.NODE_ENV === "production") {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    url = `${protocol}//${window.location.host}/api/ws`;
-  } else {
-    url = "ws://localhost:8081/api/ws";
-  }
-  return url;
 }
 
 export function getBackendUrl() {
@@ -36,13 +22,6 @@ export function getBackendUrl() {
 
   // Fallback for local development
   return "http://localhost:8083/api";
-}
-
-export function getWebSocketUrl() {
-  const backendUrl = getBackendUrl();
-  const wsProtocol = backendUrl.startsWith("https") ? "wss" : "ws";
-
-  return backendUrl.replace(/^https?/, wsProtocol);
 }
 
 export function getRelativeTimeString(date: string | number | Date): string {
@@ -180,16 +159,8 @@ export const messageUtils = {
     return isMemoryQueryEvent;
   },
 
-  isTextMessageContent(content: unknown): content is TextMessageConfig {
-    return typeof content === "object" && content !== null && "content" in content && "type" in content && content.type === "TextMessage";
-  },
-
   isErrorMessageContent(content: unknown): content is ErrorMessageConfig {
     return typeof content === "object" && content !== null && "type" in content && content.type === "error";
-  },
-
-  isUserTextMessageContent(content: unknown): content is TextMessageConfig {
-    return messageUtils.isTextMessageContent(content) && content.source === "user";
   },
 
   isLlmCallEvent(content: unknown): content is LLMCall {
@@ -208,4 +179,27 @@ export const messageUtils = {
   isUser(source: string): boolean {
     return source === "user";
   },
+
+  // A2A Protocol type guards
+  isA2AMessage(content: unknown): content is A2AMessage {
+    return typeof content === "object" && content !== null && "kind" in content && content.kind === "message";
+  },
+
+  isA2ATask(content: unknown): content is A2ATask {
+    return typeof content === "object" && content !== null && "kind" in content && content.kind === "task";
+  },
+
+  isA2ATaskStatusUpdate(content: unknown): content is A2ATaskStatusUpdateEvent {
+    return typeof content === "object" && content !== null && "kind" in content && content.kind === "status-update";
+  },
+
+  isA2ATaskArtifactUpdate(content: unknown): content is A2ATaskArtifactUpdateEvent {
+    return typeof content === "object" && content !== null && "kind" in content && content.kind === "artifact-update";
+  },
 };
+
+export function convertToUserFriendlyName(name: string): string {
+  if (!name) return "Unknown Source";
+  name = name.replace(/__NS__/g, "/");
+  return name.replace(/_/g, "-");
+}

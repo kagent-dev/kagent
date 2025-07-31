@@ -20,28 +20,23 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
-	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
-	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	autogen "github.com/kagent-dev/kagent/go/controller/internal/autogen"
 	"github.com/kagent-dev/kagent/go/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
-	a2a_manager "github.com/kagent-dev/kagent/go/internal/a2a/manager"
-	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
 	a2a_reconciler "github.com/kagent-dev/kagent/go/controller/internal/a2a"
+	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 
@@ -64,7 +59,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/controller"
 	"github.com/kagent-dev/kagent/go/internal/goruntime"
 	// +kubebuilder:scaffold:imports
@@ -84,7 +79,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(agentv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -99,7 +94,6 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
-	var autogenStudioBaseURL string
 	var defaultModelConfig types.NamespacedName
 	var tlsOpts []func(*tls.Config)
 	var httpServerAddr string
@@ -126,8 +120,6 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-
-	flag.StringVar(&autogenStudioBaseURL, "autogen-base-url", "http://127.0.0.1:8081/api", "The base url of the Autogen Studio server.")
 
 	flag.StringVar(&defaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
 	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
@@ -297,87 +289,64 @@ func main() {
 
 	dbClient := database.NewClient(dbManager)
 
-	autogenClient := autogen_client.New(
-		autogenStudioBaseURL,
-	)
-
-	// wait for autogen to become ready on port 8081 before starting the manager
-	if err := waitForAutogenReady(context.Background(), setupLog, autogenClient, time.Minute*5, time.Second*15); err != nil {
-		setupLog.Error(err, "failed to wait for autogen to become ready")
-		os.Exit(1)
-	}
-
 	kubeClient := mgr.GetClient()
 
-	apiTranslator := translator.NewAutogenApiTranslator(
+	apiTranslator := translator.NewAdkApiTranslator(
 		kubeClient,
 		defaultModelConfig,
 	)
 
-	a2aStorage := a2a_manager.NewStorage(dbClient)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, a2aStorage)
-
-	a2aReconciler := a2a_reconciler.NewAutogenReconciler(
-		autogenClient,
+	a2aReconciler := a2a_reconciler.NewReconciler(
 		a2aHandler,
 		a2aBaseUrl+httpserver.APIPathA2A,
-		dbClient,
 	)
 
-	autogenReconciler := autogen.NewAutogenReconciler(
+	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
 		kubeClient,
-		autogenClient,
 		dbClient,
 		defaultModelConfig,
 		a2aReconciler,
 	)
 
-	if err = (&controller.AutogenTeamReconciler{
+	if err = (&controller.AgentReconciler{
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
-		Reconciler: autogenReconciler,
+		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AutogenTeam")
+		setupLog.Error(err, "unable to create controller", "controller", "Agent")
 		os.Exit(1)
 	}
-	if err = (&controller.AutogenAgentReconciler{
+	if err = (&controller.ModelConfigReconciler{
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
-		Reconciler: autogenReconciler,
+		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AutogenAgent")
+		setupLog.Error(err, "unable to create controller", "controller", "ModelConfig")
 		os.Exit(1)
 	}
-	if err = (&controller.AutogenModelConfigReconciler{
+	if err = (&controller.SecretReconciler{
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
-		Reconciler: autogenReconciler,
+		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AutogenModelConfig")
-		os.Exit(1)
-	}
-	if err = (&controller.AutogenSecretReconciler{
-		Client:     kubeClient,
-		Scheme:     mgr.GetScheme(),
-		Reconciler: autogenReconciler,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AutogenSecret")
+		setupLog.Error(err, "unable to create controller", "controller", "Secret")
 		os.Exit(1)
 	}
 	if err = (&controller.ToolServerReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
-		Reconciler: autogenReconciler,
+		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ToolServer")
 		os.Exit(1)
 	}
-	if err = (&controller.AutogenMemoryReconciler{
+	if err = (&controller.MemoryReconciler{
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
-		Reconciler: autogenReconciler,
+		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Memory")
 		os.Exit(1)
@@ -415,7 +384,6 @@ func main() {
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		BindAddr:          httpServerAddr,
-		AutogenClient:     autogenClient,
 		KubeClient:        kubeClient,
 		A2AHandler:        a2aHandler,
 		WatchedNamespaces: watchNamespacesList,
@@ -430,38 +398,6 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
-	}
-}
-
-func waitForAutogenReady(
-	ctx context.Context,
-	log logr.Logger,
-	client autogen_client.Client,
-	timeout, interval time.Duration,
-) error {
-	log.Info("waiting for autogen to become ready")
-	return waitForReady(func() error {
-		version, err := client.GetVersion(ctx)
-		if err != nil {
-			log.Error(err, "autogen is not ready")
-			return err
-		}
-		log.Info("autogen is ready", "version", version)
-		return nil
-	}, timeout, interval)
-}
-
-func waitForReady(f func() error, timeout, interval time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out after %v", timeout)
-		}
-		if err := f(); err == nil {
-			return nil
-		}
-
-		time.Sleep(interval)
 	}
 }
 

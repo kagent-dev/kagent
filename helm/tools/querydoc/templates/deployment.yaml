@@ -40,3 +40,14 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 1
+            initialDelaySeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30

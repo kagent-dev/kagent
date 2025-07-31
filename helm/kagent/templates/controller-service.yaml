@@ -12,5 +12,9 @@ spec:
       targetPort: {{ .Values.controller.service.ports.targetPort }}
       protocol: TCP
       name: controller
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: grafana-mcp
   selector:
     {{- include "kagent.controller.selectorLabels" . | nindent 4 }}

@@ -42,6 +42,7 @@ spec:
             description: ToolServerSpec defines the desired state of ToolServer.
             properties:
               config:
+                description: Only one of stdio, sse, or streamableHttp can be specified.
                 properties:
                   sse:
                     properties:
@@ -201,7 +202,14 @@ spec:
                     required:
                     - url
                     type: object
+                  type:
+                    type: string
                 type: object
+                x-kubernetes-validations:
+                - message: Exactly one of stdio, sse, or streamableHttp must be specified
+                  rule: (has(self.stdio) && !has(self.sse) && !has(self.streamableHttp))
+                    || (!has(self.stdio) && has(self.sse) && !has(self.streamableHttp))
+                    || (!has(self.stdio) && !has(self.sse) && has(self.streamableHttp))
               description:
                 type: string
             required:
@@ -296,10 +304,12 @@ spec:
                       - provider
                       - version
                       type: object
+                    description:
+                      type: string
                     name:
                       type: string
                   required:
-                  - component
+                  - description
                   - name
                   type: object
                 type: array
