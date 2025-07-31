@@ -100,10 +100,10 @@ export ANTHROPIC_API_KEY=your-anthropic-api-key
 make helm-install
 ```
 
-To access the UI, port-forward to the UI port on the `kagent` service:
+To access the UI, port-forward to the `kagent-ui` service:
 
 ```shell
-kubectl port-forward svc/kagent 8001:80
+kubectl port-forward svc/kagent-ui 8001:80
 ```
 
 Then open your browser and go to `http://localhost:8001`.
