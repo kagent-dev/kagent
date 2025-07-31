@@ -1,16 +1,5 @@
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export type ComponentType = "team" | "agent" | "model" | "tool" | "termination" | "chat_completion_context" | "tool_server";
-
-export interface Component<T extends ComponentConfig> {
-  provider: string;
-  component_type: ComponentType;
-  version?: number;
-  component_version?: number;
-  description?: string | null;
-  config: T;
-  label?: string;
-}
 
 // Message Types
 export interface RequestUsage {
@@ -158,64 +147,6 @@ export interface StreamableHttpMcpServerConfig {
   sseReadTimeout?: string;
 }
 
-// Provider-based Configs
-export interface SelectorGroupChatConfig {
-  participants: Component<AgentConfig>[];
-  model_client: Component<ModelConfig>;
-  termination_condition?: Component<TerminationConfig>;
-  max_turns?: number;
-  selector_prompt: string;
-  allow_repeated_speaker: boolean;
-}
-
-export interface RoundRobinGroupChatConfig {
-  participants: Component<AgentConfig>[];
-  termination_condition?: Component<TerminationConfig>;
-  max_turns?: number;
-  model_client: Component<ModelConfig>;
-}
-
-export interface TaskAgentConfig {
-  name: string;
-  team: Component<TeamConfig>;
-  model_context: Component<ChatCompletionContextConfig>;
-  description?: string;
-}
-
-export interface MultimodalWebSurferConfig {
-  name: string;
-  model_client: Component<ModelConfig>;
-  downloads_folder?: string;
-  description?: string;
-  debug_dir?: string;
-  headless?: boolean;
-  start_page?: string;
-  animate_actions?: boolean;
-  to_save_screenshots?: boolean;
-  use_ocr?: boolean;
-  browser_channel?: string;
-  browser_data_dir?: string;
-  to_resize_viewport?: boolean;
-}
-
-export interface AssistantAgentConfig {
-  name: string;
-  model_client: Component<ModelConfig>;
-  tools?: Component<ToolConfig>[];
-  handoffs?: any[]; // HandoffBase | str equivalent
-  model_context?: Component<ChatCompletionContextConfig>;
-  description: string;
-  system_message?: string;
-  reflect_on_tool_use: boolean;
-  tool_call_summary_format: string;
-  model_client_stream: boolean;
-}
-
-export interface UserProxyAgentConfig {
-  name: string;
-  description: string;
-}
-
 // Model Configs
 export interface ModelInfo {
   vision?: boolean;
@@ -257,45 +188,12 @@ export interface AzureOpenAIClientConfig extends BaseOpenAIClientConfig {
   azure_deployment?: string;
   api_version: string;
   azure_ad_token?: string;
-  azure_ad_token_provider?: Component<any>;
+  azure_ad_token_provider?: any;
 }
-
-export interface UnboundedChatCompletionContextConfig {
-  // Empty in example but could have props
-}
-
-export interface OrTerminationConfig {
-  conditions: Component<TerminationConfig>[];
-}
-
-export interface MaxMessageTerminationConfig {
-  max_messages: number;
-}
-
-export interface TextMentionTerminationConfig {
-  text: string;
-}
-
-export interface TextMessageTerminationConfig {
-  source: string;
-}
-
-// Config type unions based on provider
-export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | TaskAgentConfig;
-
-export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | UserProxyAgentConfig | TaskAgentConfig;
 
 export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig;
 
-export type ToolConfig = FunctionToolConfig | MCPToolConfig;
-
 export type ToolServerConfig = StdioMcpServerConfig | SseMcpServerConfig | StreamableHttpMcpServerConfig;
-
-export type ChatCompletionContextConfig = UnboundedChatCompletionContextConfig;
-
-export type TerminationConfig = OrTerminationConfig | MaxMessageTerminationConfig | TextMentionTerminationConfig | TextMessageTerminationConfig;
-
-export type ComponentConfig = TeamConfig | AgentConfig | ModelConfig | ToolConfig | TerminationConfig | ChatCompletionContextConfig | ToolServerConfig;
 
 // DB Models
 export interface DBModel {
@@ -305,43 +203,7 @@ export interface DBModel {
   updated_at?: string;
 }
 
-export interface DBTool extends DBModel {
-  component: Component<ToolConfig>;
-  server_id?: number;
-}
 
-export interface DBToolServer extends DBModel {
-  last_connected: string | null;
-  is_active: boolean;
-  component: Component<ToolServerConfig>;
-}
-
-export interface Message extends DBModel {
-  config: AgentMessageConfig;
-  session_id: number;
-  run_id: string;
-  message_meta: MessageMeta;
-}
-
-export interface InitialMessage {
-  type: "start";
-  task: string;
-  team_config?: Component<TeamConfig>;
-}
-
-export interface MessageMeta {
-  task?: string;
-  task_result?: TaskResult;
-  summary_method?: string;
-  files?: any[];
-  time?: string;
-  log?: any[];
-  usage?: any[];
-}
-
-export interface Team extends DBModel {
-  component: Component<TeamConfig>;
-}
 
 export interface Session {
   id: string;
@@ -404,7 +266,6 @@ export interface Agent {
 export interface AgentResponse {
   id: number;
   agent: Agent;
-  component: Component<TeamConfig>;
   model: string;
   modelProvider: string;
   modelConfigRef: string;
@@ -428,13 +289,22 @@ export interface ToolServerConfiguration {
   streamableHttp?: StreamableHttpMcpServerConfig;
 }
 
-export interface ToolComponent {
-  name: string;
-  component: Component<ToolConfig>;
-}
-
 export interface ToolServerWithTools {
   ref: string;
   config: ToolServerConfiguration;
-  discoveredTools: ToolComponent[];
+  discoveredTools: DiscoveredTool[];
+}
+
+export interface DiscoveredTool {
+  name: string;
+  description: string;
+}
+
+export interface ToolResponse {
+  id: string;
+  server_name: string;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string;
+  description?: string;
 }

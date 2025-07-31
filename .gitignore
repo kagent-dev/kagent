@@ -204,3 +204,5 @@ go/bin/
 /reports/*.txt
 /go/tools/tool-server
 /contrib/memory/doc2vec/bun.lock
+
+.cursor/

@@ -1,10 +1,120 @@
 # Default values for kagent
-replicaCount: 1
 
-global:
-  tag: ""
+# ==============================================================================
+# GLOBAL CONFIGURATION
+# ==============================================================================
 
+tag: ""
+
+
+imagePullSecrets: []
+imagePullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Override the namespace
+# @default -- `.Release.Namespace`
+namespaceOverride: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# ==============================================================================
+# CORE KAGENT COMPONENTS
+# ==============================================================================
+
+# -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+tolerations: []
+
+# -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+nodeSelector: {}
+
+# ==============================================================================
+# DATABASE CONFIGURATION
+# ==============================================================================
+
+database:
+  type: sqlite
+  sqlite:
+    databaseName: kagent.db
+  postgres:
+    url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
+
+# ==============================================================================
+# CONTROLLER CONFIGURATION
+# ==============================================================================
+
+controller:
+  replicas: 1
+  loglevel: "info"
+
+  # -- Namespaces the controller should watch.
+  # If empty, the controller will watch ALL available namespaces.
+  # @default -- [] (watches all available namespaces)
+  watchNamespaces: []
+  #  - watch-ns-1
+  #  - watch-ns-2
+
+  image:
+    registry: cr.kagent.dev
+    repository: kagent-dev/kagent/controller
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  service:
+    type: ClusterIP
+    ports:
+      port: 8083
+      targetPort: 8083
+  env: {}
+
+# ==============================================================================
+# UI CONFIGURATION
+# ==============================================================================
+
+ui:
+  replicas: 1
+  image:
+    registry: cr.kagent.dev
+    repository: kagent-dev/kagent/ui
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  service:
+    type: ClusterIP
+    ports:
+      port: 80
+      targetPort: 8080
+  env: {} # Additional configuration key-value pairs for the ui ConfigMap
+
+# ==============================================================================
+# LLM PROVIDERS CONFIGURATION
+# ==============================================================================
 # https://kagent.dev/docs/getting-started/configuring-providers
+
 providers:
   default: openAI
   openAI:
@@ -36,33 +146,59 @@ providers:
       azureDeployment: ""
       azureEndpoint: ""
 
-database:
-  type: sqlite
-  sqlite:
-    databaseName: kagent.db
-  postgres:
-    url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
+# ==============================================================================
+# BUILT-IN TOOLS
+# ==============================================================================
 
-# -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
-tolerations: []
+kagent-tools:
+  fullnameOverride: kagent-tools
+  enabled: true
+  replicaCount: 1
+  tools:
+    loglevel: "debug"
 
-# -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
-nodeSelector: {}
+tools:
+  grafana:
+    url: http://grafana.kagent.svc.cluster.local:3000
+    apiKey: ""
 
-controller:
-  loglevel: "info"
+# ==============================================================================
+# AGENTS
+# ==============================================================================
 
-  # -- Namespaces the controller should watch.
-  # If empty, the controller will watch ONLY release namespace.
-  # @default -- [] (watches release namespace)
-  watchNamespaces: []
-  #  - watch-ns-1
-  #  - watch-ns-2
+agents:
+  k8s-agent:
+    enabled: true
+  kgateway-agent:
+    enabled: true
+  istio-agent:
+    enabled: true
+  promql-agent:
+    enabled: true
+  observability-agent:
+    enabled: true
+  argo-rollouts-agent:
+    enabled: true
+  helm-agent:
+    enabled: true
+  cilium-policy-agent:
+    enabled: true
+  cilium-manager-agent:
+    enabled: true
+  cilium-debug-agent:
+    enabled: true
 
+# ==============================================================================
+# EXTERNAL MCP SERVERS
+# ==============================================================================
+
+querydoc:
+  enabled: true
+  replicas: 1
   image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/controller
-    tag: "" # Will default to global, then Chart version
+    registry: ghcr.io
+    repository: kagent-dev/doc2vec/mcp
+    tag: 1.1.12
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -71,118 +207,12 @@ controller:
     limits:
       cpu: 500m
       memory: 512Mi
-  env: [] # Additional environment variables for the controller can be added here
-
-tools:
-  loglevel: "debug"
-  image:
-    registry: ghcr.io
-    repository: kagent-dev/kagent/tools
-    tag: "0.0.11"
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 1000m
-      memory: 512Mi
-  prometheus:
-    url: "prometheus.kagent.svc.cluster.local:9090"
-    username: ""
-    password: ""
-  grafana: # kubectl port-forward svc/grafana 3000:3000
-    url: "http://grafana.kagent.svc.cluster.local:3000"
+  openai:
     apiKey: ""
 
-# additional tools can be added here
-mcp:
-  doc2vec:
-    enabled: true
-    image:
-      registry: ghcr.io
-      repository: kagent-dev/doc2vec/mcp
-      tag: 1.1.10
-      pullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-    env: [] # Additional environment variables for the doc2vec can be added here
-
-app:
-  loglevel: "info"
-  image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/app
-    tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-  env: [] # Additional environment variables for the app can be added here
-
-ui:
-  image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/ui
-    tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-  env: [] # Additional environment variables for the ui can be added here
-
-service:
-  type: ClusterIP
-  ports:
-    ui:
-      port: 80
-      targetPort: 8080
-    app:
-      port: 8081
-      targetPort: 8081
-    controller:
-      port: 8083
-      targetPort: 8083
-    tools:
-      port: 8084
-      targetPort: 8084
-    querydoc:
-      port: 8085
-      targetPort: 8085
-
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
-
-# -- Override the namespace
-# @default -- `.Release.Namespace`
-namespaceOverride: ""
-
-podAnnotations: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+# ==============================================================================
+# OBSERVABILITY
+# ==============================================================================
 
 otel:
   tracing:
@@ -192,33 +222,3 @@ otel:
         endpoint: http://host.docker.internal:4317
         timeout: 15
         insecure: true
-
-k8s-agent:
-  enabled: true
-
-kgateway-agent:
-  enabled: true
-
-istio-agent:
-  enabled: true
-
-promql-agent:
-  enabled: true
-
-observability-agent:
-  enabled: true
-
-argo-rollouts-agent:
-  enabled: true
-
-helm-agent:
-  enabled: true
-
-cilium-policy-agent:
-  enabled: true
-
-cilium-manager-agent:
-  enabled: true
-
-cilium-debug-agent:
-  enabled: true

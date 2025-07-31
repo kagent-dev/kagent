@@ -45,15 +45,15 @@
 
 ## Documentation
 
-The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/docs).
+The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/docs/kagent).
 
 ## Core Concepts
 
 - **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent". 
-- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
-- **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana,  Cilium and others. All tools are as Kubernetes custom resources (ToolServers) and can be used by multiple agents.
-- **Memory**: Using the [memory](https://kagent.dev/docs/concepts/memory) your agents can always have access to the latest and most up to date information.
-- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/getting-started/tracing) which allows you to monitor what's happening with your agents and tools.
+- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/kagent/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
+- **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana,  Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
+- **Memory**: Using the [memory](https://kagent.dev/docs/kagent/concepts/memory), your agents can always have access to the latest and most up-to-date information.
+- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
 
 ## Core Principles
 
@@ -61,7 +61,7 @@ The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/do
 - **Extensible**: Kagent is designed to be extensible, so you can add your own agents and tools.
 - **Flexible**: Kagent is designed to be flexible, to suit any AI agent use case.
 - **Observable**: Kagent is designed to be observable, so you can monitor the agents and tools using all common monitoring frameworks.
-- **Declarative**: Kagent is designed to be declarative, so you can define the agents and tools in a yaml file.
+- **Declarative**: Kagent is designed to be declarative, so you can define the agents and tools in a YAML file.
 - **Testable**: Kagent is designed to be tested and debugged easily. This is especially important for AI agent applications.
 
 ## Architecture
@@ -69,15 +69,15 @@ The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/do
 The kagent framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
 <div align="center">
-  <img src="img/arch.png" alt="Autogen Framework" width="500">
+  <img src="img/arch.png" alt="kagent" width="500">
 </div>
 
 Kagent has 4 core components:
 
 - **Controller**: The controller is a Kubernetes controller that watches the kagent custom resources and creates the necessary resources to run the agents.
 - **UI**: The UI is a web UI that allows you to manage the agents and tools.
-- **Engine**: The engine is a Python application that runs the agents and tools. The engine is built using [Autogen](https://github.com/microsoft/autogen).
-- **CLI**: The CLI is a command line tool that allows you to manage the agents and tools.
+- **Engine**: The engine runs your agents using [ADK](https://google.github.io/adk-docs/) or [Autogen](https://github.com/microsoft/autogen).
+- **CLI**: The CLI is a command-line tool that allows you to manage the agents and tools.
 
 ## Roadmap
 

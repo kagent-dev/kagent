@@ -1,96 +1,16 @@
-[build-system]
-requires = [
-  "setuptools>=67.0.0",
-  "wheel"
-]
-build-backend = "setuptools.build_meta"
+[tool.uv.workspace]
+members = ["packages/*"]
 
-[project]
-name = "kagent"
-version = "0.3.0"
-description = "kagent is a tool for building and deploying agent-based applications."
-readme = "README.md"
-requires-python = ">=3.12.11"
-dependencies = [
-  "autogen-core @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-core",
-  "autogen-agentchat @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-agentchat",
-  "autogen-ext[anthropic,azure,mcp,ollama,openai] @ git+https://github.com/Microsoft/autogen@c5b893d3f814185c326c8ff95767d2375d95818d#subdirectory=python/packages/autogen-ext",
-  "openai>=1.72.0",
-  "tiktoken==0.8.0",
-  "python-dotenv>=1.1.0",
-  "pyyaml>=6.0.2",
-  "mcp>=1.8.1",
-  "sqlite-vec>=0.1.7a2",
-  "typer>=0.15.0",
-  "onnxruntime>=1.21.1",
-  "numpy>=2.2.4",
-  "opentelemetry-api>=1.32.0",
-  "opentelemetry-sdk>=1.32.0",
-  "opentelemetry-exporter-otlp-proto-grpc>=1.32.0",
-  "opentelemetry-instrumentation-openai>= 0.39.0",
-  "opentelemetry-instrumentation-httpx >= 0.52.0",
-  "anthropic[vertex]>=0.49.0",
-  "pinecone>=6.0.2",
-  "loguru>=0.7.3",
-  "sqlalchemy>=2.0.40",
-  "sqlmodel>=0.0.24",
-  "alembic>=1.11.0",
-  "fastapi>=0.103.1",
-  "click>=8.0.6",
-  "pandas>=2.2.3",
-  "html2text>=2025.4.15",
-  "bs4>=0.0.2",
-  "magika>=0.6.2",
-  "markitdown>=0.1.1",
-  "websockets>=11.0",
-  "litellm>=1.74.3",
-  "google-adk>=1.6.1",
-  "google-genai>=1.18.0",
-  "google-auth>=2.40.2",
-  "h11>=0.16.0",
-  "protobuf >= 5.29.5",
-  # Additional dependencies that were missing during build
-  "aiofiles>=24.1.0",
-  "httpx>=0.25.0",
-  "pydantic>=2.5.0",
-  "typing-extensions>=4.8.0",
-  "jsonref>=1.1.0",
-  "pillow>=10.0.0",
-  "ollama>=0.3.0",
-  "azure-ai-inference>=1.0.0b9",
-  "azure-ai-projects>=1.0.0b11",
-  "azure-core>=1.30.0",
-  "azure-identity>=1.15.0",
-  "azure-search-documents>=11.4.0",
-  "azure-storage-blob>=12.19.0",
-  "isodate>=0.6.1",
-  "anyio>=4.0.0",
-  "sniffio>=1.3.0",
-  "distro>=1.8.0",
-  "jiter>=0.4.0",
-  "idna>=3.4",
-  "a2a-sdk>=0.2.12",
-]
-
-[project.optional-dependencies]
-jupyter-executor = [
-    "ipykernel>=6.29.5",
-    "nbclient>=0.10.2",
-]
-test = [
+[dependency-groups]
+dev = [
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
-]
-lint = [
   "ruff>=0.11.5",
 ]
 
-[project.scripts]
-kagent-engine = "kagent.cli:run"
-tool_gen = "kagent.tools.utils.tool_gen:main"
-
 [tool.uv.sources]
 kagent = { workspace = true }
+kagent-adk = { workspace = true }
 
 [tool.ruff]
 line-length = 120
@@ -109,7 +29,7 @@ select = ["E", "F", "W", "B", "Q", "I", "ASYNC", "T20"]
 ignore = ["F401", "E501", "B008", "ASYNC109"]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["packages"]
 
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.yaml", "*.yml", "*.txt", "*.md"]

@@ -1,0 +1,42 @@
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repository: kagent-dev/doc2vec/mcp
+  pullPolicy: IfNotPresent
+  tag: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources: {}
+
+logLevel: info
+
+# MCP server configuration
+config:
+
+# Secret configuration  
+openai:
+  apiKey: ""
+
+# OTEL configuration
+otel:
+  tracing:
+    enabled: false
+    exporter:
+      otlp:
+        endpoint: ""
+        timeout: 10000
+        insecure: true

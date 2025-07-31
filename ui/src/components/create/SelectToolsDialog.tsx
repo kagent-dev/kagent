@@ -5,25 +5,26 @@ import { Input } from "@/components/ui/input";
 import { Search, Filter, ChevronDown, ChevronRight, AlertCircle, PlusCircle, XCircle, FunctionSquare, LucideIcon } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Component, ToolConfig, AgentResponse, Tool } from "@/types/datamodel";
+import { AgentResponse, Tool, ToolResponse } from "@/types/datamodel";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolCategory, getToolDisplayName, getToolDescription, getToolIdentifier, getToolProvider, isAgentTool, isMcpTool, isMcpProvider, componentToAgentTool, groupMcpToolsByServer } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer } from "@/lib/toolUtils";
 import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 20;
 
 interface SelectedToolEntry {
   originalItemIdentifier: string;
-  toolInstance: Tool;
+  toolInstance: Tool; // Keep as Tool for backward compatibility with agent creation
 }
 
 interface SelectToolsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  availableTools: Component<ToolConfig>[];
+  availableTools: ToolResponse[];
   selectedTools: Tool[];
   onToolsSelected: (tools: Tool[]) => void;
   availableAgents: AgentResponse[];
@@ -31,7 +32,7 @@ interface SelectToolsDialogProps {
 }
 
 // Helper function to get display info for a tool or agent
-const getItemDisplayInfo = (item: Component<ToolConfig> | AgentResponse | Tool): {
+const getItemDisplayInfo = (item: AgentResponse | ToolResponse | Tool, availableTools?: ToolResponse[]): {
   displayName: string;
   description?: string;
   identifier: string;
@@ -55,38 +56,59 @@ const getItemDisplayInfo = (item: Component<ToolConfig> | AgentResponse | Tool):
     return { displayName: displayName, description, identifier, providerText, Icon, iconColor, isAgent };
   }
 
-  // Handle AgentResponse specifically (as it's not a Tool or Component)
   if ('agent' in item && item.agent && typeof item.agent === 'object' && 'metadata' in item.agent && item.agent.metadata) {
       const agentResp = item as AgentResponse;
       displayName = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
       description = agentResp.agent.spec.description;
-      // Use the same identifier format as AgentTool for consistency
       identifier = `agent-${displayName}`;
       providerText = "Agent";
       Icon = KagentLogo;
       iconColor = "text-green-500";
       isAgent = true;
   }
-  // Handle Tool and Component<ToolConfig> types using toolUtils
-  else {
-      // Cast to the union type that toolUtils functions expect
-      const toolOrComponent = item as Tool | Component<ToolConfig>;
-
-      displayName = getToolDisplayName(toolOrComponent);
-      description = getToolDescription(toolOrComponent);
-      identifier = getToolIdentifier(toolOrComponent);
-      providerText = getToolProvider(toolOrComponent);
-
-      if (isAgentTool(toolOrComponent)) {
+  else if ('server_name' in item && !('type' in item)) {
+      const toolResponse = item as ToolResponse;
+      displayName = getToolResponseDisplayName(toolResponse);
+      description = getToolResponseDescription(toolResponse);
+      identifier = getToolResponseIdentifier(toolResponse);
+      providerText = toolResponse.server_name;
+      iconColor = "text-blue-400";
+      isAgent = false;
+  }
+  else if ('type' in item) {
+      const tool = item as Tool;
+      if (isAgentTool(tool)) {
+          displayName = tool.agent?.ref || "Unknown Agent";
+          description = tool.agent?.description;
+          identifier = `agent-${displayName}`;
+          providerText = "Agent";
           Icon = KagentLogo;
-          isAgent = true; 
-      } else if (isMcpTool(toolOrComponent) || ('provider' in toolOrComponent && isMcpProvider(toolOrComponent.provider))) {
-          // Check for MCP Tool or MCP Component
-          iconColor = "text-blue-400";
+          iconColor = "text-green-500";
+          isAgent = true;
+      } else if (isMcpTool(tool)) {
+          displayName = tool.mcpServer?.toolServer || "MCP Tool";
+          if (availableTools && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
+            const firstToolName = tool.mcpServer.toolNames[0];
+            const foundTool = availableTools.find(
+              toolResponse => toolResponse.server_name === tool.mcpServer?.toolServer && toolResponse.id === firstToolName
+            );
+            description = foundTool ? getToolResponseDescription(foundTool) : "MCP Server Tool";
+          } else {
+            description = "MCP Server Tool";
+          }
+          
+          identifier = `mcp-${tool.mcpServer?.toolServer}`;
+          providerText = tool.mcpServer?.toolServer;
+          iconColor = "text-purple-500";
           isAgent = false;
       } else {
-          isAgent = false;
+          displayName = "Unknown Tool";
+          identifier = `unknown-tool-${Math.random().toString(36).substring(7)}`;
       }
+  }
+  else {
+      displayName = "Unknown Item";
+      identifier = `unknown-${Math.random().toString(36).substring(7)}`;
   }
 
   return { displayName: displayName, description, identifier, providerText, Icon, iconColor, isAgent };
@@ -104,7 +126,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   useEffect(() => {
     if (open) {
       const initialSelectedEntries: SelectedToolEntry[] = selectedTools.map(tool => {
-        const toolInfo = getItemDisplayInfo(tool);
+        const toolInfo = getItemDisplayInfo(tool, availableTools);
         return {
           originalItemIdentifier: toolInfo.identifier,
           toolInstance: tool
@@ -116,7 +138,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       const uniqueCategories = new Set<string>();
       const categoryCollapseState: { [key: string]: boolean } = {};
       availableTools.forEach((tool) => {
-        const category = getToolCategory(tool);
+        const category = getToolResponseCategory(tool);
         uniqueCategories.add(category);
         categoryCollapseState[category] = true;
       });
@@ -149,13 +171,13 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   const filteredAvailableItems = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
     const tools = availableTools.filter((tool) => {
-      const toolName = getToolDisplayName(tool).toLowerCase();
-      const toolDescription = getToolDescription(tool)?.toLowerCase() ?? "";
-      const toolProvider = getToolProvider(tool)?.trim() || "";
+      const toolName = getToolResponseDisplayName(tool).toLowerCase();
+      const toolDescription = getToolResponseDescription(tool).toLowerCase();
+      const toolProvider = tool.server_name?.toLowerCase() || "";
 
-      const matchesSearch = toolName.includes(searchLower) || toolDescription.includes(searchLower) || toolProvider.toLowerCase().includes(searchLower);
+      const matchesSearch = toolName.includes(searchLower) || toolDescription.includes(searchLower) || toolProvider.includes(searchLower);
 
-      const toolCategory = getToolCategory(tool);
+      const toolCategory = getToolResponseCategory(tool);
       const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
       return matchesSearch && matchesCategory;
     });
@@ -174,12 +196,12 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   // Group available tools and agents by category
   const groupedAvailableItems = useMemo(() => {
-    const groups: { [key: string]: (Component<ToolConfig> | AgentResponse)[] } = {};
+    const groups: { [key: string]: (ToolResponse | AgentResponse)[] } = {};
     const sortedTools = [...filteredAvailableItems.tools].sort((a, b) => {
-      return getToolDisplayName(a).localeCompare(getToolDisplayName(b));
+      return getToolResponseDisplayName(a).localeCompare(getToolResponseDisplayName(b));
     });
     sortedTools.forEach((tool) => {
-      const category = getToolCategory(tool);
+      const category = getToolResponseCategory(tool);
       if (!groups[category]) {
         groups[category] = [];
       }
@@ -201,12 +223,12 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
            
   }, [filteredAvailableItems]);
 
-  const isItemSelected = (item: Component<ToolConfig> | AgentResponse): boolean => {
+  const isItemSelected = (item: ToolResponse | AgentResponse): boolean => {
     const { identifier: availableItemIdentifier } = getItemDisplayInfo(item);
     return localSelectedComponents.some(entry => entry.originalItemIdentifier === availableItemIdentifier);
   };
 
-  const handleAddItem = (item: Component<ToolConfig> | AgentResponse) => {
+  const handleAddItem = (item: ToolResponse | AgentResponse) => {
     const originalItemInfo = getItemDisplayInfo(item);
     const isSelectedByOriginalId = localSelectedComponents.some(entry => entry.originalItemIdentifier === originalItemInfo.identifier);
 
@@ -225,14 +247,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
             }
         };
     } else {
-        const component = item as Component<ToolConfig>;
-        toolToAdd = componentToAgentTool(component);
-        
-        if (toolToAdd.mcpServer?.toolNames && toolToAdd.mcpServer.toolNames.length > 0) {
-            numEffectiveToolsInThisItem = toolToAdd.mcpServer.toolNames.length;
-        } else {
-            numEffectiveToolsInThisItem = 1; 
-        }
+        const toolResponse = item as ToolResponse;
+        toolToAdd = toolResponseToAgentTool(toolResponse);
+        numEffectiveToolsInThisItem = 1;
     }
 
     if (actualSelectedCount + numEffectiveToolsInThisItem <= MAX_TOOLS_LIMIT) {
@@ -247,7 +264,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   const handleRemoveToolById = (toolInstanceIdentifier: string) => {
     setLocalSelectedComponents((prev) => 
-        prev.filter(entry => getItemDisplayInfo(entry.toolInstance).identifier !== toolInstanceIdentifier)
+        prev.filter(entry => getItemDisplayInfo(entry.toolInstance, availableTools).identifier !== toolInstanceIdentifier)
     );
   };
 
@@ -413,7 +430,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                       // Find the entry, then get its toolInstance's ID
                                       const entryToRemove = localSelectedComponents.find(entry => entry.originalItemIdentifier === identifier);
                                       if (entryToRemove) {
-                                        handleRemoveToolById(getItemDisplayInfo(entryToRemove.toolInstance).identifier);
+                                        handleRemoveToolById(getItemDisplayInfo(entryToRemove.toolInstance, availableTools).identifier);
                                       }
                                     }}>
                                        <XCircle className="h-4 w-4"/>
@@ -462,15 +479,21 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                   {localSelectedComponents.flatMap((entry) => {
                     const tool = entry.toolInstance;
                     if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
-                      const parentToolInfo = getItemDisplayInfo(tool);
-                      return tool.mcpServer.toolNames.map((toolName) => (
+                      const parentToolInfo = getItemDisplayInfo(tool, availableTools);
+                      return tool.mcpServer.toolNames.map((toolName: string) => {
+                        const specificToolResponse = availableTools.find(
+                          toolResponse => toolResponse.server_name === tool.mcpServer?.toolServer && toolResponse.id === toolName
+                        );
+                        const specificDescription = specificToolResponse ? getToolResponseDescription(specificToolResponse) : parentToolInfo.description;
+                        
+                        return (
                         <div key={`${parentToolInfo.identifier}-${toolName}`} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
                           <div className="flex items-center gap-2 flex-1 overflow-hidden">
                             <parentToolInfo.Icon className={`h-4 w-4 flex-shrink-0 ${parentToolInfo.iconColor}`} />
                             <div className="flex-1 overflow-hidden">
                               <p className="text-sm font-medium truncate">{toolName}</p>
-                              {parentToolInfo.description && (
-                                <p className="text-xs text-muted-foreground truncate">{parentToolInfo.description}</p>
+                              {specificDescription && (
+                                <p className="text-xs text-muted-foreground truncate">{specificDescription}</p>
                               )}
                             </div>
                           </div>
@@ -485,9 +508,10 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                             <XCircle className="h-4 w-4" />
                           </Button>
                         </div>
-                      ));
+                        );
+                      });
                     } else {
-                      const { displayName, description, identifier: toolInstanceIdentifier, Icon, iconColor, isAgent } = getItemDisplayInfo(tool);
+                      const { displayName, description, identifier: toolInstanceIdentifier, Icon, iconColor, isAgent } = getItemDisplayInfo(tool, availableTools);
                       return [( 
                         <div key={toolInstanceIdentifier} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
                           <div className="flex items-center gap-2 flex-1 overflow-hidden">

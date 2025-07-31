@@ -62,11 +62,7 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        user_id: session.user_id,
-        agent_ref: session.agent_ref,
-        name: session.name,
-      }),
+      body: JSON.stringify(session),
     });
 
     if (!response) {
