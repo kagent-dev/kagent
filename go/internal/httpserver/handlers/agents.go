@@ -46,8 +46,11 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 
 		agent, err := h.DatabaseService.GetAgent(teamRef)
 		if err != nil {
-			w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-			return
+			// TODO: Rather than excluding the agent completely we should
+			// probably return it but mark it as "unhealthy" in some way so this
+			// is visible to callers (e.g. in the UI)
+			log.Error(err, "failed to load agent from database", "agent", teamRef)
+			continue
 		}
 
 		agentResponse, err := h.getAgentResponse(r.Context(), log, &team, agent)
