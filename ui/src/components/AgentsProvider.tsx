@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
-import { Component, ToolConfig, Agent, Tool, AgentResponse } from "@/types/datamodel";
+import { Agent, Tool, AgentResponse, ToolResponse } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
 import type { BaseResponse, ModelConfig } from "@/lib/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
@@ -34,7 +34,7 @@ interface AgentsContextType {
   models: ModelConfig[];
   loading: boolean;
   error: string;
-  tools: Component<ToolConfig>[];
+  tools: ToolResponse[];
   refreshTeams: () => Promise<void>;
   createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   updateAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
@@ -60,7 +60,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const [agents, setAgents] = useState<AgentResponse[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [tools, setTools] = useState<Component<ToolConfig>[]>([]);
+  const [tools, setTools] = useState<ToolResponse[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
 
   const fetchTeams = async () => {

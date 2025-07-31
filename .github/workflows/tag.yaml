@@ -83,12 +83,34 @@ jobs:
           export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
         fi
         make helm-publish
+  release-python-packages:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: 'Checkout GitHub Action'
+      uses: actions/checkout@main
+    - name: 'Release Python Packages'
+      working-directory: python
+      run: |
+        # if workflow_dispatch is used, use the version input
+        if [ -n "${{ github.event.inputs.version }}" ]; then
+          export VERSION=${{ github.event.inputs.version }}
+        else
+          export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
+        fi
+        uv version $VERSION --package kagent-adk
+        uv build --package kagent-adk
+        uv publish --token ${{ secrets.PYPI_TOKEN }}
+      
   release:
     # Only run release after images and helm chart are pushed
     # In the future we can take the chart from the helm action,
     # and build the CLI beforehand.
     needs:
     - push-helm-chart
+    - release-python-packages
     runs-on: ubuntu-latest
     permissions:
       contents: write

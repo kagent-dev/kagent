@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowBigUp, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Session, AgentMessageConfig, TeamConfig, Component } from "@/types/datamodel";
+import type { Session, AgentMessageConfig } from "@/types/datamodel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import StreamingMessage from "./StreamingMessage";
@@ -14,12 +14,14 @@ import { TokenStats } from "@/lib/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionMessages, checkSessionExists } from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
-import { getAgent } from "@/app/actions/agents";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers } from "@/lib/messageHandlers";
+import { kagentA2AClient } from "@/lib/a2aClient";
+import { v4 as uuidv4 } from "uuid";
+import { getStatusPlaceholder } from "@/lib/statusUtils";
 
-export type ChatStatus = "ready" | "thinking" | "error";
+export type ChatStatus = "ready" | "thinking" | "error" | "submitted" | "working" | "input_required" | "auth_required" | "processing_tools" | "generating_response";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -37,7 +39,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     input: 0,
     output: 0,
   });
-  const [teamConfig, setTeamConfig] = useState<Component<TeamConfig>>();
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
@@ -56,11 +57,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setMessages,
     setIsStreaming,
     setStreamingContent,
-    setTokenStats
+    setTokenStats,
+    setChatStatus,
+    agentContext: {
+      namespace: selectedNamespace,
+      agentName: selectedAgentName
+    }
   });
 
   useEffect(() => {
     async function initializeChat() {
+      setTokenStats({ total: 0, input: 0, output: 0 });
+      
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
         return;
@@ -115,19 +123,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   }, [messages, streamingContent]);
 
-  useEffect(() => {
-    async function loadTeamConfig() {
-      try {
-        const teamResponse = await getAgent(selectedAgentName, selectedNamespace);
-        if (!teamResponse.error && teamResponse.data) {
-          setTeamConfig(teamResponse.data.component);
-        }
-      } catch (error) {
-        console.error("Error loading team config:", error);
-      }
-    }
-    loadTeamConfig();
-  }, [selectedAgentName, selectedNamespace]);
+
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -200,89 +196,48 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       abortControllerRef.current = new AbortController();
 
       try {
-        const requestBody = {
-          task: userMessageText,
-          team_config: teamConfig,
-        }
+        const messageId = uuidv4();
+        const a2aMessage = kagentA2AClient.createA2AMessage(userMessageText, messageId);
+        const sendParams = kagentA2AClient.createMessageSendParams(a2aMessage);
+        const stream = await kagentA2AClient.sendMessageStream(selectedNamespace, selectedAgentName, sendParams);
 
-        const response = await fetch(
-          `/stream/${currentSessionId}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'text/plain',
-            },
-            body: JSON.stringify(requestBody),
-            signal: abortControllerRef.current.signal,
-          }
-        );
+        let lastEventTime = Date.now();
+        const streamTimeout = 60000;
 
-        if (!response.ok) {
-          let errorText = `HTTP error! status: ${response.status}`;
+        for await (const event of stream) {
+          lastEventTime = Date.now();
+
           try {
-            const resText = await response.text();
-            if (resText) errorText = `${errorText} - ${resText}`;
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          } catch (e) { /* ignore */ }
-          toast.error(errorText);
-          throw new Error(errorText);
-        }
+            handleMessageEvent(event as AgentMessageConfig);
+          } catch (error) {
+            console.error("❌ Event that caused error:", event);
+          }
 
-        if (!response.body) {
-          toast.error("Response body is null");
-          throw new Error("Response body is null");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        let buffer = "";
-
-        while (true) {
-          const { value, done } = await reader.read();
-
-          if (done) {
+          // Check if we should stop streaming due to cancellation
+          if (abortControllerRef.current?.signal.aborted) {
             break;
           }
 
-          if (!value) {
-            continue;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-
-          let eventData = '';
-          // Process all complete lines in buffer
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep the last incomplete line in buffer
-
-          for (const line of lines) {
-            if (line.trim() === '') continue;
-
-            if (line.includes('data:')) {
-              eventData = line.substring(line.indexOf('data:') + 5).trim();
-
-              if (eventData) {
-                try {
-                  const eventDataJson = JSON.parse(eventData) as AgentMessageConfig;
-                  handleMessageEvent(eventDataJson);
-                } catch (error) {
-                  toast.error("Error parsing event data");
-                  console.error("Error parsing event data:", error, eventData);
-                }
-              }
-            }
+          // Timeout check (in case stream hangs)
+          if (Date.now() - lastEventTime > streamTimeout) {
+            console.warn("⏰ Stream timeout - no events received for 30 seconds");
+            break;
           }
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         if (error.name === "AbortError") {
-          toast.error("Fetch aborted");
+          toast.info("Request cancelled");
+          setChatStatus("ready");
         } else {
-          toast.error("Streaming failed");
+          toast.error(`Streaming failed: ${error.message}`);
           setChatStatus("error");
           setCurrentInputMessage(userMessageText);
         }
+
+        // Clean up streaming state
+        setIsStreaming(false);
+        setStreamingContent("");
       } finally {
         setChatStatus("ready");
         abortControllerRef.current = null;
@@ -297,16 +252,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const handleCancel = (e: React.FormEvent) => {
     e.preventDefault();
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+
+    setIsStreaming(false);
+    setStreamingContent("");
     setChatStatus("ready");
+    toast.error("Request cancelled");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace) {
+      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
         handleSendMessage(e);
       }
     }
@@ -372,18 +332,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           <Textarea
             value={currentInputMessage}
             onChange={(e) => setCurrentInputMessage(e.target.value)}
-            placeholder={"Send a message..."}
+                        placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
-            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus === "thinking" ? "opacity-50 cursor-not-allowed" : ""}`}
-            disabled={chatStatus === "thinking"}
+            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
+            disabled={chatStatus !== "ready"}
           />
 
           <div className="flex items-center justify-end gap-2 mt-4">
-            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus === "thinking"}>
+            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
               Send
               <ArrowBigUp className="h-4 w-4 ml-2" />
             </Button>
-            {chatStatus === "thinking" && (
+            {chatStatus !== "ready" && chatStatus !== "error" && (
               <Button type="button" variant="outline" onClick={handleCancel}>
                 <X className="h-4 w-4 mr-2" /> Cancel
               </Button>

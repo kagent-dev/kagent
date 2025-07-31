@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
-import { AgentResponse, Session, Component, ToolConfig } from "@/types/datamodel";
+import { AgentResponse, Session, ToolResponse } from "@/types/datamodel";
 import { getSessionsForAgent } from "@/app/actions/sessions";
 import { toast } from "sonner";
 
@@ -12,7 +12,7 @@ interface ChatLayoutUIProps {
   namespace: string;
   currentAgent: AgentResponse;
   allAgents: AgentResponse[];
-  allTools: Component<ToolConfig>[];
+  allTools: ToolResponse[];
   children: React.ReactNode;
 }
 

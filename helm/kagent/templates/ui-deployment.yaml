@@ -44,9 +44,14 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 1
+            initialDelaySeconds: 1
           readinessProbe:
             httpGet:
-              path: /
+              path: /health
               port: http
-            initialDelaySeconds: 15
-            periodSeconds: 15
+            periodSeconds: 30

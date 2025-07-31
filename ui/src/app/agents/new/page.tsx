@@ -347,7 +347,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               </CardHeader>
               <CardContent>
                 <ToolsSection 
-                  allTools={tools} 
                   selectedTools={selectedTools} 
                   setSelectedTools={setSelectedTools} 
                   isSubmitting={isSubmitting || isLoading} 

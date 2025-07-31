@@ -14,7 +14,7 @@ tests:
           value: NAMESPACE
       - equal:
           path: spec.description
-          value: "Oficial KAgent tool server"
+          value: "Official KAgent tool server"
       - hasDocuments:
           count: 1
 

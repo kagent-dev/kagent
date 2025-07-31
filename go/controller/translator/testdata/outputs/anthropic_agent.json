@@ -1,72 +1,280 @@
 {
-  "CreatedAt": "0001-01-01T00:00:00Z",
-  "DeletedAt": null,
-  "ID": 0,
-  "UpdatedAt": "0001-01-01T00:00:00Z",
-  "component": {
-    "component_type": "team",
-    "component_version": 0,
-    "config": {
-      "participants": [
-        {
-          "component_type": "agent",
-          "component_version": 0,
-          "config": {
-            "description": "An agent using Anthropic Claude",
-            "model_client": {
-              "component_type": "model",
-              "component_version": 0,
-              "config": {
-                "api_key": "anthropic-api-key",
-                "max_tokens": 4096,
-                "model": "claude-3-sonnet-20240229",
-                "temperature": 0.3,
-                "top_k": 40,
-                "top_p": 0.9
-              },
-              "description": "",
-              "label": "",
-              "provider": "autogen_ext.models.anthropic.AnthropicChatCompletionClient",
-              "version": 1
-            },
-            "model_client_stream": true,
-            "model_context": {
-              "component_type": "chat_completion_context",
-              "component_version": 0,
-              "config": {},
-              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
-              "label": "UnboundedChatCompletionContext",
-              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
-              "version": 1
-            },
-            "name": "test__NS__anthropic_agent",
-            "reflect_on_tool_use": false,
-            "system_message": "You are Claude, an AI assistant created by Anthropic.",
-            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-            "tools": null
-          },
-          "description": "An agent using Anthropic Claude",
-          "label": "",
-          "provider": "autogen_agentchat.agents.AssistantAgent",
-          "version": 1
-        }
+  "config": {
+    "agent_card": {
+      "capabilities": {
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "streaming": true
+      },
+      "defaultInputModes": [
+        "text"
       ],
-      "termination_condition": {
-        "component_type": "termination",
-        "component_version": 0,
-        "config": {
-          "source": "test__NS__anthropic_agent"
+      "defaultOutputModes": [
+        "text"
+      ],
+      "description": "An agent using Anthropic Claude",
+      "name": "anthropic-agent",
+      "skills": null,
+      "url": "http://anthropic-agent.test.svc:8080",
+      "version": ""
+    },
+    "agents": null,
+    "description": "An agent using Anthropic Claude",
+    "http_tools": null,
+    "instruction": "You are Claude, an AI assistant created by Anthropic.",
+    "kagent_url": "http://kagent-controller.kagent.svc:8083",
+    "model": {
+      "base_url": "",
+      "model": "claude-3-sonnet-20240229",
+      "type": "anthropic"
+    },
+    "name": "test__NS__anthropic_agent",
+    "sse_tools": null
+  },
+  "configHash": [
+    195,
+    189,
+    233,
+    59,
+    60,
+    72,
+    46,
+    191,
+    148,
+    32,
+    249,
+    148,
+    77,
+    175,
+    182,
+    168,
+    109,
+    228,
+    220,
+    20,
+    29,
+    103,
+    96,
+    243,
+    43,
+    51,
+    162,
+    101,
+    230,
+    163,
+    248,
+    166
+  ],
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "anthropic-agent"
         },
-        "description": "",
-        "label": "",
-        "provider": "kagent.conditions.FinalTextMessageTermination",
-        "version": 1
+        "name": "anthropic-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "anthropic-agent",
+            "uid": ""
+          }
+        ]
       }
     },
-    "description": "An agent using Anthropic Claude",
-    "label": "test/anthropic-agent",
-    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
-    "version": 1
-  },
-  "name": "test/anthropic-agent"
+    {
+      "apiVersion": "v1",
+      "data": {
+        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"anthropic-agent\",\"description\":\"An agent using Anthropic Claude\",\"url\":\"http://anthropic-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__anthropic_agent\",\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"An agent using Anthropic Claude\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+      },
+      "kind": "ConfigMap",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "anthropic-agent"
+        },
+        "name": "anthropic-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "anthropic-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "anthropic-agent"
+        },
+        "name": "anthropic-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "anthropic-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "anthropic-agent"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "creationTimestamp": null,
+            "labels": {
+              "app": "kagent",
+              "config.kagent.dev/hash": "14104686048617967295",
+              "kagent": "anthropic-agent"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "command": [
+                  "kagent",
+                  "static",
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config/config.json"
+                ],
+                "env": [
+                  {
+                    "name": "ANTHROPIC_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "anthropic-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 3
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "anthropic-agent",
+            "volumes": [
+              {
+                "configMap": {
+                  "name": "anthropic-agent"
+                },
+                "name": "config"
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "anthropic-agent"
+        },
+        "name": "anthropic-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "anthropic-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "anthropic-agent"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
 }

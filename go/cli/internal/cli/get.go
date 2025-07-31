@@ -88,15 +88,15 @@ func GetToolCmd(cfg *config.Config) {
 }
 
 func printTools(tools []database.Tool) error {
-	headers := []string{"#", "ID", "PROVIDER", "LABEL", "CREATED"}
+	headers := []string{"#", "NAME", "SERVER_NAME", "DESCRIPTION", "CREATED"}
 	rows := make([][]string, len(tools))
 	for i, tool := range tools {
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
-			strconv.Itoa(int(tool.Model.ID)),
-			tool.Component.Provider,
-			tool.Component.Label,
-			tool.Model.CreatedAt.String(),
+			tool.ID,
+			tool.ServerName,
+			tool.Description,
+			tool.CreatedAt.Format(time.RFC3339),
 		}
 	}
 
@@ -122,14 +122,14 @@ func printSessions(sessions []*database.Session) error {
 	headers := []string{"#", "NAME", "AGENT", "CREATED"}
 	rows := make([][]string, len(sessions))
 	for i, session := range sessions {
-		agentID := -1
+		agentID := ""
 		if session.AgentID != nil {
-			agentID = int(*session.AgentID)
+			agentID = *session.AgentID
 		}
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
 			session.ID,
-			strconv.Itoa(agentID),
+			agentID,
 			session.CreatedAt.Format(time.RFC3339),
 		}
 	}

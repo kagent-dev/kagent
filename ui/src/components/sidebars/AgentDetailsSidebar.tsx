@@ -2,29 +2,79 @@
 
 import { useEffect, useState } from "react";
 import { ChevronRight, Edit, Plus } from "lucide-react";
-import type { AgentResponse, Tool, Component, ToolConfig, MCPToolConfig } from "@/types/datamodel";
+import type { AgentResponse, Tool, ToolResponse } from "@/types/datamodel";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
-import { getToolIdentifier, getToolProvider, getToolDisplayName, SSE_MCP_TOOL_PROVIDER_NAME, STDIO_MCP_TOOL_PROVIDER_NAME, isAgentTool, STREAMABLE_HTTP_MCP_TOOL_PROVIDER_NAME } from "@/lib/toolUtils";
+import { isAgentTool, getToolResponseDescription } from "@/lib/toolUtils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { getAgents } from "@/app/actions/agents";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface AgentDetailsSidebarProps {
   selectedAgentName: string;
   currentAgent: AgentResponse;
-  allTools: Component<ToolConfig>[];
+  allTools: ToolResponse[];
 }
 
 export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools }: AgentDetailsSidebarProps) {
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
+  const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
   const router = useRouter();
 
   const selectedTeam = currentAgent;
+
+  // Fetch agents for looking up agent tool descriptions
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const response = await getAgents();
+        if (response.data) {
+          setAvailableAgents(response.data);
+
+        } else if (response.error) {
+          console.error("AgentDetailsSidebar: Error fetching agents:", response.error);
+        }
+      } catch (error) {
+        console.error("AgentDetailsSidebar: Failed to fetch agents:", error);
+      }
+    };
+
+    fetchAgents();
+  }, []);
+
+  // Helper functions for Tool objects
+  const getToolIdentifier = (tool: Tool): string => {
+    if (isAgentTool(tool)) {
+      return `agent-${tool.agent?.ref}`;
+    } else if (tool.mcpServer) {
+      return `mcp-${tool.mcpServer.toolServer}`;
+    }
+    return `unknown-tool-${Math.random().toString(36).substring(7)}`;
+  };
+
+  const getToolProvider = (tool: Tool): string => {
+    if (isAgentTool(tool)) {
+      return tool.agent?.ref || "unknown";
+    } else if (tool.mcpServer) {
+      return tool.mcpServer.toolServer;
+    }
+    return "unknown";
+  };
+
+  const getToolDisplayName = (tool: Tool): string => {
+    if (isAgentTool(tool)) {
+      return tool.agent?.ref || "Unknown Agent";
+    } else if (tool.mcpServer) {
+      return tool.mcpServer.toolServer;
+    }
+    return "Unknown Tool";
+  };
 
   const RenderToolCollapsibleItem = ({
     itemKey,
@@ -73,76 +123,80 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   };
 
   useEffect(() => {
-    const processToolDescriptions = async () => {
+    const processToolDescriptions = () => {
       setToolDescriptions({});
 
       if (!selectedTeam || !allTools) return;
 
-      try {
-        const descriptions: Record<string, string> = {};
-        const toolRefs = selectedTeam.tools;
-        const allToolDefinitions = allTools;
 
-        if (toolRefs && Array.isArray(toolRefs)) {
-          await Promise.all(toolRefs.map(async (tool) => {
-            if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
-              const baseMcpIdentifier = getToolIdentifier(tool);
-              await Promise.all(tool.mcpServer.toolNames.map(async (mcpToolName) => {
-                const subToolIdentifier = `${baseMcpIdentifier}::${mcpToolName}`;
-                let description = "No description available";
-                try {
-                  const foundToolDefinition = allToolDefinitions.find(
-                    (def) => (
-                      (def.provider === SSE_MCP_TOOL_PROVIDER_NAME || def.provider === STDIO_MCP_TOOL_PROVIDER_NAME || def.provider === STREAMABLE_HTTP_MCP_TOOL_PROVIDER_NAME) &&
-                      (def.config as MCPToolConfig)?.tool?.name === mcpToolName
-                    )
-                  ) || null;
 
-                  if (foundToolDefinition) {
-                    const toolConfig = foundToolDefinition.config as MCPToolConfig;
-                    // isMcpProvider check is implicitly true due to the find condition
-                    description = toolConfig?.tool?.description || `Description for MCP tool \'${mcpToolName}\' is missing in definition`;
-                  } else {
-                    description = `Definition for MCP tool \'${mcpToolName}\' not available`;
-                  }
-                } catch (err) {
-                  console.error(`Failed to process description for MCP tool ${subToolIdentifier}:`, err);
-                  description = "Failed to load description for MCP tool";
-                }
-                descriptions[subToolIdentifier] = description;
-              }));
-            } else {
-              // Handle Agent tools or Builtin tools
-              const toolIdentifier = getToolIdentifier(tool);
-              let description = "No description available";
-              try {
-                if (isAgentTool(tool)) {
-                  description = tool.agent?.description || "Agent description not found";
+      const descriptions: Record<string, string> = {};
+      const toolRefs = selectedTeam.tools;
+
+      if (toolRefs && Array.isArray(toolRefs)) {
+        toolRefs.forEach((tool) => {
+          if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
+            // For MCP tools, each tool name gets its own description
+            const baseToolIdentifier = getToolIdentifier(tool);
+            tool.mcpServer.toolNames.forEach((mcpToolName) => {
+              const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
+              
+              // Find the tool in allTools by matching server_name and tool id
+              const foundTool = allTools.find(
+                (toolResponse) => toolResponse.server_name === tool.mcpServer!.toolServer && toolResponse.id === mcpToolName
+              );
+
+              descriptions[subToolIdentifier] = foundTool ? getToolResponseDescription(foundTool) : "No description available";
+            });
+          } else {
+            // Handle Agent tools or regular tools
+            const toolIdentifier = getToolIdentifier(tool);
+            
+            if (isAgentTool(tool)) {
+              // Try to get description from the tool itself first
+              let agentDescription = tool.agent?.description;
+              
+              // If no description in tool, try to look it up from available agents
+              if (!agentDescription && tool.agent?.ref) {
+                // First check if it matches the current agent
+                const currentAgentRef = k8sRefUtils.toRef(
+                  currentAgent.agent.metadata.namespace || "",
+                  currentAgent.agent.metadata.name
+                );
+                if (tool.agent.ref === currentAgentRef) {
+                  agentDescription = currentAgent.agent.spec.description;
                 } else {
-                  const toolProvider = getToolProvider(tool);
-                  const foundToolDefinition = allToolDefinitions.find(def => def.provider === toolProvider) || null;
-
-                  if (foundToolDefinition) {
-                      description = foundToolDefinition.description || "Description not found";
+                  // Look up in available agents
+                  const foundAgent = availableAgents.find(agent => {
+                    const agentRef = k8sRefUtils.toRef(
+                      agent.agent.metadata.namespace || "",
+                      agent.agent.metadata.name
+                    );
+                    return agentRef === tool.agent?.ref;
+                  });
+                  
+                  if (foundAgent) {
+                    agentDescription = foundAgent.agent.spec.description;
                   }
-
                 }
-              } catch (err) {
-                console.error(`Failed to process description for tool ${toolIdentifier}:`, err);
-                description = "Failed to load description";
               }
-              descriptions[toolIdentifier] = description;
+              
+              descriptions[toolIdentifier] = agentDescription || "Agent description not found";
+            } else {
+              // For regular tools, find by server name
+              const toolProvider = getToolProvider(tool);
+              const foundTool = allTools.find(toolResponse => toolResponse.server_name === toolProvider);
+              descriptions[toolIdentifier] = foundTool ? getToolResponseDescription(foundTool) : "No description available";
             }
-          }));
-        }
-        setToolDescriptions(descriptions);
-      } catch (err) {
-        console.error("Failed processing tool descriptions:", err);
+          }
+        });
       }
+      
+      setToolDescriptions(descriptions);
     };
 
     processToolDescriptions();
-  }, [selectedTeam, allTools]);
+  }, [selectedTeam, allTools, availableAgents]);
 
   const toggleToolExpansion = (toolIdentifier: string) => {
     setExpandedTools(prev => ({
@@ -236,7 +290,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                   asChild
                   aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
                 >
-                  <Link href={`/agents/new?edit=true&name=${selectedAgentName}`}>
+                  <Link href={`/agents/new?edit=true&name=${selectedAgentName}&namespace=${currentAgent.agent.metadata.namespace}`}>
                     <Edit className="h-3.5 w-3.5" />
                   </Link>
                 </Button>

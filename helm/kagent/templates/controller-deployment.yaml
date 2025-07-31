@@ -42,16 +42,14 @@ spec:
             - {{ .Values.controller.loglevel }}
             - -watch-namespaces
             - "{{ include "kagent.watchNamespaces" . }}"
-            - -autogen-base-url
-            - "http://{{ include "kagent.fullname" . }}-engine.{{ include "kagent.namespace" . }}.svc.cluster.local:{{ .Values.engine.service.ports.port }}/api"
             - -database-type
-            - {{ .Values.controller.database.type }}
-            {{- if eq .Values.controller.database.type "sqlite" }}
+            - {{ .Values.database.type }}
+            {{- if eq .Values.database.type "sqlite" }}
             - -sqlite-database-path
-            - /sqlite-volume/{{ .Values.controller.database.sqlite.databaseName }}
-            {{- else if eq .Values.controller.database.type "postgres" }}
+            - /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
+            {{- else if eq .Values.database.type "postgres" }}
             - -postgres-database-url
-            - {{ .Values.controller.database.postgres.url }}
+            - {{ .Values.database.postgres.url }}
             {{- end }}          
           securityContext:
             {{- toYaml .Values.controller.securityContext | nindent 12 }}
@@ -60,6 +58,10 @@ spec:
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
           env:
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: LOG_LEVEL
               value: {{ .Values.controller.loglevel | quote }}
             - name: OTEL_TRACING_ENABLED
@@ -70,10 +72,6 @@ spec:
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
-            - name: KAGENT_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -81,11 +79,64 @@ spec:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
               protocol: TCP
-          readinessProbe:
-            tcpSocket:
+          startupProbe:
+            httpGet:
+              path: /health
               port: http
-            initialDelaySeconds: 15
-            periodSeconds: 15
+            periodSeconds: 1
+            initialDelaySeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
           volumeMounts:
             - name: sqlite-volume
               mountPath: /sqlite-volume
+        - name: grafana-mcp # Temporary workaround until kmcp is ready.
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: mcp/grafana:latest
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: GRAFANA_URL
+              value: {{ .Values.tools.grafana.url | quote }}
+            - name: GRAFANA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-mcp-grafana
+                  key: GRAFANA_API_KEY
+                  optional: true
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: OTEL_TRACING_ENABLED
+              value: {{ .Values.otel.tracing.enabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+              value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
+              value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 1
+            initialDelaySeconds: 1
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
