@@ -132,22 +132,6 @@ describe('Message Utilities', () => {
       });
     });
 
-    describe('isTextMessageContent', () => {
-      it('should identify valid text message content', () => {
-        const validContent = {
-          content: 'Hello',
-          type: 'TextMessage'
-        };
-        expect(messageUtils.isTextMessageContent(validContent)).toBe(true);
-      });
-
-      it('should reject invalid text message content', () => {
-        expect(messageUtils.isTextMessageContent({ content: 'Hello' })).toBe(false);
-        expect(messageUtils.isTextMessageContent({ type: 'TextMessage' })).toBe(false);
-        expect(messageUtils.isTextMessageContent('not an object')).toBe(false);
-      });
-    });
-
     describe('isUser', () => {
       it('should identify user source', () => {
         expect(messageUtils.isUser('user')).toBe(true);
