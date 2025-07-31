@@ -7,21 +7,21 @@ import ChatLayoutUI from "@/components/chat/ChatLayoutUI";
 
 async function getData(agentName: string, namespace: string) {
   try {
-    const [teamResponse, teamsResponse, toolsResponse] = await Promise.all([
+    const [agentResponse, agentsResponse, toolsResponse] = await Promise.all([
       getAgent(agentName, namespace),
       getAgents(),
       getTools()
     ]);
 
-    if (teamResponse.error || !teamResponse.data) {
-      return { error: teamResponse.error || "Agent not found" };
+    if (agentResponse.error || !agentResponse.data) {
+      return { error: agentResponse.error || "Agent not found" };
     }
-    if (teamsResponse.error || !teamsResponse.data) {
-      return { error: teamsResponse.error || "Failed to fetch agents" };
+    if (agentsResponse.error || !agentsResponse.data) {
+      return { error: agentsResponse.error || "Failed to fetch agents" };
     }
 
-    const currentAgent = teamResponse.data;
-    const allAgents = teamsResponse.data || [];
+    const currentAgent = agentResponse.data;
+    const allAgents = agentsResponse.data || [];
     const allTools = toolsResponse || [];
 
     return {
