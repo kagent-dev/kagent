@@ -3,6 +3,7 @@ module github.com/kagent-dev/kagent/go
 go 1.24.4
 
 require (
+	github.com/KimMachineGun/automemlimit v0.7.4
 	github.com/abiosoft/ishell/v2 v2.0.2
 	github.com/abiosoft/readline v0.0.0-20180607040430-155bce2042db
 	github.com/briandowns/spinner v1.23.2
@@ -90,6 +91,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/onsi/ginkgo/v2 v2.23.4 // indirect
 	github.com/onsi/gomega v1.37.0 // indirect
+	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
