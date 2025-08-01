@@ -5,16 +5,10 @@ on:
     branches: [main]
     paths-ignore:
       - '**/*.md'
-      - '**/README.md'
-      - '**/CONTRIBUTION.md'
-      - '**/CODE_OF_CONDUCT.md'
   pull_request:
     branches: [main]
     paths-ignore:
       - '**/*.md'
-      - '**/README.md'
-      - '**/CONTRIBUTION.md'
-      - '**/CODE_OF_CONDUCT.md'
   workflow_dispatch:
 
 env:
