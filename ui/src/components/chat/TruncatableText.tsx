@@ -23,11 +23,6 @@ const components = {
     return <code className={className}>{children}</code>;
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  a: (props: any) => {
-    const { children, className } = props;
-    return <a href={children} target="_blank" rel="noopener noreferrer" className={className}>{children}</a>;
-  },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   table: (props: any) => {
     const { children } = props;
     return <table className="min-w-full divide-y divide-gray-300 table-fixed">{children}</table>;
