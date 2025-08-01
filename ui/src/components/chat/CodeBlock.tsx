@@ -45,7 +45,7 @@ const CodeBlock = ({ children, className }: { children: React.ReactNode[]; class
       <Button 
         variant="link" 
         onClick={handleCopy} 
-        className="absolute top-2 right-2 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background/90" 
+        className="absolute top-2 right-2 p-2.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background/90" 
         aria-label="Copy to clipboard"
         title={copied ? "Copied!" : "Copy to clipboard"}
       >
