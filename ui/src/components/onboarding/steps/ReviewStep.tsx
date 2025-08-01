@@ -7,8 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, FunctionSquare } from 'lucide-react';
 import { Tool } from "@/types/datamodel";
-import { getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
-import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
+import { getToolResponseIdentifier, getToolResponseDisplayName } from '@/lib/toolUtils';
 
 interface OnboardingDataForReview {
     agentRef?: string;
@@ -77,9 +76,9 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                         <ScrollArea className="h-[100px] w-full rounded-md border p-3 bg-muted/50">
                             <div className="flex flex-wrap gap-2">
                                 {onboardingData.selectedTools.map(tool => (
-                                    <Badge variant="secondary" key={getToolIdentifier(tool)} className="flex items-center gap-1">
+                                    <Badge variant="secondary" key={tool.mcpServer?.toolServer} className="flex items-center gap-1">
                                         <FunctionSquare className="h-3 w-3" />
-                                        {getToolDisplayName(tool)}
+                                        {tool.mcpServer?.toolServer}
                                     </Badge>
                                 ))}
                             </div>

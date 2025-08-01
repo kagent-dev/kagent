@@ -3,14 +3,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Plus, FunctionSquare, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, isAgentTool, isMcpTool, isMcpProvider } from "@/lib/toolUtils";
+import { isAgentTool, isMcpTool, getToolResponseDescription } from "@/lib/toolUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
-import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
+import { Tool, ToolResponse, AgentResponse } from "@/types/datamodel";
 import { getAgents } from "@/app/actions/agents";
+import { getTools } from "@/app/actions/tools";
 import KagentLogo from "../kagent-logo";
 
 interface ToolsSectionProps {
-  allTools: Component<ToolConfig>[];
   selectedTools: Tool[];
   setSelectedTools: (tools: Tool[]) => void;
   isSubmitting: boolean;
@@ -18,27 +18,73 @@ interface ToolsSectionProps {
   currentAgentName: string;
 }
 
-export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
+export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
   const [showToolSelector, setShowToolSelector] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
+  const [availableTools, setAvailableTools] = useState<ToolResponse[]>([]);
+  const [loadingTools, setLoadingTools] = useState(true);
+
+  // Helper functions for Tool objects
+  const getToolIdentifier = (tool: Tool): string => {
+    if (isAgentTool(tool) && tool.agent) {
+      return `agent-${tool.agent.ref}`;
+    } else if (isMcpTool(tool) && tool.mcpServer) {
+      return `mcp-${tool.mcpServer.toolServer}`;
+    }
+    return `unknown-tool-${Math.random().toString(36).substring(7)}`;
+  };
+
+  const getToolDisplayName = (tool: Tool): string => {
+    if (isAgentTool(tool) && tool.agent) {
+      return tool.agent.ref;
+    } else if (isMcpTool(tool) && tool.mcpServer) {
+      return tool.mcpServer.toolServer;
+    }
+    return "Unknown Tool";
+  };
+
+  const getToolDescription = (tool: Tool): string => {
+    if (isAgentTool(tool) && tool.agent) {
+      return tool.agent.description || "Agent description not available";
+    } else if (isMcpTool(tool) && tool.mcpServer) {
+      // For MCP tools, look up description from availableTools
+      const foundTool = availableTools.find(t => t.server_name === tool.mcpServer!.toolServer);
+      return foundTool ? getToolResponseDescription(foundTool) : "MCP tool description not available";
+    }
+    return "No description available";
+  };
 
   useEffect(() => {
-    const fetchAgents = async () => {
+    const fetchData = async () => {
       setLoadingAgents(true);
-      const response = await getAgents();
-      if (!response.error && response.data) {
-        const filteredAgents = currentAgentName
-          ? response.data.filter((agentResp: AgentResponse) => agentResp.agent.metadata.name !== currentAgentName)
-          : response.data;
-        setAvailableAgents(filteredAgents);
-      } else {
-        console.error("Failed to fetch agents:", response.error);
+      setLoadingTools(true);
+      
+      try {
+        const [agentsResponse, toolsResponse] = await Promise.all([
+          getAgents(),
+          getTools()
+        ]);
+
+        // Handle agents
+        if (!agentsResponse.error && agentsResponse.data) {
+          const filteredAgents = currentAgentName
+            ? agentsResponse.data.filter((agentResp: AgentResponse) => agentResp.agent.metadata.name !== currentAgentName)
+            : agentsResponse.data;
+          setAvailableAgents(filteredAgents);
+        } else {
+          console.error("Failed to fetch agents:", agentsResponse.error);
+        }
+        setAvailableTools(toolsResponse);
+      } catch (error) {
+        console.error("Failed to fetch data:", error);
+      } finally {
+        setLoadingAgents(false);
+        setLoadingTools(false);
       }
-      setLoadingAgents(false);
     };
 
-    fetchAgents();
+    fetchData();
   }, [currentAgentName]);
 
   const handleToolSelect = (newSelectedTools: Tool[]) => {
@@ -87,14 +133,12 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
             const displayName = mcpToolName;
 
             let displayDescription = "Description not available.";
-            const mcpToolDef = allTools.find(def =>
-              isMcpProvider(def.provider) &&
-              (def.config as ToolConfig & { tool?: { name: string, description?: string } })?.tool?.name === mcpToolName
+            const mcpToolDef = availableTools.find(tool => 
+              tool.server_name === agentTool.mcpServer!.toolServer && tool.id === mcpToolName
             );
 
             if (mcpToolDef) {
-              const toolConfig = (mcpToolDef.config as ToolConfig & { tool?: { name: string, description?: string } });
-              displayDescription = toolConfig?.tool?.description || displayDescription;
+              displayDescription = getToolResponseDescription(mcpToolDef);
             }
 
             const Icon = FunctionSquare;
@@ -212,7 +256,7 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
       <SelectToolsDialog
         open={showToolSelector}
         onOpenChange={setShowToolSelector}
-        availableTools={allTools}
+        availableTools={availableTools}
         availableAgents={availableAgents}
         selectedTools={selectedTools}
         onToolsSelected={handleToolSelect}

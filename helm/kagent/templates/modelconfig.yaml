@@ -28,4 +28,4 @@ spec:
   {{- end }}
   {{ $dot.Values.providers.default }}:
   {{- toYaml $model.config | nindent 4 }}
-  {{- end}}
+  {{- end }}

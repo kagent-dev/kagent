@@ -156,6 +156,12 @@ export async function deleteAgent(agentName: string): Promise<BaseResponse<void>
  */
 export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
   try {
+
+    // Only get the name of the model, not the full ref
+    if (agentConfig.model.ref) {
+      agentConfig.model.ref = agentConfig.model.ref.split("/").pop() || "";
+    }
+
     const agentPayload = fromAgentFormDataToAgent(agentConfig);
     const response = await fetchApi<BaseResponse<Agent>>(`/agents`, {
       method: update ? "PUT" : "POST",

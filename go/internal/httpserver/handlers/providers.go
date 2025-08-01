@@ -22,10 +22,10 @@ func NewProviderHandler(base *Base) *ProviderHandler {
 // Helper function to get JSON keys specifically marked as required
 func getRequiredKeysForModelProvider(providerType v1alpha1.ModelProvider) []string {
 	switch providerType {
-	case v1alpha1.AzureOpenAI:
+	case v1alpha1.ModelProviderAzureOpenAI:
 		// Based on the +required comments in the AzureOpenAIConfig struct definition
 		return []string{"azureEndpoint", "apiVersion"}
-	case v1alpha1.OpenAI, v1alpha1.Anthropic, v1alpha1.Ollama:
+	case v1alpha1.ModelProviderOpenAI, v1alpha1.ModelProviderAnthropic, v1alpha1.ModelProviderOllama:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
 	default:
@@ -93,10 +93,10 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 		providerEnum v1alpha1.ModelProvider
 		configType   reflect.Type
 	}{
-		{v1alpha1.OpenAI, reflect.TypeOf(v1alpha1.OpenAIConfig{})},
-		{v1alpha1.Anthropic, reflect.TypeOf(v1alpha1.AnthropicConfig{})},
-		{v1alpha1.AzureOpenAI, reflect.TypeOf(v1alpha1.AzureOpenAIConfig{})},
-		{v1alpha1.Ollama, reflect.TypeOf(v1alpha1.OllamaConfig{})},
+		{v1alpha1.ModelProviderOpenAI, reflect.TypeOf(v1alpha1.OpenAIConfig{})},
+		{v1alpha1.ModelProviderAnthropic, reflect.TypeOf(v1alpha1.AnthropicConfig{})},
+		{v1alpha1.ModelProviderAzureOpenAI, reflect.TypeOf(v1alpha1.AzureOpenAIConfig{})},
+		{v1alpha1.ModelProviderOllama, reflect.TypeOf(v1alpha1.OllamaConfig{})},
 	}
 
 	providersResponse := []map[string]interface{}{}

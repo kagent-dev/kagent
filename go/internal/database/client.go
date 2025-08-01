@@ -4,54 +4,52 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
-	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
-	"github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 type Client interface {
-	CreateFeedback(feedback *Feedback) error
-	CreateSession(session *Session) error
-	CreateAgent(agent *Agent) error
-	CreateToolServer(toolServer *ToolServer) (*ToolServer, error)
-	CreateMessages(messages ...*protocol.Message) error
-	CreateTask(task *protocol.Task) error
-	CreatePushNotification(taskID string, config *protocol.TaskPushNotificationConfig) error
+	// Store methods
+	StoreFeedback(feedback *Feedback) error
+	StoreSession(session *Session) error
+	StoreAgent(agent *Agent) error
+	StoreTask(task *protocol.Task) error
+	StorePushNotification(config *protocol.TaskPushNotificationConfig) error
+	StoreToolServer(toolServer *ToolServer) (*ToolServer, error)
+	StoreEvents(messages ...*Event) error
 
-	UpsertAgent(agent *Agent) error
-
-	RefreshToolsForServer(serverName string, tools []*autogen_client.NamedTool) error
-
+	// Delete methods
 	DeleteSession(sessionName string, userID string) error
-	DeleteAgent(agentName string) error
+	DeleteAgent(agentID string) error
 	DeleteToolServer(serverName string) error
 	DeleteTask(taskID string) error
+	DeletePushNotification(taskID string) error
 
-	UpdateSession(session *Session) error
-	UpdateToolServer(server *ToolServer) error
-	UpdateAgent(agent *Agent) error
-	UpdateTask(task *Task) error
-
+	// Get methods
 	GetSession(name string, userID string) (*Session, error)
 	GetAgent(name string) (*Agent, error)
+	GetTask(id string) (*protocol.Task, error)
 	GetTool(name string) (*Tool, error)
 	GetToolServer(name string) (*ToolServer, error)
-	GetTask(taskID string) (*Task, error)
-	GetMessage(messageID string) (*Message, error)
-	GetPushNotification(taskID string) (*protocol.TaskPushNotificationConfig, error)
+	GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error)
 
+	// List methods
 	ListTools() ([]Tool, error)
 	ListFeedback(userID string) ([]Feedback, error)
-	ListSessionTasks(sessionID string, userID string) ([]Task, error)
+	ListTasksForSession(sessionID string) ([]*protocol.Task, error)
 	ListSessions(userID string) ([]Session, error)
-	ListSessionsForAgent(agentID uint, userID string) ([]Session, error)
+	ListSessionsForAgent(agentID string, userID string) ([]Session, error)
 	ListAgents() ([]Agent, error)
 	ListToolServers() ([]ToolServer, error)
 	ListToolsForServer(serverName string) ([]Tool, error)
-	ListMessagesForTask(taskID, userID string) ([]Message, error)
-	ListMessagesForSession(sessionID, userID string) ([]Message, error)
+	ListEventsForSession(sessionID, userID string, options QueryOptions) ([]*Event, error)
+	ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error)
+
+	// Helper methods
+	RefreshToolsForServer(serverName string, tools ...*v1alpha1.MCPTool) error
 }
 
 type clientImpl struct {
@@ -65,33 +63,18 @@ func NewClient(dbManager *Manager) Client {
 }
 
 // CreateFeedback creates a new feedback record
-func (c *clientImpl) CreateFeedback(feedback *Feedback) error {
-	return create(c.db, feedback)
+func (c *clientImpl) StoreFeedback(feedback *Feedback) error {
+	return save(c.db, feedback)
 }
 
 // CreateSession creates a new session record
-func (c *clientImpl) CreateSession(session *Session) error {
-	return create(c.db, session)
+func (c *clientImpl) StoreSession(session *Session) error {
+	return save(c.db, session)
 }
 
 // CreateAgent creates a new agent record
-func (c *clientImpl) CreateAgent(agent *Agent) error {
-	return create(c.db, agent)
-}
-
-// CreateTask creates a new task record
-func (c *clientImpl) CreateTask(task *protocol.Task) error {
-	data, err := json.Marshal(task)
-	if err != nil {
-		return fmt.Errorf("failed to serialize task: %w", err)
-	}
-
-	return create(c.db, &Task{
-		ID:        task.ID,
-		SessionID: task.ContextID,
-		UserID:    utils.GetGlobalUserID(),
-		Data:      string(data),
-	})
+func (c *clientImpl) StoreAgent(agent *Agent) error {
+	return save(c.db, agent)
 }
 
 func (c *clientImpl) CreatePushNotification(taskID string, config *protocol.TaskPushNotificationConfig) error {
@@ -100,20 +83,17 @@ func (c *clientImpl) CreatePushNotification(taskID string, config *protocol.Task
 		return fmt.Errorf("failed to serialize push notification config: %w", err)
 	}
 
-	return create(c.db, &PushNotification{
+	dbPushNotification := PushNotification{
 		TaskID: taskID,
 		Data:   string(data),
-	})
-}
+	}
 
-// UpsertAgent upserts an agent record
-func (c *clientImpl) UpsertAgent(agent *Agent) error {
-	return upsert(c.db, agent)
+	return save(c.db, &dbPushNotification)
 }
 
 // CreateToolServer creates a new tool server record
-func (c *clientImpl) CreateToolServer(toolServer *ToolServer) (*ToolServer, error) {
-	err := create(c.db, toolServer)
+func (c *clientImpl) StoreToolServer(toolServer *ToolServer) (*ToolServer, error) {
+	err := save(c.db, toolServer)
 	if err != nil {
 		return nil, err
 	}
@@ -121,8 +101,8 @@ func (c *clientImpl) CreateToolServer(toolServer *ToolServer) (*ToolServer, erro
 }
 
 // CreateTool creates a new tool record
-func (c *clientImpl) CreateTool(tool *Tool) error {
-	return create(c.db, tool)
+func (c *clientImpl) StoreTool(tool *Tool) error {
+	return save(c.db, tool)
 }
 
 // DeleteTask deletes a task by ID
@@ -138,8 +118,8 @@ func (c *clientImpl) DeleteSession(sessionName string, userID string) error {
 }
 
 // DeleteAgent deletes an agent by name and user ID
-func (c *clientImpl) DeleteAgent(agentName string) error {
-	return delete[Agent](c.db, Clause{Key: "name", Value: agentName})
+func (c *clientImpl) DeleteAgent(agentID string) error {
+	return delete[Agent](c.db, Clause{Key: "id", Value: agentID})
 }
 
 // DeleteToolServer deletes a tool server by name and user ID
@@ -147,18 +127,23 @@ func (c *clientImpl) DeleteToolServer(serverName string) error {
 	return delete[ToolServer](c.db, Clause{Key: "name", Value: serverName})
 }
 
-func (c *clientImpl) GetTask(taskID string) (*Task, error) {
-	return get[Task](c.db, Clause{Key: "id", Value: taskID})
-}
-
 // GetTaskMessages retrieves messages for a specific task
-func (c *clientImpl) GetTaskMessages(taskID int) ([]Message, error) {
-	messages, err := list[Message](c.db, Clause{Key: "task_id", Value: taskID})
+func (c *clientImpl) GetTaskMessages(taskID int) ([]*protocol.Message, error) {
+	messages, err := list[Event](c.db, Clause{Key: "task_id", Value: taskID})
 	if err != nil {
 		return nil, err
 	}
 
-	return messages, nil
+	protocolMessages := make([]*protocol.Message, 0, len(messages))
+	for _, message := range messages {
+		var protocolMessage protocol.Message
+		if err := json.Unmarshal([]byte(message.Data), &protocolMessage); err != nil {
+			return nil, fmt.Errorf("failed to deserialize message: %w", err)
+		}
+		protocolMessages = append(protocolMessages, &protocolMessage)
+	}
+
+	return protocolMessages, nil
 }
 
 // GetSession retrieves a session by name and user ID
@@ -169,8 +154,8 @@ func (c *clientImpl) GetSession(sessionName string, userID string) (*Session, er
 }
 
 // GetAgent retrieves an agent by name and user ID
-func (c *clientImpl) GetAgent(agentName string) (*Agent, error) {
-	return get[Agent](c.db, Clause{Key: "name", Value: agentName})
+func (c *clientImpl) GetAgent(agentID string) (*Agent, error) {
+	return get[Agent](c.db, Clause{Key: "id", Value: agentID})
 }
 
 // GetTool retrieves a tool by provider (name) and user ID
@@ -193,50 +178,29 @@ func (c *clientImpl) ListFeedback(userID string) ([]Feedback, error) {
 	return feedback, nil
 }
 
-func (c *clientImpl) CreateMessages(messages ...*protocol.Message) error {
-	for _, message := range messages {
-		if message == nil {
-			continue
-		}
-
-		data, err := json.Marshal(message)
+func (c *clientImpl) StoreEvents(events ...*Event) error {
+	for _, event := range events {
+		err := save(c.db, event)
 		if err != nil {
-			return fmt.Errorf("failed to serialize message: %w", err)
-		}
-
-		dbMessage := Message{
-			ID:        message.MessageID,
-			Data:      string(data),
-			SessionID: message.ContextID,
-			TaskID:    message.TaskID,
-			UserID:    utils.GetGlobalUserID(),
-		}
-
-		err = create(c.db, &dbMessage)
-		if err != nil {
-			return fmt.Errorf("failed to create message: %w", err)
+			return fmt.Errorf("failed to create event: %w", err)
 		}
 	}
 	return nil
 }
 
-// ListRuns lists all runs for a user
-func (c *clientImpl) ListTasks(userID string) ([]Task, error) {
-	tasks, err := list[Task](c.db, Clause{Key: "user_id", Value: userID})
+// ListSessionRuns lists all runs for a specific session
+func (c *clientImpl) ListTasksForSession(sessionID string) ([]*protocol.Task, error) {
+	tasks, err := list[Task](c.db,
+		Clause{Key: "session_id", Value: sessionID},
+	)
 	if err != nil {
 		return nil, err
 	}
-	return tasks, nil
+
+	return ParseTasks(tasks)
 }
 
-// ListSessionRuns lists all runs for a specific session
-func (c *clientImpl) ListSessionTasks(sessionID string, userID string) ([]Task, error) {
-	return list[Task](c.db,
-		Clause{Key: "session_id", Value: sessionID},
-		Clause{Key: "user_id", Value: userID})
-}
-
-func (c *clientImpl) ListSessionsForAgent(agentID uint, userID string) ([]Session, error) {
+func (c *clientImpl) ListSessionsForAgent(agentID string, userID string) ([]Session, error) {
 	return list[Session](c.db,
 		Clause{Key: "agent_id", Value: agentID},
 		Clause{Key: "user_id", Value: userID})
@@ -268,7 +232,8 @@ func (c *clientImpl) ListToolsForServer(serverName string) ([]Tool, error) {
 }
 
 // RefreshToolsForServer refreshes a tool server
-func (c *clientImpl) RefreshToolsForServer(serverName string, tools []*autogen_client.NamedTool) error {
+// TODO: Use a transaction to ensure atomicity
+func (c *clientImpl) RefreshToolsForServer(serverName string, tools ...*v1alpha1.MCPTool) error {
 	existingTools, err := c.ListToolsForServer(serverName)
 	if err != nil {
 		return err
@@ -280,21 +245,21 @@ func (c *clientImpl) RefreshToolsForServer(serverName string, tools []*autogen_c
 	// If it's in the existing tools but not in the new tools, delete it
 	for _, tool := range tools {
 		existingToolIndex := slices.IndexFunc(existingTools, func(t Tool) bool {
-			return t.Name == tool.Name
+			return t.ID == tool.Name
 		})
 		if existingToolIndex != -1 {
 			existingTool := existingTools[existingToolIndex]
-			existingTool.Component = *tool.Component
 			existingTool.ServerName = serverName
-			err = upsert(c.db, &existingTool)
+			existingTool.Description = tool.Description
+			err = save(c.db, &existingTool)
 			if err != nil {
 				return err
 			}
 		} else {
-			err = create(c.db, &Tool{
-				Name:       tool.Name,
-				Component:  *tool.Component,
-				ServerName: serverName,
+			err = save(c.db, &Tool{
+				ID:          tool.Name,
+				ServerName:  serverName,
+				Description: tool.Description,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to create tool %s: %v", tool.Name, err)
@@ -304,80 +269,86 @@ func (c *clientImpl) RefreshToolsForServer(serverName string, tools []*autogen_c
 
 	// Delete any tools that are in the existing tools but not in the new tools
 	for _, existingTool := range existingTools {
-		if !slices.ContainsFunc(tools, func(t *autogen_client.NamedTool) bool {
-			return t.Name == existingTool.Name
+		if !slices.ContainsFunc(tools, func(t *v1alpha1.MCPTool) bool {
+			return t.Name == existingTool.ID
 		}) {
-			err = delete[Tool](c.db, Clause{Key: "name", Value: existingTool.Name})
+			err = delete[Tool](c.db, Clause{Key: "name", Value: existingTool.ID})
 			if err != nil {
-				return fmt.Errorf("failed to delete tool %s: %v", existingTool.Name, err)
+				return fmt.Errorf("failed to delete tool %s: %v", existingTool.ID, err)
 			}
 		}
 	}
 	return nil
 }
 
-// UpdateSession updates a session
-func (c *clientImpl) UpdateSession(session *Session) error {
-	return upsert(c.db, session)
-}
-
-// UpdateToolServer updates a tool server
-func (c *clientImpl) UpdateToolServer(server *ToolServer) error {
-	return upsert(c.db, server)
-}
-
-// UpdateTask updates a task record
-func (c *clientImpl) UpdateTask(task *Task) error {
-	return upsert(c.db, task)
-}
-
-// UpdateAgent updates an agent record
-func (c *clientImpl) UpdateAgent(agent *Agent) error {
-	return upsert(c.db, agent)
-}
-
 // ListMessagesForRun retrieves messages for a specific run (helper method)
-func (c *clientImpl) ListMessagesForTask(taskID, userID string) ([]Message, error) {
-	return list[Message](c.db,
+func (c *clientImpl) ListMessagesForTask(taskID, userID string) ([]*protocol.Message, error) {
+	messages, err := list[Event](c.db,
 		Clause{Key: "task_id", Value: taskID},
 		Clause{Key: "user_id", Value: userID})
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseMessages(messages)
 }
 
-func (c *clientImpl) ListMessagesForSession(sessionID, userID string) ([]Message, error) {
-	return list[Message](c.db,
-		Clause{Key: "session_id", Value: sessionID},
-		Clause{Key: "user_id", Value: userID})
+type QueryOptions struct {
+	Limit int
+	After time.Time
+}
+
+func (c *clientImpl) ListEventsForSession(sessionID, userID string, options QueryOptions) ([]*Event, error) {
+	var events []Event
+	query := c.db.
+		Where("session_id = ?", sessionID).
+		Where("user_id = ?", userID).
+		Order("created_at DESC")
+
+	if !options.After.IsZero() {
+		query = query.Where("created_at > ?", options.After)
+	}
+
+	if options.Limit > 1 {
+		query = query.Limit(options.Limit)
+	}
+
+	err := query.Find(&events).Error
+	if err != nil {
+		return nil, err
+	}
+
+	protocolEvents := make([]*Event, 0, len(events))
+	for _, event := range events {
+		protocolEvents = append(protocolEvents, &event)
+	}
+
+	return protocolEvents, nil
 }
 
 // GetMessage retrieves a protocol message from the database
-func (c *clientImpl) GetMessage(messageID string) (*Message, error) {
-	dbMessage, err := get[Message](c.db, Clause{Key: "id", Value: messageID})
+func (c *clientImpl) GetMessage(messageID string) (*protocol.Message, error) {
+	dbMessage, err := get[Event](c.db, Clause{Key: "id", Value: messageID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message: %w", err)
 	}
-	return dbMessage, nil
-}
 
-func (c *clientImpl) GetPushNotification(taskID string) (*protocol.TaskPushNotificationConfig, error) {
-	dbPushNotification, err := get[PushNotification](c.db, Clause{Key: "task_id", Value: taskID})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get push notification config: %w", err)
+	var message protocol.Message
+	if err := json.Unmarshal([]byte(dbMessage.Data), &message); err != nil {
+		return nil, fmt.Errorf("failed to deserialize message: %w", err)
 	}
-	var config protocol.TaskPushNotificationConfig
-	if err := json.Unmarshal([]byte(dbPushNotification.Data), &config); err != nil {
-		return nil, fmt.Errorf("failed to deserialize push notification config: %w", err)
-	}
-	return &config, nil
+
+	return &message, nil
 }
 
 // DeleteMessage deletes a protocol message from the database
 func (c *clientImpl) DeleteMessage(messageID string) error {
-	return delete[Message](c.db, Clause{Key: "id", Value: messageID})
+	return delete[Event](c.db, Clause{Key: "id", Value: messageID})
 }
 
 // ListMessagesByContextID retrieves messages by context ID with optional limit
 func (c *clientImpl) ListMessagesByContextID(contextID string, limit int) ([]protocol.Message, error) {
-	var dbMessages []Message
+	var dbMessages []Event
 	query := c.db.Where("session_id = ?", contextID).Order("created_at DESC")
 
 	if limit > 0 {
@@ -401,19 +372,93 @@ func (c *clientImpl) ListMessagesByContextID(contextID string, limit int) ([]pro
 	return protocolMessages, nil
 }
 
+// StoreTask stores a MemoryCancellableTask in the database
+func (c *clientImpl) StoreTask(task *protocol.Task) error {
+	data, err := json.Marshal(task)
+	if err != nil {
+		return fmt.Errorf("failed to serialize task: %w", err)
+	}
+
+	dbTask := Task{
+		ID:        task.ID,
+		Data:      string(data),
+		SessionID: task.ContextID,
+	}
+
+	return save(c.db, &dbTask)
+}
+
+// GetTask retrieves a MemoryCancellableTask from the database
+func (c *clientImpl) GetTask(taskID string) (*protocol.Task, error) {
+	dbTask, err := get[Task](c.db, Clause{Key: "id", Value: taskID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task: %w", err)
+	}
+
+	var task protocol.Task
+	if err := json.Unmarshal([]byte(dbTask.Data), &task); err != nil {
+		return nil, fmt.Errorf("failed to deserialize task: %w", err)
+	}
+
+	return &task, nil
+}
+
+// TaskExists checks if a task exists in the database
+func (c *clientImpl) TaskExists(taskID string) bool {
+	var count int64
+	c.db.Model(&Task{}).Where("id = ?", taskID).Count(&count)
+	return count > 0
+}
+
 // StorePushNotification stores a push notification configuration in the database
-func (c *clientImpl) StorePushNotification(taskID string, config protocol.TaskPushNotificationConfig) error {
+func (c *clientImpl) StorePushNotification(config *protocol.TaskPushNotificationConfig) error {
 	data, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to serialize push notification config: %w", err)
 	}
 
 	dbPushNotification := PushNotification{
-		TaskID: taskID,
+		ID:     config.PushNotificationConfig.ID,
+		TaskID: config.TaskID,
 		Data:   string(data),
 	}
 
-	return upsert(c.db, &dbPushNotification)
+	return save(c.db, &dbPushNotification)
+}
+
+// GetPushNotification retrieves a push notification configuration from the database
+func (c *clientImpl) GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error) {
+	dbPushNotification, err := get[PushNotification](c.db,
+		Clause{Key: "task_id", Value: taskID},
+		Clause{Key: "id", Value: configID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get push notification config: %w", err)
+	}
+
+	var config protocol.TaskPushNotificationConfig
+	if err := json.Unmarshal([]byte(dbPushNotification.Data), &config); err != nil {
+		return nil, fmt.Errorf("failed to deserialize push notification config: %w", err)
+	}
+
+	return &config, nil
+}
+
+func (c *clientImpl) ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error) {
+	pushNotifications, err := list[PushNotification](c.db, Clause{Key: "task_id", Value: taskID})
+	if err != nil {
+		return nil, err
+	}
+
+	protocolPushNotifications := make([]*protocol.TaskPushNotificationConfig, 0, len(pushNotifications))
+	for _, pushNotification := range pushNotifications {
+		var protocolPushNotification protocol.TaskPushNotificationConfig
+		if err := json.Unmarshal([]byte(pushNotification.Data), &protocolPushNotification); err != nil {
+			return nil, fmt.Errorf("failed to deserialize push notification config: %w", err)
+		}
+		protocolPushNotifications = append(protocolPushNotifications, &protocolPushNotification)
+	}
+
+	return protocolPushNotifications, nil
 }
 
 // DeletePushNotification deletes a push notification configuration from the database

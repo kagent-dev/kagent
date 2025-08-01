@@ -6,7 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/internal/autogen/api"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/internal/adk"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -39,24 +40,26 @@ func (j JSONMap) Value() (driver.Value, error) {
 
 // Agent represents an agent configuration
 type Agent struct {
-	gorm.Model
-	Name      string        `gorm:"unique;not null" json:"name"`
-	Component api.Component `gorm:"type:json;not null" json:"component"`
+	ID        string         `gorm:"primaryKey" json:"id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+
+	Config *adk.AgentConfig `gorm:"type:json;not null" json:"config"`
 }
 
-type Message struct {
+type Event struct {
 	ID        string         `gorm:"primaryKey;not null" json:"id"`
+	SessionID string         `gorm:"index" json:"session_id"`
 	UserID    string         `gorm:"primaryKey;not null" json:"user_id"`
 	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	Data      string  `gorm:"type:text;not null" json:"data"` // JSON serialized protocol.Message
-	SessionID *string `gorm:"index" json:"session_id"`
-	TaskID    *string `gorm:"index" json:"task_id"`
+	Data string `gorm:"type:text;not null" json:"data"` // JSON serialized protocol.Message
 }
 
-func (m *Message) Parse() (protocol.Message, error) {
+func (m *Event) Parse() (protocol.Message, error) {
 	var data protocol.Message
 	err := json.Unmarshal([]byte(m.Data), &data)
 	if err != nil {
@@ -65,33 +68,31 @@ func (m *Message) Parse() (protocol.Message, error) {
 	return data, nil
 }
 
-func ParseMessages(messages []Message) ([]protocol.Message, error) {
-	result := make([]protocol.Message, 0, len(messages))
+func ParseMessages(messages []Event) ([]*protocol.Message, error) {
+	result := make([]*protocol.Message, 0, len(messages))
 	for _, message := range messages {
 		parsedMessage, err := message.Parse()
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, parsedMessage)
+		result = append(result, &parsedMessage)
 	}
 	return result, nil
 }
 
 type Session struct {
 	ID        string         `gorm:"primaryKey;not null" json:"id"`
-	Name      string         `gorm:"index;not null" json:"name"`
+	Name      *string        `gorm:"index" json:"name,omitempty"`
 	UserID    string         `gorm:"primaryKey" json:"user_id"`
 	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	AgentID *uint `gorm:"index" json:"agent_id"`
+	AgentID *string `gorm:"index" json:"agent_id"`
 }
 
 type Task struct {
 	ID        string         `gorm:"primaryKey;not null" json:"id"`
-	Name      *string        `gorm:"index" json:"name,omitempty"`
-	UserID    string         `gorm:"primaryKey" json:"user_id"`
 	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
@@ -108,10 +109,25 @@ func (t *Task) Parse() (protocol.Task, error) {
 	return data, nil
 }
 
+func ParseTasks(tasks []Task) ([]*protocol.Task, error) {
+	result := make([]*protocol.Task, 0, len(tasks))
+	for _, task := range tasks {
+		parsedTask, err := task.Parse()
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &parsedTask)
+	}
+	return result, nil
+}
+
 type PushNotification struct {
-	gorm.Model
-	TaskID string `gorm:"not null;index" json:"task_id"`
-	Data   string `gorm:"type:text;not null" json:"data"` // JSON serialized push notification config
+	ID        string         `gorm:"primaryKey;not null" json:"id"`
+	TaskID    string         `gorm:"not null;index" json:"task_id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Data      string         `gorm:"type:text;not null" json:"data"` // JSON serialized push notification config
 }
 
 // FeedbackIssueType represents the category of feedback issue
@@ -136,23 +152,28 @@ type Feedback struct {
 
 // Tool represents a single tool that can be used by an agent
 type Tool struct {
-	gorm.Model
-	Name       string        `gorm:"index;unique;not null" json:"name"`
-	Component  api.Component `gorm:"type:json;not null" json:"component"`
-	ServerName string        `gorm:"not null;index" json:"server_name,omitempty"`
+	ID          string         `gorm:"primaryKey;not null" json:"id"`
+	ServerName  string         `gorm:"primaryKey;not null" json:"server_name"`
+	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Description string         `json:"description"`
 }
 
 // ToolServer represents a tool server that provides tools
 type ToolServer struct {
-	gorm.Model
-	Name          string        `gorm:"primaryKey;not null" json:"name"`
-	LastConnected *time.Time    `json:"last_connected,omitempty"`
-	Component     api.Component `gorm:"type:json;not null" json:"component"`
+	CreatedAt     time.Time                 `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt     time.Time                 `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt     gorm.DeletedAt            `gorm:"index" json:"deleted_at"`
+	Name          string                    `gorm:"primaryKey;not null" json:"name"`
+	Description   string                    `json:"description"`
+	LastConnected *time.Time                `json:"last_connected,omitempty"`
+	Config        v1alpha1.ToolServerConfig `gorm:"type:json" json:"config"`
 }
 
 // TableName methods to match Python table names
 func (Agent) TableName() string            { return "agent" }
-func (Message) TableName() string          { return "message" }
+func (Event) TableName() string            { return "event" }
 func (Session) TableName() string          { return "session" }
 func (Task) TableName() string             { return "task" }
 func (PushNotification) TableName() string { return "push_notification" }

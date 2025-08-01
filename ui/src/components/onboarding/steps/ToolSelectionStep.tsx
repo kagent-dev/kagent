@@ -8,26 +8,23 @@ import { Info, ChevronDown, ChevronRight, FunctionSquare, Filter, FilterX, HelpC
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { getToolDisplayName, getToolDescription, getToolIdentifier, componentToAgentTool, isMcpProvider } from "@/lib/toolUtils";
-import { Tool, Component, ToolConfig } from "@/types/datamodel";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, toolResponseToAgentTool } from "@/lib/toolUtils";
+import { Tool, ToolResponse } from "@/types/datamodel";
 
-const getToolCategory = (tool: Component<ToolConfig>): string => {
-    if (isMcpProvider(tool.provider)) {
-      return tool.label || "MCP Server";
+const getToolCategory = (tool: ToolResponse): string => {
+    const parts = tool.server_name.split(".");
+    if (parts.length > 1) {
+        return parts[parts.length - 1];
     }
-
-    const toolId = getToolIdentifier(tool);
-    const parts = toolId.split("-");
-    if (parts.length >= 2 && parts[0] === 'component') {
-        const providerParts = parts[1].split(".");
-        if (providerParts.length >= 3 && providerParts[1] === "tools") return providerParts[2];
-        if (providerParts.length >= 2) return providerParts[1];
+    if (tool.server_name.includes("kagent-tool-server")) {
+        return "k8s";
     }
+    
     return "other";
 };
 
 interface ToolSelectionStepProps {
-    availableTools: Component<ToolConfig>[] | null;
+    availableTools: ToolResponse[] | null;
     loadingTools: boolean;
     errorTools: string | null;
     initialSelectedTools: Tool[];
@@ -47,10 +44,20 @@ export function ToolSelectionStep({
     const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
     const [showAllTools, setShowAllTools] = useState(false);
 
+    const toolResponseMatchesTool = (toolResponse: ToolResponse, tool: Tool): boolean => {
+        if (tool.type === "Agent" && tool.agent) {
+            return false; // Agents don't match ToolResponse objects
+        } else if (tool.type === "McpServer" && tool.mcpServer) {
+            return tool.mcpServer.toolServer === toolResponse.server_name && 
+                   tool.mcpServer.toolNames.includes(toolResponse.id);
+        }
+        return false;
+    };
+
     const toolsByCategory = useMemo(() => {
         if (!availableTools) return {};
-        const groups: Record<string, Component<ToolConfig>[]> = {};
-        const sortedTools = [...availableTools].sort((a, b) => (getToolDisplayName(a) || "").localeCompare(getToolDisplayName(b) || ""));
+        const groups: Record<string, ToolResponse[]> = {};
+        const sortedTools = [...availableTools].sort((a, b) => getToolResponseDisplayName(a).localeCompare(getToolResponseDisplayName(b)));
         sortedTools.forEach(tool => {
             const category = getToolCategory(tool);
             if (!groups[category]) groups[category] = [];
@@ -84,12 +91,12 @@ export function ToolSelectionStep({
             const k8sCategoryKey = Object.keys(toolsByCategory).find(key => key.toLowerCase() === 'k8s');
 
             if (k8sCategoryKey) {
-                const k8sToolsComponents = toolsByCategory[k8sCategoryKey];
+                const k8sToolsResponses = toolsByCategory[k8sCategoryKey];
                 const initialSelection: Tool[] = [];
-                k8sToolsComponents.forEach(component => {
-                    const toolName = getToolDisplayName(component);
+                k8sToolsResponses.forEach(toolResponse => {
+                    const toolName = getToolResponseDisplayName(toolResponse);
                     if (toolsToSelect.includes(toolName)) {
-                        initialSelection.push(componentToAgentTool(component));
+                        initialSelection.push(toolResponseToAgentTool(toolResponse));
                     }
                 });
                 if (initialSelection.length > 0) {
@@ -99,12 +106,11 @@ export function ToolSelectionStep({
         }
     }, [availableTools, toolsByCategory, initialSelectedTools, selectedTools.length]);
 
-    const handleToolToggle = (component: Component<ToolConfig>) => {
-        const agentTool = componentToAgentTool(component);
-        const toolId = getToolIdentifier(agentTool);
+    const handleToolToggle = (toolResponse: ToolResponse) => {
+        const agentTool = toolResponseToAgentTool(toolResponse);
         setSelectedTools(prev => {
-            const isSelected = prev.some(t => getToolIdentifier(t) === toolId);
-            return isSelected ? prev.filter(t => getToolIdentifier(t) !== toolId) : [...prev, agentTool];
+            const isSelected = prev.some(t => toolResponseMatchesTool(toolResponse, t));
+            return isSelected ? prev.filter(t => !toolResponseMatchesTool(toolResponse, t)) : [...prev, agentTool];
         });
     };
 
@@ -112,19 +118,18 @@ export function ToolSelectionStep({
         setExpandedCategories((prev) => ({ ...prev, [category]: !prev[category] }));
     };
 
-    const isToolSelected = (component: Component<ToolConfig>): boolean => {
-        const toolId = getToolIdentifier(componentToAgentTool(component));
-        return selectedTools.some(t => getToolIdentifier(t) === toolId);
+    const isToolSelected = (toolResponse: ToolResponse): boolean => {
+        return selectedTools.some(t => toolResponseMatchesTool(toolResponse, t));
     };
 
     const handleSubmit = () => {
         onNext(selectedTools);
     };
 
-    const getResourcesTool = availableTools?.find(t => getToolDisplayName(t) === 'GetResources');
-    const getApiResourcesTool = availableTools?.find(t => getToolDisplayName(t) === 'GetAvailableAPIResources');
-    const getResourcesDesc = getResourcesTool ? getToolDescription(getResourcesTool) : "No description available.";
-    const getApiResourcesDesc = getApiResourcesTool ? getToolDescription(getApiResourcesTool) : "No description available.";
+    const getResourcesTool = availableTools?.find(t => getToolResponseDisplayName(t) === 'GetResources');
+    const getApiResourcesTool = availableTools?.find(t => getToolResponseDisplayName(t) === 'GetAvailableAPIResources');
+    const getResourcesDesc = getResourcesTool ? getToolResponseDescription(getResourcesTool) : "No description available.";
+    const getApiResourcesDesc = getApiResourcesTool ? getToolResponseDescription(getApiResourcesTool) : "No description available.";
 
     if (loadingTools) return <LoadingState />;
     if (errorTools) return <ErrorState message={`Failed to load tools: ${errorTools}`} />;
@@ -179,20 +184,20 @@ export function ToolSelectionStep({
                                     </div>
                                     {expandedCategories[category] && (
                                         <div className="pl-6 pt-2 space-y-2">
-                                            {categoryTools.map((tool: Component<ToolConfig>) => (
-                                                <div key={getToolIdentifier(tool)} className="flex items-start space-x-3">
+                                            {categoryTools.map((tool: ToolResponse) => (
+                                                <div key={getToolResponseIdentifier(tool)} className="flex items-start space-x-3">
                                                     <Checkbox
-                                                        id={getToolIdentifier(tool)}
+                                                        id={getToolResponseIdentifier(tool)}
                                                         checked={isToolSelected(tool)}
                                                         onCheckedChange={() => handleToolToggle(tool)}
                                                         className="mt-1"
                                                     />
                                                     <div className="grid gap-1.5 leading-none">
-                                                        <label htmlFor={getToolIdentifier(tool)} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-2">
+                                                        <label htmlFor={getToolResponseIdentifier(tool)} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-2">
                                                             <FunctionSquare className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                                                            {getToolDisplayName(tool)}
+                                                            {getToolResponseDisplayName(tool)}
                                                         </label>
-                                                        <p className="text-xs text-muted-foreground">{getToolDescription(tool)}</p>
+                                                        <p className="text-xs text-muted-foreground">{getToolResponseDescription(tool)}</p>
                                                     </div>
                                                 </div>
                                             ))}
