@@ -1,7 +1,7 @@
 'use server'
-import { ToolServer, ToolServerWithTools } from "@/types/datamodel";
+import { ToolServer, ToolServerWithTools } from "@/types";
 import { fetchApi, createErrorResponse } from "./utils";
-import { BaseResponse } from "@/lib/types";
+import { BaseResponse } from "@/types";
 import { revalidatePath } from "next/cache";
 
 /**

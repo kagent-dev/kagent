@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
+import {  ToolServer, ToolServerWithTools } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";

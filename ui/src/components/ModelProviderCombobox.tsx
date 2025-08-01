@@ -4,8 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Provider } from '@/lib/types';
-import { ProviderModel, ProviderModelsResponse } from '@/app/actions/models';
+import { Provider, ProviderModel, ProviderModelsResponse } from '@/types';
 import { PROVIDERS_INFO, isValidProviderInfoKey, getApiKeyForProviderFormKey, ModelProviderKey } from '@/lib/providers';
 import { OpenAI } from './icons/OpenAI';
 import { Anthropic } from './icons/Anthropic';

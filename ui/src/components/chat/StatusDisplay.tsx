@@ -1,8 +1,8 @@
 import React from "react";
 import { AlertTriangle, MessageSquare } from "lucide-react";
 import KagentLogo from "@/components/kagent-logo";
-import { ChatStatus } from "./ChatInterface";
 import { getStatusText } from "@/lib/statusUtils";
+import type { ChatStatus } from "@/types";
 
 interface StatusDisplayProps {
   chatStatus: ChatStatus;
@@ -16,7 +16,7 @@ export default function StatusDisplay({ chatStatus, errorMessage }: StatusDispla
         <MessageSquare size={16} className="mr-2" />
         {getStatusText(chatStatus)}
       </div>
-    );
+    )
   }
 
   if (chatStatus === "error") {

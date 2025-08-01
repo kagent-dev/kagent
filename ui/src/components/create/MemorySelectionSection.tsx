@@ -19,7 +19,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { MemoryResponse } from "@/lib/types";
+import { MemoryResponse } from "@/types";
 
 interface MemorySelectionSectionProps {
   availableMemories: MemoryResponse[];

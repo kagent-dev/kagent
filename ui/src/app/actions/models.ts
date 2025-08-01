@@ -1,16 +1,6 @@
 "use server";
 import { fetchApi, createErrorResponse } from "./utils";
-import { BaseResponse } from "@/lib/types";
-
-
-export type ProviderModel = {
-  name: string;
-  function_calling: boolean;
-}
-
-// Define the type for the expected API response structure
-export type ProviderModelsResponse = Record<string, ProviderModel[]>;
-
+import { BaseResponse, ProviderModelsResponse } from "@/types";
 
 /**
  * Gets all available models, grouped by provider.

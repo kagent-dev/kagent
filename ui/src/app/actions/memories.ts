@@ -1,6 +1,6 @@
 'use server'
 
-import { BaseResponse, MemoryResponse, CreateMemoryRequest, UpdateMemoryRequest } from '@/lib/types'
+import { BaseResponse, MemoryResponse, CreateMemoryRequest, UpdateMemoryRequest } from '@/types'
 import { fetchApi } from './utils'
 
 export async function listMemories(): Promise<MemoryResponse[]> {

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Search, Filter, ChevronDown, ChevronRight, AlertCircle, PlusCircle, XCircle, FunctionSquare, LucideIcon } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { AgentResponse, Tool, ToolResponse } from "@/types/datamodel";
+import type { AgentResponse, Tool, ToolResponse } from "@/types";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
 import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer } from "@/lib/toolUtils";

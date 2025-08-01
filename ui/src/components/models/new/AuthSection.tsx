@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff, ExternalLinkIcon } from "lucide-react";
 import Link from "next/link";
-import { Provider } from "@/lib/types"; 
+import { Provider } from "@/types"; 
 import { PROVIDERS_INFO, getProviderFormKey, BackendModelProviderType } from "@/lib/providers"; 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";

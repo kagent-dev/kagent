@@ -1,4 +1,4 @@
-import { ChatStatus } from "@/components/chat/ChatInterface";
+import type { ChatStatus } from "@/types";
 import { TaskState } from "@a2a-js/sdk";
 
 export interface StatusInfo {

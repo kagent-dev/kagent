@@ -4,7 +4,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from "../ui/sidebar";
 import { AgentSwitcher } from "./AgentSwitcher";
 import GroupedChats from "./GroupedChats";
-import { AgentResponse, Session } from "@/types/datamodel";
+import type { AgentResponse, Session } from "@/types";
 import { Loader2 } from "lucide-react";
 
 interface SessionsSidebarProps {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ChevronRight, Edit, Plus } from "lucide-react";
-import type { AgentResponse, Tool, ToolResponse } from "@/types/datamodel";
+import type { AgentResponse, Tool, ToolResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";

@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import type { AgentResponse } from "@/types/datamodel";
+import type { AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import KagentLogo from "@/components/kagent-logo";
 import Link from "next/link";

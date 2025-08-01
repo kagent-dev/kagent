@@ -5,23 +5,21 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowBigUp, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Session, AgentMessageConfig } from "@/types/datamodel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import StreamingMessage from "./StreamingMessage";
 import TokenStatsDisplay from "./TokenStats";
-import { TokenStats } from "@/lib/types";
+import type { TokenStats, Session, ChatStatus } from "@/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionMessages, checkSessionExists } from "@/app/actions/sessions";
+import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers } from "@/lib/messageHandlers";
+import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromTasks, createMessage } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder } from "@/lib/statusUtils";
-
-export type ChatStatus = "ready" | "thinking" | "error" | "submitted" | "working" | "input_required" | "auth_required" | "processing_tools" | "generating_response";
+import { Message } from "@a2a-js/sdk";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -43,7 +41,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
   const [session, setSession] = useState<Session | null>(selectedSession || null);
-  const [messages, setMessages] = useState<AgentMessageConfig[]>([]);
+  const [storedMessages, setStoredMessages] = useState<Message[]>([]);
+  const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -54,7 +53,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
 
   const { handleMessageEvent } = createMessageHandlers({
-    setMessages,
+    setMessages: setStreamingMessages,
     setIsStreaming,
     setStreamingContent,
     setTokenStats,
@@ -68,7 +67,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   useEffect(() => {
     async function initializeChat() {
       setTokenStats({ total: 0, input: 0, output: 0 });
-      
+      setStreamingMessages([]);
+
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
         return;
@@ -77,6 +77,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       // Skip loading state for empty sessionId (new chat)
       if (!sessionId) {
         setIsLoading(false);
+        setStoredMessages([]);
         return;
       }
 
@@ -91,17 +92,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           return;
         }
 
-        const messagesResponse = await getSessionMessages(sessionId);
+        const messagesResponse = await getSessionTasks(sessionId);
         if (messagesResponse.error) {
           toast.error("Failed to load messages");
           setIsLoading(false);
           return;
         }
         if (!messagesResponse.data || messagesResponse?.data?.length === 0) {
-          setMessages([])
+          setStoredMessages([]);
+          setTokenStats({ total: 0, input: 0, output: 0 });
         }
         else {
-          setMessages(messagesResponse.data);
+          const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
+          const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
+          setStoredMessages(extractedMessages);
+          setTokenStats(extractedTokenStats);
         }
       } catch (error) {
         console.error("Error loading messages:", error);
@@ -121,7 +126,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         viewport.scrollTop = viewport.scrollHeight;
       }
     }
-  }, [messages, streamingContent]);
+  }, [storedMessages, streamingMessages, streamingContent]);
 
 
 
@@ -132,14 +137,28 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     const userMessageText = currentInputMessage;
-    // Instantly show the user's message
-    setMessages(prevMessages => [...prevMessages, {
-      type: "TextMessage",
-      content: userMessageText,
-      source: "user"
-    }]);
     setCurrentInputMessage("");
     setChatStatus("thinking");
+    setStoredMessages(prev => [...prev, ...streamingMessages]);
+    setStreamingMessages([]);
+
+    // For new sessions or when no stored messages exist, show the user message immediately
+    const userMessage: Message = {
+      kind: "message",
+      messageId: uuidv4(),
+      role: "user",
+      parts: [{
+        kind: "text",
+        text: userMessageText
+      }],
+      metadata: {
+        timestamp: Date.now()
+      }
+    };
+
+    // Add user message to streaming messages to show immediately 
+    // (will be replaced by server response that includes the user message)
+    setStreamingMessages([userMessage]);
 
     isFirstAssistantChunkRef.current = true;
 
@@ -197,8 +216,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       try {
         const messageId = uuidv4();
-        const a2aMessage = kagentA2AClient.createA2AMessage(userMessageText, messageId);
-        const sendParams = kagentA2AClient.createMessageSendParams(a2aMessage);
+        const a2aMessage = createMessage(userMessageText, "user", {
+          messageId,
+          contextId: currentSessionId,
+        });
+        const sendParams = {
+          message: a2aMessage,
+          metadata: {}
+        };
         const stream = await kagentA2AClient.sendMessageStream(selectedNamespace, selectedAgentName, sendParams);
 
         let lastEventTime = Date.now();
@@ -208,7 +233,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           lastEventTime = Date.now();
 
           try {
-            handleMessageEvent(event as AgentMessageConfig);
+            handleMessageEvent(event);
           } catch (error) {
             console.error("❌ Event that caused error:", event);
           }
@@ -296,7 +321,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   <p className="text-muted-foreground text-sm">Loading your chat session...</p>
                 </div>
               </div>
-            ) : messages.length === 0 && !isStreaming ? (
+            ) : storedMessages.length === 0 && streamingMessages.length === 0 && !isStreaming ? (
               <div className="flex items-center justify-center h-full min-h-[50vh]">
                 <div className="bg-card p-6 rounded-lg shadow-sm border max-w-md text-center">
                   <h3 className="text-lg font-medium mb-2">Start a conversation</h3>
@@ -307,8 +332,30 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               </div>
             ) : (
               <>
-                {messages.map((message, index) => {
-                  return <ChatMessage key={index} message={message} allMessages={messages} />
+                {/* Display stored messages from session */}
+                {storedMessages.map((message, index) => {
+                  return <ChatMessage
+                    key={`stored-${index}`}
+                    message={message}
+                    allMessages={storedMessages}
+                    agentContext={{
+                      namespace: selectedNamespace,
+                      agentName: selectedAgentName
+                    }}
+                  />
+                })}
+
+                {/* Display streaming messages */}
+                {streamingMessages.map((message, index) => {
+                  return <ChatMessage
+                    key={`stream-${index}`}
+                    message={message}
+                    allMessages={streamingMessages}
+                    agentContext={{
+                      namespace: selectedNamespace,
+                      agentName: selectedAgentName
+                    }}
+                  />
                 })}
 
                 {isStreaming && (
@@ -332,7 +379,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           <Textarea
             value={currentInputMessage}
             onChange={(e) => setCurrentInputMessage(e.target.value)}
-                        placeholder={getStatusPlaceholder(chatStatus)}
+            placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
             className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
             disabled={chatStatus !== "ready"}

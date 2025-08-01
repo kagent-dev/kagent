@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, toolResponseToAgentTool } from "@/lib/toolUtils";
-import { Tool, ToolResponse } from "@/types/datamodel";
+import type { Tool, ToolResponse } from "@/types";
 
 const getToolCategory = (tool: ToolResponse): string => {
     const parts = tool.server_name.split(".");

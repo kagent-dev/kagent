@@ -1,4 +1,4 @@
-import { Tool, McpServerTool, AgentTool, ToolResponse } from "@/types/datamodel";
+import type{ Tool, McpServerTool, AgentTool, ToolResponse } from "@/types";
 
 export const isAgentTool = (tool: unknown): tool is { type: "Agent"; agent: AgentTool } => {
   if (!tool || typeof tool !== "object") return false;

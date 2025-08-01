@@ -1,7 +1,7 @@
 'use server'
 
 import { fetchApi, createErrorResponse } from './utils';
-import { BaseResponse } from '@/lib/types';
+import { BaseResponse } from '@/types';
 
 // TODO(infocus7): move to datamodel or another type file
 export interface NamespaceResponse {

@@ -6,20 +6,21 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getModelConfig, createModelConfig, updateModelConfig } from "@/app/actions/modelConfigs";
-import {
+import type {
     CreateModelConfigPayload,
     UpdateModelConfigPayload,
     Provider,
     OpenAIConfigPayload,
     AzureOpenAIConfigPayload,
     AnthropicConfigPayload,
-    OllamaConfigPayload
-} from "@/lib/types";
+    OllamaConfigPayload,
+    ProviderModelsResponse
+} from "@/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { OLLAMA_DEFAULT_TAG } from "@/lib/constants"
 import { getSupportedModelProviders } from "@/app/actions/providers";
-import { getModels, ProviderModelsResponse } from "@/app/actions/models";
+import { getModels } from "@/app/actions/models";
 import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';

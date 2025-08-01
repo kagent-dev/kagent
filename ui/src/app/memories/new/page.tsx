@@ -36,7 +36,7 @@ import {
 
 import { getSupportedMemoryProviders } from '@/app/actions/providers'
 import { createMemory, getMemory, updateMemory } from '@/app/actions/memories'
-import { Provider, CreateMemoryRequest, PineconeConfigPayload } from '@/lib/types'
+import { Provider, CreateMemoryRequest, PineconeConfigPayload } from '@/types'
 import { k8sRefUtils } from '@/lib/k8sUtils'
 import { NamespaceCombobox } from '@/components/NamespaceCombobox'
 

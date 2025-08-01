@@ -2,9 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
-import { Agent, Tool, AgentResponse, ToolResponse } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
-import type { BaseResponse, ModelConfig } from "@/lib/types";
+import type { Agent, Tool, AgentResponse, ToolResponse, BaseResponse, ModelConfig } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 

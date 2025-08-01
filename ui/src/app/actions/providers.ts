@@ -1,7 +1,7 @@
 "use server";
 import { createErrorResponse } from "./utils";
-import { Provider } from "@/lib/types";
-import { BaseResponse } from "@/lib/types";
+import { Provider } from "@/types";
+import { BaseResponse } from "@/types";
 import { fetchApi } from "./utils";
 
 /**
