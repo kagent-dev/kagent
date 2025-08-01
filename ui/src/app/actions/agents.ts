@@ -101,21 +101,21 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
 
 export async function getAgent(agentName: string, namespace: string): Promise<BaseResponse<AgentResponse>> {
   try { 
-    const teamData = await fetchApi<BaseResponse<AgentResponse>>(`/agents/${namespace}/${agentName}`);
+    const agentData = await fetchApi<BaseResponse<AgentResponse>>(`/agents/${namespace}/${agentName}`);
 
-    // Fetch all teams to get descriptions for agent tools
-    // We use fetchApi directly to avoid circular dependency/logic issues with calling getTeams() here
-    const allTeamsData = await fetchApi<BaseResponse<AgentResponse[]>>(`/agents`);
+    // Fetch all agents to get descriptions for agent tools
+    // We use fetchApi directly to avoid circular dependency/logic issues with calling getAgents() here
+    const allAgentsData = await fetchApi<BaseResponse<AgentResponse[]>>(`/agents`);
     
-    // Extract and augment tools using the list of all teams
-    const tools = extractToolsFromResponse(teamData.data!, allTeamsData.data!);
+    // Extract and augment tools using the list of all agents
+    const tools = extractToolsFromResponse(agentData.data!, allAgentsData.data!);
 
     const response: AgentResponse = {
-      ...teamData.data!,
+      ...agentData.data!,
       agent: {
-        ...teamData.data!.agent,
+        ...agentData.data!.agent,
         spec: {
-          ...teamData.data!.agent.spec,
+          ...agentData.data!.agent.spec,
           tools,
         },
       },
@@ -123,13 +123,13 @@ export async function getAgent(agentName: string, namespace: string): Promise<Ba
 
     return { message: "Successfully fetched agent", data: response };
   } catch (error) {
-    return createErrorResponse<AgentResponse>(error, "Error getting team");
+    return createErrorResponse<AgentResponse>(error, "Error getting agent");
   }
 }
 
 /**
- * Deletes a team
- * @param teamLabel The team label
+ * Deletes a agent
+ * @param agentName The agent name
  * @returns A promise with the delete result
  */
 export async function deleteAgent(agentName: string): Promise<BaseResponse<void>> {
@@ -142,9 +142,9 @@ export async function deleteAgent(agentName: string): Promise<BaseResponse<void>
     });
 
     revalidatePath("/");
-    return { message: "Successfully deleted team" };
+    return { message: "Successfully deleted agent" };
   } catch (error) {
-    return createErrorResponse<void>(error, "Error deleting team");
+    return createErrorResponse<void>(error, "Error deleting agent");
   }
 }
 
@@ -172,7 +172,7 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
     });
 
     if (!response) {
-      throw new Error("Failed to create team");
+      throw new Error("Failed to create agent");
     }
 
     const agentRef = k8sRefUtils.toRef(
@@ -183,22 +183,22 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
     revalidatePath(`/agents/${agentRef}/chat`);
     return { message: "Successfully created agent", data: response.data };
   } catch (error) {
-    return createErrorResponse<Agent>(error, "Error creating team");
+    return createErrorResponse<Agent>(error, "Error creating agent");
   }
 }
 
 /**
- * Gets all teams
- * @returns A promise with all teams
+ * Gets all agents
+ * @returns A promise with all agents
  */
 export async function getAgents(): Promise<BaseResponse<AgentResponse[]>> {
   try {
     const data = await fetchApi<BaseResponse<AgentResponse[]>>(`/agents`);
-    const validTeams = data.data?.filter(team => !!team.agent);
-    const agentMap = new Map(validTeams?.map(agentResp => [agentResp.agent.metadata.name, agentResp]));
+    const validAgents = data.data?.filter(agent => !!agent.agent);
+    const agentMap = new Map(validAgents?.map(agentResp => [agentResp.agent.metadata.name, agentResp]));
 
-    const convertedData: AgentResponse[] = validTeams!.map(team => {
-      const augmentedTools = team.tools?.map(tool => {
+    const convertedData: AgentResponse[] = validAgents!.map(agent => {
+      const augmentedTools = agent.tools?.map(tool => {
         // Check if it's an Agent tool reference needing description
         if (isAgentTool(tool)) {
           const agentRef = tool.agent.ref;
@@ -217,11 +217,11 @@ export async function getAgents(): Promise<BaseResponse<AgentResponse[]>> {
       }) || [];
 
       return {
-        ...team,
+        ...agent,
         agent: { 
-          ...team.agent,
+          ...agent.agent,
           spec: { 
-            ...team.agent.spec,
+            ...agent.agent.spec,
             tools: augmentedTools
           }
         },
@@ -237,6 +237,6 @@ export async function getAgents(): Promise<BaseResponse<AgentResponse[]>> {
     
     return { message: "Successfully fetched agents", data: sortedData || [] };
   } catch (error) {
-    return createErrorResponse<AgentResponse[]>(error, "Error getting teams");
+    return createErrorResponse<AgentResponse[]>(error, "Error getting agents");
   }
 }
