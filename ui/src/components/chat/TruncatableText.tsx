@@ -2,6 +2,7 @@ import React, { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import CodeBlock from "./CodeBlock";
 import gfm from 'remark-gfm'
+import rehypeExternalLinks from 'rehype-external-links'
 import HTMLPreviewDialog from "./HTMLPreviewDialog";
 
 interface TruncatableTextProps {
@@ -65,7 +66,8 @@ export const TruncatableText = memo(({ content, isJson = false, className = "", 
         <ReactMarkdown
           className={`prose-md prose max-w-none dark:prose-invert dark:text-primary-foreground ${isStreaming ? "streaming-content" : ""}`}
           components={components}
-          remarkPlugins={[gfm]}>
+          remarkPlugins={[gfm]}
+          rehypePlugins={[[rehypeExternalLinks, {target: '_blank'}]]}>
           {content.trim()}
         </ReactMarkdown>
 
