@@ -15,8 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	autogen_api "github.com/kagent-dev/kagent/go/internal/autogen/api"
-	autogen_fake "github.com/kagent-dev/kagent/go/internal/autogen/client/fake"
+	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
@@ -32,7 +31,7 @@ func createTestModelConfig() *v1alpha1.ModelConfig {
 			Namespace: "default",
 		},
 		Spec: v1alpha1.ModelConfigSpec{
-			Provider: v1alpha1.OpenAI,
+			Provider: v1alpha1.ModelProviderOpenAI,
 			Model:    "gpt-4",
 		},
 	}
@@ -57,12 +56,10 @@ func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string
 		Build()
 
 	userID := common.GetGlobalUserID()
-	autogenClient := autogen_fake.NewInMemoryAutogenClient()
 	dbClient := database_fake.NewClient()
 
 	base := &handlers.Base{
-		KubeClient:    kubeClient,
-		AutogenClient: autogenClient,
+		KubeClient: kubeClient,
 		DefaultModelConfig: types.NamespacedName{
 			Name:      "test-model-config",
 			Namespace: "default",
@@ -73,14 +70,12 @@ func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string
 	return handlers.NewAgentsHandler(base), userID
 }
 
-func createAutogenTeam(client database.Client, agent *v1alpha1.Agent) {
-	autogenTeam := &database.Agent{
-		Component: autogen_api.Component{
-			Label: common.GetObjectRef(agent),
-		},
-		Name: common.GetObjectRef(agent),
+func createAgent(client database.Client, agent *v1alpha1.Agent) {
+	dbAgent := &database.Agent{
+		Config: &adk.AgentConfig{},
+		ID:     common.GetObjectRef(agent),
 	}
-	client.CreateAgent(autogenTeam)
+	client.StoreAgent(dbAgent)
 }
 
 func TestHandleGetAgent(t *testing.T) {
@@ -89,7 +84,7 @@ func TestHandleGetAgent(t *testing.T) {
 		team := createTestAgent("test-team", modelConfig)
 
 		handler, _ := setupTestHandler(team, modelConfig)
-		createAutogenTeam(handler.Base.DatabaseService, team)
+		createAgent(handler.Base.DatabaseService, team)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-team", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
@@ -105,7 +100,7 @@ func TestHandleGetAgent(t *testing.T) {
 		require.Equal(t, "test-team", response.Data.Agent.Name)
 		require.Equal(t, "default/test-model-config", response.Data.ModelConfigRef)
 		require.Equal(t, "gpt-4", response.Data.Model)
-		require.Equal(t, v1alpha1.OpenAI, response.Data.ModelProvider)
+		require.Equal(t, v1alpha1.ModelProviderOpenAI, response.Data.ModelProvider)
 	})
 
 	t.Run("returns 404 for missing agent", func(t *testing.T) {
@@ -127,7 +122,7 @@ func TestHandleListTeams(t *testing.T) {
 		team := createTestAgent("test-team", modelConfig)
 
 		handler, _ := setupTestHandler(team, modelConfig)
-		createAutogenTeam(handler.Base.DatabaseService, team)
+		createAgent(handler.Base.DatabaseService, team)
 
 		req := httptest.NewRequest("GET", "/api/agents", nil)
 		w := httptest.NewRecorder()
@@ -143,7 +138,7 @@ func TestHandleListTeams(t *testing.T) {
 		require.Equal(t, "test-team", response.Data[0].Agent.Name)
 		require.Equal(t, "default/test-model-config", response.Data[0].ModelConfigRef)
 		require.Equal(t, "gpt-4", response.Data[0].Model)
-		require.Equal(t, v1alpha1.OpenAI, response.Data[0].ModelProvider)
+		require.Equal(t, v1alpha1.ModelProviderOpenAI, response.Data[0].ModelProvider)
 	})
 }
 
@@ -216,7 +211,7 @@ func TestHandleCreateAgent(t *testing.T) {
 		agent := &v1alpha1.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha1.AgentSpec{
-				ModelConfig:   common.GetObjectRef(modelConfig),
+				ModelConfig:   modelConfig.Name,
 				SystemMessage: "You are an imagenary agent",
 				Description:   "Test team description",
 			},
@@ -237,7 +232,7 @@ func TestHandleCreateAgent(t *testing.T) {
 		require.Equal(t, "test-team", response.Data.Name)
 		require.Equal(t, "default", response.Data.Namespace)
 		require.Equal(t, "You are an imagenary agent", response.Data.Spec.SystemMessage)
-		require.Equal(t, "default/test-model-config", response.Data.Spec.ModelConfig)
+		require.Equal(t, "test-model-config", response.Data.Spec.ModelConfig)
 	})
 }
 
@@ -248,7 +243,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 		}
 
 		handler, _ := setupTestHandler(team)
-		createAutogenTeam(handler.Base.DatabaseService, team)
+		createAgent(handler.Base.DatabaseService, team)
 
 		req := httptest.NewRequest("DELETE", "/api/agents/default/test-team", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})

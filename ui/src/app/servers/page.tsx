@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
 import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
@@ -197,18 +196,17 @@ export default function ServersPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {server.discoveredTools
                           .sort((a, b) => {
-                            const aName = getToolDisplayName(a.component) || "";
-                            const bName = getToolDisplayName(b.component) || "";
+                            const aName = a.name || "";
+                            const bName = b.name || "";
                             return aName.localeCompare(bName);
                           })
                           .map((tool) => (
-                            <div key={getToolIdentifier(tool.component)} className="p-3 border rounded-md hover:bg-secondary/5 transition-colors">
+                            <div key={tool.name} className="p-3 border rounded-md hover:bg-secondary/5 transition-colors">
                               <div className="flex items-start gap-2">
                                 <FunctionSquare className="h-4 w-4 text-blue-500 mt-0.5" />
                                 <div>
-                                  <div className="font-medium text-sm">{getToolDisplayName(tool.component)}</div>
-                                  <div className="text-xs text-muted-foreground mt-1">{getToolDescription(tool.component)}</div>
-                                  <div className="text-xs text-muted-foreground mt-1 font-mono">{getToolIdentifier(tool.component)}</div>
+                                  <div className="font-medium text-sm">{tool.name}</div>
+                                  <div className="text-xs text-muted-foreground mt-1">{tool.description}</div>
                                 </div>
                               </div>
                             </div>

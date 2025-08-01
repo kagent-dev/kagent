@@ -1,145 +1,313 @@
 {
-  "CreatedAt": "0001-01-01T00:00:00Z",
-  "DeletedAt": null,
-  "ID": 0,
-  "UpdatedAt": "0001-01-01T00:00:00Z",
-  "component": {
-    "component_type": "team",
-    "component_version": 0,
-    "config": {
-      "participants": [
-        {
-          "component_type": "agent",
-          "component_version": 0,
-          "config": {
-            "description": "An agent that uses another agent from a different namespace",
-            "model_client": {
-              "component_type": "model",
-              "component_version": 0,
-              "config": {
-                "api_key": "sk-test-api-key",
-                "model": "gpt-3.5-turbo",
-                "stream_options": {
-                  "include_usage": true
-                }
-              },
-              "description": "",
-              "label": "",
-              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
-              "version": 1
-            },
-            "model_client_stream": true,
-            "model_context": {
-              "component_type": "chat_completion_context",
-              "component_version": 0,
-              "config": {},
-              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
-              "label": "UnboundedChatCompletionContext",
-              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
-              "version": 1
-            },
-            "name": "test_consumer__NS__agent_with_cross_ns_agent",
-            "reflect_on_tool_use": false,
-            "system_message": "You are an assistant that can delegate to other agents.",
-            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-            "tools": [
-              {
-                "component_type": "tool",
-                "component_version": 0,
-                "config": {
-                  "description": "A provider agent with vector memory",
-                  "name": "test_provider__NS__provider_agent",
-                  "team": {
-                    "component_type": "team",
-                    "component_version": 0,
-                    "config": {
-                      "participants": [
-                        {
-                          "component_type": "agent",
-                          "component_version": 0,
-                          "config": {
-                            "description": "A provider agent with vector memory",
-                            "model_client": {
-                              "component_type": "model",
-                              "component_version": 0,
-                              "config": {
-                                "api_key": "sk-test-api-key",
-                                "model": "gpt-4o"
-                              },
-                              "description": "",
-                              "label": "",
-                              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
-                              "version": 1
-                            },
-                            "model_client_stream": false,
-                            "model_context": {
-                              "component_type": "chat_completion_context",
-                              "component_version": 0,
-                              "config": {},
-                              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
-                              "label": "UnboundedChatCompletionContext",
-                              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
-                              "version": 1
-                            },
-                            "name": "test_provider__NS__provider_agent",
-                            "reflect_on_tool_use": false,
-                            "system_message": "You are a provider assistant with access to memory.",
-                            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-                            "tools": null
-                          },
-                          "description": "A provider agent with vector memory",
-                          "label": "",
-                          "provider": "autogen_agentchat.agents.AssistantAgent",
-                          "version": 1
-                        }
-                      ],
-                      "termination_condition": {
-                        "component_type": "termination",
-                        "component_version": 0,
-                        "config": {
-                          "source": "test_provider__NS__provider_agent"
-                        },
-                        "description": "",
-                        "label": "",
-                        "provider": "kagent.conditions.FinalTextMessageTermination",
-                        "version": 1
-                      }
-                    },
-                    "description": "A provider agent with vector memory",
-                    "label": "test-provider/provider-agent",
-                    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
-                    "version": 1
-                  }
-                },
-                "description": "",
-                "label": "",
-                "provider": "autogen_agentchat.tools.TeamTool",
-                "version": 1
-              }
-            ]
-          },
-          "description": "An agent that uses another agent from a different namespace",
-          "label": "",
-          "provider": "autogen_agentchat.agents.AssistantAgent",
-          "version": 1
-        }
+  "config": {
+    "agent_card": {
+      "capabilities": {
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "streaming": true
+      },
+      "defaultInputModes": [
+        "text"
       ],
-      "termination_condition": {
-        "component_type": "termination",
-        "component_version": 0,
-        "config": {
-          "source": "test_consumer__NS__agent_with_cross_ns_agent"
+      "defaultOutputModes": [
+        "text"
+      ],
+      "description": "An agent that uses another agent from a different namespace",
+      "name": "agent-with-cross-ns-agent",
+      "skills": null,
+      "url": "http://agent-with-cross-ns-agent.test-consumer.svc:8080",
+      "version": ""
+    },
+    "agents": [
+      {
+        "agent_card": {
+          "capabilities": {
+            "pushNotifications": false,
+            "stateTransitionHistory": true,
+            "streaming": true
+          },
+          "defaultInputModes": [
+            "text"
+          ],
+          "defaultOutputModes": [
+            "text"
+          ],
+          "description": "A provider agent with vector memory",
+          "name": "provider-agent",
+          "skills": null,
+          "url": "http://provider-agent.test-provider.svc:8080",
+          "version": ""
         },
-        "description": "",
-        "label": "",
-        "provider": "kagent.conditions.FinalTextMessageTermination",
-        "version": 1
+        "agents": null,
+        "description": "A provider agent with vector memory",
+        "http_tools": null,
+        "instruction": "You are a provider assistant with access to memory.",
+        "kagent_url": "http://kagent-controller.kagent.svc:8083",
+        "model": {
+          "base_url": "",
+          "model": "gpt-4o",
+          "type": "openai"
+        },
+        "name": "test_provider__NS__provider_agent",
+        "sse_tools": null
+      }
+    ],
+    "description": "An agent that uses another agent from a different namespace",
+    "http_tools": null,
+    "instruction": "You are an assistant that can delegate to other agents.",
+    "kagent_url": "http://kagent-controller.kagent.svc:8083",
+    "model": {
+      "base_url": "",
+      "model": "gpt-3.5-turbo",
+      "type": "openai"
+    },
+    "name": "test_consumer__NS__agent_with_cross_ns_agent",
+    "sse_tools": null
+  },
+  "configHash": [
+    191,
+    192,
+    25,
+    252,
+    4,
+    170,
+    63,
+    220,
+    195,
+    140,
+    194,
+    249,
+    133,
+    102,
+    241,
+    161,
+    117,
+    152,
+    64,
+    230,
+    184,
+    200,
+    89,
+    0,
+    122,
+    87,
+    186,
+    123,
+    57,
+    117,
+    214,
+    108
+  ],
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "agent-with-cross-ns-agent"
+        },
+        "name": "agent-with-cross-ns-agent",
+        "namespace": "test-consumer",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-cross-ns-agent",
+            "uid": ""
+          }
+        ]
       }
     },
-    "description": "An agent that uses another agent from a different namespace",
-    "label": "test-consumer/agent-with-cross-ns-agent",
-    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
-    "version": 1
-  },
-  "name": "test-consumer/agent-with-cross-ns-agent"
+    {
+      "apiVersion": "v1",
+      "data": {
+        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"agent-with-cross-ns-agent\",\"description\":\"An agent that uses another agent from a different namespace\",\"url\":\"http://agent-with-cross-ns-agent.test-consumer.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test_consumer__NS__agent_with_cross_ns_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-3.5-turbo\",\"type\":\"openai\"},\"description\":\"An agent that uses another agent from a different namespace\",\"instruction\":\"You are an assistant that can delegate to other agents.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":[{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"provider-agent\",\"description\":\"A provider agent with vector memory\",\"url\":\"http://provider-agent.test-provider.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test_provider__NS__provider_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A provider agent with vector memory\",\"instruction\":\"You are a provider assistant with access to memory.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}]}"
+      },
+      "kind": "ConfigMap",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "agent-with-cross-ns-agent"
+        },
+        "name": "agent-with-cross-ns-agent",
+        "namespace": "test-consumer",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-cross-ns-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "agent-with-cross-ns-agent"
+        },
+        "name": "agent-with-cross-ns-agent",
+        "namespace": "test-consumer",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-cross-ns-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "agent-with-cross-ns-agent"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "creationTimestamp": null,
+            "labels": {
+              "app": "kagent",
+              "config.kagent.dev/hash": "13817072226973401052",
+              "kagent": "agent-with-cross-ns-agent"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "command": [
+                  "kagent",
+                  "static",
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config/config.json"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 3
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "agent-with-cross-ns-agent",
+            "volumes": [
+              {
+                "configMap": {
+                  "name": "agent-with-cross-ns-agent"
+                },
+                "name": "config"
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "agent-with-cross-ns-agent"
+        },
+        "name": "agent-with-cross-ns-agent",
+        "namespace": "test-consumer",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-cross-ns-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "agent-with-cross-ns-agent"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
 }

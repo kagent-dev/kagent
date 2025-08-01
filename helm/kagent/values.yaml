@@ -40,6 +40,21 @@ tolerations: []
 # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
 nodeSelector: {}
 
+# ==============================================================================
+# DATABASE CONFIGURATION
+# ==============================================================================
+
+database:
+  type: sqlite
+  sqlite:
+    databaseName: kagent.db
+  postgres:
+    url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
+
+# ==============================================================================
+# CONTROLLER CONFIGURATION
+# ==============================================================================
+
 controller:
   replicas: 1
   loglevel: "info"
@@ -69,34 +84,10 @@ controller:
       port: 8083
       targetPort: 8083
   env: {}
-  database:
-    type: sqlite
-    sqlite:
-      databaseName: kagent.db
-    postgres:
-      url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
 
-engine:
-  replicas: 1
-  loglevel: debug
-  image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/app
-    tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-  service:
-    type: ClusterIP
-    ports:
-      port: 8081
-      targetPort: 8081
-  env: {}
+# ==============================================================================
+# UI CONFIGURATION
+# ==============================================================================
 
 ui:
   replicas: 1

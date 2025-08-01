@@ -117,7 +117,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               }
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
-              toast.error("Failed to extract agent data from team structure");
+              toast.error("Failed to extract agent data");
             }
           } else {
             toast.error("Agent not found");
@@ -347,7 +347,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               </CardHeader>
               <CardContent>
                 <ToolsSection 
-                  allTools={tools} 
                   selectedTools={selectedTools} 
                   setSelectedTools={setSelectedTools} 
                   isSubmitting={isSubmitting || isLoading} 

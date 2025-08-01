@@ -76,7 +76,7 @@ jobs:
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
-          kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
+          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
         working-directory: go

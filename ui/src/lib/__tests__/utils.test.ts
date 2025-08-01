@@ -1,5 +1,5 @@
 import { describe, expect, it, jest, beforeEach, afterEach, afterAll } from '@jest/globals';
-import { getWsUrl, getBackendUrl, getWebSocketUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
+import { getBackendUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
 
 describe('URL Generation Utilities', () => {
   const originalEnv = process.env;
@@ -11,33 +11,6 @@ describe('URL Generation Utilities', () => {
 
   afterAll(() => {
     process.env = originalEnv;
-  });
-
-  describe('getWsUrl', () => {
-    it('should use NEXT_PUBLIC_WS_URL if provided', () => {
-      process.env.NEXT_PUBLIC_WS_URL = 'ws://custom-url';
-      expect(getWsUrl()).toBe('ws://custom-url');
-    });
-
-    it('should use wss in production with https', () => {
-      Object.defineProperty(process.env, 'NODE_ENV', {
-        value: 'production',
-        configurable: true
-      });
-      Object.defineProperty(window, 'location', {
-        value: { protocol: 'https:', host: 'example.com' },
-        writable: true
-      });
-      expect(getWsUrl()).toBe('wss://example.com/api/ws');
-    });
-
-    it('should use ws in development', () => {
-      Object.defineProperty(process.env, 'NODE_ENV', {
-        value: 'development',
-        configurable: true
-      });
-      expect(getWsUrl()).toBe('ws://localhost:8081/api/ws');
-    });
   });
 
   describe('getBackendUrl', () => {
@@ -65,17 +38,7 @@ describe('URL Generation Utilities', () => {
     });
   });
 
-  describe('getWebSocketUrl', () => {
-    it('should convert http to ws', () => {
-      process.env.NEXT_PUBLIC_BACKEND_URL = 'http://example.com/api';
-      expect(getWebSocketUrl()).toBe('ws://example.com/api');
-    });
 
-    it('should convert https to wss', () => {
-      process.env.NEXT_PUBLIC_BACKEND_URL = 'https://example.com/api';
-      expect(getWebSocketUrl()).toBe('wss://example.com/api');
-    });
-  });
 });
 
 describe('Time Utilities', () => {
@@ -166,22 +129,6 @@ describe('Message Utilities', () => {
         expect(messageUtils.isToolCallSummaryMessage({})).toBe(false);
         expect(messageUtils.isToolCallSummaryMessage({ type: 'OtherMessage' })).toBe(false);
         expect(messageUtils.isToolCallSummaryMessage('not an object')).toBe(false);
-      });
-    });
-
-    describe('isTextMessageContent', () => {
-      it('should identify valid text message content', () => {
-        const validContent = {
-          content: 'Hello',
-          type: 'TextMessage'
-        };
-        expect(messageUtils.isTextMessageContent(validContent)).toBe(true);
-      });
-
-      it('should reject invalid text message content', () => {
-        expect(messageUtils.isTextMessageContent({ content: 'Hello' })).toBe(false);
-        expect(messageUtils.isTextMessageContent({ type: 'TextMessage' })).toBe(false);
-        expect(messageUtils.isTextMessageContent('not an object')).toBe(false);
       });
     });
 

@@ -2,15 +2,11 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/translator"
-	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
-	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
@@ -35,22 +31,22 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 
 	agentList := &v1alpha1.AgentList{}
 	if err := h.KubeClient.List(r.Context(), agentList); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to list Teams from Kubernetes", err))
+		w.RespondWithError(errors.NewInternalServerError("Failed to list Agents from Kubernetes", err))
 		return
 	}
 
 	agentsWithID := make([]api.AgentResponse, 0)
-	for _, team := range agentList.Items {
-		teamRef := common.GetObjectRef(&team)
-		log.V(1).Info("Processing Team", "teamRef", teamRef)
+	for _, agent := range agentList.Items {
+		agentRef := common.GetObjectRef(&agent)
+		log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
-		agent, err := h.DatabaseService.GetAgent(teamRef)
-		if err != nil {
-			w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-			return
-		}
+		// dgAgent, err := h.DatabaseService.GetAgent(common.ConvertToPythonIdentifier(agentRef))
+		// if err != nil {
+		// 	w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
+		// 	return
+		// }
 
-		agentResponse, err := h.getAgentResponse(r.Context(), log, &team, agent)
+		agentResponse, err := h.getAgentResponse(r.Context(), log, &agent)
 		if err != nil {
 			w.RespondWithError(err)
 			return
@@ -64,10 +60,10 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, agent *v1alpha1.Agent, dbAgent *database.Agent) (api.AgentResponse, error) {
+func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, agent *v1alpha1.Agent) (api.AgentResponse, error) {
 
 	agentRef := common.GetObjectRef(agent)
-	log.V(1).Info("Processing Team", "teamRef", agentRef)
+	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
 	// Get the ModelConfig for the team
 	modelConfig := &v1alpha1.ModelConfig{}
@@ -131,9 +127,9 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	}
 
 	return api.AgentResponse{
-		ID:             dbAgent.ID,
-		Agent:          agent,
-		Component:      &dbAgent.Component,
+		ID:    common.ConvertToPythonIdentifier(agentRef),
+		Agent: agent,
+		// Config:         dbAgent.Config,
 		ModelProvider:  modelConfig.Spec.Provider,
 		Model:          modelConfig.Spec.Model,
 		ModelConfigRef: common.GetObjectRef(modelConfig),
@@ -172,14 +168,14 @@ func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.V(1).Info("Getting agent from database")
-	dbAgent, err := h.DatabaseService.GetAgent(fmt.Sprintf("%s/%s", agentNamespace, agentName))
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-		return
-	}
+	// log.V(1).Info("Getting agent from database")
+	// dbAgent, err := h.DatabaseService.GetAgent(fmt.Sprintf("%s/%s", agentNamespace, agentName))
+	// if err != nil {
+	// 	w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
+	// 	return
+	// }
 
-	agentResponse, err := h.getAgentResponse(r.Context(), log, agent, dbAgent)
+	agentResponse, err := h.getAgentResponse(r.Context(), log, agent)
 	if err != nil {
 		w.RespondWithError(err)
 		return
@@ -217,52 +213,15 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 	kubeClientWrapper := utils.NewKubeClientWrapper(h.KubeClient)
 	kubeClientWrapper.AddInMemory(&agentReq)
 
-	apiTranslator := translator.NewAutogenApiTranslator(
+	apiTranslator := translator.NewAdkApiTranslator(
 		kubeClientWrapper,
 		h.DefaultModelConfig,
 	)
 
-	log.V(1).Info("Translating Agent to Autogen format")
-	autogenAgent, err := apiTranslator.TranslateGroupChatForAgent(r.Context(), &agentReq)
+	log.V(1).Info("Translating Agent to ADK format")
+	_, err = apiTranslator.TranslateAgent(r.Context(), &agentReq)
 	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to translate Agent to Autogen format", err))
-		return
-	}
-
-	validateReq := autogen_client.ValidationRequest{
-		Component: &autogenAgent.Component,
-	}
-
-	// Validate the team
-	log.V(1).Info("Validating Team")
-	validationResp, err := h.AutogenClient.Validate(r.Context(), &validateReq)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to validate Team", err))
-		return
-	}
-
-	if !validationResp.IsValid {
-		log.Info("Team validation failed",
-			"errors", validationResp.Errors,
-			"warnings", validationResp.Warnings)
-
-		// Improved error message with validation details
-		errorMsg := "Team validation failed: "
-		if len(validationResp.Errors) > 0 {
-			// Convert validation errors to strings
-			errorStrings := make([]string, 0, len(validationResp.Errors))
-			for _, validationErr := range validationResp.Errors {
-				if validationErr != nil {
-					// Use the error as a string or extract relevant information
-					errorStrings = append(errorStrings, fmt.Sprintf("%v", validationErr))
-				}
-			}
-			errorMsg += strings.Join(errorStrings, ", ")
-		} else {
-			errorMsg += "unknown validation error"
-		}
-
-		w.RespondWithError(errors.NewValidationError(errorMsg, nil))
+		w.RespondWithError(errors.NewInternalServerError("Failed to translate Agent to ADK format", err))
 		return
 	}
 

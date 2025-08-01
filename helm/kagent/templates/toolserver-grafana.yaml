@@ -16,19 +16,9 @@ metadata:
   namespace: kagent
 spec:
   config:
-    stdio:
-      command: /app/python/bin/mcp-grafana
-      args:
-        - -t
-        - stdio
-        - debug
-      readTimeoutSeconds: 30
-      envFrom:
-      - name: "GRAFANA_URL"
-        value: {{ .Values.tools.grafana.url | quote }}
-      - name: "GRAFANA_API_KEY"
-        valueFrom:
-          type: Secret
-          key: "apiKey"
-          valueRef: {{ include "kagent.fullname" . }}-mcp-grafana
-  description: "Toolserver for Official Grafana MCP Server"
+    type: sse
+    sse:
+      url: {{ printf "http://kagent.%s.svc.cluster.local:%v/sse" .Release.Namespace 8000 }}
+      sseReadTimeout: 5m0s
+      timeout: 30s
+  description: "KAgent Grafana MCP"

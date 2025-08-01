@@ -1,145 +1,313 @@
 {
-  "CreatedAt": "0001-01-01T00:00:00Z",
-  "DeletedAt": null,
-  "ID": 0,
-  "UpdatedAt": "0001-01-01T00:00:00Z",
-  "component": {
-    "component_type": "team",
-    "component_version": 0,
-    "config": {
-      "participants": [
-        {
-          "component_type": "agent",
-          "component_version": 0,
-          "config": {
-            "description": "A parent agent that can delegate to specialists",
-            "model_client": {
-              "component_type": "model",
-              "component_version": 0,
-              "config": {
-                "api_key": "sk-test-api-key",
-                "model": "gpt-4o",
-                "stream_options": {
-                  "include_usage": true
-                }
-              },
-              "description": "",
-              "label": "",
-              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
-              "version": 1
-            },
-            "model_client_stream": true,
-            "model_context": {
-              "component_type": "chat_completion_context",
-              "component_version": 0,
-              "config": {},
-              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
-              "label": "UnboundedChatCompletionContext",
-              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
-              "version": 1
-            },
-            "name": "test__NS__parent_agent",
-            "reflect_on_tool_use": false,
-            "system_message": "You are a coordinating agent that can delegate tasks to specialists.",
-            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-            "tools": [
-              {
-                "component_type": "tool",
-                "component_version": 0,
-                "config": {
-                  "description": "A specialist agent for math problems",
-                  "name": "test__NS__specialist_agent",
-                  "team": {
-                    "component_type": "team",
-                    "component_version": 0,
-                    "config": {
-                      "participants": [
-                        {
-                          "component_type": "agent",
-                          "component_version": 0,
-                          "config": {
-                            "description": "A specialist agent for math problems",
-                            "model_client": {
-                              "component_type": "model",
-                              "component_version": 0,
-                              "config": {
-                                "api_key": "sk-test-api-key",
-                                "model": "gpt-4o"
-                              },
-                              "description": "",
-                              "label": "",
-                              "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
-                              "version": 1
-                            },
-                            "model_client_stream": false,
-                            "model_context": {
-                              "component_type": "chat_completion_context",
-                              "component_version": 0,
-                              "config": {},
-                              "description": "An unbounded chat completion context that keeps a view of the all the messages.",
-                              "label": "UnboundedChatCompletionContext",
-                              "provider": "autogen_core.model_context.UnboundedChatCompletionContext",
-                              "version": 1
-                            },
-                            "name": "test__NS__specialist_agent",
-                            "reflect_on_tool_use": false,
-                            "system_message": "You are a math specialist. Focus on solving mathematical problems step by step.",
-                            "tool_call_summary_format": "\nTool: \n{tool_name}\n\nArguments:\n\n{arguments}\n\nResult: \n{result}\n",
-                            "tools": null
-                          },
-                          "description": "A specialist agent for math problems",
-                          "label": "",
-                          "provider": "autogen_agentchat.agents.AssistantAgent",
-                          "version": 1
-                        }
-                      ],
-                      "termination_condition": {
-                        "component_type": "termination",
-                        "component_version": 0,
-                        "config": {
-                          "source": "test__NS__specialist_agent"
-                        },
-                        "description": "",
-                        "label": "",
-                        "provider": "kagent.conditions.FinalTextMessageTermination",
-                        "version": 1
-                      }
-                    },
-                    "description": "A specialist agent for math problems",
-                    "label": "test/specialist-agent",
-                    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
-                    "version": 1
-                  }
-                },
-                "description": "",
-                "label": "",
-                "provider": "autogen_agentchat.tools.TeamTool",
-                "version": 1
-              }
-            ]
-          },
-          "description": "A parent agent that can delegate to specialists",
-          "label": "",
-          "provider": "autogen_agentchat.agents.AssistantAgent",
-          "version": 1
-        }
+  "config": {
+    "agent_card": {
+      "capabilities": {
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "streaming": true
+      },
+      "defaultInputModes": [
+        "text"
       ],
-      "termination_condition": {
-        "component_type": "termination",
-        "component_version": 0,
-        "config": {
-          "source": "test__NS__parent_agent"
+      "defaultOutputModes": [
+        "text"
+      ],
+      "description": "A parent agent that can delegate to specialists",
+      "name": "parent-agent",
+      "skills": null,
+      "url": "http://parent-agent.test.svc:8080",
+      "version": ""
+    },
+    "agents": [
+      {
+        "agent_card": {
+          "capabilities": {
+            "pushNotifications": false,
+            "stateTransitionHistory": true,
+            "streaming": true
+          },
+          "defaultInputModes": [
+            "text"
+          ],
+          "defaultOutputModes": [
+            "text"
+          ],
+          "description": "A specialist agent for math problems",
+          "name": "specialist-agent",
+          "skills": null,
+          "url": "http://specialist-agent.test.svc:8080",
+          "version": ""
         },
-        "description": "",
-        "label": "",
-        "provider": "kagent.conditions.FinalTextMessageTermination",
-        "version": 1
+        "agents": null,
+        "description": "A specialist agent for math problems",
+        "http_tools": null,
+        "instruction": "You are a math specialist. Focus on solving mathematical problems step by step.",
+        "kagent_url": "http://kagent-controller.kagent.svc:8083",
+        "model": {
+          "base_url": "",
+          "model": "gpt-4o",
+          "type": "openai"
+        },
+        "name": "test__NS__specialist_agent",
+        "sse_tools": null
+      }
+    ],
+    "description": "A parent agent that can delegate to specialists",
+    "http_tools": null,
+    "instruction": "You are a coordinating agent that can delegate tasks to specialists.",
+    "kagent_url": "http://kagent-controller.kagent.svc:8083",
+    "model": {
+      "base_url": "",
+      "model": "gpt-4o",
+      "type": "openai"
+    },
+    "name": "test__NS__parent_agent",
+    "sse_tools": null
+  },
+  "configHash": [
+    36,
+    159,
+    178,
+    63,
+    62,
+    190,
+    1,
+    88,
+    140,
+    52,
+    10,
+    201,
+    94,
+    231,
+    216,
+    76,
+    9,
+    49,
+    29,
+    99,
+    77,
+    75,
+    116,
+    25,
+    236,
+    67,
+    150,
+    208,
+    11,
+    5,
+    28,
+    49
+  ],
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "parent-agent"
+        },
+        "name": "parent-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "parent-agent",
+            "uid": ""
+          }
+        ]
       }
     },
-    "description": "A parent agent that can delegate to specialists",
-    "label": "test/parent-agent",
-    "provider": "autogen_agentchat.teams.RoundRobinGroupChat",
-    "version": 1
-  },
-  "name": "test/parent-agent"
+    {
+      "apiVersion": "v1",
+      "data": {
+        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"parent-agent\",\"description\":\"A parent agent that can delegate to specialists\",\"url\":\"http://parent-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__parent_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A parent agent that can delegate to specialists\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":[{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"specialist-agent\",\"description\":\"A specialist agent for math problems\",\"url\":\"http://specialist-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__specialist_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A specialist agent for math problems\",\"instruction\":\"You are a math specialist. Focus on solving mathematical problems step by step.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}]}"
+      },
+      "kind": "ConfigMap",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "parent-agent"
+        },
+        "name": "parent-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "parent-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "parent-agent"
+        },
+        "name": "parent-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "parent-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "parent-agent"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "creationTimestamp": null,
+            "labels": {
+              "app": "kagent",
+              "config.kagent.dev/hash": "2639023891367723352",
+              "kagent": "parent-agent"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "command": [
+                  "kagent",
+                  "static",
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config/config.json"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 3
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "parent-agent",
+            "volumes": [
+              {
+                "configMap": {
+                  "name": "parent-agent"
+                },
+                "name": "config"
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "parent-agent"
+        },
+        "name": "parent-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "parent-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "parent-agent"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
 }

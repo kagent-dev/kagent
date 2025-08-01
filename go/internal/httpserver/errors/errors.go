@@ -73,3 +73,11 @@ func NewConflictError(message string, err error) *APIError {
 		Err:     err,
 	}
 }
+
+func NewNotImplementedError(message string, err error) *APIError {
+	return &APIError{
+		Code:    http.StatusNotImplemented,
+		Message: message,
+		Err:     err,
+	}
+}
