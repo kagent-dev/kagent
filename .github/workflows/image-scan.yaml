@@ -8,6 +8,11 @@ on:
   # Trigger the workflow on push to the main branch
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/README.md'
+      - '**/CONTRIBUTION.md'
+      - '**/CODE_OF_CONDUCT.md'
 
   workflow_dispatch:
 
