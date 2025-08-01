@@ -111,6 +111,11 @@ export class KagentA2AClient {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    // Add buffer size limits to prevent memory leaks in streaming: 1MB buffer limit, 16KB chunk size for truncation, and 10MB total message length
+    const MAX_BUFFER_SIZE = 1024 * 1024;
+    const CHUNK_SIZE = 16 * 1024;
+    const MAX_MESSAGE_SIZE = 10 * 1024 * 1024;
+    let processedSize = 0;
 
     try {
       while (true) {
@@ -119,9 +124,26 @@ export class KagentA2AClient {
         if (done) {
           break;
         }
+        processedSize += value.length;
+        if (processedSize > MAX_MESSAGE_SIZE) {
+          throw new Error("Message size exceeds allowed limit of 10MB");
+        }
 
         buffer += decoder.decode(value, { stream: true });
 
+        if (buffer.length > MAX_BUFFER_SIZE) {
+          // Try to preserve complete lines by splitting on newlines
+          const lines = buffer.split('\n');
+          const lastLine = lines.pop() || '';
+          
+          buffer = lastLine;
+          
+          // If the last line is still too large, truncate it
+          if (buffer.length > MAX_BUFFER_SIZE) {
+            buffer = buffer.slice(-CHUNK_SIZE);
+            console.warn("Buffer truncated due to size limit");
+          }
+        }
         // Process complete SSE events (delimited by \n\n)
         let eventEndIndex;
         while ((eventEndIndex = buffer.indexOf('\n\n')) >= 0) {
