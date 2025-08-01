@@ -5,7 +5,7 @@ import { ChevronsUpDown, Plus } from "lucide-react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
-import { AgentResponse } from "@/types/datamodel";
+import type { AgentResponse } from "@/types";
 import KagentLogo from "../kagent-logo";
 import { useRouter } from "next/navigation";
 import { k8sRefUtils } from "@/lib/k8sUtils";

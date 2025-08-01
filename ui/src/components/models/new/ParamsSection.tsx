@@ -1,7 +1,7 @@
 import React from 'react';
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Provider } from "@/lib/types";
+import { Provider } from "@/types";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 interface ValidationErrors {

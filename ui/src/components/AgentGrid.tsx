@@ -1,4 +1,4 @@
-import type { AgentResponse } from "@/types/datamodel";
+import type { AgentResponse } from "@/types";
 import { AgentCard } from "./AgentCard";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
