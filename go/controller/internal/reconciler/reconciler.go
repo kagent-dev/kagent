@@ -203,6 +203,20 @@ func (a *kagentReconciler) ReconcileMCPService(ctx context.Context, req ctrl.Req
 		return fmt.Errorf("failed to get service %s: %v", req.Name, err)
 	}
 
+	dbService := &database.ToolServer{
+		Name:        utils.GetObjectRef(service),
+		Description: "N/A",
+		GroupKind:   schema.GroupKind{Group: "", Kind: "Service"}.String(),
+	}
+
+	if remoteService, err := translator.ConvertServiceToRemoteMCPServer(service); err != nil {
+		reconcileLog.Error(err, "failed to convert service to remote mcp service", "service", utils.GetObjectRef(service))
+	} else {
+		if err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService); err != nil {
+			reconcileLog.Error(err, "failed to upsert tool server for mcp service", "service", utils.GetObjectRef(service))
+		}
+	}
+
 	agents, err := a.findAgentsUsingMCPService(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to find agents for mcp service %s: %v", req.Name, err)
@@ -232,11 +246,11 @@ func (a *kagentReconciler) findAgentsUsingMCPService(ctx context.Context, req ct
 				continue
 			}
 
-			if tool.McpServer.Server.ApiGroup != "" || tool.McpServer.Server.Kind != "Service" {
+			if tool.McpServer.ApiGroup != "" || tool.McpServer.Kind != "Service" {
 				continue
 			}
 
-			if tool.McpServer.Server.Name == req.Name {
+			if tool.McpServer.Name == req.Name {
 				agents = append(agents, &agent)
 			}
 		}
@@ -358,11 +372,11 @@ func (a *kagentReconciler) findAgentsUsingMCPServer(ctx context.Context, req ctr
 				continue
 			}
 
-			if tool.McpServer.Server.ApiGroup != "kagent.dev" || tool.McpServer.Server.Kind != "MCPServer" {
+			if tool.McpServer.ApiGroup != "kagent.dev" || tool.McpServer.Kind != "MCPServer" {
 				continue
 			}
 
-			if tool.McpServer.Server.Name == req.Name {
+			if tool.McpServer.Name == req.Name {
 				agents = append(agents, &agent)
 			}
 		}
@@ -494,11 +508,6 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 	}
 
 	return &agentOutputs.ConfigHash, nil
-}
-
-func (a *kagentReconciler) reconcileRemoteMCPServer(ctx context.Context, server *v1alpha2.RemoteMCPServer) error {
-
-	return nil
 }
 
 func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *translator.AgentOutputs) error {
@@ -702,7 +711,7 @@ func (a *kagentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, r
 				continue
 			}
 
-			if tool.McpServer.Server.Name == req.Name {
+			if tool.McpServer.Name == req.Name {
 				agents = append(agents, agent)
 				return
 			}

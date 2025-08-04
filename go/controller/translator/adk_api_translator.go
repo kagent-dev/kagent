@@ -348,7 +348,7 @@ func (a *adkApiTranslator) translateDeclarativeAgent(ctx context.Context, agent 
 		switch {
 		case tool.McpServer != nil:
 			for _, toolName := range tool.McpServer.ToolNames {
-				toolsByServer[tool.McpServer.Server] = append(toolsByServer[tool.McpServer.Server], toolName)
+				toolsByServer[tool.McpServer.TypedLocalReference] = append(toolsByServer[tool.McpServer.TypedLocalReference], toolName)
 			}
 		case tool.Agent != nil:
 
@@ -672,7 +672,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		if err != nil {
 			return err
 		}
-		spec, err := ConvertServiceToRemoteMcpServer(svc)
+		spec, err := ConvertServiceToRemoteMCPServer(svc)
 		if err != nil {
 			return err
 		}
@@ -706,7 +706,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 	}
 }
 
-func ConvertServiceToRemoteMcpServer(svc *corev1.Service) (*v1alpha2.RemoteMCPServerSpec, error) {
+func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPServerSpec, error) {
 	// Check wellknown annotations
 	port := int64(0)
 	protocol := string(MCPServiceProtocolDefault)
@@ -716,19 +716,8 @@ func ConvertServiceToRemoteMcpServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 			var err error
 			port, err = strconv.ParseInt(portStr, 10, 64)
 			if err != nil {
-				return nil, fmt.Errorf("invalid port annotation: %v", err)
+				return nil, fmt.Errorf("port in annotation %s is not a valid integer: %v", MCPServicePortAnnotation, err)
 			}
-		} else {
-			// Look through ports to find AppProtcol = mcp
-			for _, svcPort := range svc.Spec.Ports {
-				if svcPort.AppProtocol != nil && *svcPort.AppProtocol == "mcp" {
-					port = int64(svcPort.Port)
-					break
-				}
-			}
-		}
-		if port == 0 {
-			return nil, fmt.Errorf("no port found for service %s", svc.Name)
 		}
 		if protocolStr, ok := svc.Annotations[MCPServiceProtocolAnnotation]; ok {
 			if protocolStr != string(v1alpha2.RemoteMCPServerProtocolSse) && protocolStr != string(v1alpha2.RemoteMCPServerProtocolStreamableHttp) {
@@ -741,6 +730,16 @@ func ConvertServiceToRemoteMcpServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 		if pathStr, ok := svc.Annotations[MCPServicePathAnnotation]; ok {
 			path = pathStr
 		}
+	}
+	if port == 0 {
+		// Look through ports to find AppProtcol = mcp
+		for _, svcPort := range svc.Spec.Ports {
+			if svcPort.AppProtocol != nil && strings.ToLower(*svcPort.AppProtocol) == "mcp" {
+				port = int64(svcPort.Port)
+				break
+			}
+		}
+		return nil, fmt.Errorf("no port found for service %s with protocol %s", svc.Name, protocol)
 	}
 	return &v1alpha2.RemoteMCPServerSpec{
 		URL:      fmt.Sprintf("http://%s.%s:%d%s", svc.Name, svc.Namespace, port, path),

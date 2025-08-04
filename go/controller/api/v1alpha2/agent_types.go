@@ -96,7 +96,8 @@ type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
 	// Can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
 	// +optional
-	Server TypedLocalReference `json:"server,omitempty"`
+	TypedLocalReference `json:",inline"`
+
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created

@@ -1,4 +1,4 @@
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
   name: argo-rollouts-conversion-agent
@@ -113,12 +113,16 @@ spec:
   tools:
   - type: McpServer
     mcpServer:
-      toolServer: kagent-querydoc
+      name: kagent-querydoc
+      kind: RemoteMCPServer
+      apiGroup: kagent.dev
       toolNames:
         - query_documentation
   - type: McpServer
     mcpServer:
-      toolServer: kagent-tool-server
+      name: kagent-tool-server
+      kind: RemoteMCPServer
+      apiGroup: kagent.dev
       toolNames:
       - argo_verify_argo_rollouts_controller_install
       - k8s_get_resources

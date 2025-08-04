@@ -4269,20 +4269,12 @@ spec:
                       type: object
                     mcpServer:
                       properties:
-                        server:
-                          description: |-
-                            The reference to the ToolServer that provides the tool.
-                            Can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
-                          properties:
-                            apiGroup:
-                              type: string
-                            kind:
-                              type: string
-                            name:
-                              type: string
-                          required:
-                          - name
-                          type: object
+                        apiGroup:
+                          type: string
+                        kind:
+                          type: string
+                        name:
+                          type: string
                         toolNames:
                           description: |-
                             The names of the tools to be provided by the ToolServer
@@ -4291,6 +4283,8 @@ spec:
                           items:
                             type: string
                           type: array
+                      required:
+                      - name
                       type: object
                     type:
                       allOf:

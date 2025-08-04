@@ -1,13 +1,12 @@
-apiVersion: kagent.dev/v1alpha1
-kind: ToolServer
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
 metadata:
   name: {{ include "querydoc.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "querydoc.labels" . | nindent 4 }}
 spec:
-  config:
-    streamableHttp:
-      timeout: 30s
-      url: {{ include "querydoc.serverUrl" . }}
+  url: {{ include "querydoc.serverUrl" . }}
+  timeout: 30s
+  protocol: STREAMABLE_HTTP
   description: "Documentation Query Tool Server"
