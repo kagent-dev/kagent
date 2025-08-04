@@ -1,6 +1,6 @@
 'use server'
 
-import { FeedbackData, FeedbackIssueType } from "@/lib/types";
+import { FeedbackData, FeedbackIssueType } from "@/types";
 import { fetchApi, getCurrentUserId } from "./utils";
 
 /**

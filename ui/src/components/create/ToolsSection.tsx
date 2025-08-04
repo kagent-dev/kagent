@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
 import { isAgentTool, isMcpTool, getToolResponseDescription } from "@/lib/toolUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
-import { Tool, ToolResponse, AgentResponse } from "@/types/datamodel";
+import type { Tool, ToolResponse, AgentResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import KagentLogo from "../kagent-logo";

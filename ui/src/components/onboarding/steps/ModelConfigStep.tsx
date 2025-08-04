@@ -11,11 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import { CreateModelConfigPayload, ModelConfig, Provider } from '@/lib/types';
+import type { CreateModelConfigPayload, ModelConfig, Provider, ProviderModelsResponse } from '@/types';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { getModels, ProviderModelsResponse } from '@/app/actions/models';
+import { getModels } from '@/app/actions/models';
 import { getSupportedModelProviders } from '@/app/actions/providers';
 import { cn, isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { createModelConfig } from '@/app/actions/modelConfigs';

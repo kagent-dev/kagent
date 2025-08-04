@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from "react";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
-import { AgentResponse, Session, ToolResponse } from "@/types/datamodel";
 import { getSessionsForAgent } from "@/app/actions/sessions";
+import { AgentResponse, Session, ToolResponse } from "@/types";
 import { toast } from "sonner";
 
 interface ChatLayoutUIProps {
@@ -52,9 +52,10 @@ export default function ChatLayoutUI({
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleNewSession = (event: any) => {
-      const { agentName: eventAgentName, session } = event.detail;
-      // Only update if this is for our current agent
-      if (eventAgentName === agentName && session) {
+      const { agentRef, session } = event.detail;
+      // Only update if this is for our current agent (agentRef format: "namespace/agentName")
+      const currentAgentRef = `${namespace}/${agentName}`;
+      if (agentRef === currentAgentRef && session) {
         setSessions(prevSessions => {
           const exists = prevSessions.some(s => s.id === session.id);
           if (exists) {

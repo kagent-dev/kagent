@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Edit } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { MemoryResponse } from '@/lib/types'
+import { MemoryResponse } from '@/types'
 import { listMemories, deleteMemory } from '../actions/memories'
 import {
   Table,

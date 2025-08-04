@@ -1,5 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { ModelConfig } from "@/lib/types";
+import type { ModelConfig } from "@/types";
 
 interface ModelSelectionSectionProps {
   allModels: ModelConfig[];

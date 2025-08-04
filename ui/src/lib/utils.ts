@@ -1,8 +1,5 @@
-import { LLMCall } from "@/components/chat/LLMCallModal";
-import { ImageContent, TaskResultMessage } from "@/types/datamodel";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { CompletionMessage, ErrorMessageConfig, MemoryQueryEvent, ModelClientStreamingChunkEvent, ToolCallExecutionEvent, ToolCallRequestEvent, ToolCallSummaryMessage } from "@/types/datamodel";
 import { Message as A2AMessage, Task as A2ATask, TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent, TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent } from "@a2a-js/sdk";
 
 export function cn(...inputs: ClassValue[]) {
@@ -129,58 +126,6 @@ export const createRFC1123ValidName = (parts: string[]): string => {
 };
 
 export const messageUtils = {
-  isToolCallRequestEvent(content: unknown): content is ToolCallRequestEvent {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallRequestEvent";
-  },
-
-  isToolCallExecutionEvent(content: unknown): content is ToolCallExecutionEvent {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallExecutionEvent";
-  },
-
-  isToolCallSummaryMessage(content: unknown): content is ToolCallSummaryMessage {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallSummaryMessage";
-  },
-
-  isMultiModalContent(content: unknown): content is (string | ImageContent)[] {
-    if (!Array.isArray(content)) return false;
-    return content.every((item) => typeof item === "string" || (typeof item === "object" && item !== null && ("url" in item || "data" in item)));
-  },
-
-  isCompletionMessage(content: unknown): content is CompletionMessage {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "completion";
-  },
-
-  isStreamingMessage(content: unknown): content is ModelClientStreamingChunkEvent {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ModelClientStreamingChunkEvent";
-  },
-
-  isMemoryQueryEvent(content: unknown): content is MemoryQueryEvent {
-    const isMemoryQueryEvent = typeof content === "object" && content !== null && "type" in content && content.type === "MemoryQueryEvent";
-    return isMemoryQueryEvent;
-  },
-
-  isErrorMessageContent(content: unknown): content is ErrorMessageConfig {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "error";
-  },
-
-  isLlmCallEvent(content: unknown): content is LLMCall {
-    try {
-      const parsed = JSON.parse(String(content));
-      return typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "LLMCall";
-    } catch {
-      return false;
-    }
-  },
-
-  isTaskResultMessage(content: unknown): content is TaskResultMessage {
-    return typeof content === "object" && content !== null && "task_result" in content && "duration" in content && "usage" in content;
-  },
-
-  isUser(source: string): boolean {
-    return source === "user";
-  },
-
-  // A2A Protocol type guards
   isA2AMessage(content: unknown): content is A2AMessage {
     return typeof content === "object" && content !== null && "kind" in content && content.kind === "message";
   },

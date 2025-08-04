@@ -1,9 +1,61 @@
-import { AgentMessageConfig, TextMessageConfig } from "@/types/datamodel";
 import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
+import { v4 as uuidv4 } from "uuid";
 import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
-import { TokenStats } from "@/lib/types";
-import { calculateTokenStats } from "@/components/chat/TokenStats";
+import { TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
+
+// Helper functions for extracting data from stored tasks
+export function extractMessagesFromTasks(tasks: Task[]): Message[] {
+  const messages: Message[] = [];
+  const seenMessageIds = new Set<string>();
+  
+  for (const task of tasks) {
+    if (task.history) {
+      for (const historyItem of task.history) {
+        if (historyItem.kind === "message") {
+          // Deduplicate by messageId to avoid showing the same message twice
+          if (!seenMessageIds.has(historyItem.messageId)) {
+            seenMessageIds.add(historyItem.messageId);
+            messages.push(historyItem);
+          }
+        }
+      }
+    }
+  }
+  
+  return messages;
+}
+
+export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
+  let maxTotal = 0;
+  let maxInput = 0;
+  let maxOutput = 0;
+  
+  for (const task of tasks) {
+    if (task.metadata) {
+      const metadata = task.metadata as ADKMetadata;
+      const usage = metadata.adk_usage_metadata;
+      
+      if (usage) {
+        maxTotal = Math.max(maxTotal, usage.totalTokenCount || 0);
+        maxInput = Math.max(maxInput, usage.promptTokenCount || 0);
+        maxOutput = Math.max(maxOutput, usage.candidatesTokenCount || 0);
+      }
+    }
+  }
+  
+  return {
+    total: maxTotal,
+    input: maxInput,
+    output: maxOutput
+  };
+}
+
+export type OriginalMessageType = 
+  | "TextMessage"
+  | "ToolCallRequestEvent" 
+  | "ToolCallExecutionEvent"
+  | "ToolCallSummaryMessage";
 
 export interface ADKMetadata {
   adk_app_name?: string;
@@ -17,6 +69,10 @@ export interface ADKMetadata {
   adk_type?: "function_call" | "function_response";
   adk_author?: string;
   adk_invocation_id?: string;
+  originalType?: OriginalMessageType;
+  displaySource?: string;
+  toolCallData?: ProcessedToolCallData[];
+  toolResultData?: ProcessedToolResultData[];
   [key: string]: unknown; // Allow for additional metadata fields
 }
 
@@ -37,6 +93,20 @@ export interface ToolResponseData {
   };
 }
 
+// Types for the processed tool call data stored in metadata
+export interface ProcessedToolCallData {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+export interface ProcessedToolResultData {
+  call_id: string;
+  name: string;
+  content: string;
+  is_error: boolean;
+}
+
 
 function isTextPart(part: Part): part is TextPart {
   return part.kind === "text";
@@ -46,7 +116,7 @@ function isDataPart(part: Part): part is DataPart {
   return part.kind === "data";
 }
 
-function  getSourceFromMetadata(metadata: ADKMetadata | undefined, context: string = "unknown", fallback: string = "assistant"): string {
+function  getSourceFromMetadata(metadata: ADKMetadata | undefined, fallback: string = "assistant"): string {
   if (metadata?.adk_app_name) {
     return convertToUserFriendlyName(metadata.adk_app_name);
   }
@@ -58,13 +128,50 @@ function getADKMetadata(obj: { metadata?: { [k: string]: unknown } }): ADKMetada
   return obj.metadata as ADKMetadata | undefined;
 }
 
+export function createMessage(
+  content: string,
+  source: string,
+  options: {
+    messageId?: string;
+    originalType?: OriginalMessageType;
+    contextId?: string;
+    taskId?: string;
+    additionalMetadata?: Record<string, unknown>;
+  } = {}
+): Message {
+  const {
+    messageId = uuidv4(),
+    originalType,
+    contextId,
+    taskId,
+    additionalMetadata = {},
+  } = options;
+
+  const message: Message = {
+    kind: "message",
+    messageId,
+    role: source === "user" ? "user" : "agent",
+    parts: [{
+      kind: "text",
+      text: content
+    }],
+    contextId,
+    taskId,
+    metadata: {
+      originalType,
+      displaySource: source,
+      ...additionalMetadata
+    }
+  };
+  return message;
+}
+
 export type MessageHandlers = {
-  setMessages: (updater: (prev: AgentMessageConfig[]) => AgentMessageConfig[]) => void;
+  setMessages: (updater: (prev: Message[]) => Message[]) => void;
   setIsStreaming: (value: boolean) => void;
   setStreamingContent: (updater: (prev: string) => string) => void;
   setTokenStats: (updater: (prev: TokenStats) => TokenStats) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setChatStatus?: (status: any) => void;
+  setChatStatus?: (status: ChatStatus) => void;
   agentContext?: {
     namespace: string;
     agentName: string;
@@ -76,24 +183,11 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   const defaultAgentSource = handlers.agentContext 
     ? `${handlers.agentContext.namespace}/${handlers.agentContext.agentName.replace(/_/g, "-")}`
     : "assistant";
-  const handleStreamingMessage = (message: AgentMessageConfig) => {
-    if (messageUtils.isStreamingMessage(message)) {
-      handlers.setIsStreaming(true);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      handlers.setStreamingContent(prev => prev + (message as any).content);
-    }
-  };
 
-  const handleErrorMessage = (message: AgentMessageConfig) => {
-    handlers.setMessages(prevMessages => [...prevMessages, message]);
-  };
-
-  const handleToolCallMessage = (message: AgentMessageConfig) => {
-    handlers.setMessages(prevMessages => [...prevMessages, message]);
-  };
 
   const handleA2ATask = (task: Task) => {
     handlers.setIsStreaming(true);
+    // TODO: figure out how/if we want to handle tasks separately from messages
   };
 
   const handleA2ATaskStatusUpdate = (statusUpdate: TaskStatusUpdateEvent) => {
@@ -129,13 +223,18 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
           if (isTextPart(part)) {
             const textContent = part.text || "";
-            const displayMessage = {
-              type: "TextMessage",
-              content: textContent,
-              source: getSourceFromMetadata(adkMetadata, "statusUpdate-textMessage", defaultAgentSource)
-            } as AgentMessageConfig;
+            const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
 
             if (statusUpdate.final) {
+              const displayMessage = createMessage(
+                textContent,
+                source,
+                {
+                  originalType: "TextMessage",
+                  contextId: statusUpdate.contextId,
+                  taskId: statusUpdate.taskId
+                }
+              );
               handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
               if (handlers.setChatStatus) {
                 handlers.setChatStatus("ready");
@@ -158,16 +257,23 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               }
 
               const toolData = data as unknown as ToolCallData;
-              const toolCallMessage = {
-                type: "ToolCallRequestEvent",
-                content: [{
-                  id: toolData.id,
-                  name: toolData.name,
-                  arguments: JSON.stringify(toolData.args || {})
-                }],
-                source: getSourceFromMetadata(adkMetadata, "statusUpdate-toolCall", defaultAgentSource)
-              } as AgentMessageConfig;
-              handlers.setMessages(prevMessages => [...prevMessages, toolCallMessage]);
+              const toolCallContent: ProcessedToolCallData[] = [{
+                id: toolData.id,
+                name: toolData.name,
+                arguments: JSON.stringify(toolData.args || {})
+              }];
+              const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+              const convertedMessage = createMessage(
+                "",
+                source,
+                {
+                  originalType: "ToolCallRequestEvent",
+                  contextId: statusUpdate.contextId,
+                  taskId: statusUpdate.taskId,
+                  additionalMetadata: { toolCallData: toolCallContent }
+                }
+              );
+              handlers.setMessages(prevMessages => [...prevMessages, convertedMessage]);
 
             } else if (partMetadata?.adk_type === "function_response") {
               const toolData = data as unknown as ToolResponseData;
@@ -179,17 +285,25 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
                 return String(c);
               }).join("");
 
-              const toolResponseMessage = {
-                type: "ToolCallExecutionEvent",
-                content: [{
-                  call_id: toolData.id,
-                  name: toolData.name,
-                  content: textContent,
-                  is_error: toolData.response?.isError || false
-                }],
-                source: getSourceFromMetadata(adkMetadata, "statusUpdate-toolResponse", defaultAgentSource)
-              } as AgentMessageConfig;
-              handlers.setMessages(prevMessages => [...prevMessages, toolResponseMessage]);
+              const toolResultContent: ProcessedToolResultData[] = [{
+                call_id: toolData.id,
+                name: toolData.name,
+                content: textContent,
+                is_error: toolData.response?.isError || false
+              }];
+              const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+              
+              const convertedMessage = createMessage(
+                "",
+                source,
+                {
+                  originalType: "ToolCallExecutionEvent",
+                  contextId: statusUpdate.contextId,
+                  taskId: statusUpdate.taskId,
+                  additionalMetadata: { toolResultData: toolResultContent }
+                }
+              );
+              handlers.setMessages(prevMessages => [...prevMessages, convertedMessage]);
             }
           }
         }
@@ -213,15 +327,10 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   };
 
   const handleA2ATaskArtifactUpdate = (artifactUpdate: TaskArtifactUpdateEvent) => {
-
-    // Try to get metadata from artifactUpdate first, then from artifact as fallback
     let adkMetadata = getADKMetadata(artifactUpdate);
     if (!adkMetadata && artifactUpdate.artifact) {
-      console.log("🔄 Trying artifact metadata as fallback");
       adkMetadata = getADKMetadata(artifactUpdate.artifact);
     }
-    
-
 
     if (adkMetadata?.adk_usage_metadata) {
       const usage = adkMetadata.adk_usage_metadata;
@@ -256,19 +365,29 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       handlers.setIsStreaming(false);
       handlers.setStreamingContent(() => "");
 
-            const displayMessage = {
-        type: "TextMessage",
-        content: artifactText,
-        source: getSourceFromMetadata(adkMetadata, "artifact-displayMessage", defaultAgentSource)
-      } as AgentMessageConfig;
+      const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+      const displayMessage = createMessage(
+        artifactText,
+        source,
+        {
+          originalType: "TextMessage",
+          contextId: artifactUpdate.contextId,
+          taskId: artifactUpdate.taskId
+        }
+      );
       handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
       
       // Add a tool call summary message to mark any pending tool calls as completed
-      const toolSummaryMessage = {
-        type: "ToolCallSummaryMessage",
-        content: "Tool execution completed",
-        source: getSourceFromMetadata(adkMetadata, "artifact-toolSummary", defaultAgentSource)
-      } as AgentMessageConfig;
+      const summarySource = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+      const toolSummaryMessage = createMessage(
+        "Tool execution completed",
+        summarySource,
+        {
+          originalType: "ToolCallSummaryMessage",
+          contextId: artifactUpdate.contextId,
+          taskId: artifactUpdate.taskId
+        }
+      );
       handlers.setMessages(prevMessages => [...prevMessages, toolSummaryMessage]);
 
       if (handlers.setChatStatus) {
@@ -289,25 +408,28 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       return "";
     }).join("");
 
-    const displayMessage = {
-      type: "TextMessage",
-      content,
-      source: message.role === "user" ? "user" : getSourceFromMetadata(message.metadata as ADKMetadata, "a2aMessage", defaultAgentSource)
-    } as AgentMessageConfig;
-
     if (message.role !== "user") {
+      const source = getSourceFromMetadata(message.metadata as ADKMetadata, defaultAgentSource);
+      const displayMessage = createMessage(
+        content,
+        source,
+        {
+          originalType: "TextMessage",
+          contextId: message.contextId,
+          taskId: message.taskId
+        }
+      );
       handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
     }
   };
 
-  const handleOtherMessage = (message: AgentMessageConfig) => {
+  const handleOtherMessage = (message: Message) => {
     handlers.setIsStreaming(false);
     handlers.setStreamingContent(() => "");
     handlers.setMessages(prevMessages => [...prevMessages, message]);
   };
 
-  const handleMessageEvent = (message: AgentMessageConfig) => {
-    console.log("🔄 Handling message event:", message);
+  const handleMessageEvent = (message: Message) => {
     if (messageUtils.isA2ATask(message)) {
       handleA2ATask(message);
       return;
@@ -328,23 +450,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       return;
     }
 
-    if (messageUtils.isStreamingMessage(message)) {
-      handleStreamingMessage(message);
-      return;
-    }
-
-    if (messageUtils.isErrorMessageContent(message)) {
-      handleErrorMessage(message);
-      return;
-    }
-
-    if (messageUtils.isToolCallRequestEvent(message) ||
-      messageUtils.isToolCallExecutionEvent(message) ||
-      messageUtils.isToolCallSummaryMessage(message)) {
-      handleToolCallMessage(message);
-      return;
-    }
-
+    // If we get here, it's an unknown message type from the A2A stream
+    console.warn("🤔 Unknown message type from A2A stream:", message);
     handleOtherMessage(message);
   };
 
