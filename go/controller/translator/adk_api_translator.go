@@ -751,11 +751,10 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 	if mcpServer.Spec.Deployment.Port == 0 {
 		return nil, fmt.Errorf("Cannot determine port for MCP server %s", mcpServer.Name)
 	}
-	protocol := v1alpha2.RemoteMCPServerProtocolSse
 
 	return &v1alpha2.RemoteMCPServerSpec{
 		URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
-		Protocol: v1alpha2.RemoteMCPServerProtocol(protocol),
+		Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
 	}, nil
 }
 

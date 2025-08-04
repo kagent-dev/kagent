@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-api-key
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+type: Opaque
+data:
+  GRAFANA_API_KEY: {{ .Values.grafana.apiKey | b64enc }}
+---
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: grafana
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  deployment:
+    image: "mcp/grafana:latest"
+    port: 3000
+    cmd: "/app/mcp-grafana"
+    args:
+      - "--transport"
+      - "stdio"
+    env:
+      GRAFANA_URL: {{ .Values.grafana.url }}
+    secretRefs:
+      - name: grafana-api-key
+  transportType: "stdio"

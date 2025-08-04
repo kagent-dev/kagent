@@ -78,7 +78,7 @@ const getItemDisplayInfo = (item: AgentResponse | ToolResponse | Tool, available
   else if ('type' in item) {
       const tool = item as Tool;
       if (isAgentTool(tool)) {
-          displayName = tool.agent?.ref || "Unknown Agent";
+          displayName = k8sRefUtils.toRef(tool.agent?.namespace || "", tool.agent?.name || "") || "Unknown Agent";
           description = tool.agent?.description;
           identifier = `agent-${displayName}`;
           providerText = "Agent";
@@ -86,19 +86,19 @@ const getItemDisplayInfo = (item: AgentResponse | ToolResponse | Tool, available
           iconColor = "text-green-500";
           isAgent = true;
       } else if (isMcpTool(tool)) {
-          displayName = tool.mcpServer?.toolServer || "MCP Tool";
+          displayName = tool.mcpServer?.name || "MCP Tool";
           if (availableTools && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
             const firstToolName = tool.mcpServer.toolNames[0];
             const foundTool = availableTools.find(
-              toolResponse => toolResponse.server_name === tool.mcpServer?.toolServer && toolResponse.id === firstToolName
+              toolResponse => toolResponse.server_name === tool.mcpServer?.name && toolResponse.id === firstToolName
             );
             description = foundTool ? getToolResponseDescription(foundTool) : "MCP Server Tool";
           } else {
             description = "MCP Server Tool";
           }
           
-          identifier = `mcp-${tool.mcpServer?.toolServer}`;
-          providerText = tool.mcpServer?.toolServer;
+          identifier = `mcp-${tool.mcpServer?.name}`;
+          providerText = tool.mcpServer?.name;
           iconColor = "text-purple-500";
           isAgent = false;
       } else {
@@ -242,7 +242,10 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         toolToAdd = {
             type: "Agent",
             agent: {
-                ref: k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name),
+                name: agentResp.agent.metadata.name,
+                namespace: agentResp.agent.metadata.namespace || "",
+                kind: "Agent",
+                apiGroup: "kagent.dev",
                 description: agentResp.agent.spec.description
             }
         };
@@ -482,7 +485,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                       const parentToolInfo = getItemDisplayInfo(tool, availableTools);
                       return tool.mcpServer.toolNames.map((toolName: string) => {
                         const specificToolResponse = availableTools.find(
-                          toolResponse => toolResponse.server_name === tool.mcpServer?.toolServer && toolResponse.id === toolName
+                          toolResponse => toolResponse.server_name === tool.mcpServer?.name && toolResponse.id === toolName
                         );
                         const specificDescription = specificToolResponse ? getToolResponseDescription(specificToolResponse) : parentToolInfo.description;
                         

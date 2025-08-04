@@ -51,27 +51,27 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   // Helper functions for Tool objects
   const getToolIdentifier = (tool: Tool): string => {
     if (isAgentTool(tool)) {
-      return `agent-${tool.agent?.ref}`;
+      return `agent-${k8sRefUtils.toRef(tool.agent?.namespace || "", tool.agent?.name || "")}`;
     } else if (tool.mcpServer) {
-      return `mcp-${tool.mcpServer.toolServer}`;
+      return `mcp-${tool.mcpServer.name}`;
     }
     return `unknown-tool-${Math.random().toString(36).substring(7)}`;
   };
 
   const getToolProvider = (tool: Tool): string => {
     if (isAgentTool(tool)) {
-      return tool.agent?.ref || "unknown";
+      return k8sRefUtils.toRef(tool.agent?.namespace || "", tool.agent?.name || "") || "unknown";
     } else if (tool.mcpServer) {
-      return tool.mcpServer.toolServer;
+      return tool.mcpServer.name;
     }
     return "unknown";
   };
 
   const getToolDisplayName = (tool: Tool): string => {
     if (isAgentTool(tool)) {
-      return tool.agent?.ref || "Unknown Agent";
+      return k8sRefUtils.toRef(tool.agent?.namespace || "", tool.agent?.name || "") || "Unknown Agent";
     } else if (tool.mcpServer) {
-      return tool.mcpServer.toolServer;
+      return tool.mcpServer.name;
     }
     return "Unknown Tool";
   };
@@ -143,7 +143,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               
               // Find the tool in allTools by matching server_name and tool id
               const foundTool = allTools.find(
-                (toolResponse) => toolResponse.server_name === tool.mcpServer!.toolServer && toolResponse.id === mcpToolName
+                (toolResponse) => toolResponse.server_name === tool.mcpServer!.name && toolResponse.id === mcpToolName
               );
 
               descriptions[subToolIdentifier] = foundTool ? getToolResponseDescription(foundTool) : "No description available";
@@ -157,13 +157,13 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               let agentDescription = tool.agent?.description;
               
               // If no description in tool, try to look it up from available agents
-              if (!agentDescription && tool.agent?.ref) {
+              if (!agentDescription && tool.agent?.name) {
                 // First check if it matches the current agent
                 const currentAgentRef = k8sRefUtils.toRef(
                   currentAgent.agent.metadata.namespace || "",
                   currentAgent.agent.metadata.name
                 );
-                if (tool.agent.ref === currentAgentRef) {
+                if (tool.agent.name === currentAgentRef) {
                   agentDescription = currentAgent.agent.spec.description;
                 } else {
                   // Look up in available agents
@@ -172,7 +172,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                       agent.agent.metadata.namespace || "",
                       agent.agent.metadata.name
                     );
-                    return agentRef === tool.agent?.ref;
+                    return agentRef === tool.agent?.name;
                   });
                   
                   if (foundAgent) {

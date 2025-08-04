@@ -9,6 +9,7 @@ import type { Tool, ToolResponse, AgentResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import KagentLogo from "../kagent-logo";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ToolsSectionProps {
   selectedTools: Tool[];
@@ -28,18 +29,18 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
   // Helper functions for Tool objects
   const getToolIdentifier = (tool: Tool): string => {
     if (isAgentTool(tool) && tool.agent) {
-      return `agent-${tool.agent.ref}`;
+      return `agent-${k8sRefUtils.toRef(tool.agent.namespace || "", tool.agent.name || "")}`;
     } else if (isMcpTool(tool) && tool.mcpServer) {
-      return `mcp-${tool.mcpServer.toolServer}`;
+      return `mcp-${tool.mcpServer.name}`;
     }
     return `unknown-tool-${Math.random().toString(36).substring(7)}`;
   };
 
   const getToolDisplayName = (tool: Tool): string => {
     if (isAgentTool(tool) && tool.agent) {
-      return tool.agent.ref;
+      return k8sRefUtils.toRef(tool.agent.namespace || "", tool.agent.name || "");
     } else if (isMcpTool(tool) && tool.mcpServer) {
-      return tool.mcpServer.toolServer;
+      return tool.mcpServer.name;
     }
     return "Unknown Tool";
   };
@@ -49,7 +50,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
       return tool.agent.description || "Agent description not available";
     } else if (isMcpTool(tool) && tool.mcpServer) {
       // For MCP tools, look up description from availableTools
-      const foundTool = availableTools.find(t => t.server_name === tool.mcpServer!.toolServer);
+      const foundTool = availableTools.find(t => t.server_name === tool.mcpServer!.name);
       return foundTool ? getToolResponseDescription(foundTool) : "MCP tool description not available";
     }
     return "No description available";
@@ -134,7 +135,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
 
             let displayDescription = "Description not available.";
             const mcpToolDef = availableTools.find(tool => 
-              tool.server_name === agentTool.mcpServer!.toolServer && tool.id === mcpToolName
+              tool.server_name === agentTool.mcpServer!.name && tool.id === mcpToolName
             );
 
             if (mcpToolDef) {

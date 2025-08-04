@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  url: "http://{{ include "kagent.fullname" . }}-tools.{{ include "kagent.namespace" . }}.svc.cluster.local:8084/mcp"
+  url: "http://{{ include "kagent.fullname" . }}-tools.{{ include "kagent.namespace" . }}:8084/mcp"
   timeout: 30s
   sseReadTimeout: 5m0s
   description: "Official KAgent tool server"
