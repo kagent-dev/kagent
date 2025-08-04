@@ -157,13 +157,6 @@ kagent-tools:
   tools:
     loglevel: "debug"
 
-kmcp:
-  enabled: true
-  # replicas: 1
-  # image:
-  #   registry: ghcr.io
-  #   repository: kagent-dev/kmcp/mcp
-
 # ==============================================================================
 # AGENTS
 # ==============================================================================
