@@ -2,7 +2,7 @@ operation: translateAgent
 targetObject: ollama-agent
 namespace: test
 objects:
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     metadata:
       name: ollama-model
@@ -23,7 +23,7 @@ objects:
         family: "llama"
       defaultHeaders:
         User-Agent: "kagent/1.0"
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
       name: ollama-agent

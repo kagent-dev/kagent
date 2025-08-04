@@ -9,7 +9,7 @@ objects:
       namespace: test
     data:
       api-key: YW50aHJvcGljLWFwaS1rZXk=  # base64 encoded "anthropic-api-key"
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     metadata:
       name: anthropic-model
@@ -17,7 +17,7 @@ objects:
     spec:
       provider: Anthropic
       model: claude-3-sonnet-20240229
-      apiKeySecretRef: anthropic-secret
+      apiKeySecret: anthropic-secret
       apiKeySecretKey: api-key
       anthropic:
         baseURL: "https://api.anthropic.com"
@@ -25,7 +25,7 @@ objects:
         maxTokens: 4096
         topP: "0.9"
         topK: 40
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
       name: anthropic-agent

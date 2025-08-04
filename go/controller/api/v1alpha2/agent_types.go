@@ -14,18 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
-	"encoding/json"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
-
-type AgentType string
 
 // AgentSpec defines the desired state of Agent.
 type AgentSpec struct {
@@ -42,9 +41,6 @@ type AgentSpec struct {
 	Stream *bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
-	// Can either be a reference to the name of a Memory in the same namespace as the referencing Agent, or a reference to the name of a Memory in a different namespace in the form <namespace>/<name>
-	// +optional
-	Memory []string `json:"memory,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
@@ -93,27 +89,71 @@ type Tool struct {
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
-	Agent *AgentTool `json:"agent,omitempty"`
-}
-
-type AgentTool struct {
-	// Reference to the Agent resource to use as a tool.
-	// Can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
-	// +kubebuilder:validation:MinLength=1
-	Ref string `json:"ref,omitempty"`
+	Agent *TypedReference `json:"agent,omitempty"`
 }
 
 type McpServerTool struct {
-	// the name of the ToolServer that provides the tool. can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
-	ToolServer string `json:"toolServer,omitempty"`
+	// The reference to the ToolServer that provides the tool.
+	// Can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
+	// +optional
+	Server TypedLocalReference `json:"server,omitempty"`
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
 	ToolNames []string `json:"toolNames,omitempty"`
 }
 
-type AnyType struct {
-	json.RawMessage `json:",inline"`
+type TypedReference struct {
+	// +optional
+	Kind string `json:"kind,omitempty"`
+	// +optional
+	ApiGroup string `json:"apiGroup,omitempty"`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+}
+
+func (t *TypedReference) String() string {
+	kind := "Unknown"
+	if t.Kind != "" {
+		kind = t.Kind
+	}
+	apiGroup := "Unknown"
+	if t.ApiGroup != "" {
+		apiGroup = t.ApiGroup
+	}
+	namespace := "Unknown"
+	if t.Namespace != "" {
+		namespace = t.Namespace
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", apiGroup, namespace, kind, t.Name)
+}
+
+type TypedLocalReference struct {
+	// +optional
+	Kind string `json:"kind"`
+	// +optional
+	ApiGroup string `json:"apiGroup"`
+	Name     string `json:"name"`
+}
+
+func (t *TypedLocalReference) GroupKind() schema.GroupKind {
+	return schema.GroupKind{
+		Group: t.ApiGroup,
+		Kind:  t.Kind,
+	}
+}
+
+func (t *TypedLocalReference) String() string {
+	kind := "Unknown"
+	if t.Kind != "" {
+		kind = t.Kind
+	}
+	apiGroup := "Unknown"
+	if t.ApiGroup != "" {
+		apiGroup = t.ApiGroup
+	}
+	return fmt.Sprintf("%s/%s/%s", apiGroup, kind, t.Name)
 }
 
 type A2AConfig struct {
@@ -138,11 +178,12 @@ type AgentStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:categories=kagent
+// +kubebuilder:resource:categories=kagent,shortName=ag
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="ModelConfig",type="string",JSONPath=".spec.modelConfig",description="The ModelConfig resource referenced by this agent."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
+// +kubebuilder:storageversion
 
 // Agent is the Schema for the agents API.
 type Agent struct {

@@ -3,11 +3,12 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -26,18 +27,33 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "list")
 	log.Info("Received request to list ToolServers")
 
-	toolServerList := &v1alpha1.ToolServerList{}
-	if err := h.KubeClient.List(r.Context(), toolServerList); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to list ToolServers from Kubernetes", err))
+	toolServers, err := h.DatabaseService.ListToolServers()
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list ToolServers from database", err))
 		return
 	}
 
-	toolServerWithTools := make([]api.ToolServerResponse, len(toolServerList.Items))
-	for i, toolServer := range toolServerList.Items {
+	toolServerWithTools := make([]api.ToolServerResponse, len(toolServers))
+	for i, toolServer := range toolServers {
+
+		tools, err := h.DatabaseService.ListToolsForServer(toolServer.Name)
+		if err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to list tools for ToolServer from database", err))
+			return
+		}
+
+		discoveredTools := make([]*v1alpha2.MCPTool, len(tools))
+		for j, tool := range tools {
+			discoveredTools[j] = &v1alpha2.MCPTool{
+				Name:        tool.ID,
+				Description: tool.Description,
+			}
+		}
+
 		toolServerWithTools[i] = api.ToolServerResponse{
-			Ref:             common.ResourceRefString(toolServer.Namespace, toolServer.Name),
-			Config:          toolServer.Spec.Config,
-			DiscoveredTools: toolServer.Status.DiscoveredTools,
+			Ref:             toolServer.Name,
+			GroupKind:       toolServer.GroupKind,
+			DiscoveredTools: discoveredTools,
 		}
 	}
 
@@ -51,7 +67,7 @@ func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *ht
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "create")
 	log.Info("Received request to create ToolServer")
 
-	var toolServerRequest *v1alpha1.ToolServer
+	var toolServerRequest *v1alpha2.RemoteMCPServer
 	if err := DecodeJSONBody(r, &toolServerRequest); err != nil {
 		log.Error(err, "Invalid request body")
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
@@ -109,13 +125,14 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 	)
 
 	log.V(1).Info("Checking if ToolServer exists")
-	toolServer := &v1alpha1.ToolServer{}
-	err = common.GetObject(
+	toolServer := &v1alpha2.RemoteMCPServer{}
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      toolServerName,
+		},
 		toolServer,
-		toolServerName,
-		namespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {

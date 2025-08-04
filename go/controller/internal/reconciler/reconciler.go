@@ -13,18 +13,21 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
 	"github.com/kagent-dev/kagent/go/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	mcp_client "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,11 +38,12 @@ var (
 )
 
 type KagentReconciler interface {
-	ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentApiKeySecret(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentToolServer(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentMemory(ctx context.Context, req ctrl.Request) error
+	ReconcileAgent(ctx context.Context, req ctrl.Request) error
+	ReconcileModelConfig(ctx context.Context, req ctrl.Request) error
+	ReconcileApiKeySecret(ctx context.Context, req ctrl.Request) error
+	ReconcileMCPServer(ctx context.Context, req ctrl.Request) error
+	ReconcileRemoteMCPServer(ctx context.Context, req ctrl.Request) error
+	ReconcileMCPService(ctx context.Context, req ctrl.Request) error
 }
 
 type kagentReconciler struct {
@@ -71,10 +75,10 @@ func NewKagentReconciler(
 	}
 }
 
-func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileAgent(ctx context.Context, req ctrl.Request) error {
 	// TODO(sbx0r): missing finalizer logic
 
-	agent := &v1alpha1.Agent{}
+	agent := &v1alpha2.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
 		if k8s_errors.IsNotFound(err) {
 			return a.handleAgentDeletion(req)
@@ -112,7 +116,7 @@ func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
 	return nil
 }
 
-func (a *kagentReconciler) handleExistingAgent(ctx context.Context, agent *v1alpha1.Agent, req ctrl.Request) error {
+func (a *kagentReconciler) handleExistingAgent(ctx context.Context, agent *v1alpha2.Agent, req ctrl.Request) error {
 	reconcileLog.Info("Agent Event",
 		"namespace", req.Namespace,
 		"name", req.Name,
@@ -122,7 +126,7 @@ func (a *kagentReconciler) handleExistingAgent(ctx context.Context, agent *v1alp
 	return a.reconcileAgents(ctx, agent)
 }
 
-func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha1.Agent, configHash *[sha256.Size]byte, inputErr error) error {
+func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, configHash *[sha256.Size]byte, inputErr error) error {
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -139,7 +143,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	}
 
 	conditionChanged := meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
-		Type:               v1alpha1.AgentConditionTypeAccepted,
+		Type:               v1alpha2.AgentConditionTypeAccepted,
 		Status:             status,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
@@ -147,7 +151,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	})
 
 	deployedCondition := metav1.Condition{
-		Type:               v1alpha1.AgentConditionTypeReady,
+		Type:               v1alpha2.AgentConditionTypeReady,
 		Status:             metav1.ConditionUnknown,
 		LastTransitionTime: metav1.Now(),
 	}
@@ -193,8 +197,56 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	return nil
 }
 
-func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
-	modelConfig := &v1alpha1.ModelConfig{}
+func (a *kagentReconciler) ReconcileMCPService(ctx context.Context, req ctrl.Request) error {
+	service := &corev1.Service{}
+	if err := a.kube.Get(ctx, req.NamespacedName, service); err != nil {
+		return fmt.Errorf("failed to get service %s: %v", req.Name, err)
+	}
+
+	agents, err := a.findAgentsUsingMCPService(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to find agents for mcp service %s: %v", req.Name, err)
+	}
+
+	return a.reconcileAgents(ctx, agents...)
+}
+
+func (a *kagentReconciler) findAgentsUsingMCPService(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+
+	var agentsList v1alpha2.AgentList
+	if err := a.kube.List(
+		ctx,
+		&agentsList,
+	); err != nil {
+		return nil, fmt.Errorf("failed to list agents: %v", err)
+	}
+
+	var agents []*v1alpha2.Agent
+	for _, agent := range agentsList.Items {
+		if agent.Namespace != req.Namespace {
+			continue
+		}
+
+		for _, tool := range agent.Spec.Tools {
+			if tool.McpServer == nil {
+				continue
+			}
+
+			if tool.McpServer.Server.ApiGroup != "" || tool.McpServer.Server.Kind != "Service" {
+				continue
+			}
+
+			if tool.McpServer.Server.Name == req.Name {
+				agents = append(agents, &agent)
+			}
+		}
+	}
+
+	return agents, nil
+}
+
+func (a *kagentReconciler) ReconcileModelConfig(ctx context.Context, req ctrl.Request) error {
+	modelConfig := &v1alpha2.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
 		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
 	}
@@ -211,7 +263,7 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 	)
 }
 
-func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha1.ModelConfig, err error) error {
+func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha2.ModelConfig, err error) error {
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -228,7 +280,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 	}
 
 	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
-		Type:               v1alpha1.ModelConfigConditionTypeAccepted,
+		Type:               v1alpha2.ModelConfigConditionTypeAccepted,
 		Status:             status,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
@@ -245,7 +297,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 	return nil
 }
 
-func (a *kagentReconciler) ReconcileKagentApiKeySecret(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileApiKeySecret(ctx context.Context, req ctrl.Request) error {
 	agents, err := a.findAgentsUsingApiKeySecret(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to find agents for secret %s: %v", req.Name, err)
@@ -254,9 +306,75 @@ func (a *kagentReconciler) ReconcileKagentApiKeySecret(ctx context.Context, req 
 	return a.reconcileAgents(ctx, agents...)
 }
 
-func (a *kagentReconciler) ReconcileKagentToolServer(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileMCPServer(ctx context.Context, req ctrl.Request) error {
+	mcpServer := &v1alpha1.MCPServer{}
+	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
+		return fmt.Errorf("failed to get mcp server %s: %v", req.Name, err)
+	}
+
+	dbServer := &database.ToolServer{
+		Name:        utils.GetObjectRef(mcpServer),
+		Description: "N/A",
+		GroupKind:   schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
+	}
+	if remoteSpec, err := translator.ConvertMCPServerToRemoteMCPServer(mcpServer); err != nil {
+		reconcileLog.Error(err, "failed to convert mcp server to remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+	} else {
+		if err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec); err != nil {
+			reconcileLog.Error(err, "failed to upsert tool server for remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+		}
+	}
+
+	// find agents using MCP server
+	agents, err := a.findAgentsUsingMCPServer(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to find agents for mcp server %s: %v", req.Name, err)
+	}
+
+	if err := a.reconcileAgents(ctx, agents...); err != nil {
+		return fmt.Errorf("failed to reconcile agents for mcp server %s, see status for more details", req.Name)
+	}
+
+	return nil
+}
+
+func (a *kagentReconciler) findAgentsUsingMCPServer(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+	var agentsList v1alpha2.AgentList
+	if err := a.kube.List(
+		ctx,
+		&agentsList,
+	); err != nil {
+		return nil, fmt.Errorf("failed to list agents: %v", err)
+	}
+
+	var agents []*v1alpha2.Agent
+	for _, agent := range agentsList.Items {
+		if agent.Namespace != req.Namespace {
+			continue
+		}
+
+		for _, tool := range agent.Spec.Tools {
+			if tool.McpServer == nil {
+				continue
+			}
+
+			if tool.McpServer.Server.ApiGroup != "kagent.dev" || tool.McpServer.Server.Kind != "MCPServer" {
+				continue
+			}
+
+			if tool.McpServer.Server.Name == req.Name {
+				agents = append(agents, &agent)
+			}
+		}
+
+	}
+
+	return agents, nil
+}
+
+func (a *kagentReconciler) ReconcileRemoteMCPServer(ctx context.Context, req ctrl.Request) error {
 	// reconcile the agent team itself
-	toolServer := &v1alpha1.ToolServer{}
+	toolServer := &v1alpha2.RemoteMCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, toolServer); err != nil {
 		// if the tool server is not found, we can ignore it
 		if k8s_errors.IsNotFound(err) {
@@ -265,10 +383,15 @@ func (a *kagentReconciler) ReconcileKagentToolServer(ctx context.Context, req ct
 		return fmt.Errorf("failed to get tool server %s: %v", req.Name, err)
 	}
 
-	reconcileErr := a.reconcileToolServer(ctx, toolServer)
+	dbServer := &database.ToolServer{
+		Name:        utils.GetObjectRef(toolServer),
+		Description: toolServer.Spec.Description,
+		GroupKind:   schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String(),
+	}
+	reconcileErr := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, &toolServer.Spec)
 
 	// update the tool server status as the agents depend on it
-	if err := a.reconcileToolServerStatus(
+	if err := a.reconcileRemoteMCPServerStatus(
 		ctx,
 		toolServer,
 		utils.GetObjectRef(toolServer),
@@ -278,9 +401,9 @@ func (a *kagentReconciler) ReconcileKagentToolServer(ctx context.Context, req ct
 	}
 
 	// find and reconcile all agents which use this tool server
-	agents, err := a.findAgentsUsingToolServer(ctx, req)
+	agents, err := a.findAgentsUsingRemoteMCPServer(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to find teams for agent %s: %v", req.Name, err)
+		return fmt.Errorf("failed to find agents for remote mcp server %s: %v", req.Name, err)
 	}
 
 	if err := a.reconcileAgents(ctx, agents...); err != nil {
@@ -290,9 +413,9 @@ func (a *kagentReconciler) ReconcileKagentToolServer(ctx context.Context, req ct
 	return nil
 }
 
-func (a *kagentReconciler) reconcileToolServerStatus(
+func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	ctx context.Context,
-	toolServer *v1alpha1.ToolServer,
+	toolServer *v1alpha2.RemoteMCPServer,
 	serverRef string,
 	err error,
 ) error {
@@ -316,7 +439,7 @@ func (a *kagentReconciler) reconcileToolServerStatus(
 		reason = "AgentReconciled"
 	}
 	conditionChanged := meta.SetStatusCondition(&toolServer.Status.Conditions, metav1.Condition{
-		Type:               v1alpha1.AgentConditionTypeAccepted,
+		Type:               v1alpha2.AgentConditionTypeAccepted,
 		Status:             status,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
@@ -340,65 +463,7 @@ func (a *kagentReconciler) reconcileToolServerStatus(
 	return nil
 }
 
-func (a *kagentReconciler) ReconcileKagentMemory(ctx context.Context, req ctrl.Request) error {
-	memory := &v1alpha1.Memory{}
-	if err := a.kube.Get(ctx, req.NamespacedName, memory); err != nil {
-		if k8s_errors.IsNotFound(err) {
-			return a.handleMemoryDeletion(req)
-		}
-
-		return fmt.Errorf("failed to get memory %s: %v", req.Name, err)
-	}
-
-	agents, err := a.findAgentsUsingMemory(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents using memory %s: %v", req.Name, err)
-	}
-
-	return a.reconcileMemoryStatus(ctx, memory, a.reconcileAgents(ctx, agents...))
-}
-
-func (a *kagentReconciler) handleMemoryDeletion(req ctrl.Request) error {
-
-	// TODO(sbx0r): implement memory deletion
-
-	return nil
-}
-
-func (a *kagentReconciler) reconcileMemoryStatus(ctx context.Context, memory *v1alpha1.Memory, err error) error {
-	var (
-		status  metav1.ConditionStatus
-		message string
-		reason  string
-	)
-	if err != nil {
-		status = metav1.ConditionFalse
-		message = err.Error()
-		reason = "MemoryReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile memory", "memory", utils.GetObjectRef(memory))
-	} else {
-		status = metav1.ConditionTrue
-		reason = "MemoryReconciled"
-	}
-
-	conditionChanged := meta.SetStatusCondition(&memory.Status.Conditions, metav1.Condition{
-		Type:               v1alpha1.MemoryConditionTypeAccepted,
-		Status:             status,
-		LastTransitionTime: metav1.Now(),
-		Reason:             reason,
-		Message:            message,
-	})
-
-	if conditionChanged || memory.Status.ObservedGeneration != memory.Generation {
-		memory.Status.ObservedGeneration = memory.Generation
-		if err := a.kube.Status().Update(ctx, memory); err != nil {
-			return fmt.Errorf("failed to update memory status: %v", err)
-		}
-	}
-	return nil
-}
-
-func (a *kagentReconciler) reconcileAgents(ctx context.Context, agents ...*v1alpha1.Agent) error {
+func (a *kagentReconciler) reconcileAgents(ctx context.Context, agents ...*v1alpha2.Agent) error {
 	var multiErr *multierror.Error
 	for _, agent := range agents {
 		configHash, reconcileErr := a.reconcileAgent(ctx, agent)
@@ -416,7 +481,7 @@ func (a *kagentReconciler) reconcileAgents(ctx context.Context, agents ...*v1alp
 	return multiErr.ErrorOrNil()
 }
 
-func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha1.Agent) (*[sha256.Size]byte, error) {
+func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) (*[sha256.Size]byte, error) {
 	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
@@ -431,20 +496,12 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha1.A
 	return &agentOutputs.ConfigHash, nil
 }
 
-func (a *kagentReconciler) reconcileToolServer(ctx context.Context, server *v1alpha1.ToolServer) error {
-	toolServer, err := a.adkTranslator.TranslateToolServer(ctx, server)
-	if err != nil {
-		return fmt.Errorf("failed to translate tool server %s/%s: %v", server.Namespace, server.Name, err)
-	}
-	err = a.upsertToolServer(ctx, toolServer)
-	if err != nil {
-		return fmt.Errorf("failed to upsert tool server %s/%s: %v", server.Namespace, server.Name, err)
-	}
+func (a *kagentReconciler) reconcileRemoteMCPServer(ctx context.Context, server *v1alpha2.RemoteMCPServer) error {
 
 	return nil
 }
 
-func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha1.Agent, agentOutputs *translator.AgentOutputs) error {
+func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *translator.AgentOutputs) error {
 	// lock to prevent races
 	a.upsertLock.Lock()
 	defer a.upsertLock.Unlock()
@@ -475,7 +532,7 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha1.Agen
 	return nil
 }
 
-func (a *kagentReconciler) upsertToolServer(ctx context.Context, toolServer *database.ToolServer) error {
+func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServerSpec) error {
 	// lock to prevent races
 	a.upsertLock.Lock()
 	defer a.upsertLock.Unlock()
@@ -484,15 +541,10 @@ func (a *kagentReconciler) upsertToolServer(ctx context.Context, toolServer *dat
 		return fmt.Errorf("failed to store toolServer %s: %v", toolServer.Name, err)
 	}
 
-	toolServer, err := a.dbClient.GetToolServer(toolServer.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get toolServer %s: %v", toolServer.Name, err)
-	}
-
-	var tools []*v1alpha1.MCPTool
+	var tools []*v1alpha2.MCPTool
 	switch {
-	case toolServer.Config.Sse != nil:
-		sseHttpClient, err := transport.NewSSE(toolServer.Config.Sse.URL)
+	case remoteMcpServer.Protocol == v1alpha2.RemoteMCPServerProtocolSse:
+		sseHttpClient, err := transport.NewSSE(remoteMcpServer.URL)
 		if err != nil {
 			return fmt.Errorf("failed to create sse client for toolServer %s: %v", toolServer.Name, err)
 		}
@@ -500,8 +552,8 @@ func (a *kagentReconciler) upsertToolServer(ctx context.Context, toolServer *dat
 		if err != nil {
 			return fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
 		}
-	case toolServer.Config.StreamableHttp != nil:
-		streamableHttpClient, err := transport.NewStreamableHTTP(toolServer.Config.StreamableHttp.URL)
+	default:
+		streamableHttpClient, err := transport.NewStreamableHTTP(remoteMcpServer.URL)
 		if err != nil {
 			return fmt.Errorf("failed to create streamable http client for toolServer %s: %v", toolServer.Name, err)
 		}
@@ -509,11 +561,6 @@ func (a *kagentReconciler) upsertToolServer(ctx context.Context, toolServer *dat
 		if err != nil {
 			return fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
 		}
-	case toolServer.Config.Stdio != nil:
-		// Can't list tools for stdio
-		return fmt.Errorf("stdio tool servers are not supported")
-	default:
-		return fmt.Errorf("unsupported tool server type: %v", toolServer.Config.Type)
 	}
 
 	if err := a.dbClient.RefreshToolsForServer(toolServer.Name, tools...); err != nil {
@@ -523,7 +570,7 @@ func (a *kagentReconciler) upsertToolServer(ctx context.Context, toolServer *dat
 	return nil
 }
 
-func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interface, toolServer *database.ToolServer) ([]*v1alpha1.MCPTool, error) {
+func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interface, toolServer *database.ToolServer) ([]*v1alpha2.MCPTool, error) {
 	client := mcp_client.NewClient(tsp)
 	err := client.Start(ctx)
 	if err != nil {
@@ -548,9 +595,9 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 		return nil, fmt.Errorf("failed to list tools for toolServer %s: %v", toolServer.Name, err)
 	}
 
-	tools := make([]*v1alpha1.MCPTool, 0, len(result.Tools))
+	tools := make([]*v1alpha2.MCPTool, 0, len(result.Tools))
 	for _, tool := range result.Tools {
-		tools = append(tools, &v1alpha1.MCPTool{
+		tools = append(tools, &v1alpha2.MCPTool{
 			Name:        tool.Name,
 			Description: tool.Description,
 		})
@@ -559,8 +606,8 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 	return tools, nil
 }
 
-func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
-	var agentsList v1alpha1.AgentList
+func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+	var agentsList v1alpha2.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
@@ -568,28 +615,25 @@ func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Re
 		return nil, fmt.Errorf("failed to list agents: %v", err)
 	}
 
-	var agents []*v1alpha1.Agent
+	var agents []*v1alpha2.Agent
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
-		agentNamespaced, err := utils.ParseRefString(agent.Spec.ModelConfig, agent.Namespace)
-
-		if err != nil {
-			reconcileLog.Error(err, "failed to parse Agent ModelConfig",
-				"errorDetails", err.Error(),
-			)
+		// Must be in the same namespace as the model config
+		if agent.Namespace != req.Namespace {
 			continue
 		}
 
-		if agentNamespaced == req.NamespacedName {
+		if agent.Spec.ModelConfig == req.Name {
 			agents = append(agents, agent)
 		}
+
 	}
 
 	return agents, nil
 }
 
-func (a *kagentReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
-	var modelsList v1alpha1.ModelConfigList
+func (a *kagentReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+	var modelsList v1alpha2.ModelConfigList
 	if err := a.kube.List(
 		ctx,
 		&modelsList,
@@ -599,23 +643,20 @@ func (a *kagentReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req 
 
 	var models []string
 	for _, model := range modelsList.Items {
-		if model.Spec.APIKeySecretRef == "" {
-			continue
-		}
-		secretNamespaced, err := utils.ParseRefString(model.Spec.APIKeySecretRef, model.Namespace)
-		if err != nil {
-			reconcileLog.Error(err, "failed to parse ModelConfig APIKeySecretRef",
-				"errorDetails", err.Error(),
-			)
+		if model.Namespace != req.Namespace {
 			continue
 		}
 
-		if secretNamespaced == req.NamespacedName {
+		if model.Spec.APIKeySecret == "" {
+			continue
+		}
+
+		if model.Spec.APIKeySecret == req.Name {
 			models = append(models, model.Name)
 		}
 	}
 
-	var agents []*v1alpha1.Agent
+	var agents []*v1alpha2.Agent
 	uniqueAgents := make(map[string]bool)
 
 	for _, modelName := range models {
@@ -641,8 +682,8 @@ func (a *kagentReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req 
 	return agents, nil
 }
 
-func (a *kagentReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
-	var agentsList v1alpha1.AgentList
+func (a *kagentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+	var agentsList v1alpha2.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
@@ -650,54 +691,18 @@ func (a *kagentReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.R
 		return nil, fmt.Errorf("failed to list agents: %v", err)
 	}
 
-	var agents []*v1alpha1.Agent
-	for i := range agentsList.Items {
-		agent := &agentsList.Items[i]
-		for _, memory := range agent.Spec.Memory {
-			memoryNamespaced, err := utils.ParseRefString(memory, agent.Namespace)
-
-			if err != nil {
-				reconcileLog.Error(err, "failed to parse Agent Memory",
-					"errorDetails", err.Error(),
-				)
-				continue
-			}
-
-			if memoryNamespaced == req.NamespacedName {
-				agents = append(agents, agent)
-				break
-			}
-		}
-	}
-
-	return agents, nil
-}
-
-func (a *kagentReconciler) findAgentsUsingToolServer(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
-	var agentsList v1alpha1.AgentList
-	if err := a.kube.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		return nil, fmt.Errorf("failed to list agents: %v", err)
-	}
-
-	var agents []*v1alpha1.Agent
-	appendAgentIfUsesToolServer := func(agent *v1alpha1.Agent) {
+	var agents []*v1alpha2.Agent
+	appendAgentIfUsesRemoteMCPServer := func(agent *v1alpha2.Agent) {
 		for _, tool := range agent.Spec.Tools {
 			if tool.McpServer == nil {
 				return
 			}
 
-			toolServerNamespaced, err := utils.ParseRefString(tool.McpServer.ToolServer, agent.Namespace)
-			if err != nil {
-				reconcileLog.Error(err, "failed to parse Agent ToolServer",
-					"errorDetails", err.Error(),
-				)
+			if agent.Namespace != req.Namespace {
 				continue
 			}
 
-			if toolServerNamespaced == req.NamespacedName {
+			if tool.McpServer.Server.Name == req.Name {
 				agents = append(agents, agent)
 				return
 			}
@@ -706,20 +711,20 @@ func (a *kagentReconciler) findAgentsUsingToolServer(ctx context.Context, req ct
 
 	for _, agent := range agentsList.Items {
 		agent := agent
-		appendAgentIfUsesToolServer(&agent)
+		appendAgentIfUsesRemoteMCPServer(&agent)
 	}
 
 	return agents, nil
 
 }
 
-func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef string) ([]*v1alpha1.MCPTool, error) {
+func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef string) ([]*v1alpha2.MCPTool, error) {
 	allTools, err := a.dbClient.ListToolsForServer(serverRef)
 	if err != nil {
 		return nil, err
 	}
 
-	var discoveredTools []*v1alpha1.MCPTool
+	var discoveredTools []*v1alpha2.MCPTool
 	for _, tool := range allTools {
 		mcpTool, err := convertTool(&tool)
 		if err != nil {
@@ -733,14 +738,14 @@ func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef 
 
 func (a *kagentReconciler) reconcileA2A(
 	ctx context.Context,
-	agent *v1alpha1.Agent,
+	agent *v1alpha2.Agent,
 	adkConfig *adk.AgentConfig,
 ) error {
 	return a.a2aReconciler.ReconcileAgent(ctx, agent, adkConfig)
 }
 
-func convertTool(tool *database.Tool) (*v1alpha1.MCPTool, error) {
-	return &v1alpha1.MCPTool{
+func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {
+	return &v1alpha2.MCPTool{
 		Name:        tool.ID,
 		Description: tool.Description,
 	}, nil

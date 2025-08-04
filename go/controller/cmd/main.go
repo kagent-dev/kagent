@@ -26,8 +26,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/kagent-dev/kagent/go/internal/version"
 
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/controller/translator"
@@ -51,6 +54,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -60,8 +64,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/internal/controller"
 	"github.com/kagent-dev/kagent/go/internal/goruntime"
+	kmcpv1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -80,6 +86,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(kmcpv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -248,6 +256,15 @@ func main() {
 		LeaderElectionID:       "0e9f6799.kagent.dev",
 		Cache: cache.Options{
 			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
+			// Only watch services that are annotated with kagent.dev/mcp-service=true
+			// Otherwise, we will watch all services in the cluster.
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Service{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						translator.MCPServiceLabel: "true",
+					}),
+				},
+			},
 		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
@@ -335,7 +352,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Secret")
 		os.Exit(1)
 	}
-	if err = (&controller.ToolServerReconciler{
+	if err = (&controller.RemoteMCPServerReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,

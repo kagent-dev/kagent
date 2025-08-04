@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/database"
 )
 
@@ -45,7 +46,7 @@ type ModelConfigResponse struct {
 	Ref             string                 `json:"ref"`
 	ProviderName    string                 `json:"providerName"`
 	Model           string                 `json:"model"`
-	APIKeySecretRef string                 `json:"apiKeySecretRef"`
+	APIKeySecret    string                 `json:"apiKeySecret"`
 	APIKeySecretKey string                 `json:"apiKeySecretKey"`
 	ModelParams     map[string]interface{} `json:"modelParams"`
 }
@@ -56,10 +57,10 @@ type CreateModelConfigRequest struct {
 	Provider        Provider                    `json:"provider"`
 	Model           string                      `json:"model"`
 	APIKey          string                      `json:"apiKey"`
-	OpenAIParams    *v1alpha1.OpenAIConfig      `json:"openAI,omitempty"`
-	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
-	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
-	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
+	OpenAIParams    *v1alpha2.OpenAIConfig      `json:"openAI,omitempty"`
+	AnthropicParams *v1alpha2.AnthropicConfig   `json:"anthropic,omitempty"`
+	AzureParams     *v1alpha2.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+	OllamaParams    *v1alpha2.OllamaConfig      `json:"ollama,omitempty"`
 }
 
 // UpdateModelConfigRequest represents a request to update a model configuration
@@ -67,23 +68,23 @@ type UpdateModelConfigRequest struct {
 	Provider        Provider                    `json:"provider"`
 	Model           string                      `json:"model"`
 	APIKey          *string                     `json:"apiKey,omitempty"`
-	OpenAIParams    *v1alpha1.OpenAIConfig      `json:"openAI,omitempty"`
-	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
-	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
-	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
+	OpenAIParams    *v1alpha2.OpenAIConfig      `json:"openAI,omitempty"`
+	AnthropicParams *v1alpha2.AnthropicConfig   `json:"anthropic,omitempty"`
+	AzureParams     *v1alpha2.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+	OllamaParams    *v1alpha2.OllamaConfig      `json:"ollama,omitempty"`
 }
 
 // Agent types
 
 type AgentResponse struct {
 	ID    string          `json:"id"`
-	Agent *v1alpha1.Agent `json:"agent"`
+	Agent *v1alpha2.Agent `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
-	ModelProvider  v1alpha1.ModelProvider `json:"modelProvider"`
+	ModelProvider  v1alpha2.ModelProvider `json:"modelProvider"`
 	Model          string                 `json:"model"`
 	ModelConfigRef string                 `json:"modelConfigRef"`
 	MemoryRefs     []string               `json:"memoryRefs"`
-	Tools          []*v1alpha1.Tool       `json:"tools"`
+	Tools          []*v1alpha2.Tool       `json:"tools"`
 }
 
 // Session types
@@ -127,9 +128,9 @@ type Feedback = database.Feedback
 
 // ToolServerResponse represents a tool server response
 type ToolServerResponse struct {
-	Ref             string                    `json:"ref"`
-	Config          v1alpha1.ToolServerConfig `json:"config"`
-	DiscoveredTools []*v1alpha1.MCPTool       `json:"discoveredTools"`
+	Ref             string              `json:"ref"`
+	GroupKind       string              `json:"groupKind"`
+	DiscoveredTools []*v1alpha2.MCPTool `json:"discoveredTools"`
 }
 
 // Memory types

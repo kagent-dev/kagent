@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"time"
 
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -27,34 +29,35 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
-// MemoryReconciler reconciles a Memory object
-type MemoryReconciler struct {
+// RemoteMCPServerReconciler reconciles a RemoteMCPServer object
+type RemoteMCPServerReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
-// +kubebuilder:rbac:groups=kagent.dev,resources=memories,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kagent.dev,resources=memories/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kagent.dev,resources=memories/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers/finalizers,verbs=update
 
-func (r *MemoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *RemoteMCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	// TODO: Re-implement memory controller
-	return ctrl.Result{}, nil
+
+	return ctrl.Result{
+		// loop forever because we need to refresh tools server status
+		RequeueAfter: 60 * time.Second,
+	}, r.Reconciler.ReconcileRemoteMCPServer(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *MemoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *RemoteMCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&agentv1alpha1.Memory{}).
-		Named("memory").
+		For(&v1alpha2.RemoteMCPServer{}).
+		Named("remotemcpserver").
 		Complete(r)
 }

@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
@@ -29,7 +30,7 @@ import (
 func TestToolServersHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
 
-	err := v1alpha1.AddToScheme(scheme)
+	err := v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
 	require.NoError(t, err)
@@ -50,31 +51,28 @@ func TestToolServersHandler(t *testing.T) {
 			handler, kubeClient, responseRecorder := setupHandler()
 
 			// Create test tool servers
-			toolServer1 := &v1alpha1.ToolServer{
+			toolServer1 := &v1alpha2.RemoteMCPServer{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-toolserver-1",
 					Namespace: "default",
 				},
-				Spec: v1alpha1.ToolServerSpec{
+				Spec: v1alpha2.RemoteMCPServerSpec{
 					Description: "Test tool server 1",
-					Config: v1alpha1.ToolServerConfig{
-						Type: v1alpha1.ToolServerTypeStreamableHttp,
-						StreamableHttp: &v1alpha1.StreamableHttpServerConfig{
-							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
-								URL: "https://example.com/streamable",
-								HeadersFrom: []v1alpha1.ValueRef{
-									{
-										Name:  "API_KEY",
-										Value: "test-key",
-									},
-								},
-								Timeout: &metav1.Duration{Duration: 30 * time.Second},
+					URL:         "https://example.com/streamable",
+					HeadersFrom: []v1alpha2.ValueRef{
+						{
+							Name: "API_KEY",
+							ValueFrom: &v1alpha2.ValueSource{
+								Type: v1alpha2.SecretValueSource,
+								Name: "api-secret",
+								Key:  "api-key",
 							},
 						},
 					},
+					Timeout: &metav1.Duration{Duration: 30 * time.Second},
 				},
-				Status: v1alpha1.ToolServerStatus{
-					DiscoveredTools: []*v1alpha1.MCPTool{
+				Status: v1alpha2.RemoteMCPServerStatus{
+					DiscoveredTools: []*v1alpha2.MCPTool{
 						{
 							Name: "test-tool",
 						},
@@ -82,33 +80,26 @@ func TestToolServersHandler(t *testing.T) {
 				},
 			}
 
-			toolServer2 := &v1alpha1.ToolServer{
+			toolServer2 := &v1alpha2.RemoteMCPServer{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-toolserver-2",
 					Namespace: "test-ns",
 				},
-				Spec: v1alpha1.ToolServerSpec{
+				Spec: v1alpha2.RemoteMCPServerSpec{
 					Description: "Test tool server 2",
-					Config: v1alpha1.ToolServerConfig{
-						Type: v1alpha1.ToolServerTypeSse,
-						Sse: &v1alpha1.SseMcpServerConfig{
-							HttpToolServerConfig: v1alpha1.HttpToolServerConfig{
-								URL: "https://example.com/sse",
-								HeadersFrom: []v1alpha1.ValueRef{
-									{
-										Name: "Authorization",
-										ValueFrom: &v1alpha1.ValueSource{
-											Type:     v1alpha1.SecretValueSource,
-											ValueRef: "auth-secret",
-											Key:      "token",
-										},
-									},
-								},
-								Timeout:        &metav1.Duration{Duration: 30 * time.Second},
-								SseReadTimeout: &metav1.Duration{Duration: 60 * time.Second},
+					URL:         "https://example.com/sse",
+					HeadersFrom: []v1alpha2.ValueRef{
+						{
+							Name: "Authorization",
+							ValueFrom: &v1alpha2.ValueSource{
+								Type: v1alpha2.SecretValueSource,
+								Name: "auth-secret",
+								Key:  "token",
 							},
 						},
 					},
+					Timeout:        &metav1.Duration{Duration: 30 * time.Second},
+					SseReadTimeout: &metav1.Duration{Duration: 60 * time.Second},
 				},
 			}
 
@@ -130,16 +121,12 @@ func TestToolServersHandler(t *testing.T) {
 			// Verify first tool server response
 			toolServer := toolServers.Data[0]
 			require.Equal(t, "default/test-toolserver-1", toolServer.Ref)
-			require.Equal(t, v1alpha1.ToolServerTypeStreamableHttp, toolServer.Config.Type)
-			require.Equal(t, "https://example.com/streamable", toolServer.Config.StreamableHttp.URL)
 			require.Len(t, toolServer.DiscoveredTools, 1)
 			require.Equal(t, "test-tool", toolServer.DiscoveredTools[0].Name)
 
 			// Verify second tool server response
 			toolServer = toolServers.Data[1]
 			require.Equal(t, "test-ns/test-toolserver-2", toolServer.Ref)
-			require.Equal(t, v1alpha1.ToolServerTypeSse, toolServer.Config.Type)
-			require.Equal(t, "https://example.com/sse", toolServer.Config.Sse.URL)
 		})
 
 		t.Run("EmptyList", func(t *testing.T) {

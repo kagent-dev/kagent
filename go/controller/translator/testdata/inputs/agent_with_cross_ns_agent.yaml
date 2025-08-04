@@ -9,7 +9,7 @@ objects:
       namespace: test-provider
     data:
       api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     metadata:
       name: provider-model
@@ -17,9 +17,9 @@ objects:
     spec:
       provider: OpenAI
       model: gpt-4o
-      apiKeySecretRef: openai-secret
+      apiKeySecret: openai-secret
       apiKeySecretKey: api-key
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
       name: provider-agent
@@ -28,7 +28,7 @@ objects:
       description: A provider agent with vector memory
       systemMessage: You are a provider assistant with access to memory.
       modelConfig: provider-model
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     metadata:
       name: consumer-model
@@ -36,9 +36,9 @@ objects:
     spec:
       provider: OpenAI
       model: gpt-3.5-turbo
-      apiKeySecretRef: openai-secret
+      apiKeySecret: openai-secret
       apiKeySecretKey: api-key
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
       name: agent-with-cross-ns-agent
@@ -49,4 +49,5 @@ objects:
       modelConfig: consumer-model
       tools:
         - agent:
-            ref: test-provider/provider-agent
+            name: provider-agent
+            namespace: test-provider

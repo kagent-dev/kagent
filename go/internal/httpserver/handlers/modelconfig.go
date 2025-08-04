@@ -7,12 +7,13 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -31,7 +32,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "list")
 	log.Info("Listing ModelConfigs")
 
-	modelConfigs := &v1alpha1.ModelConfigList{}
+	modelConfigs := &v1alpha2.ModelConfigList{}
 	if err := h.KubeClient.List(r.Context(), modelConfigs); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to list ModelConfigs from Kubernetes", err))
 		return
@@ -58,7 +59,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 			Ref:             common.GetObjectRef(&config),
 			ProviderName:    string(config.Spec.Provider),
 			Model:           config.Spec.Model,
-			APIKeySecretRef: config.Spec.APIKeySecretRef,
+			APIKeySecret:    config.Spec.APIKeySecret,
 			APIKeySecretKey: config.Spec.APIKeySecretKey,
 			ModelParams:     modelParams,
 		}
@@ -95,13 +96,15 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	)
 
 	log.V(1).Info("Checking if ModelConfig exists")
-	modelConfig := &v1alpha1.ModelConfig{}
-	err = common.GetObject(
+	modelConfig := &v1alpha2.ModelConfig{}
+
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      configName,
+		},
 		modelConfig,
-		configName,
-		namespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -133,7 +136,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		Ref:             common.GetObjectRef(modelConfig),
 		ProviderName:    string(modelConfig.Spec.Provider),
 		Model:           modelConfig.Spec.Model,
-		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
+		APIKeySecret:    modelConfig.Spec.APIKeySecret,
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		ModelParams:     modelParams,
 	}
@@ -196,13 +199,14 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	)
 
 	log.V(1).Info("Checking if ModelConfig already exists")
-	existingConfig := &v1alpha1.ModelConfig{}
-	err = common.GetObject(
+	existingConfig := &v1alpha2.ModelConfig{}
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: modelConfigRef.Namespace,
+			Name:      modelConfigRef.Name,
+		},
 		existingConfig,
-		modelConfigRef.Name,
-		modelConfigRef.Namespace,
 	)
 	if err == nil {
 		log.Info("ModelConfig already exists")
@@ -215,22 +219,22 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	// --- ModelConfig Creation First ---
-	providerTypeEnum := v1alpha1.ModelProvider(req.Provider.Type)
-	modelConfigSpec := v1alpha1.ModelConfigSpec{
+	providerTypeEnum := v1alpha2.ModelProvider(req.Provider.Type)
+	modelConfigSpec := v1alpha2.ModelConfigSpec{
 		Model:    req.Model,
 		Provider: providerTypeEnum,
 	}
 
 	// Set secret references if needed, but don't create secret yet
-	if providerTypeEnum != v1alpha1.ModelProviderOllama && req.APIKey != "" {
+	if providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretNamespace := modelConfigRef.Namespace
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-		modelConfigSpec.APIKeySecretRef = common.ResourceRefString(secretNamespace, secretName)
+		modelConfigSpec.APIKeySecret = common.ResourceRefString(secretNamespace, secretName)
 		modelConfigSpec.APIKeySecretKey = secretKey
 	}
 
-	modelConfig := &v1alpha1.ModelConfig{
+	modelConfig := &v1alpha2.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      modelConfigRef.Name,
 			Namespace: modelConfigRef.Namespace,
@@ -240,21 +244,21 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 
 	var providerConfigErr error
 	switch providerTypeEnum {
-	case v1alpha1.ModelProviderOpenAI:
+	case v1alpha2.ModelProviderOpenAI:
 		if req.OpenAIParams != nil {
 			modelConfig.Spec.OpenAI = req.OpenAIParams
 			log.V(1).Info("Assigned OpenAI params to spec")
 		} else {
 			log.V(1).Info("No OpenAI params provided in create.")
 		}
-	case v1alpha1.ModelProviderAnthropic:
+	case v1alpha2.ModelProviderAnthropic:
 		if req.AnthropicParams != nil {
 			modelConfig.Spec.Anthropic = req.AnthropicParams
 			log.V(1).Info("Assigned Anthropic params to spec")
 		} else {
 			log.V(1).Info("No Anthropic params provided in create.")
 		}
-	case v1alpha1.ModelProviderAzureOpenAI:
+	case v1alpha2.ModelProviderAzureOpenAI:
 		if req.AzureParams == nil {
 			providerConfigErr = fmt.Errorf("azureOpenAI parameters are required for AzureOpenAI provider")
 		} else {
@@ -266,7 +270,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 				log.V(1).Info("Assigned AzureOpenAI params to spec")
 			}
 		}
-	case v1alpha1.ModelProviderOllama:
+	case v1alpha2.ModelProviderOllama:
 		if req.OllamaParams != nil {
 			modelConfig.Spec.Ollama = req.OllamaParams
 			log.V(1).Info("Assigned Ollama params to spec")
@@ -290,7 +294,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 	log.V(1).Info("Successfully created ModelConfig")
 
-	if providerTypeEnum != v1alpha1.ModelProviderOllama && req.APIKey != "" {
+	if providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretNamespace := modelConfigRef.Namespace
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
@@ -357,13 +361,14 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	)
 
 	log.V(1).Info("Getting existing ModelConfig")
-	modelConfig := &v1alpha1.ModelConfig{}
-	err = common.GetObject(
+	modelConfig := &v1alpha2.ModelConfig{}
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      configName,
+		},
 		modelConfig,
-		configName,
-		namespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -376,10 +381,10 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	modelConfig.Spec = v1alpha1.ModelConfigSpec{
+	modelConfig.Spec = v1alpha2.ModelConfigSpec{
 		Model:           req.Model,
-		Provider:        v1alpha1.ModelProvider(req.Provider.Type),
-		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
+		Provider:        v1alpha2.ModelProvider(req.Provider.Type),
+		APIKeySecret:    modelConfig.Spec.APIKeySecret,
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		OpenAI:          nil,
 		Anthropic:       nil,
@@ -388,7 +393,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	// --- Update Secret if API Key is provided (and not Ollama) ---
-	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha1.ModelProviderOllama
+	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha2.ModelProviderOllama
 	if shouldUpdateSecret {
 		log.V(1).Info("Updating API key secret")
 
@@ -408,21 +413,21 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 
 	var providerConfigErr error
 	switch modelConfig.Spec.Provider {
-	case v1alpha1.ModelProviderOpenAI:
+	case v1alpha2.ModelProviderOpenAI:
 		if req.OpenAIParams != nil {
 			modelConfig.Spec.OpenAI = req.OpenAIParams
 			log.V(1).Info("Assigned updated OpenAI params to spec")
 		} else {
 			log.V(1).Info("No OpenAI params provided in update.")
 		}
-	case v1alpha1.ModelProviderAnthropic:
+	case v1alpha2.ModelProviderAnthropic:
 		if req.AnthropicParams != nil {
 			modelConfig.Spec.Anthropic = req.AnthropicParams
 			log.V(1).Info("Assigned updated Anthropic params to spec")
 		} else {
 			log.V(1).Info("No Anthropic params provided in update.")
 		}
-	case v1alpha1.ModelProviderAzureOpenAI:
+	case v1alpha2.ModelProviderAzureOpenAI:
 		if req.AzureParams == nil {
 			// Allow clearing Azure params if provider changes AWAY from Azure,
 			// but require params if provider IS Azure.
@@ -436,7 +441,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 				log.V(1).Info("Assigned updated AzureOpenAI params to spec")
 			}
 		}
-	case v1alpha1.ModelProviderOllama:
+	case v1alpha2.ModelProviderOllama:
 		if req.OllamaParams != nil {
 			modelConfig.Spec.Ollama = req.OllamaParams
 			log.V(1).Info("Assigned updated Ollama params to spec")
@@ -473,7 +478,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	responseItem := api.ModelConfigResponse{
 		Ref:             common.GetObjectRef(modelConfig),
 		ProviderName:    string(modelConfig.Spec.Provider),
-		APIKeySecretRef: modelConfig.Spec.APIKeySecretRef,
+		APIKeySecret:    modelConfig.Spec.APIKeySecret,
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		Model:           modelConfig.Spec.Model,
 		ModelParams:     updatedParams,
@@ -509,13 +514,14 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 	)
 
 	log.V(1).Info("Checking if ModelConfig exists")
-	existingConfig := &v1alpha1.ModelConfig{}
-	err = common.GetObject(
+	existingConfig := &v1alpha2.ModelConfig{}
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      configName,
+		},
 		existingConfig,
-		configName,
-		namespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {

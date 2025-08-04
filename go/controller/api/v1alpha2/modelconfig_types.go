@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -211,16 +211,14 @@ type GeminiConfig struct{}
 // +kubebuilder:validation:XValidation:message="provider.gemini must be nil if the provider is not Gemini",rule="!(has(self.gemini) && self.provider != 'Gemini')"
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
+// +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
+// +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
-	// The provider of the model
-	// +kubebuilder:default=OpenAI
-	Provider ModelProvider `json:"provider"`
-
-	// The reference to the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig
+	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig
 	// +optional
-	APIKeySecretRef string `json:"apiKeySecretRef"`
+	APIKeySecret string `json:"apiKeySecret"`
 
 	// The key in the secret that contains the API key
 	// +optional
@@ -229,11 +227,9 @@ type ModelConfigSpec struct {
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
 
-	// ModelInfo contains information about the model.
-	// This field is required if the model is not one of the
-	// pre-defined autogen models. That list can be found here:
-	// +optional
-	ModelInfo *ModelInfo `json:"modelInfo,omitempty"`
+	// The provider of the model
+	// +kubebuilder:default=OpenAI
+	Provider ModelProvider `json:"provider"`
 
 	// OpenAI-specific configuration
 	// +optional
@@ -264,24 +260,6 @@ type ModelConfigSpec struct {
 	AnthropicVertexAI *AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
 }
 
-// Model Configurations
-// This had to be created because the autogen_api.ModelInfo JSON tags are not
-// compatible with the kubernetes api.
-type ModelInfo struct {
-	// +optional
-	Vision bool `json:"vision"`
-	// +optional
-	FunctionCalling bool `json:"functionCalling"`
-	// +optional
-	JSONOutput bool `json:"jsonOutput"`
-	// +optional
-	Family string `json:"family"`
-	// +optional
-	StructuredOutput bool `json:"structuredOutput"`
-	// +optional
-	MultipleSystemMessages bool `json:"multipleSystemMessages"`
-}
-
 // ModelConfigStatus defines the observed state of ModelConfig.
 type ModelConfigStatus struct {
 	Conditions         []metav1.Condition `json:"conditions"`
@@ -289,11 +267,11 @@ type ModelConfigStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:categories=kagent
+// +kubebuilder:resource:categories=kagent,shortName=mc
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider"
 // +kubebuilder:printcolumn:name="Model",type="string",JSONPath=".spec.model"
-// +kubebuilder:resource:shortName=mc
+// +kubebuilder:storageversion
 
 // ModelConfig is the Schema for the modelconfigs API.
 type ModelConfig struct {

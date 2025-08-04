@@ -27,7 +27,7 @@ objects:                  # List of Kubernetes objects needed for the test
       namespace: test
     data:
       api-key: base64-encoded-key
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     # ... more objects
 ```

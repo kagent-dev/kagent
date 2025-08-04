@@ -73,15 +73,10 @@ func createOrUpdateSecretWithOwnerReference(
 	owner client.Object,
 ) error {
 	existingSecret := &corev1.Secret{}
-
-	err := common.GetObject(
-		ctx,
-		kubeClient,
-		existingSecret,
-		owner.GetName(),
-		owner.GetNamespace(),
-	)
-
+	err := kubeClient.Get(ctx, client.ObjectKey{
+		Name:      owner.GetName(),
+		Namespace: owner.GetNamespace(),
+	}, existingSecret)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return createSecretWithOwnerReference(ctx, kubeClient, data, owner)

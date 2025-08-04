@@ -162,6 +162,13 @@ tools:
     url: http://grafana.kagent.svc.cluster.local:3000
     apiKey: ""
 
+kmcp:
+  enabled: true
+  # replicas: 1
+  # image:
+  #   registry: ghcr.io
+  #   repository: kagent-dev/kmcp/mcp
+
 # ==============================================================================
 # AGENTS
 # ==============================================================================

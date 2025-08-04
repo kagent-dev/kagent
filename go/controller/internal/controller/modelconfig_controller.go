@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 )
 
 // ModelConfigReconciler reconciles a ModelConfig object
@@ -44,7 +44,7 @@ type ModelConfigReconciler struct {
 
 func (r *ModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileKagentModelConfig(ctx, req)
+	return ctrl.Result{}, r.Reconciler.ReconcileModelConfig(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -53,7 +53,7 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&agentv1alpha1.ModelConfig{}).
+		For(&v1alpha2.ModelConfig{}).
 		Named("modelconfig").
 		Complete(r)
 }

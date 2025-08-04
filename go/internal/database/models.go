@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
@@ -162,13 +161,13 @@ type Tool struct {
 
 // ToolServer represents a tool server that provides tools
 type ToolServer struct {
-	CreatedAt     time.Time                 `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt     time.Time                 `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt     gorm.DeletedAt            `gorm:"index" json:"deleted_at"`
-	Name          string                    `gorm:"primaryKey;not null" json:"name"`
-	Description   string                    `json:"description"`
-	LastConnected *time.Time                `json:"last_connected,omitempty"`
-	Config        v1alpha1.ToolServerConfig `gorm:"type:json" json:"config"`
+	CreatedAt     time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt     time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Name          string         `gorm:"primaryKey;not null" json:"name"`
+	GroupKind     string         `gorm:"primaryKey;not null" json:"group_kind"`
+	Description   string         `json:"description"`
+	LastConnected *time.Time     `json:"last_connected,omitempty"`
 }
 
 // TableName methods to match Python table names

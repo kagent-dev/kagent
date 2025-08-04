@@ -8,6 +8,8 @@ metadata:
 spec:
   group: kagent.dev
   names:
+    categories:
+    - kagent
     kind: ModelConfig
     listKind: ModelConfigList
     plural: modelconfigs
@@ -276,6 +278,322 @@ spec:
             - message: provider.anthropicVertexAI must be nil if the provider is not
                 AnthropicVertexAI
               rule: '!(has(self.anthropicVertexAI) && self.provider != ''AnthropicVertexAI'')'
+          status:
+            description: ModelConfigStatus defines the observed state of ModelConfig.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                format: int64
+                type: integer
+            required:
+            - conditions
+            - observedGeneration
+            type: object
+        type: object
+    served: true
+    storage: false
+    subresources:
+      status: {}
+  - additionalPrinterColumns:
+    - jsonPath: .spec.provider
+      name: Provider
+      type: string
+    - jsonPath: .spec.model
+      name: Model
+      type: string
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: ModelConfig is the Schema for the modelconfigs API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ModelConfigSpec defines the desired state of ModelConfig.
+            properties:
+              anthropic:
+                description: Anthropic-specific configuration
+                properties:
+                  baseUrl:
+                    description: Base URL for the Anthropic API (overrides default)
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
+              anthropicVertexAI:
+                description: Anthropic-specific configuration
+                properties:
+                  location:
+                    description: The project location
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  projectID:
+                    description: The project ID
+                    type: string
+                  stopSequences:
+                    description: Stop sequences
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - location
+                - projectID
+                type: object
+              apiKeySecret:
+                description: The name of the secret that contains the API key. Must
+                  be a reference to the name of a secret in the same namespace as
+                  the referencing ModelConfig
+                type: string
+              apiKeySecretKey:
+                description: The key in the secret that contains the API key
+                type: string
+              azureOpenAI:
+                description: Azure OpenAI-specific configuration
+                properties:
+                  apiVersion:
+                    description: API version for the Azure OpenAI API
+                    type: string
+                  azureAdToken:
+                    description: Azure AD token for authentication
+                    type: string
+                  azureDeployment:
+                    description: Deployment name for the Azure OpenAI API
+                    type: string
+                  azureEndpoint:
+                    description: Endpoint for the Azure OpenAI API
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - apiVersion
+                - azureEndpoint
+                type: object
+              defaultHeaders:
+                additionalProperties:
+                  type: string
+                type: object
+              gemini:
+                description: Gemini-specific configuration
+                type: object
+              geminiVertexAI:
+                description: Gemini Vertex AI-specific configuration
+                properties:
+                  candidateCount:
+                    description: Candidate count
+                    type: integer
+                  location:
+                    description: The project location
+                    type: string
+                  maxOutputTokens:
+                    description: Maximum output tokens
+                    type: integer
+                  projectID:
+                    description: The project ID
+                    type: string
+                  responseMimeType:
+                    description: Response mime type
+                    type: string
+                  stopSequences:
+                    description: Stop sequences
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - location
+                - projectID
+                type: object
+              model:
+                type: string
+              ollama:
+                description: Ollama-specific configuration
+                properties:
+                  host:
+                    description: Host for the Ollama API
+                    type: string
+                  options:
+                    additionalProperties:
+                      type: string
+                    description: Options for the Ollama API
+                    type: object
+                type: object
+              openAI:
+                description: OpenAI-specific configuration
+                properties:
+                  baseUrl:
+                    description: Base URL for the OpenAI API (overrides default)
+                    type: string
+                  frequencyPenalty:
+                    description: Frequency penalty
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  "n":
+                    description: N value
+                    type: integer
+                  organization:
+                    description: Organization ID for the OpenAI API
+                    type: string
+                  presencePenalty:
+                    description: Presence penalty
+                    type: string
+                  seed:
+                    description: Seed value
+                    type: integer
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  timeout:
+                    description: Timeout
+                    type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
+              provider:
+                default: OpenAI
+                description: The provider of the model
+                enum:
+                - Anthropic
+                - OpenAI
+                - AzureOpenAI
+                - Ollama
+                - Gemini
+                - GeminiVertexAI
+                - AnthropicVertexAI
+                type: string
+            required:
+            - model
+            - provider
+            type: object
+            x-kubernetes-validations:
+            - message: provider.openAI must be nil if the provider is not OpenAI
+              rule: '!(has(self.openAI) && self.provider != ''OpenAI'')'
+            - message: provider.anthropic must be nil if the provider is not Anthropic
+              rule: '!(has(self.anthropic) && self.provider != ''Anthropic'')'
+            - message: provider.azureOpenAI must be nil if the provider is not AzureOpenAI
+              rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
+            - message: provider.ollama must be nil if the provider is not Ollama
+              rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
+            - message: provider.gemini must be nil if the provider is not Gemini
+              rule: '!(has(self.gemini) && self.provider != ''Gemini'')'
+            - message: provider.geminiVertexAI must be nil if the provider is not
+                GeminiVertexAI
+              rule: '!(has(self.geminiVertexAI) && self.provider != ''GeminiVertexAI'')'
+            - message: provider.anthropicVertexAI must be nil if the provider is not
+                AnthropicVertexAI
+              rule: '!(has(self.anthropicVertexAI) && self.provider != ''AnthropicVertexAI'')'
+            - message: apiKeySecret must be set if apiKeySecretKey is set
+              rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
+            - message: apiKeySecretKey must be set if apiKeySecret is set
+              rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:
