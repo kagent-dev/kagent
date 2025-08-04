@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { useAgents, AgentFormData } from "@/components/AgentsProvider";
-import { Tool } from "@/types/datamodel";
+import type { Tool } from "@/types";
 import { WelcomeStep } from './steps/WelcomeStep';
 import { ModelConfigStep } from './steps/ModelConfigStep';
 import { AgentSetupStep, AgentSetupFormData } from './steps/AgentSetupStep';

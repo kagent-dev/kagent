@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import type { AgentResponse } from "@/types/datamodel";
+import type { AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import KagentLogo from "@/components/kagent-logo";
 import Link from "next/link";
@@ -37,7 +37,7 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider } }
             <Button variant="ghost" size="icon" onClick={handleEditClick} aria-label="Edit Agent">
               <Pencil className="h-4 w-4" />
             </Button>
-            <DeleteButton teamLabel={agentRef} />
+            <DeleteButton agentName={agentRef} />
           </div>
         </CardHeader>
         <CardContent className="flex flex-col justify-between h-32">

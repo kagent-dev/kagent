@@ -1,8 +1,8 @@
 "use server";
 
-import { BaseResponse } from "@/lib/types";
+import { BaseResponse } from "@/types";
 import { fetchApi } from "./utils";
-import { ToolResponse } from "@/types/datamodel";
+import { ToolResponse } from "@/types";
 
 /**
  * Gets all available tools

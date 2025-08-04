@@ -1,10 +1,10 @@
 "use client";
 import { useMemo, useState, useEffect } from "react";
 import ChatGroup from "./SessionGroup";
-import { Session } from "@/types/datamodel";
+import type { Session } from "@/types";
 import { isToday, isYesterday } from "date-fns";
 import { EmptyState } from "./EmptyState";
-import { deleteSession, getSessionMessages } from "@/app/actions/sessions";
+import { deleteSession, getSessionTasks } from "@/app/actions/sessions";
 import { Button } from "@/components/ui/button";
 import { PlusCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -79,7 +79,7 @@ export default function GroupedChats({ agentName, agentNamespace, sessions }: Gr
 
   const onDownloadClick = async (sessionId: string) => {
     toast.promise(
-      getSessionMessages(String(sessionId)).then(messages => {
+      getSessionTasks(String(sessionId)).then(messages => {
         const blob = new Blob([JSON.stringify(messages, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
