@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // ServiceReconciler reconciles a Service object
@@ -50,6 +51,13 @@ func (r *ServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
+		WithEventFilter(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+			labels := obj.GetLabels()
+			if labels == nil {
+				return false
+			}
+			return labels["kagent.dev/mcp-service"] == "true"
+		})).
 		For(&v1.Service{}).
 		Named("service").
 		Complete(r)

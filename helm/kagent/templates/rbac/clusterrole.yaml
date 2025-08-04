@@ -26,6 +26,7 @@ rules:
   - toolservers/status
   - memories/status
   - remotemcpservers/status
+  - mcpservers/status
   verbs:
   - get
   - patch

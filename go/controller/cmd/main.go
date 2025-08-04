@@ -26,11 +26,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/kagent-dev/kagent/go/internal/version"
 
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/controller/translator"
@@ -54,7 +51,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -257,15 +253,6 @@ func main() {
 		LeaderElectionID:       "0e9f6799.kagent.dev",
 		Cache: cache.Options{
 			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
-			// Only watch services that are annotated with kagent.dev/mcp-service=true
-			// Otherwise, we will watch all services in the cluster.
-			ByObject: map[client.Object]cache.ByObject{
-				&corev1.Service{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						translator.MCPServiceLabel: "true",
-					}),
-				},
-			},
 		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
@@ -334,6 +321,24 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ServiceReconciler{
+		Client:     kubeClient,
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Service")
+		os.Exit(1)
+	}
+
+	if err := (&controller.MCPServerReconciler{
+		Client:     kubeClient,
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
 		os.Exit(1)
 	}
 

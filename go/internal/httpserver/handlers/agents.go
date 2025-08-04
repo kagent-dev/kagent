@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
@@ -41,12 +40,6 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 	for _, agent := range agentList.Items {
 		agentRef := common.GetObjectRef(&agent)
 		log.V(1).Info("Processing Agent", "agentRef", agentRef)
-
-		// dgAgent, err := h.DatabaseService.GetAgent(common.ConvertToPythonIdentifier(agentRef))
-		// if err != nil {
-		// 	w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-		// 	return
-		// }
 
 		agentResponse, err := h.getAgentResponse(r.Context(), log, &agent)
 		if err != nil {
@@ -86,9 +79,8 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	}
 
 	return api.AgentResponse{
-		ID:    common.ConvertToPythonIdentifier(agentRef),
-		Agent: agent,
-		// Config:         dbAgent.Config,
+		ID:             common.ConvertToPythonIdentifier(agentRef),
+		Agent:          agent,
 		ModelProvider:  modelConfig.Spec.Provider,
 		Model:          modelConfig.Spec.Model,
 		ModelConfigRef: common.GetObjectRef(modelConfig),
@@ -126,13 +118,6 @@ func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
 	}
-
-	// log.V(1).Info("Getting agent from database")
-	// dbAgent, err := h.DatabaseService.GetAgent(fmt.Sprintf("%s/%s", agentNamespace, agentName))
-	// if err != nil {
-	// 	w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-	// 	return
-	// }
 
 	agentResponse, err := h.getAgentResponse(r.Context(), log, agent)
 	if err != nil {
@@ -200,7 +185,7 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "update-db")
 
-	var agentReq v1alpha1.Agent
+	var agentReq v1alpha2.Agent
 	if err := DecodeJSONBody(r, &agentReq); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
@@ -222,7 +207,7 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	)
 
 	log.V(1).Info("Getting existing Agent")
-	existingAgent := &v1alpha1.Agent{}
+	existingAgent := &v1alpha2.Agent{}
 	err = h.KubeClient.Get(
 		r.Context(),
 		client.ObjectKey{
@@ -275,7 +260,7 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 	log = log.WithValues("agentNamespace", agentNamespace)
 
 	log.V(1).Info("Getting Agent from Kubernetes")
-	agent := &v1alpha1.Agent{}
+	agent := &v1alpha2.Agent{}
 	err = h.KubeClient.Get(
 		r.Context(),
 		client.ObjectKey{
