@@ -28,6 +28,13 @@ objects:
       description: A provider agent with vector memory
       systemMessage: You are a provider assistant with access to memory.
       modelConfig: provider-model
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test-consumer
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
   - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     metadata:
@@ -51,3 +58,4 @@ objects:
         - agent:
             name: provider-agent
             namespace: test-provider
+          type: Agent

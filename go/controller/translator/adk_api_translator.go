@@ -662,31 +662,12 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Group: "",
 		Kind:  "",
 	}:
-		fallthrough // default to service
+		fallthrough // default to MCP server
 	case schema.GroupKind{
 		Group: "",
-		Kind:  "Service",
+		Kind:  "MCPServer",
 	}:
-		svc := &corev1.Service{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServerRef.Name}, svc)
-		if err != nil {
-			return err
-		}
-		spec, err := ConvertServiceToRemoteMCPServer(svc)
-		if err != nil {
-			return err
-		}
-		return a.translateRemoteMCPServerTarget(ctx, agent, spec, toolNames, agentNamespace)
-	case schema.GroupKind{
-		Group: "kagent.dev",
-		Kind:  "RemoteMCPServer",
-	}:
-		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServerRef.Name}, remoteMcpServer)
-		if err != nil {
-			return err
-		}
-		return a.translateRemoteMCPServerTarget(ctx, agent, &remoteMcpServer.Spec, toolNames, agentNamespace)
+		fallthrough // default to MCP server
 	case schema.GroupKind{
 		Group: "kagent.dev",
 		Kind:  "MCPServer",
@@ -701,6 +682,41 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return err
 		}
 		return a.translateRemoteMCPServerTarget(ctx, agent, spec, toolNames, agentNamespace)
+	case schema.GroupKind{
+		Group: "",
+		Kind:  "RemoteMCPServer",
+	}:
+		fallthrough // default to remote MCP server
+	case schema.GroupKind{
+		Group: "kagent.dev",
+		Kind:  "RemoteMCPServer",
+	}:
+		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
+		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServerRef.Name}, remoteMcpServer)
+		if err != nil {
+			return err
+		}
+		return a.translateRemoteMCPServerTarget(ctx, agent, &remoteMcpServer.Spec, toolNames, agentNamespace)
+	case schema.GroupKind{
+		Group: "",
+		Kind:  "Service",
+	}:
+		fallthrough // default to service
+	case schema.GroupKind{
+		Group: "core",
+		Kind:  "Service",
+	}:
+		svc := &corev1.Service{}
+		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServerRef.Name}, svc)
+		if err != nil {
+			return err
+		}
+		spec, err := ConvertServiceToRemoteMCPServer(svc)
+		if err != nil {
+			return err
+		}
+		return a.translateRemoteMCPServerTarget(ctx, agent, spec, toolNames, agentNamespace)
+
 	default:
 		return fmt.Errorf("unknown tool server type: %s", gvk)
 	}
@@ -739,6 +755,8 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 				break
 			}
 		}
+	}
+	if port == 0 {
 		return nil, fmt.Errorf("no port found for service %s with protocol %s", svc.Name, protocol)
 	}
 	return &v1alpha2.RemoteMCPServerSpec{

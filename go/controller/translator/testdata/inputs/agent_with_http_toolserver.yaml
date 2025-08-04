@@ -38,10 +38,8 @@ objects:
       tools:
         - type: MCPServer
           mcpServer:
-            server:
-              name: toolserver
-              kind: RemoteMCPServer
-              apiGroup: kagent.dev
+            name: toolserver
+            kind: RemoteMCPServer
             toolNames:
               - k8s_get_resources
   - apiVersion: kagent.dev/v1alpha2
