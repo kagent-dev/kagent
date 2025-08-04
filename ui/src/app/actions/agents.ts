@@ -19,7 +19,10 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
   if (isMcpTool(typedTool)) {
     return tool as Tool;
   } else if (isAgentTool(typedTool)) {
-    const agentRef = typedTool.agent.ref;
+    const agentRef = k8sRefUtils.toRef(
+      typedTool.agent.namespace || "",
+      typedTool.agent.name,
+    )
     const foundAgent = allAgents.find(a => {
       const aRef = k8sRefUtils.toRef(
         a.agent.metadata.namespace || "",
@@ -76,7 +79,9 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           return {
             type: "McpServer",
             mcpServer: {
-              toolServer: tool.mcpServer.toolServer,
+              name: tool.mcpServer.name,
+              kind: tool.mcpServer.kind,
+              apiGroup: tool.mcpServer.apiGroup,
               toolNames: tool.mcpServer.toolNames,
             },
           } as Tool;
@@ -86,7 +91,10 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           return {
             type: "Agent",
             agent: {
-              ref: tool.agent.ref
+              name: tool.agent.name,
+              namespace: tool.agent.namespace,
+              kind: tool.agent.kind,
+              apiGroup: tool.agent.apiGroup,
             },
           } as Tool;
         }
@@ -201,7 +209,10 @@ export async function getAgents(): Promise<BaseResponse<AgentResponse[]>> {
       const augmentedTools = agent.tools?.map(tool => {
         // Check if it's an Agent tool reference needing description
         if (isAgentTool(tool)) {
-          const agentRef = tool.agent.ref;
+          const agentRef = k8sRefUtils.toRef(
+            tool.agent.namespace || "",
+            tool.agent.name,
+          )
           const foundAgent = agentMap.get(agentRef);
           return {
             ...tool,

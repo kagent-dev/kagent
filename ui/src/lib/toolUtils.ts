@@ -4,7 +4,7 @@ export const isAgentTool = (tool: unknown): tool is { type: "Agent"; agent: Agen
   if (!tool || typeof tool !== "object") return false;
 
   const possibleTool = tool as Partial<Tool>;
-  return possibleTool.type === "Agent" && !!possibleTool.agent && typeof possibleTool.agent === "object" && typeof possibleTool.agent.ref === "string";
+  return possibleTool.type === "Agent" && !!possibleTool.agent && typeof possibleTool.agent === "object";
 };
 
 export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer: McpServerTool } => {
@@ -16,7 +16,6 @@ export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer
     possibleTool.type === "McpServer" &&
     !!possibleTool.mcpServer &&
     typeof possibleTool.mcpServer === "object" &&
-    typeof possibleTool.mcpServer.toolServer === "string" &&
     Array.isArray(possibleTool.mcpServer.toolNames)
   );
 };
@@ -36,7 +35,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
 
   tools.forEach((tool) => {
     if (isMcpTool(tool)) {
-      const serverNameRef = tool.mcpServer.toolServer;
+      const serverNameRef = tool.mcpServer.name;
       const toolNames = tool.mcpServer.toolNames;
 
       // Get existing set or create new one
@@ -55,7 +54,9 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
   const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => ({
     type: "McpServer" as const,
     mcpServer: {
-      toolServer: serverNameRef,
+      name: serverNameRef,
+      kind: "RemoteMCPServer",
+      apiGroup: "kagent.dev",
       toolNames: Array.from(toolNamesSet)
     }
   }));
@@ -100,7 +101,9 @@ export const toolResponseToAgentTool = (toolResponse: ToolResponse): Tool => {
     return {
       type: "McpServer",
       mcpServer: {
-        toolServer: toolResponse.server_name,
+        name: toolResponse.server_name,
+        kind: "RemoteMCPServer",
+        apiGroup: "kagent.dev",
         toolNames: [toolResponse.id]
       }
     };
@@ -111,7 +114,9 @@ export const toolResponseToAgentTool = (toolResponse: ToolResponse): Tool => {
   return {
     type: "McpServer",
     mcpServer: {
-      toolServer: toolResponse.server_name,
+      name: toolResponse.server_name,
+      kind: "RemoteMCPServer",
+      apiGroup: "kagent.dev",
       toolNames: [toolResponse.id]
     }
   };

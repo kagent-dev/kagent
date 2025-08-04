@@ -227,12 +227,17 @@ export interface Tool {
 }
 
 export interface AgentTool {
-  ref: string;
+  name: string;
+  namespace: string;
+  kind: string;
+  apiGroup: string;
   description?: string;
 }
 
 export interface McpServerTool {
-  toolServer: string;
+  name: string;
+  kind: string;
+  apiGroup: string;
   toolNames: string[];
 }
 
