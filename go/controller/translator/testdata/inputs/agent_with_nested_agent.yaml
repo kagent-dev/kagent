@@ -41,4 +41,3 @@ objects:
       tools:
         - agent:
             name: specialist-agent
-            namespace: test

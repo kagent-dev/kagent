@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/translator"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -73,8 +72,6 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 
 	// Set up fake Kubernetes client
 	scheme := scheme.Scheme
-	err = v1alpha1.AddToScheme(scheme)
-	require.NoError(t, err)
 	err = v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
 
