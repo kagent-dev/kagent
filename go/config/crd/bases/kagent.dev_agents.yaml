@@ -13,8 +13,6 @@ spec:
     kind: Agent
     listKind: AgentList
     plural: agents
-    shortNames:
-    - ag
     singular: agent
   scope: Namespaced
   versions:
