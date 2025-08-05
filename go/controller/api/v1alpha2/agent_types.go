@@ -26,10 +26,36 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
+// AgentType represents the agent type
+// +kubebuilder:validation:Enum=Inline;BYO
+type AgentType string
+
+const (
+	AgentType_Inline AgentType = "Inline"
+	AgentType_BYO    AgentType = "BYO"
+)
+
 // AgentSpec defines the desired state of Agent.
+// +kubebuilder:validation:XValidation:message="agentType must be specified",rule="has(self.agentType)"
+// +kubebuilder:validation:XValidation:message="agentType must be either Inline or BYO",rule="self.agentType == 'Inline' || self.agentType == 'BYO'"
+// +kubebuilder:validation:XValidation:message="inline must be specified if agentType is Inline, or byo must be specified if agentType is BYO",rule="(self.agentType == 'Inline' && has(self.inline)) || (self.agentType == 'BYO' && has(self.byo))"
 type AgentSpec struct {
+	// +kubebuilder:validation:Enum=Inline;BYO
+	// +kubebuilder:default=Inline
+	AgentType AgentType `json:"agentType"`
+
+	// +optional
+	BYO *BYOAgentSpec `json:"byo,omitempty"`
+	// +optional
+	Inline *InlineAgentSpec `json:"inline,omitempty"`
+
 	// +optional
 	Description string `json:"description,omitempty"`
+	// +optional
+	Deployment *DeploymentSpec `json:"deployment,omitempty"`
+}
+
+type InlineAgentSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// Can either be a reference to the name of a ModelConfig in the same namespace as the referencing Agent, or a reference to the name of a ModelConfig in a different namespace in the form <namespace>/<name>
@@ -49,8 +75,9 @@ type AgentSpec struct {
 	// Read more about the A2A protocol here: https://github.com/google/A2A
 	// +optional
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
-	// +optional
-	Deployment *DeploymentSpec `json:"deployment,omitempty"`
+}
+
+type BYOAgentSpec struct {
 }
 
 type DeploymentSpec struct {
@@ -63,11 +90,59 @@ type DeploymentSpec struct {
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
 	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// +optional
+	Image string `json:"image,omitempty"`
+	// +optional
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// +optional
+	Cmd string `json:"cmd,omitempty"`
+	// +optional
+	Args []string `json:"args,omitempty"`
+	// +optional
+	Port int32 `json:"port,omitempty"`
+}
+
+func (d *DeploymentSpec) Merge(other *DeploymentSpec) {
+	if other.Replicas != nil {
+		d.Replicas = other.Replicas
+	}
+	if len(other.ImagePullSecrets) > 0 {
+		d.ImagePullSecrets = other.ImagePullSecrets
+	}
+	if len(other.Volumes) > 0 {
+		d.Volumes = other.Volumes
+	}
+	if len(other.VolumeMounts) > 0 {
+		d.VolumeMounts = other.VolumeMounts
+	}
+	if len(other.Labels) > 0 {
+		d.Labels = other.Labels
+	}
+	if len(other.Annotations) > 0 {
+		d.Annotations = other.Annotations
+	}
+	if len(other.Env) > 0 {
+		d.Env = other.Env
+	}
+	if other.Image != "" {
+		d.Image = other.Image
+	}
+	if other.ImagePullPolicy != "" {
+		d.ImagePullPolicy = other.ImagePullPolicy
+	}
+	if other.Cmd != "" {
+		d.Cmd = other.Cmd
+	}
+	if len(other.Args) > 0 {
+		d.Args = other.Args
+	}
 }
 
 // ToolProviderType represents the tool provider type

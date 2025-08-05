@@ -45,8 +45,8 @@ const (
 type AgentOutputs struct {
 	Manifest []client.Object `json:"manifest,omitempty"`
 
-	Config     *adk.AgentConfig  `json:"config,omitempty"`
-	ConfigHash [sha256.Size]byte `json:"configHash"`
+	Config     *adk.AgentConfig `json:"config,omitempty"`
+	ConfigHash []byte           `json:"configHash"`
 }
 
 var adkLog = ctrllog.Log.WithName("adk")
@@ -96,41 +96,41 @@ func (a *adkApiTranslator) TranslateAgent(
 	agent *v1alpha2.Agent,
 ) (*AgentOutputs, error) {
 
-	adkAgent, envVars, err := a.translateDeclarativeAgent(ctx, agent, &tState{})
-	if err != nil {
-		return nil, err
+	hasher := sha256.New()
+
+	switch agent.Spec.AgentType {
+	case v1alpha2.AgentType_Inline:
+		adkAgent, envVars, err := a.translateInlineAgent(ctx, agent, &tState{})
+		if err != nil {
+			return nil, err
+		}
+
+		agentJson, err := json.Marshal(adkAgent)
+		if err != nil {
+			return nil, err
+		}
+
+		hasher.Write(agentJson)
+
+		outputs, err := a.translateOutputs(ctx, agent, agentJson, envVars...)
+		if err != nil {
+			return nil, err
+		}
+
+		outputs.Config = adkAgent
+		outputs.ConfigHash = hasher.Sum(nil)
+
+		return outputs, nil
+
+	case v1alpha2.AgentType_BYO:
+		return nil, fmt.Errorf("BYO agents are not supported yet")
+		// return a.translateRegisteredAgent(ctx, agent, &tState{})
+	default:
+		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.AgentType)
 	}
-
-	agentJson, err := json.Marshal(adkAgent)
-	if err != nil {
-		return nil, err
-	}
-
-	byt, err := json.Marshal(struct {
-		EnvVars    []corev1.EnvVar
-		Deployment *v1alpha2.DeploymentSpec
-	}{
-		EnvVars:    envVars,
-		Deployment: agent.Spec.Deployment,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	hash := sha256.Sum256(append(byt, agentJson...))
-	configHash := binary.BigEndian.Uint64(hash[:8])
-
-	outputs, err := a.translateOutputs(ctx, agent, configHash, agentJson, envVars...)
-	if err != nil {
-		return nil, err
-	}
-	outputs.Config = adkAgent
-	outputs.ConfigHash = hash
-
-	return outputs, nil
 }
 
-func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.Agent, configHash uint64, configJson []byte, envVars ...corev1.EnvVar) (*AgentOutputs, error) {
+func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.Agent, configJson []byte, envVars ...corev1.EnvVar) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
 
 	podLabels := map[string]string{
@@ -139,13 +139,9 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 	}
 
 	objMeta := metav1.ObjectMeta{
-		Name:        agent.Name,
-		Namespace:   agent.Namespace,
-		Annotations: agent.Annotations,
-		Labels:      podLabels,
-	}
-	if agent.Spec.Deployment != nil {
-		envVars = append(envVars, agent.Spec.Deployment.Env...)
+		Name:      agent.Name,
+		Namespace: agent.Namespace,
+		Labels:    podLabels,
 	}
 
 	outputs.Manifest = append(outputs.Manifest, &corev1.ServiceAccount{
@@ -156,59 +152,6 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 		ObjectMeta: objMeta,
 	})
 
-	outputs.Manifest = append(outputs.Manifest, &corev1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "ConfigMap",
-		},
-		ObjectMeta: objMeta,
-		Data: map[string]string{
-			"config.json": string(configJson),
-		},
-	})
-
-	spec := defaultDeploymentSpec(objMeta.Name, podLabels, configHash, envVars...)
-	outputs.Manifest = append(outputs.Manifest, &appsv1.Deployment{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "apps/v1",
-			Kind:       "Deployment",
-		},
-		ObjectMeta: objMeta,
-		Spec:       spec,
-	})
-
-	outputs.Manifest = append(outputs.Manifest, &corev1.Service{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Service",
-		},
-		ObjectMeta: objMeta,
-		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{
-				"app":    "kagent",
-				"kagent": agent.Name,
-			},
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "http",
-					Port:       8080,
-					TargetPort: intstr.FromInt(8080),
-				},
-			},
-			Type: corev1.ServiceTypeClusterIP,
-		},
-	})
-
-	for _, obj := range outputs.Manifest {
-		if err := controllerutil.SetControllerReference(agent, obj, a.kube.Scheme()); err != nil {
-			return nil, err
-		}
-	}
-
-	return outputs, nil
-}
-
-func defaultDeploymentSpec(name string, labels map[string]string, configHash uint64, envVars ...corev1.EnvVar) appsv1.DeploymentSpec {
 	// TODO: Come up with a better way to do tracing config for the agents
 	envVars = append(envVars, slices.Collect(utils.Map(
 		utils.Filter(
@@ -235,8 +178,98 @@ func defaultDeploymentSpec(name string, labels map[string]string, configHash uin
 		},
 	})
 
-	podTemplateLabels := maps.Clone(labels)
-	podTemplateLabels["config.kagent.dev/hash"] = fmt.Sprintf("%d", configHash)
+	defaultDeploymentSpec := &v1alpha2.DeploymentSpec{
+		Replicas: ptr.To(int32(1)),
+		Volumes: []corev1.Volume{
+			{
+				Name: "config",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: objMeta.Name,
+						},
+					},
+				},
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "config",
+				MountPath: "/config",
+			},
+		},
+		Labels:          podLabels,
+		Env:             envVars,
+		Image:           fmt.Sprintf("cr.kagent.dev/kagent-dev/kagent/app:%s", version.Get().Version),
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Cmd:             "kagent",
+		Args:            []string{"static", "--host", "0.0.0.0", "--port", "8080", "--filepath", "/config/config.json"},
+		Port:            8080,
+	}
+
+	spec := buildDeploymentSpec(objMeta.Name, podLabels, defaultDeploymentSpec)
+
+	outputs.Manifest = append(outputs.Manifest, &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+		},
+		ObjectMeta: objMeta,
+		Spec:       spec,
+	})
+
+	if len(configJson) > 0 {
+		hash := sha256.Sum256(configJson)
+		configHash := binary.BigEndian.Uint64(hash[:8])
+		spec.Template.ObjectMeta.Labels["config.kagent.dev/hash"] = fmt.Sprintf("%d", configHash)
+
+		outputs.Manifest = append(outputs.Manifest, &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: objMeta,
+			Data: map[string]string{
+				"config.json": string(configJson),
+			},
+		})
+
+	}
+
+	outputs.Manifest = append(outputs.Manifest, &corev1.Service{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Service",
+		},
+		ObjectMeta: objMeta,
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				"app":    "kagent",
+				"kagent": agent.Name,
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "http",
+					Port:       defaultDeploymentSpec.Port,
+					TargetPort: intstr.FromInt(int(defaultDeploymentSpec.Port)),
+				},
+			},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	})
+
+	for _, obj := range outputs.Manifest {
+		if err := controllerutil.SetControllerReference(agent, obj, a.kube.Scheme()); err != nil {
+			return nil, err
+		}
+	}
+
+	return outputs, nil
+}
+
+func buildDeploymentSpec(name string, labels map[string]string, deploymentSpec *v1alpha2.DeploymentSpec) appsv1.DeploymentSpec {
+
+	podTemplateLabels := maps.Clone(deploymentSpec.Labels)
 
 	return appsv1.DeploymentSpec{
 		Replicas: ptr.To(int32(1)),
@@ -252,13 +285,14 @@ func defaultDeploymentSpec(name string, labels map[string]string, configHash uin
 				Containers: []corev1.Container{
 					{
 						Name:            "kagent",
-						Image:           fmt.Sprintf("cr.kagent.dev/kagent-dev/kagent/app:%s", version.Get().Version),
-						ImagePullPolicy: corev1.PullIfNotPresent,
-						Command:         []string{"kagent", "static", "--host", "0.0.0.0", "--port", "8080", "--filepath", "/config/config.json"},
+						Image:           deploymentSpec.Image,
+						ImagePullPolicy: deploymentSpec.ImagePullPolicy,
+						Command:         []string{deploymentSpec.Cmd},
+						Args:            deploymentSpec.Args,
 						Ports: []corev1.ContainerPort{
 							{
 								Name:          "http",
-								ContainerPort: 8080,
+								ContainerPort: deploymentSpec.Port,
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -271,7 +305,7 @@ func defaultDeploymentSpec(name string, labels map[string]string, configHash uin
 								corev1.ResourceMemory: resource.MustParse("1Gi"),
 							},
 						},
-						Env: envVars,
+						Env: deploymentSpec.Env,
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{
@@ -282,34 +316,18 @@ func defaultDeploymentSpec(name string, labels map[string]string, configHash uin
 							InitialDelaySeconds: 15,
 							PeriodSeconds:       3,
 						},
-						VolumeMounts: []corev1.VolumeMount{
-							{
-								Name:      "config",
-								MountPath: "/config",
-							},
-						},
+						VolumeMounts: deploymentSpec.VolumeMounts,
 					},
 				},
-				Volumes: []corev1.Volume{
-					{
-						Name: "config",
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: name,
-								},
-							},
-						},
-					},
-				},
+				Volumes: deploymentSpec.Volumes,
 			},
 		},
 	}
 }
 
-func (a *adkApiTranslator) translateDeclarativeAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, []corev1.EnvVar, error) {
+func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, []corev1.EnvVar, error) {
 
-	model, envVars, err := a.translateModel(ctx, agent.Namespace, agent.Spec.ModelConfig)
+	model, envVars, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Inline.ModelConfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -318,7 +336,7 @@ func (a *adkApiTranslator) translateDeclarativeAgent(ctx context.Context, agent 
 		KagentUrl:   fmt.Sprintf("http://kagent-controller.%s.svc:8083", common.GetResourceNamespace()),
 		Name:        common.ConvertToPythonIdentifier(common.GetObjectRef(agent)),
 		Description: agent.Spec.Description,
-		Instruction: agent.Spec.SystemMessage,
+		Instruction: agent.Spec.Inline.SystemMessage,
 		Model:       model,
 		AgentCard: server.AgentCard{
 			Name:        agent.Name,
@@ -336,14 +354,14 @@ func (a *adkApiTranslator) translateDeclarativeAgent(ctx context.Context, agent 
 		},
 	}
 
-	if agent.Spec.A2AConfig != nil {
-		cfg.AgentCard.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
+	if agent.Spec.Inline.A2AConfig != nil {
+		cfg.AgentCard.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Inline.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
 			return server.AgentSkill(skill)
 		}))
 	}
 
 	toolsByServer := make(map[v1alpha2.TypedLocalReference][]string)
-	for _, tool := range agent.Spec.Tools {
+	for _, tool := range agent.Spec.Inline.Tools {
 		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.McpServer != nil:
@@ -379,12 +397,23 @@ func (a *adkApiTranslator) translateDeclarativeAgent(ctx context.Context, agent 
 			}
 
 			var toolAgentCfg *adk.AgentConfig
-			toolAgentCfg, _, err = a.translateDeclarativeAgent(ctx, toolAgent, state.with(agent))
-			if err != nil {
-				return nil, nil, err
+			switch toolAgent.Spec.AgentType {
+			case v1alpha2.AgentType_Inline:
+				toolAgentCfg, _, err = a.translateInlineAgent(ctx, toolAgent, state.with(agent))
+				if err != nil {
+					return nil, nil, err
+				}
+				cfg.Agents = append(cfg.Agents, *toolAgentCfg)
+			case v1alpha2.AgentType_BYO:
+				return nil, nil, fmt.Errorf("BYO agents are not supported in inline agents")
+				// toolAgentCfg, _, err = a.translateRegisteredAgent(ctx, toolAgent, state.with(agent))
+				// if err != nil {
+				// 	return nil, nil, err
+				// }
+				// cfg.Agents = append(cfg.Agents, *toolAgentCfg)
+			default:
+				return nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.AgentType)
 			}
-
-			cfg.Agents = append(cfg.Agents, *toolAgentCfg)
 
 		default:
 			return nil, nil, fmt.Errorf("tool must have a provider or tool server")

@@ -60,22 +60,27 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	agentRef := common.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
-	// Get the ModelConfig for the team
-	modelConfig := &v1alpha2.ModelConfig{}
-	if err := h.KubeClient.Get(
-		ctx,
-		client.ObjectKey{
-			Namespace: agent.Namespace,
-			Name:      agent.Spec.ModelConfig,
-		},
-		modelConfig,
-	); err != nil {
-		modelConfigRef := common.GetObjectRef(modelConfig)
-		if k8serrors.IsNotFound(err) {
-			log.V(1).Info("ModelConfig not found", "modelConfigRef", modelConfigRef)
-		} else {
-			log.Error(err, "Failed to get ModelConfig", "modelConfigRef", modelConfigRef)
+	var modelConfig *v1alpha2.ModelConfig
+	var tools []*v1alpha2.Tool
+	if agent.Spec.AgentType == v1alpha2.AgentType_Inline {
+		// Get the ModelConfig for the team
+		modelConfig := &v1alpha2.ModelConfig{}
+		if err := h.KubeClient.Get(
+			ctx,
+			client.ObjectKey{
+				Namespace: agent.Namespace,
+				Name:      agent.Spec.Inline.ModelConfig,
+			},
+			modelConfig,
+		); err != nil {
+			modelConfigRef := common.GetObjectRef(modelConfig)
+			if k8serrors.IsNotFound(err) {
+				log.V(1).Info("ModelConfig not found", "modelConfigRef", modelConfigRef)
+			} else {
+				log.Error(err, "Failed to get ModelConfig", "modelConfigRef", modelConfigRef)
+			}
 		}
+		tools = agent.Spec.Inline.Tools
 	}
 
 	return api.AgentResponse{
@@ -84,7 +89,7 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		ModelProvider:  modelConfig.Spec.Provider,
 		Model:          modelConfig.Spec.Model,
 		ModelConfigRef: common.GetObjectRef(modelConfig),
-		Tools:          agent.Spec.Tools,
+		Tools:          tools,
 	}, nil
 }
 

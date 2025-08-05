@@ -13,6 +13,8 @@ spec:
     kind: Agent
     listKind: AgentList
     plural: agents
+    shortNames:
+    - ag
     singular: agent
   scope: Namespaced
   versions:
@@ -2239,57 +2241,18 @@ spec:
           spec:
             description: AgentSpec defines the desired state of Agent.
             properties:
-              a2aConfig:
-                description: |-
-                  A2AConfig instantiates an A2A server for this agent,
-                  served on the HTTP port of the kagent kubernetes
-                  controller (default 8083).
-                  The A2A server URL will be served at
-                  <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
-                  Read more about the A2A protocol here: https://github.com/google/A2A
-                properties:
-                  skills:
-                    items:
-                      description: AgentSkill describes a specific capability or function
-                        of the agent.
-                      properties:
-                        description:
-                          description: Description is an optional detailed description
-                            of the skill.
-                          type: string
-                        examples:
-                          description: Examples are optional usage examples.
-                          items:
-                            type: string
-                          type: array
-                        id:
-                          description: ID is the unique identifier for the skill.
-                          type: string
-                        inputModes:
-                          description: InputModes are the supported input data modes/types.
-                          items:
-                            type: string
-                          type: array
-                        name:
-                          description: Name is the human-readable name of the skill.
-                          type: string
-                        outputModes:
-                          description: OutputModes are the supported output data modes/types.
-                          items:
-                            type: string
-                          type: array
-                        tags:
-                          description: Tags are optional tags for categorization.
-                          items:
-                            type: string
-                          type: array
-                      required:
-                      - id
-                      - name
-                      - tags
-                      type: object
-                    minItems: 1
-                    type: array
+              agentType:
+                allOf:
+                - enum:
+                  - Inline
+                  - BYO
+                - enum:
+                  - Inline
+                  - BYO
+                default: Inline
+                description: AgentType represents the agent type
+                type: string
+              byo:
                 type: object
               deployment:
                 properties:
@@ -2297,6 +2260,12 @@ spec:
                     additionalProperties:
                       type: string
                     type: object
+                  args:
+                    items:
+                      type: string
+                    type: array
+                  cmd:
+                    type: string
                   env:
                     items:
                       description: EnvVar represents an environment variable present
@@ -2416,6 +2385,12 @@ spec:
                       - name
                       type: object
                     type: array
+                  image:
+                    type: string
+                  imagePullPolicy:
+                    description: PullPolicy describes a policy for if/when to pull
+                      a container image
+                    type: string
                   imagePullSecrets:
                     items:
                       description: |-
@@ -2438,11 +2413,77 @@ spec:
                     additionalProperties:
                       type: string
                     type: object
+                  port:
+                    format: int32
+                    type: integer
                   replicas:
                     description: If not specified, the default value is 1.
                     format: int32
                     minimum: 1
                     type: integer
+                  volumeMounts:
+                    items:
+                      description: VolumeMount describes a mounting of a Volume within
+                        a container.
+                      properties:
+                        mountPath:
+                          description: |-
+                            Path within the container at which the volume should be mounted.  Must
+                            not contain ':'.
+                          type: string
+                        mountPropagation:
+                          description: |-
+                            mountPropagation determines how mounts are propagated from the host
+                            to container and the other way around.
+                            When not set, MountPropagationNone is used.
+                            This field is beta in 1.10.
+                            When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
+                            (which defaults to None).
+                          type: string
+                        name:
+                          description: This must match the Name of a Volume.
+                          type: string
+                        readOnly:
+                          description: |-
+                            Mounted read-only if true, read-write otherwise (false or unspecified).
+                            Defaults to false.
+                          type: boolean
+                        recursiveReadOnly:
+                          description: |-
+                            RecursiveReadOnly specifies whether read-only mounts should be handled
+                            recursively.
+
+                            If ReadOnly is false, this field has no meaning and must be unspecified.
+
+                            If ReadOnly is true, and this field is set to Disabled, the mount is not made
+                            recursively read-only.  If this field is set to IfPossible, the mount is made
+                            recursively read-only, if it is supported by the container runtime.  If this
+                            field is set to Enabled, the mount is made recursively read-only if it is
+                            supported by the container runtime, otherwise the pod will not be started and
+                            an error will be generated to indicate the reason.
+
+                            If this field is set to IfPossible or Enabled, MountPropagation must be set to
+                            None (or be unspecified, which defaults to None).
+
+                            If this field is not specified, it is treated as an equivalent of Disabled.
+                          type: string
+                        subPath:
+                          description: |-
+                            Path within the volume from which the container's volume should be mounted.
+                            Defaults to "" (volume's root).
+                          type: string
+                        subPathExpr:
+                          description: |-
+                            Expanded path within the volume from which the container's volume should be mounted.
+                            Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
+                            Defaults to "" (volume's root).
+                            SubPathExpr and SubPath are mutually exclusive.
+                          type: string
+                      required:
+                      - mountPath
+                      - name
+                      type: object
+                    type: array
                   volumes:
                     items:
                       description: Volume represents a named volume in a pod that
@@ -4236,77 +4277,148 @@ spec:
                 type: object
               description:
                 type: string
-              modelConfig:
-                description: Can either be a reference to the name of a ModelConfig
-                  in the same namespace as the referencing Agent, or a reference to
-                  the name of a ModelConfig in a different namespace in the form <namespace>/<name>
-                type: string
-              stream:
-                description: |-
-                  Whether to stream the response from the model.
-                  If not specified, the default value is true.
-                type: boolean
-              systemMessage:
-                minLength: 1
-                type: string
-              tools:
-                items:
-                  properties:
-                    agent:
+              inline:
+                properties:
+                  a2aConfig:
+                    description: |-
+                      A2AConfig instantiates an A2A server for this agent,
+                      served on the HTTP port of the kagent kubernetes
+                      controller (default 8083).
+                      The A2A server URL will be served at
+                      <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
+                      Read more about the A2A protocol here: https://github.com/google/A2A
+                    properties:
+                      skills:
+                        items:
+                          description: AgentSkill describes a specific capability
+                            or function of the agent.
+                          properties:
+                            description:
+                              description: Description is an optional detailed description
+                                of the skill.
+                              type: string
+                            examples:
+                              description: Examples are optional usage examples.
+                              items:
+                                type: string
+                              type: array
+                            id:
+                              description: ID is the unique identifier for the skill.
+                              type: string
+                            inputModes:
+                              description: InputModes are the supported input data
+                                modes/types.
+                              items:
+                                type: string
+                              type: array
+                            name:
+                              description: Name is the human-readable name of the
+                                skill.
+                              type: string
+                            outputModes:
+                              description: OutputModes are the supported output data
+                                modes/types.
+                              items:
+                                type: string
+                              type: array
+                            tags:
+                              description: Tags are optional tags for categorization.
+                              items:
+                                type: string
+                              type: array
+                          required:
+                          - id
+                          - name
+                          - tags
+                          type: object
+                        minItems: 1
+                        type: array
+                    type: object
+                  modelConfig:
+                    description: Can either be a reference to the name of a ModelConfig
+                      in the same namespace as the referencing Agent, or a reference
+                      to the name of a ModelConfig in a different namespace in the
+                      form <namespace>/<name>
+                    type: string
+                  stream:
+                    description: |-
+                      Whether to stream the response from the model.
+                      If not specified, the default value is true.
+                    type: boolean
+                  systemMessage:
+                    minLength: 1
+                    type: string
+                  tools:
+                    items:
                       properties:
-                        apiGroup:
+                        agent:
+                          properties:
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        mcpServer:
+                          properties:
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                            toolNames:
+                              description: |-
+                                The names of the tools to be provided by the ToolServer
+                                For a list of all the tools provided by the server,
+                                the client can query the status of the ToolServer object after it has been created
+                              items:
+                                type: string
+                              type: array
+                          required:
+                          - name
+                          type: object
+                        type:
+                          allOf:
+                          - enum:
+                            - McpServer
+                            - Agent
+                          - enum:
+                            - McpServer
+                            - Agent
+                          description: ToolProviderType represents the tool provider
+                            type
                           type: string
-                        kind:
-                          type: string
-                        name:
-                          type: string
-                        namespace:
-                          type: string
-                      required:
-                      - name
                       type: object
-                    mcpServer:
-                      properties:
-                        apiGroup:
-                          type: string
-                        kind:
-                          type: string
-                        name:
-                          type: string
-                        toolNames:
-                          description: |-
-                            The names of the tools to be provided by the ToolServer
-                            For a list of all the tools provided by the server,
-                            the client can query the status of the ToolServer object after it has been created
-                          items:
-                            type: string
-                          type: array
-                      required:
-                      - name
-                      type: object
-                    type:
-                      allOf:
-                      - enum:
-                        - McpServer
-                        - Agent
-                      - enum:
-                        - McpServer
-                        - Agent
-                      description: ToolProviderType represents the tool provider type
-                      type: string
-                  type: object
-                  x-kubernetes-validations:
-                  - message: type.mcpServer must be nil if the type is not McpServer
-                    rule: '!(has(self.mcpServer) && self.type != ''McpServer'')'
-                  - message: type.mcpServer must be specified for McpServer filter.type
-                    rule: '!(!has(self.mcpServer) && self.type == ''McpServer'')'
-                  - message: type.agent must be nil if the type is not Agent
-                    rule: '!(has(self.agent) && self.type != ''Agent'')'
-                  - message: type.agent must be specified for Agent filter.type
-                    rule: '!(!has(self.agent) && self.type == ''Agent'')'
-                maxItems: 20
-                type: array
+                      x-kubernetes-validations:
+                      - message: type.mcpServer must be nil if the type is not McpServer
+                        rule: '!(has(self.mcpServer) && self.type != ''McpServer'')'
+                      - message: type.mcpServer must be specified for McpServer filter.type
+                        rule: '!(!has(self.mcpServer) && self.type == ''McpServer'')'
+                      - message: type.agent must be nil if the type is not Agent
+                        rule: '!(has(self.agent) && self.type != ''Agent'')'
+                      - message: type.agent must be specified for Agent filter.type
+                        rule: '!(!has(self.agent) && self.type == ''Agent'')'
+                    maxItems: 20
+                    type: array
+                type: object
+            required:
+            - agentType
             type: object
+            x-kubernetes-validations:
+            - message: agentType must be specified
+              rule: has(self.agentType)
+            - message: agentType must be either Inline or BYO
+              rule: self.agentType == 'Inline' || self.agentType == 'BYO'
+            - message: inline must be specified if agentType is Inline, or byo must
+                be specified if agentType is BYO
+              rule: (self.agentType == 'Inline' && has(self.inline)) || (self.agentType
+                == 'BYO' && has(self.byo))
           status:
             description: AgentStatus defines the observed state of Agent.
             properties:

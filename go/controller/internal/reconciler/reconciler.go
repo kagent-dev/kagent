@@ -3,7 +3,6 @@ package reconciler
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"reflect"
 	"sync"
@@ -126,7 +125,7 @@ func (a *kagentReconciler) handleExistingAgent(ctx context.Context, agent *v1alp
 	return a.reconcileAgents(ctx, agent)
 }
 
-func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, configHash *[sha256.Size]byte, inputErr error) error {
+func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, configHash *[]byte, inputErr error) error {
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -241,7 +240,11 @@ func (a *kagentReconciler) findAgentsUsingMCPService(ctx context.Context, req ct
 			continue
 		}
 
-		for _, tool := range agent.Spec.Tools {
+		if agent.Spec.AgentType == v1alpha2.AgentType_Inline {
+			continue
+		}
+
+		for _, tool := range agent.Spec.Inline.Tools {
 			if tool.McpServer == nil {
 				continue
 			}
@@ -367,7 +370,11 @@ func (a *kagentReconciler) findAgentsUsingMCPServer(ctx context.Context, req ctr
 			continue
 		}
 
-		for _, tool := range agent.Spec.Tools {
+		if agent.Spec.AgentType == v1alpha2.AgentType_Inline {
+			continue
+		}
+
+		for _, tool := range agent.Spec.Inline.Tools {
 			if tool.McpServer == nil {
 				continue
 			}
@@ -495,7 +502,7 @@ func (a *kagentReconciler) reconcileAgents(ctx context.Context, agents ...*v1alp
 	return multiErr.ErrorOrNil()
 }
 
-func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) (*[sha256.Size]byte, error) {
+func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) (*[]byte, error) {
 	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
@@ -632,7 +639,11 @@ func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Re
 			continue
 		}
 
-		if agent.Spec.ModelConfig == req.Name {
+		if agent.Spec.AgentType == v1alpha2.AgentType_Inline {
+			continue
+		}
+
+		if agent.Spec.Inline.ModelConfig == req.Name {
 			agents = append(agents, agent)
 		}
 
@@ -702,7 +713,11 @@ func (a *kagentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, r
 
 	var agents []*v1alpha2.Agent
 	appendAgentIfUsesRemoteMCPServer := func(agent *v1alpha2.Agent) {
-		for _, tool := range agent.Spec.Tools {
+		if agent.Spec.AgentType == v1alpha2.AgentType_Inline {
+			return
+		}
+
+		for _, tool := range agent.Spec.Inline.Tools {
 			if tool.McpServer == nil {
 				return
 			}
