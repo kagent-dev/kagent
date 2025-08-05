@@ -17,8 +17,6 @@ limitations under the License.
 package v1alpha2
 
 import (
-	"fmt"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -89,7 +87,7 @@ type Tool struct {
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
-	Agent *TypedReference `json:"agent,omitempty"`
+	Agent *TypedLocalReference `json:"agent,omitempty"`
 }
 
 type McpServerTool struct {
@@ -102,32 +100,6 @@ type McpServerTool struct {
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
 	ToolNames []string `json:"toolNames,omitempty"`
-}
-
-type TypedReference struct {
-	// +optional
-	Kind string `json:"kind,omitempty"`
-	// +optional
-	ApiGroup string `json:"apiGroup,omitempty"`
-	// +optional
-	Namespace string `json:"namespace,omitempty"`
-	Name      string `json:"name"`
-}
-
-func (t *TypedReference) String() string {
-	kind := "Unknown"
-	if t.Kind != "" {
-		kind = t.Kind
-	}
-	apiGroup := "Unknown"
-	if t.ApiGroup != "" {
-		apiGroup = t.ApiGroup
-	}
-	namespace := "Unknown"
-	if t.Namespace != "" {
-		namespace = t.Namespace
-	}
-	return fmt.Sprintf("%s/%s/%s/%s", apiGroup, namespace, kind, t.Name)
 }
 
 type TypedLocalReference struct {
@@ -143,18 +115,6 @@ func (t *TypedLocalReference) GroupKind() schema.GroupKind {
 		Group: t.ApiGroup,
 		Kind:  t.Kind,
 	}
-}
-
-func (t *TypedLocalReference) String() string {
-	kind := "Unknown"
-	if t.Kind != "" {
-		kind = t.Kind
-	}
-	apiGroup := "Unknown"
-	if t.ApiGroup != "" {
-		apiGroup = t.ApiGroup
-	}
-	return fmt.Sprintf("%s/%s/%s", apiGroup, kind, t.Name)
 }
 
 type A2AConfig struct {
