@@ -9,7 +9,10 @@ description = "kagent-adk is an sdk for integrating adk agents with kagent"
 readme = "README.md"
 requires-python = ">=3.12.11"
 dependencies = [
+  "aiofiles>=24.1.0",
   "anyio>=4.9.0",
+  "typer>=0.15.0",
+  "uvicorn>=0.34.0",
   "openai>=1.72.0",
   "mcp>=1.12.0",
   "protobuf>=6.31.1",
@@ -30,6 +33,9 @@ dependencies = [
   "jsonref>=1.1.0",
   "a2a-sdk>=0.2.16",
 ]
+
+[project.scripts]
+kagent-adk = "kagent_adk.cli:app"
 
 [project.optional-dependencies]
 test = [

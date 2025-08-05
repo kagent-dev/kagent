@@ -51,15 +51,15 @@ RUN echo "Installing dependencies..."                   \
     && uv venv --python=python$TOOLS_PYTHON_VERSION     \
     && uv sync --locked --refresh
 
-RUN uv version ${VERSION%%-*} --package kagent \
-    && uv build --package kagent \
+RUN uv version ${VERSION%%-*} --package kagent-adk \
+    && uv build --package kagent-adk \
     && uv cache prune
 
 # Offline mode
 ENV UV_OFFLINE=1
 
 # Test if the tool is working and fetch all dependencies
-RUN kagent --help
+RUN kagent-adk --help
 
 EXPOSE 8080
 
@@ -68,4 +68,4 @@ LABEL org.opencontainers.image.description="Kagent app is the apiserver for runn
 LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 LABEL org.opencontainers.image.version="$VERSION"
 
-CMD ["kagent", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["kagent-adk", "--host", "0.0.0.0", "--port", "8080"]

@@ -9,7 +9,6 @@ dev = [
 ]
 
 [tool.uv.sources]
-kagent = { workspace = true }
 kagent-adk = { workspace = true }
 
 [tool.ruff]

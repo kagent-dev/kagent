@@ -62,9 +62,6 @@ class Gemini(BaseLLM):
 
 
 class AgentConfig(BaseModel):
-    kagent_url: str  # The URL of the KAgent server
-    agent_card: AgentCard
-    name: str
     model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini] = Field(
         discriminator="type"
     )

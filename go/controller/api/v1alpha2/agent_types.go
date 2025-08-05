@@ -17,8 +17,6 @@ limitations under the License.
 package v1alpha2
 
 import (
-	"fmt"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -58,7 +56,9 @@ type AgentSpec struct {
 type InlineAgentSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	SystemMessage string `json:"systemMessage,omitempty"`
-	// Can either be a reference to the name of a ModelConfig in the same namespace as the referencing Agent, or a reference to the name of a ModelConfig in a different namespace in the form <namespace>/<name>
+	// The name of the model config to use.
+	// If not specified, the default value is "default-model-config".
+	// Must be in the same namespace as the Agent.
 	// +optional
 	ModelConfig string `json:"modelConfig,omitempty"`
 	// Whether to stream the response from the model.
@@ -75,15 +75,38 @@ type InlineAgentSpec struct {
 	// Read more about the A2A protocol here: https://github.com/google/A2A
 	// +optional
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
+
+	// +optional
+	Deployment *InlineDeploymentSpec `json:"deployment,omitempty"`
+}
+
+type InlineDeploymentSpec struct {
+	// +optional
+	ImageRegistry string `json:"imageRegistry,omitempty"`
+
+	SharedDeploymentSpec `json:",inline"`
 }
 
 type BYOAgentSpec struct {
+	// Trust relationship to the agent.
+
+	Deployment *ByoDeploymentSpec `json:"deployment,omitempty"`
 }
 
-type DeploymentSpec struct {
+type ByoDeploymentSpec struct {
+	Image string   `json:"image,omitempty"`
+	Cmd   string   `json:"cmd,omitempty"`
+	Args  []string `json:"args,omitempty"`
+	Port  int32    `json:"port,omitempty"`
+
+	SharedDeploymentSpec `json:",inline"`
+}
+
+type SharedDeploymentSpec struct {
 	// If not specified, the default value is 1.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
 	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
@@ -98,51 +121,7 @@ type DeploymentSpec struct {
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// +optional
-	Image string `json:"image,omitempty"`
-	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
-	// +optional
-	Cmd string `json:"cmd,omitempty"`
-	// +optional
-	Args []string `json:"args,omitempty"`
-	// +optional
-	Port int32 `json:"port,omitempty"`
-}
-
-func (d *DeploymentSpec) Merge(other *DeploymentSpec) {
-	if other.Replicas != nil {
-		d.Replicas = other.Replicas
-	}
-	if len(other.ImagePullSecrets) > 0 {
-		d.ImagePullSecrets = other.ImagePullSecrets
-	}
-	if len(other.Volumes) > 0 {
-		d.Volumes = other.Volumes
-	}
-	if len(other.VolumeMounts) > 0 {
-		d.VolumeMounts = other.VolumeMounts
-	}
-	if len(other.Labels) > 0 {
-		d.Labels = other.Labels
-	}
-	if len(other.Annotations) > 0 {
-		d.Annotations = other.Annotations
-	}
-	if len(other.Env) > 0 {
-		d.Env = other.Env
-	}
-	if other.Image != "" {
-		d.Image = other.Image
-	}
-	if other.ImagePullPolicy != "" {
-		d.ImagePullPolicy = other.ImagePullPolicy
-	}
-	if other.Cmd != "" {
-		d.Cmd = other.Cmd
-	}
-	if len(other.Args) > 0 {
-		d.Args = other.Args
-	}
 }
 
 // ToolProviderType represents the tool provider type
@@ -189,20 +168,11 @@ type TypedReference struct {
 	Name      string `json:"name"`
 }
 
-func (t *TypedReference) String() string {
-	kind := "Unknown"
-	if t.Kind != "" {
-		kind = t.Kind
+func (t *TypedReference) GroupKind() schema.GroupKind {
+	return schema.GroupKind{
+		Group: t.ApiGroup,
+		Kind:  t.Kind,
 	}
-	apiGroup := "Unknown"
-	if t.ApiGroup != "" {
-		apiGroup = t.ApiGroup
-	}
-	namespace := "Unknown"
-	if t.Namespace != "" {
-		namespace = t.Namespace
-	}
-	return fmt.Sprintf("%s/%s/%s/%s", apiGroup, namespace, kind, t.Name)
 }
 
 type TypedLocalReference struct {
@@ -218,18 +188,6 @@ func (t *TypedLocalReference) GroupKind() schema.GroupKind {
 		Group: t.ApiGroup,
 		Kind:  t.Kind,
 	}
-}
-
-func (t *TypedLocalReference) String() string {
-	kind := "Unknown"
-	if t.Kind != "" {
-		kind = t.Kind
-	}
-	apiGroup := "Unknown"
-	if t.ApiGroup != "" {
-		apiGroup = t.ApiGroup
-	}
-	return fmt.Sprintf("%s/%s/%s", apiGroup, kind, t.Name)
 }
 
 type A2AConfig struct {

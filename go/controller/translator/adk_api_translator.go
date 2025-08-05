@@ -176,6 +176,16 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 				FieldPath: "metadata.namespace",
 			},
 		},
+	}, corev1.EnvVar{
+		Name: "KAGENT_NAME",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "spec.serviceAccountName",
+			},
+		},
+	}, corev1.EnvVar{
+		Name:  "KAGENT_URL",
+		Value: fmt.Sprintf("http://kagent-controller.%s.svc:8083", common.GetResourceNamespace()),
 	})
 
 	defaultDeploymentSpec := &v1alpha2.DeploymentSpec{
@@ -202,7 +212,7 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 		Env:             envVars,
 		Image:           fmt.Sprintf("cr.kagent.dev/kagent-dev/kagent/app:%s", version.Get().Version),
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		Cmd:             "kagent",
+		Cmd:             "kagent-adk",
 		Args:            []string{"static", "--host", "0.0.0.0", "--port", "8080", "--filepath", "/config/config.json"},
 		Port:            8080,
 	}
