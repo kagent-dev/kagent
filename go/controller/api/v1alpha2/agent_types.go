@@ -179,7 +179,6 @@ type AgentStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:categories=kagent,shortName=ag
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="ModelConfig",type="string",JSONPath=".spec.modelConfig",description="The ModelConfig resource referenced by this agent."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."

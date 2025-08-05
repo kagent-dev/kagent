@@ -194,8 +194,7 @@ spec:
     - type: McpServer
       mcpServer:
         name: kagent-querydoc
-        kind: RemoteMCPServer
-        apiGroup: kagent.dev
+        kind: Service
         toolNames:
           - query_documentation
     - type: McpServer
