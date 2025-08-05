@@ -2,6 +2,7 @@ import React, { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import CodeBlock from "./CodeBlock";
 import gfm from 'remark-gfm'
+import rehypeExternalLinks from 'rehype-external-links'
 import HTMLPreviewDialog from "./HTMLPreviewDialog";
 
 interface TruncatableTextProps {
@@ -21,11 +22,6 @@ const components = {
     }
     // For inline code, just return the default
     return <code className={className}>{children}</code>;
-  },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  a: (props: any) => {
-    const { children, className } = props;
-    return <a href={children} target="_blank" rel="noopener noreferrer" className={className}>{children}</a>;
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   table: (props: any) => {
@@ -70,7 +66,8 @@ export const TruncatableText = memo(({ content, isJson = false, className = "", 
         <ReactMarkdown
           className={`prose-md prose max-w-none dark:prose-invert dark:text-primary-foreground ${isStreaming ? "streaming-content" : ""}`}
           components={components}
-          remarkPlugins={[gfm]}>
+          remarkPlugins={[gfm]}
+          rehypePlugins={[[rehypeExternalLinks, {target: '_blank'}]]}>
           {content.trim()}
         </ReactMarkdown>
 

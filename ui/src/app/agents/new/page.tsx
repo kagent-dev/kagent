@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Settings2 } from "lucide-react";
-import { ModelConfig, MemoryResponse } from "@/lib/types";
+import { ModelConfig, MemoryResponse } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
@@ -16,7 +16,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { Tool } from "@/types/datamodel";
+import { Tool } from "@/types";
 import { toast } from "sonner";
 import { listMemories } from "@/app/actions/memories";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
@@ -117,7 +117,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               }
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
-              toast.error("Failed to extract agent data from team structure");
+              toast.error("Failed to extract agent data");
             }
           } else {
             toast.error("Agent not found");
@@ -347,7 +347,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               </CardHeader>
               <CardContent>
                 <ToolsSection 
-                  allTools={tools} 
                   selectedTools={selectedTools} 
                   setSelectedTools={setSelectedTools} 
                   isSubmitting={isSubmitting || isLoading} 

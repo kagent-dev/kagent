@@ -1,9 +1,10 @@
 "use server";
 
-import { BaseResponse, CreateSessionRequest } from "@/lib/types";
-import {  Session, AgentMessageConfig } from "@/types/datamodel";
+import { BaseResponse, CreateSessionRequest } from "@/types";
+import { Session } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
+import { Task } from "@a2a-js/sdk";
 
 /**
  * Deletes a session
@@ -62,11 +63,7 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        user_id: session.user_id,
-        agent_ref: session.agent_ref,
-        name: session.name,
-      }),
+      body: JSON.stringify(session),
     });
 
     if (!response) {
@@ -84,12 +81,12 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
  * @param sessionId The session ID
  * @returns A promise with the session messages
  */
-export async function getSessionMessages(sessionId: string): Promise<BaseResponse<AgentMessageConfig[]>> {
+export async function getSessionTasks(sessionId: string): Promise<BaseResponse<Task[]>> {
   try {
-    const data = await fetchApi<BaseResponse<AgentMessageConfig[]>>(`/sessions/${sessionId}/messages`);
+    const data = await fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`);
     return data;
   } catch (error) {
-    return createErrorResponse<AgentMessageConfig[]>(error, "Error getting session messages");
+    return createErrorResponse<Task[]>(error, "Error getting session tasks");
   }
 }
 

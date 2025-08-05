@@ -1,26 +1,9 @@
-import { LLMCall } from "@/components/chat/LLMCallModal";
-import { ImageContent, TaskResultMessage } from "@/types/datamodel";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { CompletionMessage, ErrorMessageConfig, MemoryQueryEvent, ModelClientStreamingChunkEvent, TextMessageConfig, ToolCallExecutionEvent, ToolCallRequestEvent, ToolCallSummaryMessage } from "@/types/datamodel";
+import { Message as A2AMessage, Task as A2ATask, TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent, TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent } from "@a2a-js/sdk";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
-}
-
-export function getWsUrl() {
-  if (process.env.NEXT_PUBLIC_WS_URL) {
-    return process.env.NEXT_PUBLIC_WS_URL;
-  }
-
-  let url = "";
-  if (process.env.NODE_ENV === "production") {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    url = `${protocol}//${window.location.host}/api/ws`;
-  } else {
-    url = "ws://localhost:8081/api/ws";
-  }
-  return url;
 }
 
 export function getBackendUrl() {
@@ -36,13 +19,6 @@ export function getBackendUrl() {
 
   // Fallback for local development
   return "http://localhost:8083/api";
-}
-
-export function getWebSocketUrl() {
-  const backendUrl = getBackendUrl();
-  const wsProtocol = backendUrl.startsWith("https") ? "wss" : "ws";
-
-  return backendUrl.replace(/^https?/, wsProtocol);
 }
 
 export function getRelativeTimeString(date: string | number | Date): string {
@@ -150,62 +126,25 @@ export const createRFC1123ValidName = (parts: string[]): string => {
 };
 
 export const messageUtils = {
-  isToolCallRequestEvent(content: unknown): content is ToolCallRequestEvent {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallRequestEvent";
+  isA2AMessage(content: unknown): content is A2AMessage {
+    return typeof content === "object" && content !== null && "kind" in content && content.kind === "message";
   },
 
-  isToolCallExecutionEvent(content: unknown): content is ToolCallExecutionEvent {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallExecutionEvent";
+  isA2ATask(content: unknown): content is A2ATask {
+    return typeof content === "object" && content !== null && "kind" in content && content.kind === "task";
   },
 
-  isToolCallSummaryMessage(content: unknown): content is ToolCallSummaryMessage {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ToolCallSummaryMessage";
+  isA2ATaskStatusUpdate(content: unknown): content is A2ATaskStatusUpdateEvent {
+    return typeof content === "object" && content !== null && "kind" in content && content.kind === "status-update";
   },
 
-  isMultiModalContent(content: unknown): content is (string | ImageContent)[] {
-    if (!Array.isArray(content)) return false;
-    return content.every((item) => typeof item === "string" || (typeof item === "object" && item !== null && ("url" in item || "data" in item)));
-  },
-
-  isCompletionMessage(content: unknown): content is CompletionMessage {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "completion";
-  },
-
-  isStreamingMessage(content: unknown): content is ModelClientStreamingChunkEvent {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "ModelClientStreamingChunkEvent";
-  },
-
-  isMemoryQueryEvent(content: unknown): content is MemoryQueryEvent {
-    const isMemoryQueryEvent = typeof content === "object" && content !== null && "type" in content && content.type === "MemoryQueryEvent";
-    return isMemoryQueryEvent;
-  },
-
-  isTextMessageContent(content: unknown): content is TextMessageConfig {
-    return typeof content === "object" && content !== null && "content" in content && "type" in content && content.type === "TextMessage";
-  },
-
-  isErrorMessageContent(content: unknown): content is ErrorMessageConfig {
-    return typeof content === "object" && content !== null && "type" in content && content.type === "error";
-  },
-
-  isUserTextMessageContent(content: unknown): content is TextMessageConfig {
-    return messageUtils.isTextMessageContent(content) && content.source === "user";
-  },
-
-  isLlmCallEvent(content: unknown): content is LLMCall {
-    try {
-      const parsed = JSON.parse(String(content));
-      return typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "LLMCall";
-    } catch {
-      return false;
-    }
-  },
-
-  isTaskResultMessage(content: unknown): content is TaskResultMessage {
-    return typeof content === "object" && content !== null && "task_result" in content && "duration" in content && "usage" in content;
-  },
-
-  isUser(source: string): boolean {
-    return source === "user";
+  isA2ATaskArtifactUpdate(content: unknown): content is A2ATaskArtifactUpdateEvent {
+    return typeof content === "object" && content !== null && "kind" in content && content.kind === "artifact-update";
   },
 };
+
+export function convertToUserFriendlyName(name: string): string {
+  if (!name) return "Unknown Source";
+  name = name.replace(/__NS__/g, "/");
+  return name.replace(/_/g, "-");
+}

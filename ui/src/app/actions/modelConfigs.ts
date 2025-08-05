@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-import { BaseResponse, ModelConfig, CreateModelConfigPayload, UpdateModelConfigPayload } from "@/lib/types";
+import { BaseResponse, ModelConfig, CreateModelConfigPayload, UpdateModelConfigPayload } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
 /**

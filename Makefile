@@ -7,7 +7,7 @@ HELM_DIST_FOLDER ?= dist
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0+$(GIT_COMMIT)")
+VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0.0.0+$(GIT_COMMIT)")
 
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
@@ -52,7 +52,7 @@ LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSIO
 TOOLS_UV_VERSION ?= 0.7.2
 TOOLS_BUN_VERSION ?= 1.2.16
 TOOLS_NODE_VERSION ?= 22.16.0
-TOOLS_PYTHON_VERSION ?= 3.12
+TOOLS_PYTHON_VERSION ?= 3.13
 TOOLS_KIND_IMAGE_VERSION ?= 1.33.1
 
 # build args
@@ -103,6 +103,7 @@ build-all: buildx-create
 create-kind-cluster:
 	docker pull kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) || true
 	kind create cluster --name $(KIND_CLUSTER_NAME) --image kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) --config ./scripts/kind/kind-config.yaml
+	./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
 use-kind-cluster:
@@ -233,8 +234,13 @@ helm-agents:
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-manager
 
+.PHONY: helm-tools
+helm-tools:
+	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
+
 .PHONY: helm-version
-helm-version: helm-cleanup helm-agents
+helm-version: helm-cleanup helm-agents helm-tools
 	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
@@ -257,17 +263,19 @@ helm-install-provider: helm-version check-openai-key
 		--timeout 5m       \
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
-		--set service.type=LoadBalancer \
-		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set ui.service.type=LoadBalancer \
 		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set app.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
 		--set ui.image.tag=$(UI_IMAGE_TAG) \
-		--set app.image.tag=$(APP_IMAGE_TAG) \
+		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
+		--set controller.service.type=LoadBalancer \
+		--set engine.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
+		--set engine.image.tag=$(APP_IMAGE_TAG) \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install

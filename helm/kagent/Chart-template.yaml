@@ -4,43 +4,51 @@ description: A Helm chart for kagent, built with Autogen
 type: application
 version: ${VERSION}
 dependencies:
+  - name: kagent-tools
+    version: 0.0.11
+    repository: oci://ghcr.io/kagent-dev/tools/helm
+    condition: kagent-tools.enabled
+  - name: querydoc
+    version: ${VERSION}
+    repository: file://../tools/querydoc
+    condition: external-mcp.querydoc.enabled
   - name: k8s-agent
     version: ${VERSION}
     repository: file://../agents/k8s
-    condition: k8s-agent.enabled
+    condition: agents.k8s-agent.enabled
   - name: kgateway-agent
     version: ${VERSION}
     repository: file://../agents/kgateway
-    condition: kgateway-agent.enabled
+    condition: agents.kgateway-agent.enabled
   - name: istio-agent
     version: ${VERSION}
     repository: file://../agents/istio
-    condition: istio-agent.enabled
+    condition: agents.istio-agent.enabled
   - name: promql-agent
     version: ${VERSION}
     repository: file://../agents/promql
-    condition: promql-agent.enabled
+    condition: agents.promql-agent.enabled
   - name: observability-agent
     version: ${VERSION}
     repository: file://../agents/observability
-    condition: observability-agent.enabled
+    condition: agents.observability-agent.enabled
   - name: argo-rollouts-agent
     version: ${VERSION}
     repository: file://../agents/argo-rollouts
-    condition: argo-rollouts-agent.enabled
+    condition: agents.argo-rollouts-agent.enabled
   - name: helm-agent
     version: ${VERSION}
     repository: file://../agents/helm
-    condition: helm-agent.enabled
+    condition: agents.helm-agent.enabled
   - name: cilium-policy-agent
     version: ${VERSION}
     repository: file://../agents/cilium-policy
-    condition: cilium-policy-agent.enabled
+    condition: agents.cilium-policy-agent.enabled
   - name: cilium-manager-agent
     version: ${VERSION}
     repository: file://../agents/cilium-manager
-    condition: cilium-manager-agent.enabled
+    condition: agents.cilium-manager-agent.enabled
   - name: cilium-debug-agent
     version: ${VERSION}
     repository: file://../agents/cilium-debug
-    condition: cilium-debug-agent.enabled
+    condition: agents.cilium-debug-agent.enabled

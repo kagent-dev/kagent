@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
-	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -23,12 +22,8 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 
 	log.Info("Listing supported models")
 
-	models, err := h.AutogenClient.ListSupportedModels(r.Context())
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to list supported models", err))
-		return
-	}
+	// TODO: Implement this
 
-	data := api.NewResponse(models, "Successfully listed supported models", false)
-	RespondWithJSON(w, http.StatusOK, data)
+	w.RespondWithError(errors.NewNotImplementedError("Not implemented", nil))
+	return
 }

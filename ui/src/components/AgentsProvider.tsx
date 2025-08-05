@@ -2,9 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
-import { Component, ToolConfig, Agent, Tool, AgentResponse } from "@/types/datamodel";
 import { getTools } from "@/app/actions/tools";
-import type { BaseResponse, ModelConfig } from "@/lib/types";
+import type { Agent, Tool, AgentResponse, ToolResponse, BaseResponse, ModelConfig } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -34,8 +33,8 @@ interface AgentsContextType {
   models: ModelConfig[];
   loading: boolean;
   error: string;
-  tools: Component<ToolConfig>[];
-  refreshTeams: () => Promise<void>;
+  tools: ToolResponse[];
+  refreshAgents: () => Promise<void>;
   createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   updateAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   getAgent: (name: string, namespace: string) => Promise<AgentResponse | null>;
@@ -60,16 +59,16 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const [agents, setAgents] = useState<AgentResponse[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [tools, setTools] = useState<Component<ToolConfig>[]>([]);
+  const [tools, setTools] = useState<ToolResponse[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
 
-  const fetchTeams = async () => {
+  const fetchAgents = async () => {
     try {
       setLoading(true);
       const agentsResult = await getAgents();
 
       if (!agentsResult.data || agentsResult.error) {
-        throw new Error(agentsResult.error || "Failed to fetch teams");
+        throw new Error(agentsResult.error || "Failed to fetch agents");
       }
 
       setAgents(agentsResult.data);
@@ -151,7 +150,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   // Get agent by ID function
   const getAgent = async (name: string, namespace: string): Promise<AgentResponse | null> => {
     try {
-      // Fetch all teams
+      // Fetch all agents
       const agentResult = await getAgentAction(name, namespace);
       if (!agentResult.data || agentResult.error) {
         console.error("Failed to get agent:", agentResult.error);
@@ -184,8 +183,8 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       const result = await createAgent(agentData);
 
       if (!result.error) {
-        // Refresh teams to get the newly created one
-        await fetchTeams();
+        // Refresh agents to get the newly created one
+        await fetchAgents();
       }
 
       return result;
@@ -208,12 +207,12 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         return { message: "Validation failed", error: "Validation failed", data: {} as Agent };
       }
 
-      // Use the same createTeam endpoint for updates
+      // Use the same createAgent endpoint for updates
       const result = await createAgent(agentData, true);
 
       if (!result.error) {
-        // Refresh teams to get the updated one
-        await fetchTeams();
+        // Refresh agents to get the updated one
+        await fetchAgents();
       }
 
       return result;
@@ -228,7 +227,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
   // Initial fetches
   useEffect(() => {
-    fetchTeams();
+    fetchAgents();
     fetchTools();
     fetchModels();
   }, []);
@@ -239,7 +238,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     loading,
     error,
     tools,
-    refreshTeams: fetchTeams,
+    refreshAgents: fetchAgents,
     createNewAgent,
     updateAgent,
     getAgent,

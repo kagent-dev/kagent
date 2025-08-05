@@ -1,11 +1,10 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
+	"strconv"
+	"time"
 
-	"github.com/google/uuid"
-	autogen_client "github.com/kagent-dev/kagent/go/internal/autogen/client"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/utils"
@@ -53,7 +52,7 @@ func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *ht
 	}
 
 	// Get agent ID from agent ref
-	agent, err := h.DatabaseService.GetAgent(namespace + "/" + agentName)
+	agent, err := h.DatabaseService.GetAgent(utils.ConvertToPythonIdentifier(namespace + "/" + agentName))
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
@@ -116,13 +115,12 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("agentRef", *sessionRequest.AgentRef)
 
-	id := uuid.New().String()
-	name := id
-	if sessionRequest.Name != nil {
-		name = *sessionRequest.Name
+	id := protocol.GenerateContextID()
+	if sessionRequest.ID != nil && *sessionRequest.ID != "" {
+		id = *sessionRequest.ID
 	}
 
-	agent, err := h.DatabaseService.GetAgent(*sessionRequest.AgentRef)
+	agent, err := h.DatabaseService.GetAgent(utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
@@ -130,7 +128,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 
 	session := &database.Session{
 		ID:      id,
-		Name:    name,
+		Name:    sessionRequest.Name,
 		UserID:  sessionRequest.UserID,
 		AgentID: &agent.ID,
 	}
@@ -139,7 +137,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		"agentRef", sessionRequest.AgentRef,
 		"name", sessionRequest.Name)
 
-	if err := h.DatabaseService.CreateSession(session); err != nil {
+	if err := h.DatabaseService.StoreSession(session); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
 		return
 	}
@@ -147,6 +145,11 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	log.Info("Successfully created session", "sessionID", session.ID)
 	data := api.NewResponse(session, "Successfully created session", false)
 	RespondWithJSON(w, http.StatusCreated, data)
+}
+
+type SessionResponse struct {
+	Session *database.Session `json:"session"`
+	Events  []*database.Event `json:"events"`
 }
 
 // HandleGetSession handles GET /api/sessions/{session_id} requests using database
@@ -174,8 +177,39 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
+	queryOptions := database.QueryOptions{
+		Limit: 0,
+	}
+	after := r.URL.Query().Get("after")
+	if after != "" {
+		afterTime, err := time.Parse(time.RFC3339, after)
+		if err != nil {
+			w.RespondWithError(errors.NewBadRequestError("Failed to parse after timestamp", err))
+			return
+		}
+		queryOptions.After = afterTime
+	}
+
+	limit := r.URL.Query().Get("limit")
+	if limit != "" {
+		queryOptions.Limit, err = strconv.Atoi(limit)
+		if err != nil {
+			w.RespondWithError(errors.NewBadRequestError("Failed to parse limit", err))
+			return
+		}
+	}
+
+	events, err := h.DatabaseService.ListEventsForSession(sessionID, userID, queryOptions)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to get events for session", err))
+		return
+	}
+
 	log.Info("Successfully retrieved session")
-	data := api.NewResponse(session, "Successfully retrieved session", false)
+	data := api.NewResponse(SessionResponse{
+		Session: session,
+		Events:  events,
+	}, "Successfully retrieved session", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
@@ -207,7 +241,7 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	agent, err := h.DatabaseService.GetAgent(*sessionRequest.AgentRef)
+	agent, err := h.DatabaseService.GetAgent(utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
@@ -216,7 +250,7 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 	// Update fields
 	session.AgentID = &agent.ID
 
-	if err := h.DatabaseService.UpdateSession(session); err != nil {
+	if err := h.DatabaseService.StoreSession(session); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to update session", err))
 		return
 	}
@@ -255,7 +289,7 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 }
 
 // HandleListSessionRuns handles GET /api/sessions/{session_id}/tasks requests using database
-func (h *SessionsHandler) HandleListSessionTasks(w ErrorResponseWriter, r *http.Request) {
+func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "list-tasks-db")
 
 	sessionID, err := GetPathParam(r, "session_id")
@@ -272,8 +306,15 @@ func (h *SessionsHandler) HandleListSessionTasks(w ErrorResponseWriter, r *http.
 	}
 	log = log.WithValues("userID", userID)
 
+	// Verify session exists
+	_, err = h.DatabaseService.GetSession(sessionID, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Session not found for given ID", err))
+		return
+	}
+
 	log.V(1).Info("Getting session tasks from database")
-	tasks, err := h.DatabaseService.ListSessionTasks(sessionID, userID)
+	tasks, err := h.DatabaseService.ListTasksForSession(sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get session runs", err))
 		return
@@ -281,186 +322,6 @@ func (h *SessionsHandler) HandleListSessionTasks(w ErrorResponseWriter, r *http.
 
 	log.Info("Successfully retrieved session tasks", "count", len(tasks))
 	data := api.NewResponse(tasks, "Successfully retrieved session tasks", false)
-	RespondWithJSON(w, http.StatusOK, data)
-}
-
-func (h *SessionsHandler) HandleInvokeSession(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "invoke-session")
-
-	sessionID, err := GetPathParam(r, "session_id")
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
-		return
-	}
-
-	userID, err := GetUserID(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
-		return
-	}
-	log = log.WithValues("userID", userID)
-
-	var req autogen_client.InvokeTaskRequest
-	if err := DecodeJSONBody(r, &req); err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
-		return
-	}
-	session, err := h.DatabaseService.GetSession(sessionID, userID)
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
-		return
-	}
-
-	messages, err := h.DatabaseService.ListMessagesForSession(session.ID, userID)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to get messages for session", err))
-		return
-	}
-
-	parsedMessages, err := database.ParseMessages(messages)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to parse messages", err))
-		return
-	}
-
-	autogenEvents, err := utils.ConvertMessagesToAutogenEvents(parsedMessages)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to convert messages to autogen events", err))
-		return
-	}
-	req.Messages = autogenEvents
-
-	result, err := h.AutogenClient.InvokeTask(r.Context(), &req)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to invoke session", err))
-		return
-	}
-
-	messageToSave := utils.ConvertAutogenEventsToMessages(nil, &sessionID, result.TaskResult.Messages...)
-	if err := h.DatabaseService.CreateMessages(messageToSave...); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to create messages", err))
-		return
-	}
-
-	data := api.NewResponse(result.TaskResult.Messages, "Successfully invoked session", false)
-	RespondWithJSON(w, http.StatusOK, data)
-}
-
-func (h *SessionsHandler) HandleInvokeSessionStream(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "invoke-session")
-
-	sessionID, err := GetPathParam(r, "session_id")
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
-		return
-	}
-
-	userID, err := GetUserID(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
-		return
-	}
-	log = log.WithValues("userID", userID)
-
-	var req autogen_client.InvokeTaskRequest
-	if err := DecodeJSONBody(r, &req); err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
-		return
-	}
-	session, err := h.DatabaseService.GetSession(sessionID, userID)
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
-		return
-	}
-
-	messages, err := h.DatabaseService.ListMessagesForSession(session.ID, userID)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to get messages for session", err))
-		return
-	}
-
-	parsedMessages, err := database.ParseMessages(messages)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to parse messages", err))
-		return
-	}
-
-	autogenEvents, err := utils.ConvertMessagesToAutogenEvents(parsedMessages)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to convert messages to autogen events", err))
-		return
-	}
-	req.Messages = autogenEvents
-
-	ch, err := h.AutogenClient.InvokeTaskStream(r.Context(), &req)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to invoke session", err))
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.WriteHeader(http.StatusOK)
-	w.Flush()
-
-	taskResult := autogen_client.InvokeTaskResult{}
-
-	for event := range ch {
-		log.Info(event.String())
-		w.Write([]byte(event.String()))
-		w.Flush()
-
-		if event.Event == "task_result" {
-			if err := json.Unmarshal(event.Data, &taskResult); err != nil {
-				log.Error(err, "Failed to unmarshal task result")
-				continue
-			}
-		}
-
-	}
-
-	messageToSave := utils.ConvertAutogenEventsToMessages(nil, &sessionID, taskResult.TaskResult.Messages...)
-	log.Info("Saving messages", "count", len(messageToSave))
-	if err := h.DatabaseService.CreateMessages(messageToSave...); err != nil {
-		log.Error(err, "Failed to create messages")
-	}
-}
-
-func (h *SessionsHandler) HandleListSessionMessages(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "list-messages-db")
-
-	sessionID, err := GetPathParam(r, "session_id")
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
-		return
-	}
-	log = log.WithValues("session_id", sessionID)
-
-	userID, err := GetUserID(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
-		return
-	}
-	log = log.WithValues("userID", userID)
-
-	messages, err := h.DatabaseService.ListMessagesForSession(sessionID, userID)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to get messages for session", err))
-		return
-	}
-
-	parsedMessages, err := database.ParseMessages(messages)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to parse messages", err))
-		return
-	}
-
-	autogenEvents, err := utils.ConvertMessagesToAutogenEvents(parsedMessages)
-	if err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to convert messages to autogen events", err))
-		return
-	}
-
-	data := api.NewResponse(autogenEvents, "Successfully retrieved session messages", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
@@ -481,9 +342,8 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	log = log.WithValues("userID", userID)
 
 	var eventData struct {
-		Type   string         `json:"type"`
-		Data   map[string]any `json:"data"`
-		TaskID string         `json:"task_id"`
+		ID   string `json:"id"`
+		Data string `json:"data"`
 	}
 	if err := DecodeJSONBody(r, &eventData); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
@@ -491,33 +351,24 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	}
 
 	// Get session to verify it exists
-	session, err := h.DatabaseService.GetSession(sessionID, userID)
+	_, err = h.DatabaseService.GetSession(sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
 	}
 
-	protocolMessage := protocol.Message{
-		ContextID: &session.ID,
-		MessageID: uuid.New().String(),
-		Parts: []protocol.Part{
-			protocol.DataPart{
-				Kind: protocol.KindData,
-				Data: eventData,
-			},
-		},
-		TaskID: &eventData.TaskID,
-		Metadata: map[string]interface{}{
-			"event_type": eventData.Type,
-		},
+	event := &database.Event{
+		ID:        eventData.ID,
+		SessionID: sessionID,
+		Data:      eventData.Data,
+		UserID:    userID,
 	}
-
-	if err := h.DatabaseService.CreateMessages(&protocolMessage); err != nil {
+	if err := h.DatabaseService.StoreEvents(event); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to store event", err))
 		return
 	}
 
 	log.Info("Successfully added event to session")
-	data := api.NewResponse(protocolMessage, "Event added to session successfully", false)
+	data := api.NewResponse(event, "Event added to session successfully", false)
 	RespondWithJSON(w, http.StatusCreated, data)
 }
