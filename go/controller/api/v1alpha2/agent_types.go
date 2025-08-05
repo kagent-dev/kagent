@@ -49,8 +49,6 @@ type AgentSpec struct {
 
 	// +optional
 	Description string `json:"description,omitempty"`
-	// +optional
-	Deployment *DeploymentSpec `json:"deployment,omitempty"`
 }
 
 type InlineAgentSpec struct {
@@ -143,7 +141,7 @@ type Tool struct {
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
-	Agent *TypedReference `json:"agent,omitempty"`
+	Agent *TypedLocalReference `json:"agent,omitempty"`
 }
 
 type McpServerTool struct {
@@ -156,23 +154,6 @@ type McpServerTool struct {
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
 	ToolNames []string `json:"toolNames,omitempty"`
-}
-
-type TypedReference struct {
-	// +optional
-	Kind string `json:"kind,omitempty"`
-	// +optional
-	ApiGroup string `json:"apiGroup,omitempty"`
-	// +optional
-	Namespace string `json:"namespace,omitempty"`
-	Name      string `json:"name"`
-}
-
-func (t *TypedReference) GroupKind() schema.GroupKind {
-	return schema.GroupKind{
-		Group: t.ApiGroup,
-		Kind:  t.Kind,
-	}
 }
 
 type TypedLocalReference struct {

@@ -380,11 +380,9 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			}
 		case tool.Agent != nil:
 
-			agentRef := types.NamespacedName{Name: tool.Agent.Name}
-			if tool.Agent.Namespace != "" {
-				agentRef.Namespace = tool.Agent.Namespace
-			} else {
-				agentRef.Namespace = agent.Namespace
+			agentRef := types.NamespacedName{
+				Namespace: agent.Namespace,
+				Name:      tool.Agent.Name,
 			}
 
 			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
