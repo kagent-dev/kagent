@@ -4,6 +4,7 @@ import { Plus, FunctionSquare, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
 import { isAgentTool, isMcpTool, getToolResponseDescription } from "@/lib/toolUtils";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import type { Tool, ToolResponse, AgentResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
@@ -46,7 +47,12 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
 
   const getToolDescription = (tool: Tool): string => {
     if (isAgentTool(tool) && tool.agent) {
-      return tool.agent.description || "Agent description not available";
+      if (tool.agent.description) {
+        return tool.agent.description
+      }
+      
+      const foundAgent = availableAgents.find(a => k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name) === tool.agent.ref);
+      return foundAgent ? foundAgent.agent.spec.description : "Agent description not available";
     } else if (isMcpTool(tool) && tool.mcpServer) {
       // For MCP tools, look up description from availableTools
       const foundTool = availableTools.find(t => t.server_name === tool.mcpServer!.toolServer);
