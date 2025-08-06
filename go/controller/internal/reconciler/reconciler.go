@@ -41,6 +41,7 @@ type KagentReconciler interface {
 	ReconcileKagentToolServer(ctx context.Context, req ctrl.Request) error
 	FindAgentsUsingMemory(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 	FindAgentsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
+	FindAgentsUsingToolServer(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 }
 
 type kagentReconciler struct {
@@ -264,16 +265,6 @@ func (a *kagentReconciler) ReconcileKagentToolServer(ctx context.Context, req ct
 		reconcileErr,
 	); err != nil {
 		return fmt.Errorf("failed to reconcile tool server %s: %v", req.Name, err)
-	}
-
-	// find and reconcile all agents which use this tool server
-	agents, err := a.findAgentsUsingToolServer(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find teams for agent %s: %v", req.Name, err)
-	}
-
-	if err := a.reconcileAgents(ctx, agents...); err != nil {
-		return fmt.Errorf("failed to reconcile agents for tool server %s, see status for more details", req.Name)
 	}
 
 	return nil
@@ -661,16 +652,18 @@ func (a *kagentReconciler) FindAgentsUsingMemory(ctx context.Context, obj types.
 	return agents
 }
 
-func (a *kagentReconciler) findAgentsUsingToolServer(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
+func (a *kagentReconciler) FindAgentsUsingToolServer(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent {
+	var agents []*v1alpha1.Agent
+
 	var agentsList v1alpha1.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list agents: %v", err)
+		reconcileLog.Error(err, "failed to list agents", err)
+		return agents
 	}
 
-	var agents []*v1alpha1.Agent
 	appendAgentIfUsesToolServer := func(agent *v1alpha1.Agent) {
 		for _, tool := range agent.Spec.Tools {
 			if tool.McpServer == nil {
@@ -685,7 +678,7 @@ func (a *kagentReconciler) findAgentsUsingToolServer(ctx context.Context, req ct
 				continue
 			}
 
-			if toolServerNamespaced == req.NamespacedName {
+			if toolServerNamespaced == obj {
 				agents = append(agents, agent)
 				return
 			}
@@ -697,7 +690,7 @@ func (a *kagentReconciler) findAgentsUsingToolServer(ctx context.Context, req ct
 		appendAgentIfUsesToolServer(&agent)
 	}
 
-	return agents, nil
+	return agents
 
 }
 
