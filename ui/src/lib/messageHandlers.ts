@@ -97,7 +97,7 @@ export interface ToolResponseData {
 export interface ProcessedToolCallData {
   id: string;
   name: string;
-  arguments: string;
+  args: Record<string, unknown>;
 }
 
 export interface ProcessedToolResultData {
@@ -260,7 +260,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               const toolCallContent: ProcessedToolCallData[] = [{
                 id: toolData.id,
                 name: toolData.name,
-                arguments: JSON.stringify(toolData.args || {})
+                args: toolData.args || {}
               }];
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
               const convertedMessage = createMessage(

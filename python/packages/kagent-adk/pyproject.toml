@@ -36,6 +36,9 @@ test = [
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
 ]
+memory = [
+  "psutil>=6.1.0",  # For memory monitoring
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kagent_adk"]
