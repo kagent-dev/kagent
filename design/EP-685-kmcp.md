@@ -56,7 +56,7 @@ Include Motivation, concise overview of goals, challenges, and trade-offs.
 
 -->
 
-As the issue states, the goal of this EP is to provide first class support for kmcp. For background, kmcp is a project which provides a standard way to build tools, as well as run run them inside of kubernetes. This was a feature that has been missing in kagent for a while, so it's important to get this right.
+As the issue states, the goal of this EP is to provide first class support for kmcp. For background, kmcp is a project which provides a standard way to build tools, as well as run them inside of kubernetes. This was a feature that has been missing in kagent for a while, so it's important to get this right.
 
 The main goal of this EP is to provide a way to use kmcp `MCPServer` resources as a tool server in kagent. However, there are a number of smaller goals which will be required to achieve this.
 
