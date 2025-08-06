@@ -41,8 +41,8 @@ type KagentReconciler interface {
 	ReconcileKagentToolServer(ctx context.Context, req ctrl.Request) error
 	FindAgentsUsingMemory(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 	FindAgentsUsingModelConfig(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
-	FindAgentsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 	FindAgentsUsingToolServer(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
+	FindModelsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.ModelConfig
 }
 
 type kagentReconciler struct {
@@ -570,8 +570,9 @@ func (a *kagentReconciler) FindAgentsUsingModelConfig(ctx context.Context, obj t
 	return agents
 }
 
-func (a *kagentReconciler) FindAgentsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent {
-	var agents []*v1alpha1.Agent
+func (a *kagentReconciler) FindModelsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.ModelConfig {
+	var models []*v1alpha1.ModelConfig
+
 	var modelsList v1alpha1.ModelConfigList
 	if err := a.kube.List(
 		ctx,
@@ -581,14 +582,16 @@ func (a *kagentReconciler) FindAgentsUsingSecret(ctx context.Context, obj types.
 			"errorDetails", err.Error(),
 		)
 
-		return agents
+		return models
 	}
 
-	var models []types.NamespacedName
-	for _, model := range modelsList.Items {
+	for i := range modelsList.Items {
+		model := &modelsList.Items[i]
+
 		if model.Spec.APIKeySecretRef == "" {
 			continue
 		}
+
 		secretNamespaced, err := utils.ParseRefString(model.Spec.APIKeySecretRef, model.Namespace)
 		if err != nil {
 			reconcileLog.Error(err, "failed to parse ModelConfig APIKeySecretRef",
@@ -598,28 +601,11 @@ func (a *kagentReconciler) FindAgentsUsingSecret(ctx context.Context, obj types.
 		}
 
 		if secretNamespaced == obj {
-			models = append(models, types.NamespacedName{
-				Name:      model.Name,
-				Namespace: model.Namespace,
-			})
+			models = append(models, model)
 		}
 	}
 
-	uniqueAgents := make(map[string]bool)
-
-	for _, model := range models {
-		agentsUsingModel := a.FindAgentsUsingModelConfig(ctx, model)
-
-		for _, agent := range agentsUsingModel {
-			key := utils.GetObjectRef(agent)
-			if !uniqueAgents[key] {
-				uniqueAgents[key] = true
-				agents = append(agents, agent)
-			}
-		}
-	}
-
-	return agents
+	return models
 }
 
 func (a *kagentReconciler) FindAgentsUsingMemory(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent {
