@@ -6,17 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier } from "@/lib/toolUtils";
-import { ToolResponse } from "@/types";
+import { getDiscoveredToolDisplayName, getDiscoveredToolDescription, getDiscoveredToolCategory, getDiscoveredToolIdentifier } from "@/lib/toolUtils";
+import { RemoteMCPServerResponse, DiscoveredTool } from "@/types";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { getTools } from "../actions/tools";
+import { getServers } from "../actions/servers";
 import Link from "next/link";
 import CategoryFilter from "@/components/tools/CategoryFilter";
 
 export default function ToolsPage() {
   const [toolsData, setToolsData] = useState<{
-    tools: ToolResponse[];
+    tools: RemoteMCPServerResponse[];
     categories: Set<string>;
     isLoading: boolean;
     error: string | null;
@@ -43,15 +43,22 @@ export default function ToolsPage() {
     try {
       setToolsData(prev => ({ ...prev, isLoading: true, error: null }));
 
-      const tools = await getTools();
+      const serversResponse = await getServers();
+      if (!serversResponse.data || serversResponse.error) {
+        throw new Error(serversResponse.error || "Failed to fetch servers");
+      }
+      
+      const tools = serversResponse.data;
       
       // Extract unique categories and initialize expanded state
       const uniqueCategories = new Set<string>();
       const initialExpandedState: { [key: string]: boolean } = {};
-      tools.forEach(tool => {
-        const category = getToolResponseCategory(tool);
-        uniqueCategories.add(category);
-        initialExpandedState[category] = true;
+      tools.forEach(server => {
+        server.discoveredTools.forEach(tool => {
+          const category = getDiscoveredToolCategory(tool, server.ref);
+          uniqueCategories.add(category);
+          initialExpandedState[category] = true;
+        });
       });
 
       // Update state with tools data
@@ -91,15 +98,22 @@ export default function ToolsPage() {
 
   // Filter tools based on search and categories
   const filteredTools = useMemo(() => {
-    return toolsData.tools.filter(tool => {
+    const allTools: Array<{ tool: DiscoveredTool; server: RemoteMCPServerResponse }> = [];
+    toolsData.tools.forEach((server) => {
+      server.discoveredTools.forEach((tool) => {
+        allTools.push({ tool, server });
+      });
+    });
+
+    return allTools.filter(({ tool, server }) => {
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch =
-        getToolResponseDisplayName(tool)?.toLowerCase().includes(searchLower) ||
-        getToolResponseDescription(tool)?.toLowerCase().includes(searchLower) ||
-        tool.server_name?.toLowerCase().includes(searchLower) ||
-        tool.id?.toLowerCase().includes(searchLower);
+        getDiscoveredToolDisplayName(tool)?.toLowerCase().includes(searchLower) ||
+        getDiscoveredToolDescription(tool)?.toLowerCase().includes(searchLower) ||
+        server.ref?.toLowerCase().includes(searchLower) ||
+        tool.name?.toLowerCase().includes(searchLower);
 
-      const toolCategory = getToolResponseCategory(tool);
+      const toolCategory = getDiscoveredToolCategory(tool, server.ref);
       const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
 
       return matchesSearch && matchesCategory;
@@ -108,19 +122,19 @@ export default function ToolsPage() {
 
   // Group tools by category
   const toolsByCategory = useMemo(() => {
-    const groups: Record<string, ToolResponse[]> = {};
+    const groups: Record<string, Array<{ tool: DiscoveredTool; server: RemoteMCPServerResponse }>> = {};
     const sortedTools = [...filteredTools].sort((a, b) => {
-      const aName = getToolResponseDisplayName(a);
-      const bName = getToolResponseDisplayName(b);
+      const aName = getDiscoveredToolDisplayName(a.tool);
+      const bName = getDiscoveredToolDisplayName(b.tool);
       return aName.localeCompare(bName);
     });
 
-    sortedTools.forEach(tool => {
-      const category = getToolResponseCategory(tool);
+    sortedTools.forEach(({ tool, server }) => {
+      const category = getDiscoveredToolCategory(tool, server.ref);
       if (!groups[category]) {
         groups[category] = [];
       }
-      groups[category].push(tool);
+      groups[category].push({ tool, server });
     });
     
     return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
@@ -224,22 +238,22 @@ export default function ToolsPage() {
                     {expandedCategories[category] && (
                       <div className="divide-y border-t">
                         {categoryTools
-                          .map(tool => (
+                          .map(({ tool, server }) => (
                             <div
-                              key={getToolResponseIdentifier(tool)}
+                              key={getDiscoveredToolIdentifier(tool, server.ref)}
                               className="p-3 transition-colors hover:bg-muted/50"
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-start gap-3 flex-1 min-w-0">
                                   <FunctionSquare className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
                                   <div className="flex-1 min-w-0">
-                                    <div className="font-medium text-sm truncate">{highlightMatch(getToolResponseDisplayName(tool), searchTerm)}</div>
+                                    <div className="font-medium text-sm truncate">{highlightMatch(getDiscoveredToolDisplayName(tool), searchTerm)}</div>
                                     <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                      {highlightMatch(getToolResponseDescription(tool), searchTerm)}
+                                      {highlightMatch(getDiscoveredToolDescription(tool), searchTerm)}
                                     </div>
                                     <div className="text-xs text-muted-foreground/80 mt-1.5 flex items-center gap-1.5 font-mono">
                                        <Server className="h-3 w-3" />
-                                       <span className="truncate">{highlightMatch(tool.server_name, searchTerm)}</span>
+                                       <span className="truncate">{highlightMatch(server.ref, searchTerm)}</span>
                                     </div>
                                   </div>
                                 </div>
@@ -252,7 +266,7 @@ export default function ToolsPage() {
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="left" className="max-w-xs">
-                                      <p className="font-mono text-xs break-all">{getToolResponseIdentifier(tool)}</p>
+                                      <p className="font-mono text-xs break-all">{getDiscoveredToolIdentifier(tool, server.ref)}</p>
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>

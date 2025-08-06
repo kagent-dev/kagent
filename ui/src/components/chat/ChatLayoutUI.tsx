@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import { getSessionsForAgent } from "@/app/actions/sessions";
-import { AgentResponse, Session, ToolResponse } from "@/types";
+import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
 import { toast } from "sonner";
 
 interface ChatLayoutUIProps {
@@ -12,7 +12,7 @@ interface ChatLayoutUIProps {
   namespace: string;
   currentAgent: AgentResponse;
   allAgents: AgentResponse[];
-  allTools: ToolResponse[];
+  allTools: RemoteMCPServerResponse[];
   children: React.ReactNode;
 }
 
@@ -26,6 +26,24 @@ export default function ChatLayoutUI({
 }: ChatLayoutUIProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+
+  // Convert RemoteMCPServerResponse[] to ToolsResponse[]
+  const convertedTools = useMemo(() => {
+    const tools: ToolsResponse[] = [];
+    allTools.forEach(server => {
+      server.discoveredTools.forEach(tool => {
+        tools.push({
+          id: tool.name,
+          server_name: server.ref,
+          description: tool.description,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: ""
+        });
+      });
+    });
+    return tools;
+  }, [allTools]);
 
   const refreshSessions = async () => {
     setIsLoadingSessions(true);
@@ -88,7 +106,7 @@ export default function ChatLayoutUI({
       <AgentDetailsSidebar
         selectedAgentName={agentName}
         currentAgent={currentAgent}
-        allTools={allTools}
+        allTools={convertedTools}
       />
     </>
   );
