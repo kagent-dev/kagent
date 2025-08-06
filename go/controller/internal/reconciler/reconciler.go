@@ -40,6 +40,7 @@ type KagentReconciler interface {
 	ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentToolServer(ctx context.Context, req ctrl.Request) error
 	FindAgentsUsingMemory(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
+	FindAgentsUsingModelConfig(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 	FindAgentsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 	FindAgentsUsingToolServer(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 }
@@ -197,16 +198,19 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 
 func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha1.ModelConfig{}
-	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
-		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
-	}
+	err := a.kube.Get(ctx, req.NamespacedName, modelConfig)
+	if err != nil {
+		if k8s_errors.IsNotFound(err) {
+			return nil
+		}
 
-	agents := a.findAgentsUsingModel(ctx, req.NamespacedName)
+		err = fmt.Errorf("failed to get model %s: %v", req.Name, err)
+	}
 
 	return a.reconcileModelConfigStatus(
 		ctx,
 		modelConfig,
-		a.reconcileAgents(ctx, agents...),
+		err,
 	)
 }
 
@@ -535,7 +539,7 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 	return tools, nil
 }
 
-func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent {
+func (a *kagentReconciler) FindAgentsUsingModelConfig(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent {
 	var agents []*v1alpha1.Agent
 
 	var agentsList v1alpha1.AgentList
@@ -604,7 +608,7 @@ func (a *kagentReconciler) FindAgentsUsingSecret(ctx context.Context, obj types.
 	uniqueAgents := make(map[string]bool)
 
 	for _, model := range models {
-		agentsUsingModel := a.findAgentsUsingModel(ctx, model)
+		agentsUsingModel := a.FindAgentsUsingModelConfig(ctx, model)
 
 		for _, agent := range agentsUsingModel {
 			key := utils.GetObjectRef(agent)

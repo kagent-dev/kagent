@@ -103,6 +103,26 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 		).
 		Watches(
+			&agentv1alpha1.ModelConfig{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.Reconciler.FindAgentsUsingModelConfig(ctx, types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.ObjectMeta.Name,
+							Namespace: agent.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+		).
+		Watches(
 			&agentv1alpha1.ToolServer{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
