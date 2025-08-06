@@ -7,7 +7,7 @@ HELM_DIST_FOLDER ?= dist
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
-VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0.0.0+$(GIT_COMMIT)")
+VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0.0.0-$(GIT_COMMIT)")
 
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
@@ -49,11 +49,11 @@ LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSIO
             -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)"
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.7.2
-TOOLS_BUN_VERSION ?= 1.2.16
-TOOLS_NODE_VERSION ?= 22.16.0
+TOOLS_UV_VERSION ?= 0.8.4
+TOOLS_BUN_VERSION ?= 1.2.19
+TOOLS_NODE_VERSION ?= 22.18.0
 TOOLS_PYTHON_VERSION ?= 3.13
-TOOLS_KIND_IMAGE_VERSION ?= 1.33.1
+TOOLS_KIND_IMAGE_VERSION ?= 1.33.2
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
@@ -347,6 +347,13 @@ otel-local:
 	docker rm -f jaeger-desktop || true
 	docker run -d --name jaeger-desktop --restart=always -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/jaeger:2.7.0
 	open http://localhost:16686/
+
+.PHONY: kind-debug
+kind-debug:
+	@echo "Debugging the kind cluster..."
+	@echo "Enter the kind cluster control plane container..."
+	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'apt-get update && apt-get install -y btop htop'
+	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'btop --utf-force'
 
 .PHONY: report/image-cve
 report/image-cve: build
