@@ -286,6 +286,14 @@ func buildDeploymentSpec(name string, labels map[string]string, deploymentSpec *
 
 	return appsv1.DeploymentSpec{
 		Replicas: ptr.To(int32(1)),
+		// Add min and max replicas constraints
+		Strategy: appsv1.DeploymentStrategy{
+			Type: appsv1.RollingUpdateDeploymentStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateDeployment{
+				MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
+				MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+			},
+		},
 		Selector: &metav1.LabelSelector{
 			MatchLabels: labels,
 		},
@@ -311,10 +319,10 @@ func buildDeploymentSpec(name string, labels map[string]string, deploymentSpec *
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("100m"),
-								corev1.ResourceMemory: resource.MustParse("256Mi"),
+								corev1.ResourceMemory: resource.MustParse("384Mi"),
 							},
 							Limits: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("1000m"),
+								corev1.ResourceCPU:    resource.MustParse("2000m"),
 								corev1.ResourceMemory: resource.MustParse("1Gi"),
 							},
 						},
@@ -327,7 +335,8 @@ func buildDeploymentSpec(name string, labels map[string]string, deploymentSpec *
 								},
 							},
 							InitialDelaySeconds: 15,
-							PeriodSeconds:       3,
+							TimeoutSeconds:      15,
+							PeriodSeconds:       15,
 						},
 						VolumeMounts: deploymentSpec.VolumeMounts,
 					},
