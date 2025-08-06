@@ -76,7 +76,7 @@ controller:
       cpu: 100m
       memory: 128Mi
     limits:
-      cpu: 500m
+      cpu: 2
       memory: 512Mi
   service:
     type: ClusterIP
