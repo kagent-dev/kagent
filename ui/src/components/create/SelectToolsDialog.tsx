@@ -97,7 +97,12 @@ const getItemDisplayInfo = (item: AgentResponse | ToolResponse | Tool, available
             description = "MCP Server Tool";
           }
           
-          identifier = `mcp-${tool.mcpServer?.name}`;
+          // Create unique identifier for each MCP tool by including the tool name
+          if (tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
+            identifier = `mcp-${tool.mcpServer.name}-${tool.mcpServer.toolNames.join('-')}`;
+          } else {
+            identifier = `mcp-${tool.mcpServer?.name}`;
+          }
           providerText = tool.mcpServer?.name;
           iconColor = "text-purple-500";
           isAgent = false;
@@ -489,8 +494,11 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                         );
                         const specificDescription = specificToolResponse ? getToolResponseDescription(specificToolResponse) : parentToolInfo.description;
                         
+                        // Create unique identifier for this specific tool
+                        const specificToolIdentifier = `mcp-${tool.mcpServer?.name}-${toolName}`;
+                        
                         return (
-                        <div key={`${parentToolInfo.identifier}-${toolName}`} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
+                        <div key={specificToolIdentifier} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
                           <div className="flex items-center gap-2 flex-1 overflow-hidden">
                             <parentToolInfo.Icon className={`h-4 w-4 flex-shrink-0 ${parentToolInfo.iconColor}`} />
                             <div className="flex-1 overflow-hidden">
@@ -505,7 +513,29 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                             size="icon"
                             className="h-6 w-6 ml-2 flex-shrink-0"
                             onClick={() => {
-                              handleRemoveToolById(parentToolInfo.identifier);
+                              // For MCP tools, we need to remove the specific tool from the toolNames array
+                              // or remove the entire entry if it's the last tool
+                              const updatedTool = {
+                                ...tool,
+                                mcpServer: {
+                                  ...tool.mcpServer!,
+                                  toolNames: tool.mcpServer!.toolNames!.filter(name => name !== toolName)
+                                }
+                              };
+                              
+                              if (updatedTool.mcpServer.toolNames.length === 0) {
+                                // Remove the entire entry if no tools left
+                                handleRemoveToolById(parentToolInfo.identifier);
+                              } else {
+                                // Update the entry with the remaining tools
+                                setLocalSelectedComponents((prev) => 
+                                  prev.map(entry => 
+                                    entry.originalItemIdentifier === parentToolInfo.identifier 
+                                      ? { ...entry, toolInstance: updatedTool }
+                                      : entry
+                                  )
+                                );
+                              }
                             }}
                           >
                             <XCircle className="h-4 w-4" />
