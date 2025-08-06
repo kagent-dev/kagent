@@ -36,9 +36,10 @@ var (
 
 type KagentReconciler interface {
 	ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentMemory(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentToolServer(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentMemory(ctx context.Context, req ctrl.Request) error
+	FindAgentsUsingMemory(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 	FindAgentsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 }
 
@@ -330,7 +331,8 @@ func (a *kagentReconciler) reconcileToolServerStatus(
 
 func (a *kagentReconciler) ReconcileKagentMemory(ctx context.Context, req ctrl.Request) error {
 	memory := &v1alpha1.Memory{}
-	if err := a.kube.Get(ctx, req.NamespacedName, memory); err != nil {
+	err := a.kube.Get(ctx, req.NamespacedName, memory)
+	if err != nil {
 		if k8s_errors.IsNotFound(err) {
 			return a.handleMemoryDeletion(req)
 		}
@@ -338,12 +340,7 @@ func (a *kagentReconciler) ReconcileKagentMemory(ctx context.Context, req ctrl.R
 		return fmt.Errorf("failed to get memory %s: %v", req.Name, err)
 	}
 
-	agents, err := a.findAgentsUsingMemory(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents using memory %s: %v", req.Name, err)
-	}
-
-	return a.reconcileMemoryStatus(ctx, memory, a.reconcileAgents(ctx, agents...))
+	return a.reconcileMemoryStatus(ctx, memory, err)
 }
 
 func (a *kagentReconciler) handleMemoryDeletion(req ctrl.Request) error {
@@ -630,16 +627,18 @@ func (a *kagentReconciler) FindAgentsUsingSecret(ctx context.Context, obj types.
 	return agents
 }
 
-func (a *kagentReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
+func (a *kagentReconciler) FindAgentsUsingMemory(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent {
+	var agents []*v1alpha1.Agent
+
 	var agentsList v1alpha1.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list agents: %v", err)
+		reconcileLog.Error(err, "failed to list agents")
+		return agents
 	}
 
-	var agents []*v1alpha1.Agent
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
 		for _, memory := range agent.Spec.Memory {
@@ -652,14 +651,14 @@ func (a *kagentReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.R
 				continue
 			}
 
-			if memoryNamespaced == req.NamespacedName {
+			if memoryNamespaced == obj {
 				agents = append(agents, agent)
 				break
 			}
 		}
 	}
 
-	return agents, nil
+	return agents
 }
 
 func (a *kagentReconciler) findAgentsUsingToolServer(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
