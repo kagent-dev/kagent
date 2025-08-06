@@ -150,3 +150,5 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 )
+
+replace trpc.group/trpc-go/trpc-a2a-go => github.com/kagent-dev/a2a-go v0.0.0-20250806145931-0fab01f644c3

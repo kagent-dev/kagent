@@ -28,6 +28,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/controller/translator"
@@ -85,51 +86,71 @@ func init() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 }
 
+type Config struct {
+	Metrics struct {
+		Addr     string
+		CertPath string
+		CertName string
+		CertKey  string
+	}
+	Webhook struct {
+		CertPath string
+		CertName string
+		CertKey  string
+	}
+	Streaming struct {
+		MaxBufSize     resource.QuantityValue `default:"1Mi"`
+		InitialBufSize resource.QuantityValue `default:"4Ki"`
+	}
+	LeaderElection     bool
+	ProbeAddr          string
+	SecureMetrics      bool
+	EnableHTTP2        bool
+	DefaultModelConfig types.NamespacedName
+	HttpServerAddr     string
+	WatchNamespaces    string
+	A2ABaseUrl         string
+	Database           struct {
+		Type string
+		Path string
+		Url  string
+	}
+}
+
 // nolint:gocyclo
 func main() {
-	var metricsAddr string
-	var metricsCertPath, metricsCertName, metricsCertKey string
-	var webhookCertPath, webhookCertName, webhookCertKey string
-	var enableLeaderElection bool
-	var probeAddr string
-	var secureMetrics bool
-	var enableHTTP2 bool
-	var defaultModelConfig types.NamespacedName
+	cfg := Config{}
 	var tlsOpts []func(*tls.Config)
-	var httpServerAddr string
-	var watchNamespaces string
-	var a2aBaseUrl string
-	var databasePath string
-	var databaseType string
-	var databaseURL string
-
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
+	flag.StringVar(&cfg.Metrics.Addr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8082", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+	flag.StringVar(&cfg.ProbeAddr, "health-probe-bind-address", ":8082", "The address the probe endpoint binds to.")
+	flag.BoolVar(&cfg.LeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", true,
+	flag.BoolVar(&cfg.SecureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
-	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
+	flag.StringVar(&cfg.Webhook.CertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
+	flag.StringVar(&cfg.Webhook.CertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
+	flag.StringVar(&cfg.Webhook.CertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
+	flag.StringVar(&cfg.Metrics.CertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
-	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
-	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
+	flag.StringVar(&cfg.Metrics.CertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
+	flag.StringVar(&cfg.Metrics.CertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+	flag.BoolVar(&cfg.EnableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 
-	flag.StringVar(&defaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
-	flag.StringVar(&defaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
-	flag.StringVar(&httpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
-	flag.StringVar(&a2aBaseUrl, "a2a-base-url", "http://127.0.0.1:8083", "The base URL of the A2A Server endpoint, as advertised to clients.")
-	flag.StringVar(&databaseType, "database-type", "sqlite", "The type of the database to use. Supported values: sqlite, postgres.")
-	flag.StringVar(&databasePath, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
-	flag.StringVar(&databaseURL, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
+	flag.StringVar(&cfg.DefaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
+	flag.StringVar(&cfg.DefaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
+	flag.StringVar(&cfg.HttpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
+	flag.StringVar(&cfg.A2ABaseUrl, "a2a-base-url", "http://127.0.0.1:8083", "The base URL of the A2A Server endpoint, as advertised to clients.")
+	flag.StringVar(&cfg.Database.Type, "database-type", "sqlite", "The type of the database to use. Supported values: sqlite, postgres.")
+	flag.StringVar(&cfg.Database.Path, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
+	flag.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
 
-	flag.StringVar(&watchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
+	flag.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
+
+	flag.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
+	flag.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
 
 	opts := zap.Options{
 		Development: true,
@@ -138,6 +159,9 @@ func main() {
 	flag.Parse()
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
+
+	logger.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
+	logger.Info("Config", "config", cfg)
 
 	ctrl.SetLogger(logger)
 
@@ -156,7 +180,7 @@ func main() {
 		c.NextProtos = []string{"http/1.1"}
 	}
 
-	if !enableHTTP2 {
+	if !cfg.EnableHTTP2 {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
@@ -166,14 +190,14 @@ func main() {
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
+	if len(cfg.Webhook.CertPath) > 0 {
 		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+			"webhook-cert-path", cfg.Webhook.CertPath, "webhook-cert-name", cfg.Webhook.CertName, "webhook-cert-key", cfg.Webhook.CertKey)
 
 		var err error
 		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
+			filepath.Join(cfg.Webhook.CertPath, cfg.Webhook.CertName),
+			filepath.Join(cfg.Webhook.CertPath, cfg.Webhook.CertKey),
 		)
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
@@ -196,12 +220,12 @@ func main() {
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
-		BindAddress:   metricsAddr,
-		SecureServing: secureMetrics,
+		BindAddress:   cfg.Metrics.Addr,
+		SecureServing: cfg.SecureMetrics,
 		TLSOpts:       tlsOpts,
 	}
 
-	if secureMetrics {
+	if cfg.SecureMetrics {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
 		// These configurations ensure that only authorized users and service accounts
 		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
@@ -217,14 +241,14 @@ func main() {
 	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
 	// managed by cert-manager for the metrics server.
 	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
-	if len(metricsCertPath) > 0 {
+	if len(cfg.Metrics.CertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
-			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
+			"metrics-cert-path", cfg.Metrics.CertPath, "metrics-cert-name", cfg.Metrics.CertName, "metrics-cert-key", cfg.Metrics.CertKey)
 
 		var err error
 		metricsCertWatcher, err = certwatcher.New(
-			filepath.Join(metricsCertPath, metricsCertName),
-			filepath.Join(metricsCertPath, metricsCertKey),
+			filepath.Join(cfg.Metrics.CertPath, cfg.Metrics.CertName),
+			filepath.Join(cfg.Metrics.CertPath, cfg.Metrics.CertKey),
 		)
 		if err != nil {
 			setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
@@ -237,14 +261,14 @@ func main() {
 	}
 
 	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
-	watchNamespacesList := filterValidNamespaces(strings.Split(watchNamespaces, ","))
+	watchNamespacesList := filterValidNamespaces(strings.Split(cfg.WatchNamespaces, ","))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
+		HealthProbeBindAddress: cfg.ProbeAddr,
+		LeaderElection:         cfg.LeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
 		Cache: cache.Options{
 			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
@@ -268,12 +292,12 @@ func main() {
 
 	// Initialize database
 	dbManager, err := database.NewManager(&database.Config{
-		DatabaseType: database.DatabaseType(databaseType),
+		DatabaseType: database.DatabaseType(cfg.Database.Type),
 		SqliteConfig: &database.SqliteConfig{
-			DatabasePath: databasePath,
+			DatabasePath: cfg.Database.Path,
 		},
 		PostgresConfig: &database.PostgresConfig{
-			URL: databaseURL,
+			URL: cfg.Database.Url,
 		},
 	})
 	if err != nil {
@@ -293,21 +317,23 @@ func main() {
 
 	apiTranslator := translator.NewAdkApiTranslator(
 		kubeClient,
-		defaultModelConfig,
+		cfg.DefaultModelConfig,
 	)
 
 	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A)
 
 	a2aReconciler := a2a_reconciler.NewReconciler(
 		a2aHandler,
-		a2aBaseUrl+httpserver.APIPathA2A,
+		cfg.A2ABaseUrl+httpserver.APIPathA2A,
+		int(cfg.Streaming.MaxBufSize.Value()),
+		int(cfg.Streaming.InitialBufSize.Value()),
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
 		kubeClient,
 		dbClient,
-		defaultModelConfig,
+		cfg.DefaultModelConfig,
 		a2aReconciler,
 	)
 
@@ -383,7 +409,7 @@ func main() {
 	}
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		BindAddr:          httpServerAddr,
+		BindAddr:          cfg.HttpServerAddr,
 		KubeClient:        kubeClient,
 		A2AHandler:        a2aHandler,
 		WatchedNamespaces: watchNamespacesList,

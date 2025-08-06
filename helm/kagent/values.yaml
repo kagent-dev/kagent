@@ -58,6 +58,9 @@ database:
 controller:
   replicas: 1
   loglevel: "info"
+  streaming: # Streaming buffer size for A2A communication
+    maxBufSize: 1Mi # 1024 * 1024
+    initialBufSize: 4Ki # 4 * 1024
 
   # -- Namespaces the controller should watch.
   # If empty, the controller will watch ALL available namespaces.
