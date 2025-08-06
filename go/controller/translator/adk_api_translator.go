@@ -45,8 +45,8 @@ const (
 type AgentOutputs struct {
 	Manifest []client.Object `json:"manifest,omitempty"`
 
-	Config     *adk.AgentConfig `json:"config,omitempty"`
-	ConfigHash []byte           `json:"configHash"`
+	Config    *adk.AgentConfig `json:"config,omitempty"`
+	AgentCard server.AgentCard `json:"agentCard"`
 }
 
 var adkLog = ctrllog.Log.WithName("adk")
@@ -96,29 +96,20 @@ func (a *adkApiTranslator) TranslateAgent(
 	agent *v1alpha2.Agent,
 ) (*AgentOutputs, error) {
 
-	hasher := sha256.New()
-
 	switch agent.Spec.AgentType {
 	case v1alpha2.AgentType_Inline:
-		adkAgent, envVars, err := a.translateInlineAgent(ctx, agent, &tState{})
+		adkAgent, agentCard, envVars, err := a.translateInlineAgent(ctx, agent, &tState{})
 		if err != nil {
 			return nil, err
 		}
 
-		agentJson, err := json.Marshal(adkAgent)
-		if err != nil {
-			return nil, err
-		}
-
-		hasher.Write(agentJson)
-
-		outputs, err := a.translateOutputs(ctx, agent, agentJson, envVars...)
+		outputs, err := a.translateOutputs(ctx, agent, adkAgent, agentCard, envVars...)
 		if err != nil {
 			return nil, err
 		}
 
 		outputs.Config = adkAgent
-		outputs.ConfigHash = hasher.Sum(nil)
+		outputs.AgentCard = *agentCard
 
 		return outputs, nil
 
@@ -130,7 +121,7 @@ func (a *adkApiTranslator) TranslateAgent(
 	}
 }
 
-func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.Agent, configJson []byte, envVars ...corev1.EnvVar) (*AgentOutputs, error) {
+func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.Agent, agentConfig *adk.AgentConfig, card *server.AgentCard, envVars ...corev1.EnvVar) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
 
 	podLabels := map[string]string{
@@ -228,10 +219,21 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 		Spec:       spec,
 	})
 
-	if len(configJson) > 0 {
-		hash := sha256.Sum256(configJson)
+	if agentConfig != nil || card != nil {
+		configJson, err := json.Marshal(agentConfig)
+		if err != nil {
+			return nil, err
+		}
+		cardJson, err := json.Marshal(card)
+		if err != nil {
+			return nil, err
+		}
+		hasher := sha256.New()
+		hasher.Write(configJson)
+		hasher.Write(cardJson)
+		hash := hasher.Sum(nil)
 		configHash := binary.BigEndian.Uint64(hash[:8])
-		spec.Template.ObjectMeta.Labels["config.kagent.dev/hash"] = fmt.Sprintf("%d", configHash)
+		spec.Template.ObjectMeta.Labels["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
 
 		outputs.Manifest = append(outputs.Manifest, &corev1.ConfigMap{
 			TypeMeta: metav1.TypeMeta{
@@ -240,7 +242,8 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 			},
 			ObjectMeta: objMeta,
 			Data: map[string]string{
-				"config.json": string(configJson),
+				"config.json":     string(configJson),
+				"agent-card.json": string(cardJson),
 			},
 		})
 
@@ -335,37 +338,35 @@ func buildDeploymentSpec(name string, labels map[string]string, deploymentSpec *
 	}
 }
 
-func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, []corev1.EnvVar, error) {
+func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, *server.AgentCard, []corev1.EnvVar, error) {
 
 	model, envVars, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Inline.ModelConfig)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	cfg := &adk.AgentConfig{
-		KagentUrl:   fmt.Sprintf("http://kagent-controller.%s.svc:8083", common.GetResourceNamespace()),
-		Name:        common.ConvertToPythonIdentifier(common.GetObjectRef(agent)),
 		Description: agent.Spec.Description,
 		Instruction: agent.Spec.Inline.SystemMessage,
 		Model:       model,
-		AgentCard: server.AgentCard{
-			Name:        agent.Name,
-			Description: agent.Spec.Description,
-			URL:         fmt.Sprintf("http://%s.%s.svc:8080", agent.Name, agent.Namespace),
-			Capabilities: server.AgentCapabilities{
-				Streaming:              ptr.To(true),
-				PushNotifications:      ptr.To(false),
-				StateTransitionHistory: ptr.To(true),
-			},
-			// Can't be null for Python, so set to empty list
-			Skills:             []server.AgentSkill{},
-			DefaultInputModes:  []string{"text"},
-			DefaultOutputModes: []string{"text"},
+	}
+	agentCard := &server.AgentCard{
+		Name:        utils.ConvertToPythonIdentifier(utils.ResourceRefString(agent.Namespace, agent.Name)),
+		Description: agent.Spec.Description,
+		URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
+		Capabilities: server.AgentCapabilities{
+			Streaming:              ptr.To(true),
+			PushNotifications:      ptr.To(false),
+			StateTransitionHistory: ptr.To(true),
 		},
+		// Can't be null for Python, so set to empty list
+		Skills:             []server.AgentSkill{},
+		DefaultInputModes:  []string{"text"},
+		DefaultOutputModes: []string{"text"},
 	}
 
 	if agent.Spec.Inline.A2AConfig != nil {
-		cfg.AgentCard.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Inline.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
+		agentCard.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Inline.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
 			return server.AgentSkill(skill)
 		}))
 	}
@@ -386,55 +387,55 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			}
 
 			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-				return nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
 			}
 
 			if state.isVisited(agentRef.String()) {
-				return nil, nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentRef, agentRef.String())
+				return nil, nil, nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentRef, agentRef.String())
 			}
 
 			if state.depth > MAX_DEPTH {
-				return nil, nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentRef, agentRef.String())
+				return nil, nil, nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentRef, agentRef.String())
 			}
 
 			// Translate a nested tool
 			toolAgent := &v1alpha2.Agent{}
 			err := a.kube.Get(ctx, agentRef, toolAgent)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 
 			var toolAgentCfg *adk.AgentConfig
 			switch toolAgent.Spec.AgentType {
 			case v1alpha2.AgentType_Inline:
-				toolAgentCfg, _, err = a.translateInlineAgent(ctx, toolAgent, state.with(agent))
+				toolAgentCfg, _, _, err = a.translateInlineAgent(ctx, toolAgent, state.with(agent))
 				if err != nil {
-					return nil, nil, err
+					return nil, nil, nil, err
 				}
 				cfg.Agents = append(cfg.Agents, *toolAgentCfg)
 			case v1alpha2.AgentType_BYO:
-				return nil, nil, fmt.Errorf("BYO agents are not supported in inline agents")
+				return nil, nil, nil, fmt.Errorf("BYO agents are not supported in inline agents")
 				// toolAgentCfg, _, err = a.translateRegisteredAgent(ctx, toolAgent, state.with(agent))
 				// if err != nil {
 				// 	return nil, nil, err
 				// }
 				// cfg.Agents = append(cfg.Agents, *toolAgentCfg)
 			default:
-				return nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.AgentType)
+				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.AgentType)
 			}
 
 		default:
-			return nil, nil, fmt.Errorf("tool must have a provider or tool server")
+			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
 		}
 	}
 	for server, tools := range toolsByServer {
 		err := a.translateMCPServerTarget(ctx, cfg, server, tools, agent.Namespace)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 
-	return cfg, envVars, nil
+	return cfg, agentCard, envVars, nil
 }
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, []corev1.EnvVar, error) {

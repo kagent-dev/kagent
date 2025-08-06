@@ -14,11 +14,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
+	"trpc.group/trpc-go/trpc-a2a-go/server"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
 	"github.com/kagent-dev/kagent/go/controller/translator"
-	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
@@ -507,7 +507,7 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
-	if err := a.reconcileA2A(ctx, agent, agentOutputs.Config); err != nil {
+	if err := a.reconcileA2A(ctx, agent, agentOutputs.AgentCard); err != nil {
 		return nil, fmt.Errorf("failed to reconcile A2A for agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
 	if err := a.upsertAgent(ctx, agent, agentOutputs); err != nil {
@@ -522,17 +522,18 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	a.upsertLock.Lock()
 	defer a.upsertLock.Unlock()
 
+	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
 	dbAgent := &database.Agent{
-		ID:     agentOutputs.Config.Name,
+		ID:     id,
 		Config: agentOutputs.Config,
 	}
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {
-		return fmt.Errorf("failed to store agent %s: %v", agentOutputs.Config.Name, err)
+		return fmt.Errorf("failed to store agent %s: %v", id, err)
 	}
 
 	// If the config hash has not changed, we can skip the patch
-	if bytes.Equal(agentOutputs.ConfigHash[:], agent.Status.ConfigHash) {
+	if bytes.Equal(agentOutputs.ConfigHash, agent.Status.ConfigHash) {
 		return nil
 	}
 
@@ -541,7 +542,7 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 			FieldManager: "kagent-controller",
 			Force:        ptr.To(true),
 		}); err != nil {
-			return fmt.Errorf("failed to patch agent output %s: %v", agentOutputs.Config.Name, err)
+			return fmt.Errorf("failed to patch agent output %s: %v", id, err)
 		}
 	}
 
@@ -763,9 +764,9 @@ func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef 
 func (a *kagentReconciler) reconcileA2A(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
-	adkConfig *adk.AgentConfig,
+	card server.AgentCard,
 ) error {
-	return a.a2aReconciler.ReconcileAgent(ctx, agent, adkConfig)
+	return a.a2aReconciler.ReconcileAgent(ctx, agent, card)
 }
 
 func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {

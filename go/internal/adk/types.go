@@ -5,8 +5,6 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
-
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 type StreamableHTTPConnectionParams struct {
@@ -202,9 +200,6 @@ func ParseModel(bytes []byte) (Model, error) {
 }
 
 type AgentConfig struct {
-	KagentUrl   string                `json:"kagent_url"`
-	AgentCard   server.AgentCard      `json:"agent_card"`
-	Name        string                `json:"name"`
 	Model       Model                 `json:"model"`
 	Description string                `json:"description"`
 	Instruction string                `json:"instruction"`
@@ -215,9 +210,6 @@ type AgentConfig struct {
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		KagentUrl   string                `json:"kagent_url"`
-		AgentCard   server.AgentCard      `json:"agent_card"`
-		Name        string                `json:"name"`
 		Model       json.RawMessage       `json:"model"`
 		Description string                `json:"description"`
 		Instruction string                `json:"instruction"`
@@ -228,9 +220,6 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
-	a.KagentUrl = tmp.KagentUrl
-	a.AgentCard = tmp.AgentCard
-	a.Name = tmp.Name
 	model, err := ParseModel(tmp.Model)
 	if err != nil {
 		return err

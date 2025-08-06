@@ -87,7 +87,7 @@ type InlineDeploymentSpec struct {
 
 type BYOAgentSpec struct {
 	// Trust relationship to the agent.
-
+	// +optional
 	Deployment *ByoDeploymentSpec `json:"deployment,omitempty"`
 }
 
@@ -95,7 +95,6 @@ type ByoDeploymentSpec struct {
 	Image string   `json:"image,omitempty"`
 	Cmd   string   `json:"cmd,omitempty"`
 	Args  []string `json:"args,omitempty"`
-	Port  int32    `json:"port,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
 }

@@ -2,13 +2,14 @@ import asyncio
 import json
 import logging
 import os
-from typing import Annotated, Literal
+from typing import Annotated
 
-import aiofiles
 import typer
 import uvicorn
 from a2a.types import AgentCard
+from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
+from openai import BaseModel
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -26,6 +27,26 @@ app = typer.Typer()
 kagent_url = os.getenv("KAGENT_URL")
 kagent_name = os.getenv("KAGENT_NAME")
 kagent_namespace = os.getenv("KAGENT_NAMESPACE")
+
+
+class Config:
+    url: str
+    name: str
+    namespace: str
+
+    def __init__(self):
+        if not kagent_url:
+            raise ValueError("KAGENT_URL is not set")
+        if not kagent_name:
+            raise ValueError("KAGENT_NAME is not set")
+        if not kagent_namespace:
+            raise ValueError("KAGENT_NAMESPACE is not set")
+        self.url = kagent_url
+        self.name = kagent_name
+        self.namespace = kagent_namespace
+
+    def app_name(self):
+        return self.name + "__NS__" + self.namespace
 
 
 @app.command()
@@ -46,22 +67,17 @@ def static(
         HTTPXClientInstrumentor().instrument()
         OpenAIInstrumentor().instrument()
 
-    if not kagent_url:
-        raise ValueError("KAGENT_URL is not set")
-    if not kagent_name:
-        raise ValueError("KAGENT_NAME is not set")
-    if not kagent_namespace:
-        raise ValueError("KAGENT_NAMESPACE is not set")
+    app_cfg = Config()
 
     with open(os.path.join(filepath, "config.json"), "r") as f:
         config = json.load(f)
     agent_config = AgentConfig.model_validate(config)
-    with open(os.path.join(filepath, "agent_card.json"), "r") as f:
+    with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
-    root_agent = agent_config.to_agent()
+    root_agent = agent_config.to_agent(app_cfg.app_name())
 
-    kagent_app = KAgentApp(root_agent, agent_card, kagent_url, kagent_name + "__NS__" + kagent_namespace)
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name())
 
     uvicorn.run(
         kagent_app.build,
@@ -80,19 +96,15 @@ def run(
     port: int = 8080,
     workers: int = 1,
 ):
+    app_cfg = Config()
+
     agent_loader = AgentLoader(agents_dir=working_dir)
     root_agent = agent_loader.load_agent(name)
-    if not kagent_url:
-        raise ValueError("KAGENT_URL is not set")
-    if not kagent_name:
-        raise ValueError("KAGENT_NAME is not set")
-    if not kagent_namespace:
-        raise ValueError("KAGENT_NAMESPACE is not set")
 
-    with open(os.path.join(working_dir, name, "agent_card.json"), "r") as f:
+    with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
-    kagent_app = KAgentApp(root_agent, agent_card, kagent_url, kagent_name + "__NS__" + kagent_namespace)
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name())
     uvicorn.run(
         kagent_app.build,
         host=host,
@@ -101,14 +113,11 @@ def run(
     )
 
 
-async def test_agent(filepath: str, task: str):
-    async with aiofiles.open(filepath, "r") as f:
-        content = await f.read()
-        config = json.loads(content)
-    agent_config = AgentConfig.model_validate(config)
-    agent = agent_config.to_agent()
-
-    app = KAgentApp(agent, agent_config.agent_card, agent_config.kagent_url, agent_config.name)
+async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str):
+    app_cfg = Config()
+    app_name = app_cfg.app_name()
+    agent = agent_config.to_agent(app_name)
+    app = KAgentApp(agent, agent_card, app_cfg.url, app_cfg.app_name())
     await app.test(task)
 
 
@@ -117,7 +126,15 @@ def test(
     task: Annotated[str, typer.Option("--task", help="The task to test the agent with")],
     filepath: Annotated[str, typer.Option("--filepath", help="The path to the agent config file")],
 ):
-    asyncio.run(test_agent(filepath, task))
+    with open(filepath, "r") as f:
+        content = f.read()
+        config = json.loads(content)
+
+    with open(os.path.join(filepath, "agent-card.json"), "r") as f:
+        agent_card = json.load(f)
+    agent_card = AgentCard.model_validate(agent_card)
+    agent_config = AgentConfig.model_validate(config)
+    asyncio.run(test_agent(agent_config, agent_card, task))
 
 
 def run_cli():

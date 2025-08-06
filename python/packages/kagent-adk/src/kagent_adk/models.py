@@ -1,7 +1,6 @@
 import logging
 from typing import Literal, Self, Union
 
-from a2a.types import AgentCard
 from google.adk.agents import Agent
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.run_config import RunConfig, StreamingMode
@@ -71,7 +70,7 @@ class AgentConfig(BaseModel):
     sse_tools: list[SseMcpServerConfig] | None = None  # tools, always MCP
     agents: list[Self] | None = None  # agent names
 
-    def to_agent(self) -> Agent:
+    def to_agent(self, name: str) -> Agent:
         mcp_toolsets: list[ToolUnion] = []
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
@@ -81,7 +80,7 @@ class AgentConfig(BaseModel):
                 mcp_toolsets.append(MCPToolset(connection_params=sse_tool.params, tool_filter=sse_tool.tools))
         if self.agents:
             for agent in self.agents:  # Add sub agents as tools
-                mcp_toolsets.append(AgentTool(agent.to_agent()))
+                mcp_toolsets.append(AgentTool(agent.to_agent(name)))
         if self.model.type == "openai":
             model = LiteLlm(model=f"openai/{self.model.model}", base_url=self.model.base_url)
         elif self.model.type == "anthropic":
@@ -99,7 +98,7 @@ class AgentConfig(BaseModel):
         else:
             raise ValueError(f"Invalid model type: {self.model.type}")
         return Agent(
-            name=self.name,
+            name=name,
             model=model,
             description=self.description,
             instruction=self.instruction,
