@@ -57,6 +57,7 @@ ARG VERSION
 # Install dependencies
 RUN echo "Installing dependencies..."                   \
     && uv venv --python=python$TOOLS_PYTHON_VERSION     \
+    && uv version ${VERSION%%-*} --package kagent       \
     && uv sync --locked --refresh                       \
     && uv build --package kagent-adk                    \
     && uv build --package kagent                        \
