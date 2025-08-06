@@ -37,9 +37,9 @@ var (
 type KagentReconciler interface {
 	ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentApiKeySecret(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentToolServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMemory(ctx context.Context, req ctrl.Request) error
+	FindAgentsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent
 }
 
 type kagentReconciler struct {
@@ -199,10 +199,7 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
 	}
 
-	agents, err := a.findAgentsUsingModel(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents for model %s: %v", req.Name, err)
-	}
+	agents := a.findAgentsUsingModel(ctx, req.NamespacedName)
 
 	return a.reconcileModelConfigStatus(
 		ctx,
@@ -243,15 +240,6 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 		}
 	}
 	return nil
-}
-
-func (a *kagentReconciler) ReconcileKagentApiKeySecret(ctx context.Context, req ctrl.Request) error {
-	agents, err := a.findAgentsUsingApiKeySecret(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents for secret %s: %v", req.Name, err)
-	}
-
-	return a.reconcileAgents(ctx, agents...)
 }
 
 func (a *kagentReconciler) ReconcileKagentToolServer(ctx context.Context, req ctrl.Request) error {
@@ -559,16 +547,18 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 	return tools, nil
 }
 
-func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
+func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent {
+	var agents []*v1alpha1.Agent
+
 	var agentsList v1alpha1.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list agents: %v", err)
+		reconcileLog.Error(err, "failed to list agents")
+		return agents
 	}
 
-	var agents []*v1alpha1.Agent
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
 		agentNamespaced, err := utils.ParseRefString(agent.Spec.ModelConfig, agent.Namespace)
@@ -580,24 +570,29 @@ func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Re
 			continue
 		}
 
-		if agentNamespaced == req.NamespacedName {
+		if agentNamespaced == obj {
 			agents = append(agents, agent)
 		}
 	}
 
-	return agents, nil
+	return agents
 }
 
-func (a *kagentReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {
+func (a *kagentReconciler) FindAgentsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha1.Agent {
+	var agents []*v1alpha1.Agent
 	var modelsList v1alpha1.ModelConfigList
 	if err := a.kube.List(
 		ctx,
 		&modelsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list ModelConfigs: %v", err)
+		reconcileLog.Error(err, "failed to list ModelConfigs",
+			"errorDetails", err.Error(),
+		)
+
+		return agents
 	}
 
-	var models []string
+	var models []types.NamespacedName
 	for _, model := range modelsList.Items {
 		if model.Spec.APIKeySecretRef == "" {
 			continue
@@ -610,24 +605,18 @@ func (a *kagentReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req 
 			continue
 		}
 
-		if secretNamespaced == req.NamespacedName {
-			models = append(models, model.Name)
+		if secretNamespaced == obj {
+			models = append(models, types.NamespacedName{
+				Name:      model.Name,
+				Namespace: model.Namespace,
+			})
 		}
 	}
 
-	var agents []*v1alpha1.Agent
 	uniqueAgents := make(map[string]bool)
 
-	for _, modelName := range models {
-		agentsUsingModel, err := a.findAgentsUsingModel(ctx, ctrl.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: req.Namespace,
-				Name:      modelName,
-			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to find agents for model %s: %v", modelName, err)
-		}
+	for _, model := range models {
+		agentsUsingModel := a.findAgentsUsingModel(ctx, model)
 
 		for _, agent := range agentsUsingModel {
 			key := utils.GetObjectRef(agent)
@@ -638,7 +627,7 @@ func (a *kagentReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req 
 		}
 	}
 
-	return agents, nil
+	return agents
 }
 
 func (a *kagentReconciler) findAgentsUsingMemory(ctx context.Context, req ctrl.Request) ([]*v1alpha1.Agent, error) {

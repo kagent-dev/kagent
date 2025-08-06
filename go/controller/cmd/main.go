@@ -353,14 +353,6 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelConfig")
 		os.Exit(1)
 	}
-	if err = (&controller.SecretReconciler{
-		Client:     kubeClient,
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Secret")
-		os.Exit(1)
-	}
 	if err = (&controller.ToolServerReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
