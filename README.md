@@ -76,7 +76,7 @@ Kagent has 4 core components:
 
 - **Controller**: The controller is a Kubernetes controller that watches the kagent custom resources and creates the necessary resources to run the agents.
 - **UI**: The UI is a web UI that allows you to manage the agents and tools.
-- **Engine**: The engine runs your agents using [ADK](https://google.github.io/adk-docs/) or [Autogen](https://github.com/microsoft/autogen).
+- **Engine**: The engine runs your agents using [ADK](https://google.github.io/adk-docs/).
 - **CLI**: The CLI is a command-line tool that allows you to manage the agents and tools.
 
 ## Roadmap
