@@ -15,7 +15,7 @@ Often during UI development, you'll want to test the UI against a k8s backend.
 
 To do this, you can follow the instructions in the [DEVELOPMENT.md](../DEVELOPMENT.md) file.
 
-Once you have kagent running, you'll need to port-forward the httpserver service to your local machine.
+Once you have kagent running, you'll need to port-forward the kagent-controller service to your local machine.
 
 ```bash
 kubectl port-forward svc/kagent-controller 8083
