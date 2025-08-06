@@ -144,7 +144,13 @@
             "kagent": "ollama-agent"
           }
         },
-        "strategy": {},
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
         "template": {
           "metadata": {
             "creationTimestamp": null,
@@ -196,16 +202,17 @@
                     "port": "http"
                   },
                   "initialDelaySeconds": 15,
-                  "periodSeconds": 3
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
                 },
                 "resources": {
                   "limits": {
-                    "cpu": "1",
+                    "cpu": "2",
                     "memory": "1Gi"
                   },
                   "requests": {
                     "cpu": "100m",
-                    "memory": "256Mi"
+                    "memory": "384Mi"
                   }
                 },
                 "volumeMounts": [
