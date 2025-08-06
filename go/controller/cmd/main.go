@@ -28,6 +28,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/controller/translator"
@@ -98,8 +99,8 @@ type Config struct {
 		CertKey  string
 	}
 	Streaming struct {
-		MaxBufSize     int `default:"1048576"`
-		InitialBufSize int `default:"4096"`
+		MaxBufSize     resource.QuantityValue `default:"1Mi"`
+		InitialBufSize resource.QuantityValue `default:"4Ki"`
 	}
 	LeaderElection     bool
 	ProbeAddr          string
@@ -148,8 +149,8 @@ func main() {
 
 	flag.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
-	flag.IntVar(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", 1048576, "The maximum size of the streaming buffer.")
-	flag.IntVar(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", 4096, "The initial size of the streaming buffer.")
+	flag.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
+	flag.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
 
 	opts := zap.Options{
 		Development: true,
@@ -324,8 +325,8 @@ func main() {
 	a2aReconciler := a2a_reconciler.NewReconciler(
 		a2aHandler,
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
-		cfg.Streaming.MaxBufSize,
-		cfg.Streaming.InitialBufSize,
+		int(cfg.Streaming.MaxBufSize.Value()),
+		int(cfg.Streaming.InitialBufSize.Value()),
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
