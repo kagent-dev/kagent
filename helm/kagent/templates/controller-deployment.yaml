@@ -42,6 +42,10 @@ spec:
             - {{ .Values.controller.loglevel }}
             - -watch-namespaces
             - "{{ include "kagent.watchNamespaces" . }}"
+            - -streaming-max-buf-size
+            - {{ .Values.controller.streaming.maxBufSize | quote }}
+            - -streaming-initial-buf-size
+            - {{ .Values.controller.streaming.initialBufSize | quote }}
             - -database-type
             - {{ .Values.database.type }}
             {{- if eq .Values.database.type "sqlite" }}
