@@ -55,7 +55,7 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
                 <DropdownMenuItem
                   key={agentRef}
                   onClick={() => {
-                    router.push(`/agents/${id}/chat`);
+                    router.push(`/agents/${agentRef}/chat`);
                   }}
                   className="gap-2 p-2"
                 >
