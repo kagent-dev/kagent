@@ -547,7 +547,7 @@ func (a *kagentReconciler) FindAgentsUsingModelConfig(ctx context.Context, obj t
 		ctx,
 		&agentsList,
 	); err != nil {
-		reconcileLog.Error(err, "failed to list agents")
+		reconcileLog.Error(err, "failed to list Agents in order to reconcile ModelConfig update")
 		return agents
 	}
 
@@ -578,10 +578,7 @@ func (a *kagentReconciler) FindModelsUsingSecret(ctx context.Context, obj types.
 		ctx,
 		&modelsList,
 	); err != nil {
-		reconcileLog.Error(err, "failed to list ModelConfigs",
-			"errorDetails", err.Error(),
-		)
-
+		reconcileLog.Error(err, "failed to list ModelConfigs in order to reconcile Secret update")
 		return models
 	}
 
@@ -616,7 +613,7 @@ func (a *kagentReconciler) FindAgentsUsingMemory(ctx context.Context, obj types.
 		ctx,
 		&agentsList,
 	); err != nil {
-		reconcileLog.Error(err, "failed to list agents")
+		reconcileLog.Error(err, "failed to list Agents in order to reconcile Memory update")
 		return agents
 	}
 
@@ -650,7 +647,7 @@ func (a *kagentReconciler) FindAgentsUsingToolServer(ctx context.Context, obj ty
 		ctx,
 		&agentsList,
 	); err != nil {
-		reconcileLog.Error(err, "failed to list agents", err)
+		reconcileLog.Error(err, "failed to list Agents in order to reconcile ToolServer update")
 		return agents
 	}
 
