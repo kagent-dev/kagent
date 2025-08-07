@@ -4,17 +4,10 @@ import (
 	"net/http"
 
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	kclient "github.com/kagent-dev/kagent/go/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// ModelInfo represents information about a model
-type ModelInfo struct {
-	Name           string `json:"name"`
-	FunctionCalling bool   `json:"function_calling"`
-}
-
-// ProviderModels represents a map of provider names to their supported models
-type ProviderModels map[string][]ModelInfo
 
 // ModelHandler handles model requests
 type ModelHandler struct {
@@ -33,7 +26,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 
 	// Create a map of provider names to their supported models
 	// The keys need to match what the UI expects (camelCase for API keys)
-	supportedModels := ProviderModels{
+	supportedModels := kclient.ProviderModels{
 		"openAI": {
 			{Name: "gpt-4o", FunctionCalling: true},
 			{Name: "gpt-4-turbo", FunctionCalling: true},
