@@ -1,22 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getBackendUrl } from "./utils";
 import { v4 as uuidv4 } from 'uuid';
-
-export interface A2AMessage {
-  role: "user" | "agent";
-  parts: Array<{ kind: "text"; text: string }>;
-  messageId: string;
-}
-
-export interface A2AMessageSendParams {
-  message: A2AMessage;
-  metadata?: Record<string, any>;
-}
+import { MessageSendParams } from '@a2a-js/sdk';
 
 export interface A2AJsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
-  params: A2AMessageSendParams;
+  params: MessageSendParams;
   id: string | number;
 }
 
@@ -35,30 +25,9 @@ export class KagentA2AClient {
   }
 
   /**
-   * Create a message in A2A format
-   */
-  createA2AMessage(content: string, messageId: string): A2AMessage {
-    return {
-      messageId,
-      role: "user",
-      parts: [{ kind: "text", text: content }],
-    };
-  }
-
-  /**
-   * Create message send parameters for A2A
-   */
-  createMessageSendParams(message: A2AMessage): A2AMessageSendParams {
-    return {
-      message,
-      metadata: {}
-    };
-  }
-
-  /**
    * Create JSON-RPC request for message streaming
    */
-  createStreamingRequest(params: A2AMessageSendParams): A2AJsonRpcRequest {
+  createStreamingRequest(params: MessageSendParams): A2AJsonRpcRequest {
     return {
       jsonrpc: "2.0",
       method: "message/stream",
@@ -73,7 +42,7 @@ export class KagentA2AClient {
   async sendMessageStream(
     namespace: string, 
     agentName: string, 
-    params: A2AMessageSendParams
+    params: MessageSendParams
   ): Promise<AsyncIterable<any>> {
     const request = this.createStreamingRequest(params);
     // This redirects to the Next.js API route 

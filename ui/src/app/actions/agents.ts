@@ -1,7 +1,7 @@
 "use server";
 
-import { BaseResponse } from "@/lib/types";
-import { Agent, AgentResponse, Tool } from "@/types/datamodel";
+import { BaseResponse } from "@/types";
+import { Agent, AgentResponse, Tool } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";

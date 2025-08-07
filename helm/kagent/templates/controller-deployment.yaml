@@ -42,6 +42,10 @@ spec:
             - {{ .Values.controller.loglevel }}
             - -watch-namespaces
             - "{{ include "kagent.watchNamespaces" . }}"
+            - -streaming-max-buf-size
+            - {{ .Values.controller.streaming.maxBufSize | quote }}
+            - -streaming-initial-buf-size
+            - {{ .Values.controller.streaming.initialBufSize | quote }}
             - -database-type
             - {{ .Values.database.type }}
             {{- if eq .Values.database.type "sqlite" }}
@@ -128,15 +132,15 @@ spec:
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
           ports:
-            - name: http
+            - name: http-grafana
               containerPort: 8000
               protocol: TCP
           startupProbe:
             tcpSocket:
-              port: http
+              port: http-grafana
             periodSeconds: 1
             initialDelaySeconds: 1
           readinessProbe:
             tcpSocket:
-              port: http
+              port: http-grafana
             periodSeconds: 30

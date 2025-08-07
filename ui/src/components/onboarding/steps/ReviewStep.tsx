@@ -6,8 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, FunctionSquare } from 'lucide-react';
-import { Tool } from "@/types/datamodel";
-import { getToolResponseIdentifier, getToolResponseDisplayName } from '@/lib/toolUtils';
+import type { Tool } from "@/types";
 
 interface OnboardingDataForReview {
     agentRef?: string;

@@ -2,7 +2,6 @@ package a2a
 
 import (
 	"context"
-	"errors"
 
 	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
@@ -56,16 +55,5 @@ func (m *PassthroughManager) OnPushNotificationGet(ctx context.Context, params p
 }
 
 func (m *PassthroughManager) OnResubscribe(ctx context.Context, params protocol.TaskIDParams) (<-chan protocol.StreamingMessageEvent, error) {
-	// TODO: Implement
-	return nil, nil
-}
-
-// Deprecated: OnSendTask is deprecated and will be removed in the future.
-func (m *PassthroughManager) OnSendTask(ctx context.Context, request protocol.SendTaskParams) (*protocol.Task, error) {
-	return nil, errors.New("OnSendTask is deprecated and will be removed in the future")
-}
-
-// Deprecated: OnSendTaskSubscribe is deprecated and will be removed in the future.
-func (m *PassthroughManager) OnSendTaskSubscribe(ctx context.Context, request protocol.SendTaskParams) (<-chan protocol.TaskEvent, error) {
-	return nil, errors.New("OnSendTaskSubscribe is deprecated and will be removed in the future")
+	return m.client.ResubscribeTask(ctx, params)
 }

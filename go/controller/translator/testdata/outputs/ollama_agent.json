@@ -31,38 +31,38 @@
     "sse_tools": null
   },
   "configHash": [
+    164,
+    206,
     137,
-    32,
-    99,
+    228,
+    245,
+    61,
+    185,
+    17,
+    170,
+    21,
+    165,
+    191,
+    37,
+    190,
+    161,
+    96,
+    246,
+    216,
+    55,
+    224,
+    120,
+    190,
+    83,
+    30,
+    82,
+    176,
     134,
-    69,
-    152,
-    16,
-    158,
-    20,
-    212,
-    135,
-    3,
-    193,
-    235,
-    58,
-    56,
-    81,
-    7,
-    166,
-    155,
-    173,
-    156,
-    242,
+    59,
+    53,
     106,
-    239,
-    99,
-    178,
-    14,
-    110,
-    202,
-    202,
-    183
+    201,
+    97
   ],
   "manifest": [
     {
@@ -144,13 +144,19 @@
             "kagent": "ollama-agent"
           }
         },
-        "strategy": {},
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
         "template": {
           "metadata": {
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "config.kagent.dev/hash": "9881007010795229342",
+              "config.kagent.dev/hash": "11875580883882588433",
               "kagent": "ollama-agent"
             }
           },
@@ -196,16 +202,17 @@
                     "port": "http"
                   },
                   "initialDelaySeconds": 15,
-                  "periodSeconds": 3
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
                 },
                 "resources": {
                   "limits": {
-                    "cpu": "1",
+                    "cpu": "2",
                     "memory": "1Gi"
                   },
                   "requests": {
                     "cpu": "100m",
-                    "memory": "256Mi"
+                    "memory": "384Mi"
                   }
                 },
                 "volumeMounts": [

@@ -91,6 +91,8 @@ jobs:
     steps:
     - name: 'Checkout GitHub Action'
       uses: actions/checkout@main
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
     - name: 'Release Python Packages'
       working-directory: python
       run: |
@@ -100,6 +102,7 @@ jobs:
         else
           export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
         fi
+        uv sync --all-extras
         uv version $VERSION --package kagent-adk
         uv build --package kagent-adk
         uv publish --token ${{ secrets.PYPI_TOKEN }}

@@ -57,7 +57,7 @@ tests:
           value: 128Mi
       - equal:
           path: spec.template.spec.containers[0].resources.limits.cpu
-          value: 500m
+          value: 2
       - equal:
           path: spec.template.spec.containers[0].resources.limits.memory
           value: 512Mi
