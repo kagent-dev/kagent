@@ -1,9 +1,9 @@
 package reconciler
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/utils/ptr"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 var (
@@ -200,20 +201,14 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 
 	conditionChanged = meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
 
-	// Only update the config hash if the config hash has changed and there was no error
-	configHashChanged := configHash != nil && !bytes.Equal((agent.Status.ConfigHash)[:], (*configHash)[:])
-
 	// update the status if it has changed or the generation has changed
-	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation || configHashChanged {
-		// If the config hash is nil, it means there was an error during the reconciliation
-		if configHash != nil {
-			agent.Status.ConfigHash = (*configHash)[:]
-		}
+	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
 		agent.Status.ObservedGeneration = agent.Generation
 		if err := a.kube.Status().Update(ctx, agent); err != nil {
 			return fmt.Errorf("failed to update agent status: %v", err)
 		}
 	}
+
 	return nil
 }
 
@@ -476,14 +471,91 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
+
+	ownedObjects := map[types.UID]client.Object{} // TODO: We should lookup all objects that are actually owned by the controller to ensure that resources are correctly pruned over time
+	if err := a.reconcileDesiredObjects(ctx, agent, agentOutputs.Manifest, ownedObjects); err != nil {
+		return nil, fmt.Errorf("failed to reconcile owned objects: %v", err)
+	}
+
 	if err := a.reconcileA2A(ctx, agent, agentOutputs.Config); err != nil {
 		return nil, fmt.Errorf("failed to reconcile A2A for agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
+
 	if err := a.upsertAgent(ctx, agent, agentOutputs); err != nil {
 		return nil, fmt.Errorf("failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
 
 	return &agentOutputs.ConfigHash, nil
+}
+
+// Function initially copied from https://github.com/open-telemetry/opentelemetry-operator/blob/e6d96f006f05cff0bc3808da1af69b6b636fbe88/internal/controllers/common.go#L141-L192
+func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner metav1.Object, desiredObjects []client.Object, ownedObjects map[types.UID]client.Object) error {
+	var errs []error
+	for _, desired := range desiredObjects {
+		l := reconcileLog.WithValues(
+			"object_name", desired.GetName(),
+			"object_kind", desired.GetObjectKind(),
+		)
+
+		// existing is an object the controller runtime will hydrate for us
+		// we obtain the existing object by deep copying the desired object because it's the most convenient way
+		existing := desired.DeepCopyObject().(client.Object)
+		mutateFn := translator.MutateFuncFor(existing, desired)
+
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			_, createOrUpdateErr := controllerutil.CreateOrUpdate(ctx, a.kube, existing, mutateFn)
+			return createOrUpdateErr
+		})
+
+		if err != nil && errors.As(err, &translator.ImmutableChangeErr) {
+			l.Error(err, "detected immutable field change, trying to delete, new object will be created on next reconcile", "existing", existing.GetName())
+			delErr := a.kube.Delete(ctx, existing)
+			if delErr != nil {
+				return delErr
+			}
+			continue
+		} else if err != nil {
+			l.Error(err, "failed to configure desired")
+			errs = append(errs, err)
+			continue
+		}
+
+		// This object is still managed by the controller, remove it from the list of objects to prune
+		delete(ownedObjects, existing.GetUID())
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to create objects for %s: %w", owner.GetName(), errors.Join(errs...))
+	}
+
+	// Pruning owned objects in the cluster which are not should not be present after the reconciliation.
+	err := a.deleteObjects(ctx, ownedObjects)
+	if err != nil {
+		return fmt.Errorf("failed to prune objects for %s: %w", owner.GetName(), err)
+	}
+
+	return nil
+}
+
+func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.UID]client.Object) error {
+	// Pruning owned objects in the cluster which are not should not be present after the reconciliation.
+	pruneErrs := []error{}
+
+	for _, obj := range objects {
+		l := reconcileLog.WithValues(
+			"object_name", obj.GetName(),
+			"object_kind", obj.GetObjectKind().GroupVersionKind(),
+		)
+
+		l.Info("pruning unmanaged resource")
+		err := a.kube.Delete(ctx, obj)
+		if err != nil {
+			l.Error(err, "failed to delete resource")
+			pruneErrs = append(pruneErrs, err)
+		}
+	}
+
+	return errors.Join(pruneErrs...)
 }
 
 func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *translator.AgentOutputs) error {
@@ -498,20 +570,6 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {
 		return fmt.Errorf("failed to store agent %s: %v", agentOutputs.Config.Name, err)
-	}
-
-	// If the config hash has not changed, we can skip the patch
-	if bytes.Equal(agentOutputs.ConfigHash[:], agent.Status.ConfigHash) {
-		return nil
-	}
-
-	for _, obj := range agentOutputs.Manifest {
-		if err := a.kube.Patch(ctx, obj, client.Apply, &client.PatchOptions{
-			FieldManager: "kagent-controller",
-			Force:        ptr.To(true),
-		}); err != nil {
-			return fmt.Errorf("failed to patch agent output %s: %v", agentOutputs.Config.Name, err)
-		}
 	}
 
 	return nil
