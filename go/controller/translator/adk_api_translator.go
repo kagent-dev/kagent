@@ -416,6 +416,10 @@ func (a *adkApiTranslator) translateDeclarativeAgent(ctx context.Context, agent 
 	return cfg, mdd, nil
 }
 
+const (
+	googleCredsVolumeName = "google-creds"
+)
+
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, error) {
 	model := &v1alpha1.ModelConfig{}
 	err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: modelConfig}, model)
@@ -538,7 +542,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Value: "/creds/" + model.Spec.APIKeySecretKey,
 			})
 			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
-				Name: "google-creds",
+				Name: googleCredsVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
 						SecretName: model.Spec.APIKeySecretRef,
@@ -546,7 +550,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				},
 			})
 			modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
-				Name:      "google-creds",
+				Name:      googleCredsVolumeName,
 				MountPath: "/creds",
 			})
 		}
@@ -574,7 +578,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Value: "/creds/" + model.Spec.APIKeySecretKey,
 			})
 			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
-				Name: "google-creds",
+				Name: googleCredsVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
 						SecretName: model.Spec.APIKeySecretRef,
@@ -582,7 +586,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				},
 			})
 			modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
-				Name:      "google-creds",
+				Name:      googleCredsVolumeName,
 				MountPath: "/creds",
 			})
 		}
