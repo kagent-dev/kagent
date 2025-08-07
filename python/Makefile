@@ -22,5 +22,6 @@ build: update format
 
 .PHONY: audit
 audit: build
-	uv pip install pip-audit
+	#check pip-audit is installed
+	uv run pip-audit --version || uv pip install pip-audit
 	uv run pip-audit
