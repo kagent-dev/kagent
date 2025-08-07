@@ -44,10 +44,13 @@ spec:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 1
-            initialDelaySeconds: 1
+            periodSeconds: 15
+            initialDelaySeconds: 10
+            timeoutSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 30
+            initialDelaySeconds: 10
+            timeoutSeconds: 10

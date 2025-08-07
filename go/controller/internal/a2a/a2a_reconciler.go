@@ -31,15 +31,22 @@ type A2AReconciler interface {
 type a2aReconciler struct {
 	a2aHandler a2a.A2AHandlerMux
 	a2aBaseUrl string
+
+	streamingMaxBufSize     int
+	streamingInitialBufSize int
 }
 
 func NewReconciler(
 	a2aHandler a2a.A2AHandlerMux,
 	a2aBaseUrl string,
+	streamingMaxBufSize int,
+	streamingInitialBufSize int,
 ) A2AReconciler {
 	return &a2aReconciler{
-		a2aHandler: a2aHandler,
-		a2aBaseUrl: a2aBaseUrl,
+		a2aHandler:              a2aHandler,
+		a2aBaseUrl:              a2aBaseUrl,
+		streamingMaxBufSize:     streamingMaxBufSize,
+		streamingInitialBufSize: streamingInitialBufSize,
 	}
 }
 
@@ -53,7 +60,7 @@ func (a *a2aReconciler) ReconcileAgent(
 	agentRef := common.GetObjectRef(agent)
 	cardCopy.URL = fmt.Sprintf("%s/%s/", a.a2aBaseUrl, agentRef)
 
-	client, err := a2aclient.NewA2AClient(adkConfig.AgentCard.URL)
+	client, err := a2aclient.NewA2AClient(adkConfig.AgentCard.URL, a2aclient.WithBuffer(a.streamingInitialBufSize, a.streamingMaxBufSize))
 	if err != nil {
 		return err
 	}
