@@ -1,0 +1,278 @@
+{
+  "config": {
+    "agent_card": {
+      "capabilities": {
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "streaming": true
+      },
+      "defaultInputModes": [
+        "text"
+      ],
+      "defaultOutputModes": [
+        "text"
+      ],
+      "description": "A Gemini Vertex AI test agent using machine identity",
+      "name": "gemini-vertex-ai-agent",
+      "skills": null,
+      "url": "http://gemini-vertex-ai-agent.test.svc:8080",
+      "version": ""
+    },
+    "agents": null,
+    "description": "A Gemini Vertex AI test agent using machine identity",
+    "http_tools": null,
+    "instruction": "You are a helpful assistant powered by Google's Gemini model.",
+    "kagent_url": "http://kagent-controller.kagent.svc:8083",
+    "model": {
+      "model": "gemini-1.5-pro",
+      "type": "gemini_vertex_ai"
+    },
+    "name": "test__NS__gemini_vertex_ai_agent",
+    "sse_tools": null
+  },
+  "configHash": [
+    242,
+    132,
+    151,
+    12,
+    111,
+    15,
+    244,
+    153,
+    64,
+    145,
+    244,
+    44,
+    200,
+    0,
+    204,
+    162,
+    8,
+    29,
+    46,
+    196,
+    227,
+    83,
+    250,
+    234,
+    248,
+    221,
+    234,
+    189,
+    92,
+    225,
+    160,
+    97
+  ],
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "gemini-vertex-ai-agent"
+        },
+        "name": "gemini-vertex-ai-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "gemini-vertex-ai-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "data": {
+        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"gemini-vertex-ai-agent\",\"description\":\"A Gemini Vertex AI test agent using machine identity\",\"url\":\"http://gemini-vertex-ai-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__gemini_vertex_ai_agent\",\"model\":{\"model\":\"gemini-1.5-pro\",\"type\":\"gemini_vertex_ai\"},\"description\":\"A Gemini Vertex AI test agent using machine identity\",\"instruction\":\"You are a helpful assistant powered by Google's Gemini model.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+      },
+      "kind": "ConfigMap",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "gemini-vertex-ai-agent"
+        },
+        "name": "gemini-vertex-ai-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "gemini-vertex-ai-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "gemini-vertex-ai-agent"
+        },
+        "name": "gemini-vertex-ai-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "gemini-vertex-ai-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "gemini-vertex-ai-agent"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "creationTimestamp": null,
+            "labels": {
+              "app": "kagent",
+              "config.kagent.dev/hash": "17475258533763085465",
+              "kagent": "gemini-vertex-ai-agent"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "command": [
+                  "kagent",
+                  "static",
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config/config.json"
+                ],
+                "env": [
+                  {
+                    "name": "GOOGLE_CLOUD_PROJECT",
+                    "value": "my-gcp-project"
+                  },
+                  {
+                    "name": "GOOGLE_CLOUD_LOCATION",
+                    "value": "us-central1"
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 3
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "gemini-vertex-ai-agent",
+            "volumes": [
+              {
+                "configMap": {
+                  "name": "gemini-vertex-ai-agent"
+                },
+                "name": "config"
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "gemini-vertex-ai-agent"
+        },
+        "name": "gemini-vertex-ai-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "gemini-vertex-ai-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "gemini-vertex-ai-agent"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
+}

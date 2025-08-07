@@ -14,6 +14,8 @@ describe('isValidProviderInfoKey', () => {
         expect(isValidProviderInfoKey('azure-openai')).toBe(true);
         expect(isValidProviderInfoKey('anthropic')).toBe(true);
         expect(isValidProviderInfoKey('ollama')).toBe(true);
+        expect(isValidProviderInfoKey('gemini-vertex-ai')).toBe(true);
+        expect(isValidProviderInfoKey('anthropic-vertex-ai')).toBe(true);
     });
 
     it('should return false for invalid provider keys', () => {
@@ -29,6 +31,8 @@ describe('getApiKeyForProviderFormKey', () => {
         expect(getApiKeyForProviderFormKey('azure-openai')).toBe('azureOpenAI');
         expect(getApiKeyForProviderFormKey('anthropic')).toBe('anthropic');
         expect(getApiKeyForProviderFormKey('ollama')).toBe('ollama');
+        expect(getApiKeyForProviderFormKey('gemini-vertex-ai')).toBe('geminiVertexAI');
+        expect(getApiKeyForProviderFormKey('anthropic-vertex-ai')).toBe('anthropicVertexAI');
     });
 
     // Although the type system should prevent invalid keys, we test the default case
@@ -44,6 +48,8 @@ describe('getProviderDisplayName', () => {
         expect(getProviderDisplayName('AzureOpenAI')).toBe('Azure OpenAI');
         expect(getProviderDisplayName('Anthropic')).toBe('Anthropic');
         expect(getProviderDisplayName('Ollama')).toBe('Ollama');
+        expect(getProviderDisplayName('GeminiVertexAI')).toBe('Gemini Vertex AI');
+        expect(getProviderDisplayName('AnthropicVertexAI')).toBe('Anthropic Vertex AI');
     });
 
     it('should return the input type if no matching provider is found', () => {
@@ -57,6 +63,8 @@ describe('getProviderFormKey', () => {
         expect(getProviderFormKey('AzureOpenAI')).toBe('azure-openai');
         expect(getProviderFormKey('Anthropic')).toBe('anthropic');
         expect(getProviderFormKey('Ollama')).toBe('ollama');
+        expect(getProviderFormKey('GeminiVertexAI')).toBe('gemini-vertex-ai');
+        expect(getProviderFormKey('AnthropicVertexAI')).toBe('anthropic-vertex-ai');
     });
 
     it('should return undefined if no matching provider type is found', () => {
