@@ -28,7 +28,7 @@ tests:
           value: 30s
       - equal:
           path: spec.config.streamableHttp.url
-          value: http://RELEASE-NAME-tools.NAMESPACE.svc.cluster.local:8084/mcp
+          value: http://RELEASE-NAME-tools.NAMESPACE:8084/mcp
 
   - it: should use custom namespace when overridden
     set:
@@ -50,7 +50,7 @@ tests:
     asserts:
       - equal:
           path: spec.config.streamableHttp.url
-          value: http://RELEASE-NAME-tools.NAMESPACE.svc.cluster.local:8084/mcp
+          value: http://RELEASE-NAME-tools.NAMESPACE:8084/mcp
 
   - it: should have correct APIVersion and Kind
     asserts:
