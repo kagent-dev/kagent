@@ -7,7 +7,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - secrets
   - services
   verbs:
   - get

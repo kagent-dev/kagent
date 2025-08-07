@@ -22,14 +22,19 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
+	v1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 // AgentReconciler reconciles a Agent object
@@ -45,7 +50,7 @@ type AgentReconciler struct {
 
 func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileAgent(ctx, req)
+	return ctrl.Result{}, r.Reconciler.ReconcileKagentAgent(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -54,11 +59,92 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		For(&v1alpha2.Agent{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
+		Watches(
+			&v1alpha2.ModelConfig{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.Reconciler.FindAgentsUsingModelConfig(ctx, types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.ObjectMeta.Name,
+							Namespace: agent.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+		).
+		Watches(
+			&v1alpha2.RemoteMCPServer{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.Reconciler.FindAgentsUsingRemoteMCPServer(ctx, types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.ObjectMeta.Name,
+							Namespace: agent.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+		).
+		Watches(
+			&v1alpha1.MCPServer{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.Reconciler.FindAgentsUsingMCPServer(ctx, types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.ObjectMeta.Name,
+							Namespace: agent.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+		).
+		Watches(
+			&corev1.Service{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.Reconciler.FindAgentsUsingMCPService(ctx, types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.ObjectMeta.Name,
+							Namespace: agent.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+		).
 		Named("agent").
 		Complete(r)
 }

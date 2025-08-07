@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,12 +39,17 @@ var (
 )
 
 type KagentReconciler interface {
-	ReconcileAgent(ctx context.Context, req ctrl.Request) error
-	ReconcileModelConfig(ctx context.Context, req ctrl.Request) error
-	ReconcileApiKeySecret(ctx context.Context, req ctrl.Request) error
-	ReconcileMCPServer(ctx context.Context, req ctrl.Request) error
-	ReconcileRemoteMCPServer(ctx context.Context, req ctrl.Request) error
-	ReconcileMCPService(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
+
+	FindAgentsUsingModelConfig(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent
+	FindAgentsUsingMCPServer(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent
+	FindAgentsUsingMCPService(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent
+	FindAgentsUsingRemoteMCPServer(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent
+	FindModelsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha2.ModelConfig
 }
 
 type kagentReconciler struct {
@@ -75,7 +81,7 @@ func NewKagentReconciler(
 	}
 }
 
-func (a *kagentReconciler) ReconcileAgent(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error {
 	// TODO(sbx0r): missing finalizer logic
 
 	agent := &v1alpha2.Agent{}
@@ -123,7 +129,21 @@ func (a *kagentReconciler) handleExistingAgent(ctx context.Context, agent *v1alp
 		"oldGeneration", agent.Status.ObservedGeneration,
 		"newGeneration", agent.Generation)
 
-	return a.reconcileAgents(ctx, agent)
+	var multiErr *multierror.Error
+
+	configHash, reconcileErr := a.reconcileAgent(ctx, agent)
+	// Append error but still try to reconcile the agent status
+	if reconcileErr != nil {
+		multiErr = multierror.Append(multiErr, fmt.Errorf(
+			"failed to reconcile agent %s/%s: %v", agent.Namespace, agent.Name, reconcileErr))
+	}
+
+	if err := a.reconcileAgentStatus(ctx, agent, configHash, reconcileErr); err != nil {
+		multiErr = multierror.Append(multiErr, fmt.Errorf(
+			"failed to reconcile agent status %s/%s: %v", agent.Namespace, agent.Name, err))
+	}
+
+	return multiErr.ErrorOrNil()
 }
 
 func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, configHash *[sha256.Size]byte, inputErr error) error {
@@ -197,7 +217,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	return nil
 }
 
-func (a *kagentReconciler) ReconcileMCPService(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error {
 	service := &corev1.Service{}
 	if err := a.kube.Get(ctx, req.NamespacedName, service); err != nil {
 		return fmt.Errorf("failed to get service %s: %v", req.Name, err)
@@ -216,28 +236,23 @@ func (a *kagentReconciler) ReconcileMCPService(ctx context.Context, req ctrl.Req
 			reconcileLog.Error(err, "failed to upsert tool server for mcp service", "service", utils.GetObjectRef(service))
 		}
 	}
-
-	agents, err := a.findAgentsUsingMCPService(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents for mcp service %s: %v", req.Name, err)
-	}
-
-	return a.reconcileAgents(ctx, agents...)
+	return nil
 }
 
-func (a *kagentReconciler) findAgentsUsingMCPService(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+func (a *kagentReconciler) FindAgentsUsingMCPService(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent {
 
 	var agentsList v1alpha2.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list agents: %v", err)
+		reconcileLog.Error(err, "failed to list agents in order to reconcile MCPService update")
+		return nil
 	}
 
 	var agents []*v1alpha2.Agent
 	for _, agent := range agentsList.Items {
-		if agent.Namespace != req.Namespace {
+		if agent.Namespace != obj.Namespace {
 			continue
 		}
 
@@ -250,30 +265,37 @@ func (a *kagentReconciler) findAgentsUsingMCPService(ctx context.Context, req ct
 				continue
 			}
 
-			if tool.McpServer.Name == req.Name {
+			if tool.McpServer.Name == obj.Name {
 				agents = append(agents, &agent)
 			}
 		}
 	}
 
-	return agents, nil
+	return agents
 }
 
-func (a *kagentReconciler) ReconcileModelConfig(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha2.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
+		if k8s_errors.IsNotFound(err) {
+			return nil
+		}
+
 		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
 	}
 
-	agents, err := a.findAgentsUsingModel(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents for model %s: %v", req.Name, err)
+	var err error
+	if modelConfig.Spec.APIKeySecret != "" {
+		secret := &v1.Secret{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}, secret); err != nil {
+			err = fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, err)
+		}
 	}
 
 	return a.reconcileModelConfigStatus(
 		ctx,
 		modelConfig,
-		a.reconcileAgents(ctx, agents...),
+		err,
 	)
 }
 
@@ -311,16 +333,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 	return nil
 }
 
-func (a *kagentReconciler) ReconcileApiKeySecret(ctx context.Context, req ctrl.Request) error {
-	agents, err := a.findAgentsUsingApiKeySecret(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents for secret %s: %v", req.Name, err)
-	}
-
-	return a.reconcileAgents(ctx, agents...)
-}
-
-func (a *kagentReconciler) ReconcileMCPServer(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {
 	mcpServer := &v1alpha1.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
 		return fmt.Errorf("failed to get mcp server %s: %v", req.Name, err)
@@ -339,31 +352,22 @@ func (a *kagentReconciler) ReconcileMCPServer(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	// find agents using MCP server
-	agents, err := a.findAgentsUsingMCPServer(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents for mcp server %s: %v", req.Name, err)
-	}
-
-	if err := a.reconcileAgents(ctx, agents...); err != nil {
-		return fmt.Errorf("failed to reconcile agents for mcp server %s, see status for more details", req.Name)
-	}
-
 	return nil
 }
 
-func (a *kagentReconciler) findAgentsUsingMCPServer(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+func (a *kagentReconciler) FindAgentsUsingMCPServer(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent {
 	var agentsList v1alpha2.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list agents: %v", err)
+		reconcileLog.Error(err, "failed to list agents in order to reconcile MCPServer update")
+		return nil
 	}
 
 	var agents []*v1alpha2.Agent
 	for _, agent := range agentsList.Items {
-		if agent.Namespace != req.Namespace {
+		if agent.Namespace != obj.Namespace {
 			continue
 		}
 
@@ -376,17 +380,17 @@ func (a *kagentReconciler) findAgentsUsingMCPServer(ctx context.Context, req ctr
 				continue
 			}
 
-			if tool.McpServer.Name == req.Name {
+			if tool.McpServer.Name == obj.Name {
 				agents = append(agents, &agent)
 			}
 		}
 
 	}
 
-	return agents, nil
+	return agents
 }
 
-func (a *kagentReconciler) ReconcileRemoteMCPServer(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {
 	// reconcile the agent team itself
 	toolServer := &v1alpha2.RemoteMCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, toolServer); err != nil {
@@ -412,16 +416,6 @@ func (a *kagentReconciler) ReconcileRemoteMCPServer(ctx context.Context, req ctr
 		reconcileErr,
 	); err != nil {
 		return fmt.Errorf("failed to reconcile tool server %s: %v", req.Name, err)
-	}
-
-	// find and reconcile all agents which use this tool server
-	agents, err := a.findAgentsUsingRemoteMCPServer(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to find agents for remote mcp server %s: %v", req.Name, err)
-	}
-
-	if err := a.reconcileAgents(ctx, agents...); err != nil {
-		return fmt.Errorf("failed to reconcile agents for tool server %s, see status for more details", req.Name)
 	}
 
 	return nil
@@ -475,24 +469,6 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	}
 
 	return nil
-}
-
-func (a *kagentReconciler) reconcileAgents(ctx context.Context, agents ...*v1alpha2.Agent) error {
-	var multiErr *multierror.Error
-	for _, agent := range agents {
-		configHash, reconcileErr := a.reconcileAgent(ctx, agent)
-		// Append error but still try to reconcile the agent status
-		if reconcileErr != nil {
-			multiErr = multierror.Append(multiErr, fmt.Errorf(
-				"failed to reconcile agent %s/%s: %v", agent.Namespace, agent.Name, reconcileErr))
-		}
-		if err := a.reconcileAgentStatus(ctx, agent, configHash, reconcileErr); err != nil {
-			multiErr = multierror.Append(multiErr, fmt.Errorf(
-				"failed to reconcile agent status %s/%s: %v", agent.Namespace, agent.Name, err))
-		}
-	}
-
-	return multiErr.ErrorOrNil()
 }
 
 func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) (*[sha256.Size]byte, error) {
@@ -615,103 +591,87 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 	return tools, nil
 }
 
-func (a *kagentReconciler) findAgentsUsingModel(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+func (a *kagentReconciler) FindAgentsUsingModelConfig(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent {
+	var agents []*v1alpha2.Agent
+
 	var agentsList v1alpha2.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list agents: %v", err)
+		reconcileLog.Error(err, "failed to list Agents in order to reconcile ModelConfig update")
+		return agents
 	}
 
-	var agents []*v1alpha2.Agent
 	for i := range agentsList.Items {
 		agent := &agentsList.Items[i]
 		// Must be in the same namespace as the model config
-		if agent.Namespace != req.Namespace {
+		if agent.Namespace != obj.Namespace {
 			continue
 		}
 
-		if agent.Spec.ModelConfig == req.Name {
+		if agent.Spec.ModelConfig == obj.Name {
 			agents = append(agents, agent)
 		}
 
 	}
 
-	return agents, nil
+	return agents
 }
 
-func (a *kagentReconciler) findAgentsUsingApiKeySecret(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+func (a *kagentReconciler) FindModelsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha2.ModelConfig {
+	var models []*v1alpha2.ModelConfig
+
 	var modelsList v1alpha2.ModelConfigList
 	if err := a.kube.List(
 		ctx,
 		&modelsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list ModelConfigs: %v", err)
+		reconcileLog.Error(err, "failed to list ModelConfigs in order to reconcile Secret update")
+		return models
 	}
 
-	var models []string
-	for _, model := range modelsList.Items {
-		if model.Namespace != req.Namespace {
+	for i := range modelsList.Items {
+		model := &modelsList.Items[i]
+
+		if model.Namespace != obj.Namespace {
 			continue
 		}
 
 		if model.Spec.APIKeySecret == "" {
 			continue
 		}
-
-		if model.Spec.APIKeySecret == req.Name {
-			models = append(models, model.Name)
+		if model.Spec.APIKeySecret == obj.Name {
+			models = append(models, model)
 		}
 	}
 
-	var agents []*v1alpha2.Agent
-	uniqueAgents := make(map[string]bool)
-
-	for _, modelName := range models {
-		agentsUsingModel, err := a.findAgentsUsingModel(ctx, ctrl.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: req.Namespace,
-				Name:      modelName,
-			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to find agents for model %s: %v", modelName, err)
-		}
-
-		for _, agent := range agentsUsingModel {
-			key := utils.GetObjectRef(agent)
-			if !uniqueAgents[key] {
-				uniqueAgents[key] = true
-				agents = append(agents, agent)
-			}
-		}
-	}
-
-	return agents, nil
+	return models
 }
 
-func (a *kagentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, req ctrl.Request) ([]*v1alpha2.Agent, error) {
+func (a *kagentReconciler) FindAgentsUsingRemoteMCPServer(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent {
+	var agents []*v1alpha2.Agent
+
 	var agentsList v1alpha2.AgentList
 	if err := a.kube.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		return nil, fmt.Errorf("failed to list agents: %v", err)
+		reconcileLog.Error(err, "failed to list Agents in order to reconcile ToolServer update")
+		return agents
 	}
 
-	var agents []*v1alpha2.Agent
 	appendAgentIfUsesRemoteMCPServer := func(agent *v1alpha2.Agent) {
 		for _, tool := range agent.Spec.Tools {
 			if tool.McpServer == nil {
 				return
 			}
 
-			if agent.Namespace != req.Namespace {
+			if agent.Namespace != obj.Namespace {
 				continue
 			}
 
-			if tool.McpServer.Name == req.Name {
+			if tool.McpServer.Name == obj.Name {
 				agents = append(agents, agent)
 				return
 			}
@@ -723,7 +683,7 @@ func (a *kagentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, r
 		appendAgentIfUsesRemoteMCPServer(&agent)
 	}
 
-	return agents, nil
+	return agents
 
 }
 

@@ -48,7 +48,7 @@ func (r *RemoteMCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{
 		// loop forever because we need to refresh tools server status
 		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileRemoteMCPServer(ctx, req)
+	}, r.Reconciler.ReconcileKagentRemoteMCPServer(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
