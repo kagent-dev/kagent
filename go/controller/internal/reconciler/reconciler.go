@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -212,13 +213,19 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 
 func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha1.ModelConfig{}
-	err := a.kube.Get(ctx, req.NamespacedName, modelConfig)
-	if err != nil {
+	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
 		if k8s_errors.IsNotFound(err) {
 			return nil
 		}
 
-		err = fmt.Errorf("failed to get model %s: %v", req.Name, err)
+		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
+	}
+
+	// Check if the referenced secret exists
+	secretRef, err := utils.ParseRefString(modelConfig.Spec.APIKeySecretRef, modelConfig.Namespace)
+	if err == nil {
+		secret := &v1.Secret{}
+		err = a.kube.Get(ctx, secretRef, secret)
 	}
 
 	return a.reconcileModelConfigStatus(
