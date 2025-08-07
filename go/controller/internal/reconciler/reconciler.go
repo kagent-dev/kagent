@@ -458,11 +458,6 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha1.Agen
 		return fmt.Errorf("failed to store agent %s: %v", agentOutputs.Config.Name, err)
 	}
 
-	// If the config hash has not changed, we can skip the patch
-	if bytes.Equal(agentOutputs.ConfigHash[:], agent.Status.ConfigHash) {
-		return nil
-	}
-
 	for _, obj := range agentOutputs.Manifest {
 		if err := a.kube.Patch(ctx, obj, client.Apply, &client.PatchOptions{
 			FieldManager: "kagent-controller",
