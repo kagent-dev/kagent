@@ -3,7 +3,7 @@ import type{ Tool, McpServerTool, AgentTool, ToolsResponse, DiscoveredTool } fro
 export const isAgentTool = (tool: unknown): tool is { agent: AgentTool } => {
   if (!tool || typeof tool !== "object") return false;
 
-  return "agent" in tool;
+  return "agent" in tool && typeof tool.agent === "object" && tool.agent !== null && Object.keys(tool.agent).length > 0;
 };
 
 export const isMcpTool = (tool: unknown): tool is { type: "MCPServer"; mcpServer: McpServerTool } => {
