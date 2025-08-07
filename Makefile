@@ -42,7 +42,7 @@ RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
-GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
+export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 
 # Version information for the build
 LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)      \
