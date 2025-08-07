@@ -21,6 +21,9 @@ import (
     "log"
 
     "github.com/kagent-dev/kagent/go/pkg/client"
+    "github.com/kagent-dev/kagent/go/pkg/client/api"
+    "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func main() {
