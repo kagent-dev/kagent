@@ -1,0 +1,36 @@
+operation: translateAgent
+targetObject: gemini-vertex-ai-with-creds-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: vertex-ai-secret
+      namespace: test
+    data:
+      credentials.json: ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsCiAgInByb2plY3RfaWQiOiAibXktZ2NwLXByb2plY3QiCn0K  # base64 encoded service account JSON
+  - apiVersion: kagent.dev/v1alpha1
+    kind: ModelConfig
+    metadata:
+      name: gemini-vertex-ai-with-creds-model
+      namespace: test
+    spec:
+      provider: GeminiVertexAI
+      model: gemini-1.5-pro
+      apiKeySecretRef: vertex-ai-secret
+      apiKeySecretKey: credentials.json
+      geminiVertexAI:
+        projectID: my-gcp-project
+        location: us-central1
+        temperature: "0.5"
+        maxOutputTokens: 2048
+  - apiVersion: kagent.dev/v1alpha1
+    kind: Agent
+    metadata:
+      name: gemini-vertex-ai-with-creds-agent
+      namespace: test
+    spec:
+      description: A Gemini Vertex AI test agent using explicit credentials
+      systemMessage: You are a helpful assistant powered by Google's Gemini model.
+      modelConfig: gemini-vertex-ai-with-creds-model
+      tools: []

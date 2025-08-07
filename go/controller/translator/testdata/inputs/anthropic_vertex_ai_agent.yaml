@@ -1,0 +1,27 @@
+operation: translateAgent
+targetObject: anthropic-vertex-ai-agent
+namespace: test
+objects:
+  - apiVersion: kagent.dev/v1alpha1
+    kind: ModelConfig
+    metadata:
+      name: anthropic-vertex-ai-model
+      namespace: test
+    spec:
+      provider: AnthropicVertexAI
+      model: claude-3-5-sonnet-v2@20241022
+      anthropicVertexAI:
+        projectID: my-gcp-project
+        location: us-east5
+        temperature: "0.3"
+        maxTokens: 4096
+  - apiVersion: kagent.dev/v1alpha1
+    kind: Agent
+    metadata:
+      name: anthropic-vertex-ai-agent
+      namespace: test
+    spec:
+      description: An Anthropic Vertex AI test agent using machine identity
+      systemMessage: You are a helpful assistant powered by Anthropic's Claude model.
+      modelConfig: anthropic-vertex-ai-model
+      tools: []

@@ -1,0 +1,278 @@
+{
+  "config": {
+    "agent_card": {
+      "capabilities": {
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "streaming": true
+      },
+      "defaultInputModes": [
+        "text"
+      ],
+      "defaultOutputModes": [
+        "text"
+      ],
+      "description": "An Anthropic Vertex AI test agent using machine identity",
+      "name": "anthropic-vertex-ai-agent",
+      "skills": null,
+      "url": "http://anthropic-vertex-ai-agent.test.svc:8080",
+      "version": ""
+    },
+    "agents": null,
+    "description": "An Anthropic Vertex AI test agent using machine identity",
+    "http_tools": null,
+    "instruction": "You are a helpful assistant powered by Anthropic's Claude model.",
+    "kagent_url": "http://kagent-controller.kagent.svc:8083",
+    "model": {
+      "model": "claude-3-5-sonnet-v2@20241022",
+      "type": "gemini_anthropic"
+    },
+    "name": "test__NS__anthropic_vertex_ai_agent",
+    "sse_tools": null
+  },
+  "configHash": [
+    207,
+    178,
+    9,
+    116,
+    37,
+    99,
+    110,
+    118,
+    222,
+    66,
+    69,
+    54,
+    12,
+    86,
+    218,
+    111,
+    187,
+    139,
+    242,
+    124,
+    63,
+    23,
+    98,
+    207,
+    101,
+    43,
+    194,
+    220,
+    209,
+    118,
+    161,
+    154
+  ],
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "anthropic-vertex-ai-agent"
+        },
+        "name": "anthropic-vertex-ai-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "anthropic-vertex-ai-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "data": {
+        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"anthropic-vertex-ai-agent\",\"description\":\"An Anthropic Vertex AI test agent using machine identity\",\"url\":\"http://anthropic-vertex-ai-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__anthropic_vertex_ai_agent\",\"model\":{\"model\":\"claude-3-5-sonnet-v2@20241022\",\"type\":\"gemini_anthropic\"},\"description\":\"An Anthropic Vertex AI test agent using machine identity\",\"instruction\":\"You are a helpful assistant powered by Anthropic's Claude model.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+      },
+      "kind": "ConfigMap",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "anthropic-vertex-ai-agent"
+        },
+        "name": "anthropic-vertex-ai-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "anthropic-vertex-ai-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "anthropic-vertex-ai-agent"
+        },
+        "name": "anthropic-vertex-ai-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "anthropic-vertex-ai-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "anthropic-vertex-ai-agent"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "creationTimestamp": null,
+            "labels": {
+              "app": "kagent",
+              "config.kagent.dev/hash": "14966034906153709174",
+              "kagent": "anthropic-vertex-ai-agent"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "command": [
+                  "kagent",
+                  "static",
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config/config.json"
+                ],
+                "env": [
+                  {
+                    "name": "GOOGLE_CLOUD_PROJECT",
+                    "value": "my-gcp-project"
+                  },
+                  {
+                    "name": "GOOGLE_CLOUD_LOCATION",
+                    "value": "us-east5"
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 3
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "anthropic-vertex-ai-agent",
+            "volumes": [
+              {
+                "configMap": {
+                  "name": "anthropic-vertex-ai-agent"
+                },
+                "name": "config"
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "kagent",
+          "kagent": "anthropic-vertex-ai-agent"
+        },
+        "name": "anthropic-vertex-ai-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "anthropic-vertex-ai-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "anthropic-vertex-ai-agent"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
+}
