@@ -122,7 +122,21 @@ func (a *kagentReconciler) handleExistingAgent(ctx context.Context, agent *v1alp
 		"oldGeneration", agent.Status.ObservedGeneration,
 		"newGeneration", agent.Generation)
 
-	return a.reconcileAgents(ctx, agent)
+	var multiErr *multierror.Error
+
+	configHash, reconcileErr := a.reconcileAgent(ctx, agent)
+	// Append error but still try to reconcile the agent status
+	if reconcileErr != nil {
+		multiErr = multierror.Append(multiErr, fmt.Errorf(
+			"failed to reconcile agent %s/%s: %v", agent.Namespace, agent.Name, reconcileErr))
+	}
+
+	if err := a.reconcileAgentStatus(ctx, agent, configHash, reconcileErr); err != nil {
+		multiErr = multierror.Append(multiErr, fmt.Errorf(
+			"failed to reconcile agent status %s/%s: %v", agent.Namespace, agent.Name, err))
+	}
+
+	return multiErr.ErrorOrNil()
 }
 
 func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha1.Agent, configHash *[sha256.Size]byte, inputErr error) error {
@@ -376,24 +390,6 @@ func (a *kagentReconciler) reconcileMemoryStatus(ctx context.Context, memory *v1
 		}
 	}
 	return nil
-}
-
-func (a *kagentReconciler) reconcileAgents(ctx context.Context, agents ...*v1alpha1.Agent) error {
-	var multiErr *multierror.Error
-	for _, agent := range agents {
-		configHash, reconcileErr := a.reconcileAgent(ctx, agent)
-		// Append error but still try to reconcile the agent status
-		if reconcileErr != nil {
-			multiErr = multierror.Append(multiErr, fmt.Errorf(
-				"failed to reconcile agent %s/%s: %v", agent.Namespace, agent.Name, reconcileErr))
-		}
-		if err := a.reconcileAgentStatus(ctx, agent, configHash, reconcileErr); err != nil {
-			multiErr = multierror.Append(multiErr, fmt.Errorf(
-				"failed to reconcile agent status %s/%s: %v", agent.Namespace, agent.Name, err))
-		}
-	}
-
-	return multiErr.ErrorOrNil()
 }
 
 func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha1.Agent) (*[sha256.Size]byte, error) {
