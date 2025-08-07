@@ -356,7 +356,7 @@ func (a *kagentReconciler) ReconcileKagentMemory(ctx context.Context, req ctrl.R
 		return fmt.Errorf("failed to get memory %s: %v", req.Name, err)
 	}
 
-	return a.reconcileMemoryStatus(ctx, memory, err)
+	return a.reconcileMemoryStatus(ctx, memory, nil)
 }
 
 func (a *kagentReconciler) handleMemoryDeletion(req ctrl.Request) error {
