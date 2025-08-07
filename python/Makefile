@@ -19,3 +19,8 @@ test: update
 
 .PHONY: build
 build: update format
+
+.PHONY: audit
+audit: build
+	uv pip install pip-audit
+	uv run pip-audit

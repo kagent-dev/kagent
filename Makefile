@@ -42,6 +42,7 @@ RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
+GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 
 # Version information for the build
 LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)      \
@@ -355,9 +356,17 @@ kind-debug:
 	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'apt-get update && apt-get install -y btop htop'
 	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'btop --utf-force'
 
-.PHONY: report/image-cve
-report/image-cve: build
+.PHONY: audit
+audit:
+	echo "Running CVE audit GO"
 	make -C go govulncheck
+	echo "Running CVE audit UI"
+	make -C ui audit
+	echo "Running CVE audit PYTHON"
+	make -C python audit
+
+.PHONY: report/image-cve
+report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype docker:$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
