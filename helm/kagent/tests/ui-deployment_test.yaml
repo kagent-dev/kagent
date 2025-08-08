@@ -103,20 +103,14 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+            
   - it: should include init-nginx container
     set:
       ui:
         initContainers:
           - name: init-nginx
             image: busybox
-            command:
-              - sh
-              - -c
-              - |
-                mkdir -p /var/lib/nginx/tmp/client_body
-            volumeMounts:
-              - name: nginx-writable
-                mountPath: /var/lib/nginx
+            command: []
     asserts:
       - equal:
           path: spec.template.spec.initContainers[0].name
@@ -125,5 +119,26 @@ tests:
           path: spec.template.spec.initContainers[0].image
           value: busybox
       - equal:
-          path: spec.template.spec.initContainers[0].volumeMounts[0].mountPath
-          value: /var/lib/nginx
+          path: spec.template.spec.initContainers[0].command
+          value: []
+
+  - it: should include extra volumes and volumeMounts
+    set:
+      ui:
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        volumes:
+        - name: tmp
+          emptyDir: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            mountPath: /tmp
+            name: tmp
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
