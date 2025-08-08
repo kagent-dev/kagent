@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: KAgent Controller API
   description: |
@@ -70,7 +70,8 @@ paths:
                 properties:
                   status:
                     type: string
-                    example: "ok"
+                    examples:
+                      - "ok"
 
   /version:
     get:
@@ -883,7 +884,8 @@ components:
       description: Kubernetes namespace
       schema:
         type: string
-        example: "default"
+        examples:
+          - "default"
 
     NameParam:
       name: name
@@ -892,7 +894,8 @@ components:
       description: Resource name
       schema:
         type: string
-        example: "my-resource"
+        examples:
+          - "my-resource"
 
     SessionIdParam:
       name: session_id
@@ -901,7 +904,8 @@ components:
       description: Session ID
       schema:
         type: string
-        example: "session_123"
+        examples:
+          - "session_123"
 
     TaskIdParam:
       name: task_id
@@ -910,7 +914,8 @@ components:
       description: Task ID
       schema:
         type: string
-        example: "task_456"
+        examples:
+          - "task_456"
 
   schemas:
     # Standard response schemas
@@ -935,8 +940,8 @@ components:
           type: string
           description: Error message
       required: [error]
-      example:
-        error: "Resource not found"
+      examples:
+        - error: "Resource not found"
 
     # Version response
     VersionResponse:
@@ -945,15 +950,18 @@ components:
         kagent_version:
           type: string
           description: KAgent version
-          example: "v1.0.0"
+          examples:
+            - "v1.0.0"
         git_commit:
           type: string
           description: Git commit hash
-          example: "abc123def"
+          examples:
+            - "abc123def"
         build_date:
           type: string
           description: Build date
-          example: "2024-01-15T10:30:00Z"
+          examples:
+            - "2024-01-15T10:30:00Z"
       required: [kagent_version, git_commit, build_date]
 
     # Provider schemas
@@ -963,11 +971,13 @@ components:
         name:
           type: string
           description: Provider name
-          example: "openai"
+          examples:
+            - "openai"
         type:
           type: string
           description: Provider type
-          example: "model"
+          examples:
+            - "model"
       required: [name, type]
 
     ProviderInfo:
@@ -1008,23 +1018,28 @@ components:
         ref:
           type: string
           description: Kubernetes resource reference
-          example: "default/my-model-config"
+          examples:
+            - "default/my-model-config"
         providerName:
           type: string
           description: Provider name
-          example: "openai"
+          examples:
+            - "openai"
         model:
           type: string
           description: Model name
-          example: "gpt-4"
+          examples:
+            - "gpt-4"
         apiKeySecretRef:
           type: string
           description: API key secret reference
-          example: "my-secret"
+          examples:
+            - "my-secret"
         apiKeySecretKey:
           type: string
           description: API key secret key
-          example: "api-key"
+          examples:
+            - "api-key"
         modelParams:
           type: object
           additionalProperties: true
@@ -1502,8 +1517,10 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIError'
-          example:
-            error: "Invalid request body"
+          examples:
+            default:
+              value:
+                error: "Invalid request body"
 
     NotFound:
       description: Resource not found
@@ -1511,8 +1528,10 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIError'
-          example:
-            error: "Resource not found"
+          examples:
+            default:
+              value:
+                error: "Resource not found"
 
     Conflict:
       description: Resource already exists
@@ -1520,8 +1539,10 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIError'
-          example:
-            error: "Resource already exists"
+          examples:
+            default:
+              value:
+                error: "Resource already exists"
 
     InternalServerError:
       description: Internal server error
@@ -1529,8 +1550,10 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIError'
-          example:
-            error: "Internal server error"
+          examples:
+            default:
+              value:
+                error: "Internal server error"
 
     NotImplemented:
       description: Not implemented
@@ -1538,5 +1561,7 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIError'
-          example:
-            error: "Not implemented"
+          examples:
+            default:
+              value:
+                error: "Not implemented"
