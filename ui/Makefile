@@ -20,10 +20,15 @@ clean:
 install-bun:
 	brew install bun
 
+.PHONY: audit
+audit:
+	@echo "Running security audit..."
+	bun audit
+	@echo "Security audit completed."
+
 .PHONY: build
 update:
 	@echo "Updating UI lock file..."
-	npm install
+	npm audit fix
 	bun install --frozen-lockfile --production
-	bun update  --lockfile-only
 	@echo "Updating UI lock file done."

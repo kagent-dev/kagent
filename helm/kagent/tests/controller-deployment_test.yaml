@@ -1,7 +1,6 @@
 suite: test controller deployment
 templates:
   - controller-deployment.yaml
-  - controller-configmap.yaml
 tests:
   - it: should render controller deployment with default values
     template: controller-deployment.yaml
@@ -97,3 +96,32 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "namespace-1,namespace-2"
+
+  - it: should set nodeSelector
+    set:
+      controller:
+        nodeSelector:
+          role: AI
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            role: AI
+
+  - it: should set tolerations
+    set:
+      controller:
+        tolerations:
+          - key: role
+            operator: Equal
+            value: AI
+            effect: NoSchedule
+    asserts:
+      - contains:
+          any: true
+          path: spec.template.spec.tolerations
+          content:
+            key: role
+            value: AI
+            effect: NoSchedule
+            operator: Equal

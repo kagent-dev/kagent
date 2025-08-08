@@ -69,6 +69,12 @@ controller:
   #  - watch-ns-1
   #  - watch-ns-2
 
+  # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  tolerations: []
+
+  # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  nodeSelector: {}
+
   image:
     registry: cr.kagent.dev
     repository: kagent-dev/kagent/controller
@@ -112,6 +118,12 @@ ui:
       port: 80
       targetPort: 8080
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
+  
+  # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  tolerations: []
+
+  # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  nodeSelector: {}
 
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
