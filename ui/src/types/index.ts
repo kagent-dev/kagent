@@ -300,6 +300,55 @@ export interface RemoteMCPServerResponse {
   discoveredTools: DiscoveredTool[];
 }
 
+// MCPServer types for stdio-based servers
+export interface MCPServerDeployment {
+  image: string;
+  port: number;
+  cmd?: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface StdioTransport {
+  // Empty interface for stdio transport
+}
+
+export type TransportType = "stdio";
+
+export interface MCPServerSpec {
+  deployment: MCPServerDeployment;
+  transportType: TransportType;
+  stdioTransport: StdioTransport;
+}
+
+export interface MCPServer {
+  metadata: {
+    name: string;
+    namespace: string;
+  };
+  spec: MCPServerSpec;
+}
+
+export interface MCPServerResponse {
+  ref: string; // namespace/name
+  groupKind: string;
+  discoveredTools: DiscoveredTool[];
+}
+
+// Union type for tool server responses
+export type ToolServerResponse = RemoteMCPServerResponse | MCPServerResponse;
+
+// Union type for tool server creation
+export type ToolServer = RemoteMCPServer | MCPServer;
+
+// Tool server creation request
+export interface ToolServerCreateRequest {
+  type: "RemoteMCPServer" | "MCPServer";
+  remoteMCPServer?: RemoteMCPServer;
+  mcpServer?: MCPServer;
+}
+
 
 export interface DiscoveredTool {
   name: string;
