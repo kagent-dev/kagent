@@ -1,16 +1,15 @@
 'use server'
-import { RemoteMCPServer, RemoteMCPServerResponse } from "@/types";
+import { RemoteMCPServer, MCPServer, ToolServerCreateRequest, ToolServerResponse } from "@/types";
 import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse } from "@/types";
-import { revalidatePath } from "next/cache";
 
 /**
  * Fetches all tool servers
  * @returns Promise with server data
  */
-export async function getServers(): Promise<BaseResponse<RemoteMCPServerResponse[]>> {
+export async function getServers(): Promise<BaseResponse<ToolServerResponse[]>> {
   try {
-    const response = await fetchApi<BaseResponse<RemoteMCPServerResponse[]>>(`/toolservers`);
+    const response = await fetchApi<BaseResponse<ToolServerResponse[]>>(`/toolservers`);
 
     if (!response) {
       throw new Error("Failed to get tool servers");
@@ -21,26 +20,24 @@ export async function getServers(): Promise<BaseResponse<RemoteMCPServerResponse
       data: response.data,
     };  
   } catch (error) {
-    return createErrorResponse<RemoteMCPServerResponse[]>(error, "Error getting tool servers");
+    return createErrorResponse<ToolServerResponse[]>(error, "Error getting tool servers");
   }
 }
 
 /**
  * Deletes a server
- * @param serverName Name of the server to delete
+ * @param serverName Server name to delete (format: namespace/name)
  * @returns Promise with delete result
  */
 export async function deleteServer(serverName: string): Promise<BaseResponse<void>> {
   try {
-    await fetchApi(`/toolservers/${serverName}`, {
+    const response = await fetchApi<BaseResponse<void>>(`/toolservers/${serverName}`, {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
     });
 
-    revalidatePath("/servers");
-    return { message: "Tool server deleted successfully" };
+    return {
+      message: "Tool server deleted successfully",
+    };
   } catch (error) {
     return createErrorResponse<void>(error, "Error deleting tool server");
   }
@@ -51,9 +48,10 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
  * @param serverData Server data to create
  * @returns Promise with create result
  */
-export async function createServer(serverData: RemoteMCPServer): Promise<BaseResponse<RemoteMCPServer>> {
+export async function createServer(serverData: ToolServerCreateRequest): Promise<BaseResponse<RemoteMCPServer | MCPServer>> {
   try {
-    const response = await fetchApi<BaseResponse<RemoteMCPServer>>("/toolservers", {
+    console.log('Creating server with data:', JSON.stringify(serverData, null, 2));
+    const response = await fetchApi<BaseResponse<RemoteMCPServer | MCPServer>>("/toolservers", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -61,12 +59,8 @@ export async function createServer(serverData: RemoteMCPServer): Promise<BaseRes
       body: JSON.stringify(serverData),
     });
     
-
-    return {
-      message: "Tool server created successfully",
-      data: response.data,
-    };
+    return response;
   } catch (error) {
-    return createErrorResponse<RemoteMCPServer>(error, "Error creating tool server");
+    return createErrorResponse<RemoteMCPServer | MCPServer>(error, "Error creating tool server");
   }
 }
