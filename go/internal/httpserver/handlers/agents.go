@@ -318,7 +318,7 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 		h.KubeClient,
 		existingAgent,
 		agentName,
-		namespace,
+		agentNamespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
