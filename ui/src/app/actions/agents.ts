@@ -61,6 +61,7 @@ function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[
  * @returns An Agent object
  */
 function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
+  const modelConfigName = agentFormData.modelName.includes("/") ? agentFormData.modelName.split("/").pop() || "" : agentFormData.modelName;
   return {
     metadata: {
       name: agentFormData.name,
@@ -69,7 +70,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     spec: {
       description: agentFormData.description,
       systemMessage: agentFormData.systemPrompt,
-      modelConfig: agentFormData.model.ref || "",
+      modelConfig: modelConfigName,
       memory: agentFormData.memory,
       tools: agentFormData.tools.map((tool) => {
         if (isMcpTool(tool) && tool.mcpServer) {
@@ -130,11 +131,12 @@ export async function getAgent(agentName: string, namespace: string): Promise<Ba
 /**
  * Deletes a agent
  * @param agentName The agent name
+ * @param namespace The agent namespace
  * @returns A promise with the delete result
  */
-export async function deleteAgent(agentName: string): Promise<BaseResponse<void>> {
+export async function deleteAgent(agentName: string, namespace: string): Promise<BaseResponse<void>> {
   try {
-    await fetchApi(`/agents/${agentName}`, {
+    await fetchApi(`/agents/${namespace}/${agentName}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
@@ -156,12 +158,6 @@ export async function deleteAgent(agentName: string): Promise<BaseResponse<void>
  */
 export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
   try {
-
-    // Only get the name of the model, not the full ref
-    if (agentConfig.model.ref) {
-      agentConfig.model.ref = agentConfig.model.ref.split("/").pop() || "";
-    }
-
     const agentPayload = fromAgentFormDataToAgent(agentConfig);
     const response = await fetchApi<BaseResponse<Agent>>(`/agents`, {
       method: update ? "PUT" : "POST",

@@ -153,7 +153,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       namespace,
       description,
       systemPrompt,
-      model: selectedModel || undefined,
+      modelName: selectedModel?.ref || "",
       tools: selectedTools,
     };
 
@@ -173,7 +173,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       case 'namespace': formData.namespace = value; break;
       case 'description': formData.description = value; break;
       case 'systemPrompt': formData.systemPrompt = value; break;
-      case 'model': formData.model = value; break;
+      case 'model': formData.modelName = value; break;
       case 'tools': formData.tools = value; break;
       case 'memory': formData.memory = value; break;
     }
@@ -203,7 +203,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         namespace,
         systemPrompt,
         description,
-        model: selectedModel,
+        modelName: selectedModel?.ref || "",
         tools: selectedTools,
         memory: selectedMemories,
       };
