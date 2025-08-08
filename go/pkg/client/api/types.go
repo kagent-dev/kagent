@@ -98,15 +98,13 @@ type CreateAgentRequest struct {
 }
 
 // UpdateAgentRequest represents a request to update an agent
+// This matches the CreateAgentRequest structure but with pointer fields for optional updates
 type UpdateAgentRequest struct {
-	Description   *string                  `json:"description,omitempty"`
-	SystemMessage *string                  `json:"systemMessage,omitempty"`
-	ModelConfig   *string                  `json:"modelConfig,omitempty"`
-	Stream        *bool                    `json:"stream,omitempty"`
-	Tools         []*v1alpha1.Tool         `json:"tools,omitempty"`
-	Memory        []string                 `json:"memory,omitempty"`
-	A2AConfig     *v1alpha1.A2AConfig      `json:"a2aConfig,omitempty"`
-	Deployment    *v1alpha1.DeploymentSpec `json:"deployment,omitempty"`
+	Description   *string          `json:"description,omitempty"`
+	SystemMessage *string          `json:"systemMessage,omitempty"`
+	ModelConfig   *string          `json:"modelConfig,omitempty"`
+	Tools         []*v1alpha1.Tool `json:"tools,omitempty"`
+	Memory        []string         `json:"memory,omitempty"`
 }
 
 // Session types

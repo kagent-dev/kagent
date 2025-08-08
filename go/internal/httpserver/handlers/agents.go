@@ -341,20 +341,11 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	if req.ModelConfig != nil {
 		existingAgent.Spec.ModelConfig = *req.ModelConfig
 	}
-	if req.Stream != nil {
-		existingAgent.Spec.Stream = req.Stream
-	}
 	if req.Tools != nil {
 		existingAgent.Spec.Tools = req.Tools
 	}
 	if req.Memory != nil {
 		existingAgent.Spec.Memory = req.Memory
-	}
-	if req.A2AConfig != nil {
-		existingAgent.Spec.A2AConfig = req.A2AConfig
-	}
-	if req.Deployment != nil {
-		existingAgent.Spec.Deployment = req.Deployment
 	}
 
 	if err := h.KubeClient.Update(r.Context(), existingAgent); err != nil {
