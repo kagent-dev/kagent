@@ -26,10 +26,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
@@ -57,7 +59,7 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&agentv1alpha1.ModelConfig{}).
+		For(&agentv1alpha1.ModelConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&v1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -77,6 +79,7 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				return requests
 			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("modelconfig").
 		Complete(r)

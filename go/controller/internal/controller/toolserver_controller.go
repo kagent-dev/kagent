@@ -26,9 +26,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // ToolServerReconciler reconciles a ToolServer object
@@ -57,7 +59,7 @@ func (r *ToolServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha1.ToolServer{}).
+		For(&v1alpha1.ToolServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("toolserver").
 		Complete(r)
 }

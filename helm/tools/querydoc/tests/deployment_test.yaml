@@ -67,3 +67,30 @@ tests:
       - equal:
           path: spec.template.metadata.labels["app.kubernetes.io/instance"]
           value: RELEASE-NAME
+
+  - it: should set nodeSelector
+    set:
+        nodeSelector:
+          role: AI
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            role: AI
+
+  - it: should set tolerations
+    set:
+        tolerations:
+          - key: role
+            operator: Equal
+            value: AI
+            effect: NoSchedule
+    asserts:
+      - contains:
+          any: true
+          path: spec.template.spec.tolerations
+          content:
+            key: role
+            value: AI
+            effect: NoSchedule
+            operator: Equal

@@ -74,3 +74,32 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8080
+
+  - it: should set nodeSelector
+    set:
+      ui:
+        nodeSelector:
+          role: AI
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            role: AI
+
+  - it: should set tolerations
+    set:
+      ui:
+        tolerations:
+          - key: role
+            operator: Equal
+            value: AI
+            effect: NoSchedule
+    asserts:
+      - contains:
+          any: true
+          path: spec.template.spec.tolerations
+          content:
+            key: role
+            value: AI
+            effect: NoSchedule
+            operator: Equal

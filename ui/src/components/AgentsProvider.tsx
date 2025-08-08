@@ -141,7 +141,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     }
 
     if (!data.modelName || data.modelName.trim() === "") {
-      errors.modelName = "Please select a model";
+      errors.model = "Please select a model";
     }
 
     return errors;

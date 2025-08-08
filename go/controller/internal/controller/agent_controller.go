@@ -21,14 +21,18 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
@@ -57,11 +61,11 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&agentv1alpha1.Agent{}).
-		Owns(&appsv1.Deployment{}).
-		Owns(&corev1.ConfigMap{}).
-		Owns(&corev1.Service{}).
-		Owns(&corev1.ServiceAccount{}).
+		For(&agentv1alpha1.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&appsv1.Deployment{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
+		Owns(&corev1.ConfigMap{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
+		Owns(&corev1.Service{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
+		Owns(&corev1.ServiceAccount{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
 		Watches(
 			&agentv1alpha1.Memory{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -81,6 +85,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				return requests
 			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Watches(
 			&agentv1alpha1.ModelConfig{},
@@ -101,6 +106,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				return requests
 			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Watches(
 			&agentv1alpha1.ToolServer{},
@@ -121,7 +127,21 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				return requests
 			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("agent").
 		Complete(r)
+}
+
+type ownedObjectPredicate = typedOwnedObjectPredicate[client.Object]
+
+type typedOwnedObjectPredicate[object metav1.Object] struct {
+	predicate.TypedFuncs[object]
+}
+
+// Create implements default CreateEvent filter to ignore creation events for
+// owned objects as this controller most likely created it and does not need to
+// re-reconcile.
+func (typedOwnedObjectPredicate[object]) Create(e event.TypedCreateEvent[object]) bool {
+	return false
 }
