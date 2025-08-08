@@ -63,6 +63,10 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
+				if val, ok := obj.GetLabels()["kagent.dev/secret-type"]; !ok || val != "modelconfig" {
+					return requests
+				}
+
 				for _, model := range r.Reconciler.FindModelsUsingSecret(ctx, types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
