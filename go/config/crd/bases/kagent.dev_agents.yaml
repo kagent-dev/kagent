@@ -2239,20 +2239,10 @@ spec:
           spec:
             description: AgentSpec defines the desired state of Agent.
             properties:
-              agentType:
-                allOf:
-                - enum:
-                  - Inline
-                  - BYO
-                - enum:
-                  - Inline
-                  - BYO
-                default: Inline
-                description: AgentType represents the agent type
-                type: string
               byo:
                 properties:
                   deployment:
+                    description: Trust relationship to the agent.
                     properties:
                       annotations:
                         additionalProperties:
@@ -2411,9 +2401,6 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
-                      port:
-                        format: int32
-                        type: integer
                       replicas:
                         default: 1
                         description: If not specified, the default value is 1.
@@ -6438,18 +6425,29 @@ spec:
                     maxItems: 20
                     type: array
                 type: object
+              type:
+                allOf:
+                - enum:
+                  - Inline
+                  - BYO
+                - enum:
+                  - Inline
+                  - BYO
+                default: Inline
+                description: AgentType represents the agent type
+                type: string
             required:
-            - agentType
+            - type
             type: object
             x-kubernetes-validations:
-            - message: agentType must be specified
-              rule: has(self.agentType)
-            - message: agentType must be either Inline or BYO
-              rule: self.agentType == 'Inline' || self.agentType == 'BYO'
-            - message: inline must be specified if agentType is Inline, or byo must
-                be specified if agentType is BYO
-              rule: (self.agentType == 'Inline' && has(self.inline)) || (self.agentType
-                == 'BYO' && has(self.byo))
+            - message: type must be specified
+              rule: has(self.type)
+            - message: type must be either Inline or BYO
+              rule: self.type == 'Inline' || self.type == 'BYO'
+            - message: inline must be specified if type is Inline, or byo must be
+                specified if type is BYO
+              rule: (self.type == 'Inline' && has(self.inline)) || (self.type == 'BYO'
+                && has(self.byo))
           status:
             description: AgentStatus defines the observed state of Agent.
             properties:

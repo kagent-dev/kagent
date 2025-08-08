@@ -7,7 +7,7 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: An Observability-oriented Agent specialized in using Prometheus, Grafana, and Kubernetes for monitoring and observability. This agent is equipped with a range of tools to query Prometheus for metrics, create Grafana dashboards, and verify Kubernetes resources.
-  agentType: Inline
+  type: Inline
   inline:
     systemMessage: |-
       # Observability AI Agent System Prompt

@@ -55,20 +55,20 @@ func (a *a2aReconciler) ReconcileAgent(
 	agent *v1alpha2.Agent,
 	card server.AgentCard,
 ) error {
-	cardCopy := card
 	// Modify card for kagent proxy
 	agentRef := common.GetObjectRef(agent)
-	cardCopy.URL = fmt.Sprintf("%s/%s/", a.a2aBaseUrl, agentRef)
 
-	client, err := a2aclient.NewA2AClient(cardCopy.URL, a2aclient.WithBuffer(a.streamingInitialBufSize, a.streamingMaxBufSize))
+	client, err := a2aclient.NewA2AClient(card.URL, a2aclient.WithBuffer(a.streamingInitialBufSize, a.streamingMaxBufSize))
 	if err != nil {
 		return err
 	}
+	cardCopy := card
+	cardCopy.URL = fmt.Sprintf("%s/%s/", a.a2aBaseUrl, agentRef)
 
 	return a.a2aHandler.SetAgentHandler(
 		agentRef,
 		client,
-		card,
+		cardCopy,
 	)
 }
 

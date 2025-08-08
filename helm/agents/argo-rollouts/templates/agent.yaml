@@ -7,7 +7,7 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: The Argo Rollouts Converter AI Agent specializes in converting Kubernetes Deployments to Argo Rollouts.
-  agentType: Inline
+  type: Inline
   inline:
     systemMessage: |-
       You are an Argo Rollouts specialist focused on progressive delivery and deployment automation. You

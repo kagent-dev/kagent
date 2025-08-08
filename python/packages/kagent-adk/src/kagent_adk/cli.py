@@ -30,9 +30,9 @@ kagent_namespace = os.getenv("KAGENT_NAMESPACE")
 
 
 class Config:
-    url: str
-    name: str
-    namespace: str
+    _url: str
+    _name: str
+    _namespace: str
 
     def __init__(self):
         if not kagent_url:
@@ -41,12 +41,25 @@ class Config:
             raise ValueError("KAGENT_NAME is not set")
         if not kagent_namespace:
             raise ValueError("KAGENT_NAMESPACE is not set")
-        self.url = kagent_url
-        self.name = kagent_name
-        self.namespace = kagent_namespace
+        self._url = kagent_url
+        self._name = kagent_name
+        self._namespace = kagent_namespace
 
+    @property
+    def name(self):
+        return self._name.replace("-", "_")
+
+    @property
+    def namespace(self):
+        return self._namespace.replace("-", "_")
+
+    @property
     def app_name(self):
-        return self.name + "__NS__" + self.namespace
+        return self.namespace + "__NS__" + self.name
+
+    @property
+    def url(self):
+        return self._url
 
 
 @app.command()
@@ -75,9 +88,9 @@ def static(
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
-    root_agent = agent_config.to_agent(app_cfg.app_name())
+    root_agent = agent_config.to_agent(app_cfg.name)
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name())
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
 
     uvicorn.run(
         kagent_app.build,
@@ -104,7 +117,7 @@ def run(
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name())
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
     uvicorn.run(
         kagent_app.build,
         host=host,
@@ -115,9 +128,8 @@ def run(
 
 async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str):
     app_cfg = Config()
-    app_name = app_cfg.app_name()
-    agent = agent_config.to_agent(app_name)
-    app = KAgentApp(agent, agent_card, app_cfg.url, app_cfg.app_name())
+    agent = agent_config.to_agent(app_cfg.name)
+    app = KAgentApp(agent, agent_card, app_cfg.url, app_cfg.app_name)
     await app.test(task)
 
 

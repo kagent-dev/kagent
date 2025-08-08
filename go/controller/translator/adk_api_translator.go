@@ -169,7 +169,7 @@ func (a *adkApiTranslator) buildManifest(
 		},
 		corev1.EnvVar{
 			Name:  "KAGENT_URL",
-			Value: fmt.Sprintf("http://kagent-controller.%s.svc:8083", common.GetResourceNamespace()),
+			Value: fmt.Sprintf("http://kagent-controller.%s:8083", common.GetResourceNamespace()),
 		},
 	)
 
@@ -320,7 +320,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Model:       model,
 	}
 	agentCard := &server.AgentCard{
-		Name:        utils.ConvertToPythonIdentifier(utils.ResourceRefString(agent.Namespace, agent.Name)),
+		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
 		Description: agent.Spec.Description,
 		URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
 		Capabilities: server.AgentCapabilities{
@@ -383,12 +383,13 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				}
 				cfg.Agents = append(cfg.Agents, *toolAgentCfg)
 			case v1alpha2.AgentType_BYO:
-				return nil, nil, nil, fmt.Errorf("BYO agents are not supported in inline agents")
-				// toolAgentCfg, _, err = a.translateRegisteredAgent(ctx, toolAgent, state.with(agent))
-				// if err != nil {
-				// 	return nil, nil, err
-				// }
-				// cfg.Agents = append(cfg.Agents, *toolAgentCfg)
+				port := int32(8080)
+				url := fmt.Sprintf("http://%s.%s:%d", toolAgent.Name, toolAgent.Namespace, port)
+				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
+					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
+					Url:         url,
+					Description: toolAgent.Spec.Description,
+				})
 			default:
 				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
 			}
@@ -938,7 +939,7 @@ type resolvedDeployment struct {
 
 func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	// Defaults
-	image := fmt.Sprintf("ghcr.io/kagent-dev/kagent/app:%s", version.Get().Version)
+	image := fmt.Sprintf("cr.kagent.dev/kagent-dev/kagent/app:%s", version.Get().Version)
 	port := int32(8080)
 	cmd := "kagent-adk"
 	args := []string{
@@ -948,7 +949,7 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		"--port",
 		fmt.Sprintf("%d", port),
 		"--filepath",
-		"/config/config.json",
+		"/config",
 	}
 
 	// Start with shared deployment spec
@@ -991,7 +992,7 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 
 	image := spec.Image
 	if image == "" {
-		image = fmt.Sprintf("ghcr.io/kagent-dev/kagent/app:%s", version.Get().Version)
+		image = fmt.Sprintf("cr.kagent.dev/kagent-dev/kagent/app:%s", version.Get().Version)
 	}
 
 	cmd := spec.Cmd
@@ -1008,7 +1009,7 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 			"--port",
 			fmt.Sprintf("%d", port),
 			"--filepath",
-			"/config/config.json",
+			"/config",
 		}
 	}
 

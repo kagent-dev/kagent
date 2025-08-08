@@ -7,7 +7,7 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: Cilium policy agent knows how to create CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy resources from natural language
-  agentType: Inline
+  type: Inline
   inline:
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     systemMessage: |-
