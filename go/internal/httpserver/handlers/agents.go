@@ -200,7 +200,8 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 
 	agentRef, err := common.ParseRefString(req.Ref, common.GetResourceNamespace())
 	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid agent ref", err))
+		log.Error(err, "Failed to parse Ref")
+		w.RespondWithError(errors.NewBadRequestError("Invalid Ref", err))
 		return
 	}
 	if !strings.Contains(req.Ref, "/") {

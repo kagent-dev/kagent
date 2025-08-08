@@ -228,13 +228,13 @@ func TestHandleCreateAgent(t *testing.T) {
 
 		require.Equal(t, http.StatusCreated, w.Code)
 
-		var response api.StandardResponse[v1alpha1.Agent]
+		var response api.StandardResponse[api.AgentResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Equal(t, "test-team", response.Data.Name)
-		require.Equal(t, "default", response.Data.Namespace)
-		require.Equal(t, "You are an imagenary agent", response.Data.Spec.SystemMessage)
-		require.Equal(t, "test-model-config", response.Data.Spec.ModelConfig)
+		require.Equal(t, "test-team", response.Data.Agent.Name)
+		require.Equal(t, "default", response.Data.Agent.Namespace)
+		require.Equal(t, "You are an imagenary agent", response.Data.Agent.Spec.SystemMessage)
+		require.Equal(t, "test-model-config", response.Data.Agent.Spec.ModelConfig)
 	})
 }
 
