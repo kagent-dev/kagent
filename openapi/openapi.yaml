@@ -1,0 +1,1542 @@
+openapi: 3.0.3
+info:
+  title: KAgent Controller API
+  description: |
+    REST API for the KAgent controller that manages AI agents, model configurations, 
+    sessions, tools, and other Kubernetes-based AI resources.
+    
+    This API provides endpoints for:
+    - Creating and managing AI agents
+    - Managing model configurations for different AI providers
+    - Handling chat sessions and tasks
+    - Managing tools and tool servers
+    - Memory management for agent persistence
+    - System health and version information
+  version: 1.0.0
+  contact:
+    name: KAgent Team
+    url: https://github.com/kagent-dev/kagent
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.kagent.dev
+    description: Production server
+
+tags:
+  - name: System
+    description: System health and version endpoints
+  - name: ModelConfigs
+    description: Model configuration management
+  - name: Agents
+    description: AI agent management
+  - name: Sessions
+    description: Chat session management
+  - name: Tasks
+    description: Task management
+  - name: Tools
+    description: Tool discovery and management
+  - name: ToolServers
+    description: Tool server management
+  - name: Memories
+    description: Memory provider management
+  - name: Providers
+    description: Provider information
+  - name: Models
+    description: Supported model information
+  - name: Namespaces
+    description: Kubernetes namespace management
+  - name: Feedback
+    description: User feedback collection
+
+paths:
+  # System endpoints
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      description: Returns the health status of the API server
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+  /version:
+    get:
+      tags: [System]
+      summary: Get version information
+      description: Returns version information including KAgent version, git commit, and build date
+      operationId: getVersion
+      responses:
+        '200':
+          description: Version information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionResponse'
+
+  # Model configuration endpoints
+  /api/modelconfigs:
+    get:
+      tags: [ModelConfigs]
+      summary: List all model configurations
+      description: Retrieves a list of all model configurations across all namespaces
+      operationId: listModelConfigs
+      responses:
+        '200':
+          description: List of model configurations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfigListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [ModelConfigs]
+      summary: Create a new model configuration
+      description: Creates a new model configuration with the specified provider and parameters
+      operationId: createModelConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModelConfigRequest'
+      responses:
+        '201':
+          description: Model configuration created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/modelconfigs/{namespace}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/NamespaceParam'
+      - $ref: '#/components/parameters/NameParam'
+
+    get:
+      tags: [ModelConfigs]
+      summary: Get a specific model configuration
+      description: Retrieves a model configuration by namespace and name
+      operationId: getModelConfig
+      responses:
+        '200':
+          description: Model configuration details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags: [ModelConfigs]
+      summary: Update a model configuration
+      description: Updates an existing model configuration
+      operationId: updateModelConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModelConfigRequest'
+      responses:
+        '200':
+          description: Model configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [ModelConfigs]
+      summary: Delete a model configuration
+      description: Deletes a model configuration by namespace and name
+      operationId: deleteModelConfig
+      responses:
+        '200':
+          description: Model configuration deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Agent endpoints
+  /api/agents:
+    get:
+      tags: [Agents]
+      summary: List all agents
+      description: Retrieves a list of all agents
+      operationId: listAgents
+      parameters:
+        - name: userID
+          in: query
+          description: User ID to filter agents (optional in implementation but expected by Go client)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [Agents]
+      summary: Create a new agent
+      description: Creates a new AI agent
+      operationId: createAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '201':
+          description: Agent created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+
+
+  /api/agents/{namespace}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/NamespaceParam'
+      - $ref: '#/components/parameters/NameParam'
+
+    get:
+      tags: [Agents]
+      summary: Get a specific agent
+      description: Retrieves an agent by namespace and name
+      operationId: getAgent
+      responses:
+        '200':
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags: [Agents]
+      summary: Update an agent
+      description: Updates an existing agent by namespace and name
+      operationId: updateAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentRequest'
+      responses:
+        '200':
+          description: Agent updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [Agents]
+      summary: Delete an agent
+      description: Deletes an agent by namespace and name
+      operationId: deleteAgent
+      responses:
+        '200':
+          description: Agent deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Session endpoints
+  /api/sessions:
+    get:
+      tags: [Sessions]
+      summary: List all sessions
+      description: Retrieves a list of all chat sessions
+      operationId: listSessions
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [Sessions]
+      summary: Create a new session
+      description: Creates a new chat session
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRequest'
+      responses:
+        '201':
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/sessions/agent/{namespace}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/NamespaceParam'
+      - $ref: '#/components/parameters/NameParam'
+
+    get:
+      tags: [Sessions]
+      summary: Get sessions for a specific agent
+      description: Retrieves all sessions for a specific agent
+      operationId: getSessionsForAgent
+      responses:
+        '200':
+          description: List of sessions for the agent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/sessions/{session_id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionIdParam'
+
+    get:
+      tags: [Sessions]
+      summary: Get a specific session
+      description: Retrieves a session by ID
+      operationId: getSession
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags: [Sessions]
+      summary: Update a session
+      description: Updates an existing session
+      operationId: updateSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRequest'
+      responses:
+        '200':
+          description: Session updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [Sessions]
+      summary: Delete a session
+      description: Deletes a session by ID
+      operationId: deleteSession
+      responses:
+        '200':
+          description: Session deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/sessions/{session_id}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/SessionIdParam'
+
+    get:
+      tags: [Sessions]
+      summary: List tasks for a session
+      description: Retrieves all tasks for a specific session
+      operationId: listTasksForSession
+      responses:
+        '200':
+          description: List of tasks for the session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/sessions/{session_id}/events:
+    parameters:
+      - $ref: '#/components/parameters/SessionIdParam'
+
+    post:
+      tags: [Sessions]
+      summary: Add event to session
+      description: Adds a new event to a session
+      operationId: addEventToSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+      responses:
+        '201':
+          description: Event added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Task endpoints
+  /api/tasks:
+    post:
+      tags: [Tasks]
+      summary: Create a new task
+      description: Creates a new task
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRequest'
+      responses:
+        '201':
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/tasks/{task_id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdParam'
+
+    get:
+      tags: [Tasks]
+      summary: Get a specific task
+      description: Retrieves a task by ID
+      operationId: getTask
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [Tasks]
+      summary: Delete a task
+      description: Deletes a task by ID
+      operationId: deleteTask
+      responses:
+        '200':
+          description: Task deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Tool endpoints
+  /api/tools:
+    get:
+      tags: [Tools]
+      summary: List all tools
+      description: Retrieves a list of all available tools
+      operationId: listTools
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          description: User ID for tool access
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of tools
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Tool server endpoints
+  /api/toolservers:
+    get:
+      tags: [ToolServers]
+      summary: List all tool servers
+      description: Retrieves a list of all tool servers
+      operationId: listToolServers
+      responses:
+        '200':
+          description: List of tool servers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolServerListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [ToolServers]
+      summary: Create a new tool server
+      description: Creates a new tool server
+      operationId: createToolServer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateToolServerRequest'
+      responses:
+        '201':
+          description: Tool server created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolServerResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/toolservers/{namespace}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/NamespaceParam'
+      - $ref: '#/components/parameters/NameParam'
+
+    delete:
+      tags: [ToolServers]
+      summary: Delete a tool server
+      description: Deletes a tool server by namespace and name
+      operationId: deleteToolServer
+      responses:
+        '200':
+          description: Tool server deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Memory endpoints
+  /api/memories:
+    get:
+      tags: [Memories]
+      summary: List all memories
+      description: Retrieves a list of all memory configurations
+      operationId: listMemories
+      responses:
+        '200':
+          description: List of memories
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [Memories]
+      summary: Create a new memory
+      description: Creates a new memory configuration
+      operationId: createMemory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMemoryRequest'
+      responses:
+        '201':
+          description: Memory created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/memories/{namespace}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/NamespaceParam'
+      - $ref: '#/components/parameters/NameParam'
+
+    get:
+      tags: [Memories]
+      summary: Get a specific memory
+      description: Retrieves a memory configuration by namespace and name
+      operationId: getMemory
+      responses:
+        '200':
+          description: Memory details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags: [Memories]
+      summary: Update a memory
+      description: Updates an existing memory configuration
+      operationId: updateMemory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemoryRequest'
+      responses:
+        '200':
+          description: Memory updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [Memories]
+      summary: Delete a memory
+      description: Deletes a memory configuration by namespace and name
+      operationId: deleteMemory
+      responses:
+        '200':
+          description: Memory deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Provider endpoints
+  /api/providers/models:
+    get:
+      tags: [Providers]
+      summary: List supported model providers
+      description: Retrieves a list of all supported model providers
+      operationId: listSupportedModelProviders
+      responses:
+        '200':
+          description: List of model providers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/providers/memories:
+    get:
+      tags: [Providers]
+      summary: List supported memory providers
+      description: Retrieves a list of all supported memory providers
+      operationId: listSupportedMemoryProviders
+      responses:
+        '200':
+          description: List of memory providers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Model endpoints
+  /api/models:
+    get:
+      tags: [Models]
+      summary: List supported models
+      description: Retrieves a list of all supported models
+      operationId: listSupportedModels
+      responses:
+        '200':
+          description: List of supported models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+  # Namespace endpoints
+  /api/namespaces:
+    get:
+      tags: [Namespaces]
+      summary: List all namespaces
+      description: Retrieves a list of all watched Kubernetes namespaces
+      operationId: listNamespaces
+      responses:
+        '200':
+          description: List of namespaces
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamespaceListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Feedback endpoints
+  /api/feedback:
+    get:
+      tags: [Feedback]
+      summary: List all feedback
+      description: Retrieves a list of all user feedback
+      operationId: listFeedback
+      responses:
+        '200':
+          description: List of feedback
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [Feedback]
+      summary: Create feedback
+      description: Submits new user feedback
+      operationId: createFeedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '201':
+          description: Feedback created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  parameters:
+    NamespaceParam:
+      name: namespace
+      in: path
+      required: true
+      description: Kubernetes namespace
+      schema:
+        type: string
+        example: "default"
+
+    NameParam:
+      name: name
+      in: path
+      required: true
+      description: Resource name
+      schema:
+        type: string
+        example: "my-resource"
+
+    SessionIdParam:
+      name: session_id
+      in: path
+      required: true
+      description: Session ID
+      schema:
+        type: string
+        example: "session_123"
+
+    TaskIdParam:
+      name: task_id
+      in: path
+      required: true
+      description: Task ID
+      schema:
+        type: string
+        example: "task_456"
+
+  schemas:
+    # Standard response schemas
+    StandardResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+          description: Whether an error occurred
+        data:
+          type: object
+          description: Response data
+        message:
+          type: string
+          description: Response message
+      required: [error]
+
+    APIError:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+      required: [error]
+      example:
+        error: "Resource not found"
+
+    # Version response
+    VersionResponse:
+      type: object
+      properties:
+        kagent_version:
+          type: string
+          description: KAgent version
+          example: "v1.0.0"
+        git_commit:
+          type: string
+          description: Git commit hash
+          example: "abc123def"
+        build_date:
+          type: string
+          description: Build date
+          example: "2024-01-15T10:30:00Z"
+      required: [kagent_version, git_commit, build_date]
+
+    # Provider schemas
+    Provider:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Provider name
+          example: "openai"
+        type:
+          type: string
+          description: Provider type
+          example: "model"
+      required: [name, type]
+
+    ProviderInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Provider name
+        type:
+          type: string
+          description: Provider type
+        requiredParams:
+          type: array
+          items:
+            type: string
+          description: Required parameters
+        optionalParams:
+          type: array
+          items:
+            type: string
+          description: Optional parameters
+      required: [name, type, requiredParams, optionalParams]
+
+    ProviderListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProviderInfo'
+
+    # Model configuration schemas
+    ModelConfigResponse:
+      type: object
+      properties:
+        ref:
+          type: string
+          description: Kubernetes resource reference
+          example: "default/my-model-config"
+        providerName:
+          type: string
+          description: Provider name
+          example: "openai"
+        model:
+          type: string
+          description: Model name
+          example: "gpt-4"
+        apiKeySecretRef:
+          type: string
+          description: API key secret reference
+          example: "my-secret"
+        apiKeySecretKey:
+          type: string
+          description: API key secret key
+          example: "api-key"
+        modelParams:
+          type: object
+          additionalProperties: true
+          description: Provider-specific model parameters
+      required: [ref, providerName, model]
+
+    CreateModelConfigRequest:
+      type: object
+      properties:
+        ref:
+          type: string
+          description: Kubernetes resource reference
+        provider:
+          $ref: '#/components/schemas/Provider'
+        model:
+          type: string
+          description: Model name
+        apiKey:
+          type: string
+          description: API key for the provider
+        openAI:
+          type: object
+          description: OpenAI-specific parameters
+        anthropic:
+          type: object
+          description: Anthropic-specific parameters
+        azureOpenAI:
+          type: object
+          description: Azure OpenAI-specific parameters
+        ollama:
+          type: object
+          description: Ollama-specific parameters
+      required: [ref, provider, model, apiKey]
+
+    UpdateModelConfigRequest:
+      type: object
+      properties:
+        provider:
+          $ref: '#/components/schemas/Provider'
+        model:
+          type: string
+          description: Model name
+        apiKey:
+          type: string
+          description: API key for the provider
+        openAI:
+          type: object
+          description: OpenAI-specific parameters
+        anthropic:
+          type: object
+          description: Anthropic-specific parameters
+        azureOpenAI:
+          type: object
+          description: Azure OpenAI-specific parameters
+        ollama:
+          type: object
+          description: Ollama-specific parameters
+      required: [provider, model]
+
+    ModelConfigListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ModelConfigResponse'
+
+    # Agent schemas
+    AgentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Agent ID
+        agent:
+          type: object
+          description: Kubernetes Agent resource
+        modelProvider:
+          type: string
+          description: Model provider
+        model:
+          type: string
+          description: Model name
+        modelConfigRef:
+          type: string
+          description: Model configuration reference
+        memoryRefs:
+          type: array
+          items:
+            type: string
+          description: Memory references
+        tools:
+          type: array
+          items:
+            type: object
+          description: Available tools
+      required: [id, agent, modelProvider, model]
+
+    CreateAgentRequest:
+      type: object
+      properties:
+        ref:
+          type: string
+          description: Kubernetes resource reference in format namespace/name
+        description:
+          type: string
+          description: Agent description
+        systemMessage:
+          type: string
+          description: System message for the agent
+        modelConfig:
+          type: string
+          description: Model configuration reference
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+          description: Agent tools
+        memory:
+          type: array
+          items:
+            type: string
+          description: Memory references
+      required: [ref, systemMessage, modelConfig]
+
+    UpdateAgentRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          description: Agent description
+        systemMessage:
+          type: string
+          description: System message for the agent
+        modelConfig:
+          type: string
+          description: Model configuration reference
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+          description: Agent tools
+        memory:
+          type: array
+          items:
+            type: string
+          description: Memory references
+
+    AgentListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentResponse'
+
+    # Session schemas
+    SessionRequest:
+      type: object
+      properties:
+        agent_ref:
+          type: string
+          description: Agent reference
+        name:
+          type: string
+          description: Session name
+        user_id:
+          type: string
+          description: User ID
+        id:
+          type: string
+          description: Session ID
+      required: [user_id]
+
+    SessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              description: Session data from database
+
+    SessionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                description: Session data from database
+
+    # Task schemas
+    TaskRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Task ID (generated if not provided)
+        sessionId:
+          type: string
+          description: Session ID
+        content:
+          type: string
+          description: Task content
+        status:
+          type: string
+          description: Task status
+      required: [sessionId, content]
+
+    TaskResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              description: Task data from database
+
+    TaskListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                description: Task data from database
+
+    # Event schemas
+    EventRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Event type
+        content:
+          type: string
+          description: Event content
+        metadata:
+          type: object
+          description: Event metadata
+      required: [type, content]
+
+    EventResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              description: Event data from database
+
+    # Tool schemas
+    Tool:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [McpServer, Agent]
+          description: Type of tool provider
+        mcpServer:
+          type: object
+          properties:
+            toolServer:
+              type: string
+              description: Reference to the ToolServer resource
+            toolNames:
+              type: array
+              items:
+                type: string
+              description: Names of specific tools to use from the server
+          description: MCP server tool configuration
+        agent:
+          type: object
+          properties:
+            ref:
+              type: string
+              description: Reference to the Agent resource in format namespace/name or just name
+          description: Agent tool configuration
+      required: [type]
+
+    ToolListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                description: Tool data from database
+
+    # Tool server schemas
+    ToolServerResponse:
+      type: object
+      properties:
+        ref:
+          type: string
+          description: Kubernetes resource reference
+        config:
+          type: object
+          description: Tool server configuration
+        discoveredTools:
+          type: array
+          items:
+            type: object
+          description: Discovered MCP tools
+      required: [ref, config]
+
+    CreateToolServerRequest:
+      type: object
+      properties:
+        ref:
+          type: string
+          description: Kubernetes resource reference
+        config:
+          type: object
+          description: Tool server configuration
+      required: [ref, config]
+
+    ToolServerListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ToolServerResponse'
+
+    # Memory schemas
+    MemoryResponse:
+      type: object
+      properties:
+        ref:
+          type: string
+          description: Kubernetes resource reference
+        providerName:
+          type: string
+          description: Memory provider name
+        apiKeySecretRef:
+          type: string
+          description: API key secret reference
+        apiKeySecretKey:
+          type: string
+          description: API key secret key
+        memoryParams:
+          type: object
+          additionalProperties: true
+          description: Provider-specific memory parameters
+      required: [ref, providerName]
+
+    CreateMemoryRequest:
+      type: object
+      properties:
+        ref:
+          type: string
+          description: Kubernetes resource reference
+        provider:
+          $ref: '#/components/schemas/Provider'
+        apiKey:
+          type: string
+          description: API key for the provider
+        pinecone:
+          type: object
+          description: Pinecone-specific parameters
+      required: [ref, provider, apiKey]
+
+    UpdateMemoryRequest:
+      type: object
+      properties:
+        pinecone:
+          type: object
+          description: Pinecone-specific parameters
+
+    MemoryListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MemoryResponse'
+
+    # Model schemas
+    ModelListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                description: Supported model information
+
+    # Namespace schemas
+    NamespaceResponse:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Namespace name
+        status:
+          type: string
+          description: Namespace status
+      required: [name, status]
+
+    NamespaceListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/NamespaceResponse'
+
+    # Feedback schemas
+    FeedbackRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+          description: User ID
+        sessionId:
+          type: string
+          description: Session ID
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Rating (1-5)
+        comment:
+          type: string
+          description: Feedback comment
+        metadata:
+          type: object
+          description: Additional metadata
+      required: [userId, rating]
+
+    FeedbackResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              description: Feedback data from database
+
+    FeedbackListResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                description: Feedback data from database
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error: "Invalid request body"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error: "Resource not found"
+
+    Conflict:
+      description: Resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error: "Resource already exists"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error: "Internal server error"
+
+    NotImplemented:
+      description: Not implemented
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error: "Not implemented"
