@@ -98,6 +98,9 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 		{v1alpha2.ModelProviderAnthropic, reflect.TypeOf(v1alpha2.AnthropicConfig{})},
 		{v1alpha2.ModelProviderAzureOpenAI, reflect.TypeOf(v1alpha2.AzureOpenAIConfig{})},
 		{v1alpha2.ModelProviderOllama, reflect.TypeOf(v1alpha2.OllamaConfig{})},
+		{v1alpha2.ModelProviderGemini, reflect.TypeOf(v1alpha2.GeminiConfig{})},
+		{v1alpha2.ModelProviderGeminiVertexAI, reflect.TypeOf(v1alpha2.GeminiVertexAIConfig{})},
+		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeOf(v1alpha2.AnthropicVertexAIConfig{})},
 	}
 
 	providersResponse := []map[string]interface{}{}
