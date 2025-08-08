@@ -23,6 +23,11 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
 
+// Helper function for creating string pointers
+func stringPtr(s string) *string {
+	return &s
+}
+
 // Test fixtures and helper functions
 func createTestModelConfig() *v1alpha1.ModelConfig {
 	return &v1alpha1.ModelConfig{
@@ -151,12 +156,11 @@ func TestHandleUpdateAgent(t *testing.T) {
 
 		handler, _ := setupTestHandler(existingAgent)
 
-		updatedAgent := &v1alpha1.Agent{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec:       v1alpha1.AgentSpec{ModelConfig: "kagent/new-model-config"},
+		updateReq := &api.UpdateAgentRequest{
+			ModelConfig: stringPtr("kagent/new-model-config"),
 		}
 
-		body, _ := json.Marshal(updatedAgent)
+		body, _ := json.Marshal(updateReq)
 		req := httptest.NewRequest("PUT", "/api/agents/default/test-team", bytes.NewBuffer(body))
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
 		req.Header.Set("Content-Type", "application/json")
@@ -166,20 +170,20 @@ func TestHandleUpdateAgent(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		var response api.StandardResponse[v1alpha1.Agent]
+		var response api.StandardResponse[api.AgentResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Equal(t, "kagent/new-model-config", response.Data.Spec.ModelConfig)
+		require.Equal(t, "kagent/new-model-config", response.Data.Agent.Spec.ModelConfig)
 	})
 
 	t.Run("returns 404 for non-existent team", func(t *testing.T) {
 		handler, _ := setupTestHandler()
 
-		agent := &v1alpha1.Agent{
-			ObjectMeta: metav1.ObjectMeta{Name: "non-existent", Namespace: "default"},
+		updateReq := &api.UpdateAgentRequest{
+			ModelConfig: stringPtr("some/model-config"),
 		}
 
-		body, _ := json.Marshal(agent)
+		body, _ := json.Marshal(updateReq)
 		req := httptest.NewRequest("PUT", "/api/agents/default/non-existent", bytes.NewBuffer(body))
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "non-existent"})
 		req.Header.Set("Content-Type", "application/json")
@@ -208,16 +212,14 @@ func TestHandleCreateAgent(t *testing.T) {
 
 		handler, _ := setupTestHandler(modelConfig)
 
-		agent := &v1alpha1.Agent{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec: v1alpha1.AgentSpec{
-				ModelConfig:   modelConfig.Name,
-				SystemMessage: "You are an imagenary agent",
-				Description:   "Test team description",
-			},
+		agentReq := &api.CreateAgentRequest{
+			Ref:           "default/test-team",
+			ModelConfig:   modelConfig.Name,
+			SystemMessage: "You are an imagenary agent",
+			Description:   "Test team description",
 		}
 
-		body, _ := json.Marshal(agent)
+		body, _ := json.Marshal(agentReq)
 		req := httptest.NewRequest("POST", "/api/agents", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()

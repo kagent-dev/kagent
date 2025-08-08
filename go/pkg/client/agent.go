@@ -47,8 +47,8 @@ func (c *teamClient) ListAgents(ctx context.Context, userID string) (*api.Standa
 	return &response, nil
 }
 
-// CreateTeam creates a new team
-func (c *teamClient) CreateAgent(ctx context.Context, request *v1alpha1.Agent) (*api.StandardResponse[*v1alpha1.Agent], error) {
+// CreateAgent creates a new agent
+func (c *teamClient) CreateAgent(ctx context.Context, request *api.CreateAgentRequest) (*api.StandardResponse[*v1alpha1.Agent], error) {
 	resp, err := c.client.Post(ctx, "/api/agents", request, "")
 	if err != nil {
 		return nil, err
@@ -78,9 +78,9 @@ func (c *teamClient) GetAgent(ctx context.Context, agentRef string) (*api.Standa
 	return &response, nil
 }
 
-// UpdateTeam updates an existing team
-func (c *teamClient) UpdateAgent(ctx context.Context, request *v1alpha1.Agent) (*api.StandardResponse[*v1alpha1.Agent], error) {
-	path := fmt.Sprintf("/api/agents/%s/%s", request.Namespace, request.Name)
+// UpdateAgent updates an existing agent
+func (c *teamClient) UpdateAgent(ctx context.Context, namespace, name string, request *api.UpdateAgentRequest) (*api.StandardResponse[*v1alpha1.Agent], error) {
+	path := fmt.Sprintf("/api/agents/%s/%s", namespace, name)
 	resp, err := c.client.Put(ctx, path, request, "")
 	if err != nil {
 		return nil, err

@@ -86,6 +86,31 @@ type AgentResponse struct {
 	Tools          []*v1alpha1.Tool       `json:"tools"`
 }
 
+// CreateAgentRequest represents a request to create an agent
+type CreateAgentRequest struct {
+	Ref           string                   `json:"ref"`
+	Description   string                   `json:"description,omitempty"`
+	SystemMessage string                   `json:"systemMessage"`
+	ModelConfig   string                   `json:"modelConfig"`
+	Stream        *bool                    `json:"stream,omitempty"`
+	Tools         []*v1alpha1.Tool         `json:"tools,omitempty"`
+	Memory        []string                 `json:"memory,omitempty"`
+	A2AConfig     *v1alpha1.A2AConfig      `json:"a2aConfig,omitempty"`
+	Deployment    *v1alpha1.DeploymentSpec `json:"deployment,omitempty"`
+}
+
+// UpdateAgentRequest represents a request to update an agent
+type UpdateAgentRequest struct {
+	Description   *string                  `json:"description,omitempty"`
+	SystemMessage *string                  `json:"systemMessage,omitempty"`
+	ModelConfig   *string                  `json:"modelConfig,omitempty"`
+	Stream        *bool                    `json:"stream,omitempty"`
+	Tools         []*v1alpha1.Tool         `json:"tools,omitempty"`
+	Memory        []string                 `json:"memory,omitempty"`
+	A2AConfig     *v1alpha1.A2AConfig      `json:"a2aConfig,omitempty"`
+	Deployment    *v1alpha1.DeploymentSpec `json:"deployment,omitempty"`
+}
+
 // Session types
 
 // SessionRequest represents a session creation/update request
@@ -130,6 +155,19 @@ type ToolServerResponse struct {
 	Ref             string                    `json:"ref"`
 	Config          v1alpha1.ToolServerConfig `json:"config"`
 	DiscoveredTools []*v1alpha1.MCPTool       `json:"discoveredTools"`
+}
+
+// CreateToolServerRequest represents a request to create a tool server
+type CreateToolServerRequest struct {
+	Ref         string                    `json:"ref"`
+	Description string                    `json:"description,omitempty"`
+	Config      v1alpha1.ToolServerConfig `json:"config"`
+}
+
+// UpdateToolServerRequest represents a request to update a tool server
+type UpdateToolServerRequest struct {
+	Description *string                    `json:"description,omitempty"`
+	Config      *v1alpha1.ToolServerConfig `json:"config,omitempty"`
 }
 
 // Memory types
