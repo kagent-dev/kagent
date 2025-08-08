@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
@@ -155,7 +156,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		reason = "AgentReconciled"
 	}
 
-	meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+	conditionChanged := meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
 		Type:               v1alpha1.AgentConditionTypeAccepted,
 		Status:             status,
 		LastTransitionTime: metav1.Now(),
@@ -191,18 +192,22 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		}
 	}
 
-	meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+	conditionChanged = meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
 
-	// If the config hash is nil, it means there was an error during the reconciliation
-	if configHash != nil {
-		agent.Status.ConfigHash = (*configHash)[:]
+	// Only update the config hash if the config hash has changed and there was no error
+	configHashChanged := configHash != nil && !bytes.Equal((agent.Status.ConfigHash)[:], (*configHash)[:])
+
+	// update the status if it has changed or the generation has changed
+	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation || configHashChanged {
+		// If the config hash is nil, it means there was an error during the reconciliation
+		if configHash != nil {
+			agent.Status.ConfigHash = (*configHash)[:]
+		}
+		agent.Status.ObservedGeneration = agent.Generation
+		if err := a.kube.Status().Update(ctx, agent); err != nil {
+			return fmt.Errorf("failed to update agent status: %v", err)
+		}
 	}
-
-	agent.Status.ObservedGeneration = agent.Generation
-	if err := a.kube.Status().Update(ctx, agent); err != nil {
-		return fmt.Errorf("failed to update agent status: %v", err)
-	}
-
 	return nil
 }
 
@@ -246,7 +251,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 		reason = "ModelConfigReconciled"
 	}
 
-	meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
+	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
 		Type:               v1alpha1.ModelConfigConditionTypeAccepted,
 		Status:             status,
 		LastTransitionTime: metav1.Now(),
@@ -254,11 +259,13 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 		Message:            message,
 	})
 
-	modelConfig.Status.ObservedGeneration = modelConfig.Generation
-	if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
-		return fmt.Errorf("failed to update model config status: %v", err)
+	// update the status if it has changed or the generation has changed
+	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation {
+		modelConfig.Status.ObservedGeneration = modelConfig.Generation
+		if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
+			return fmt.Errorf("failed to update model config status: %v", err)
+		}
 	}
-
 	return nil
 }
 
@@ -313,13 +320,20 @@ func (a *kagentReconciler) reconcileToolServerStatus(
 		status = metav1.ConditionTrue
 		reason = "AgentReconciled"
 	}
-	meta.SetStatusCondition(&toolServer.Status.Conditions, metav1.Condition{
+	conditionChanged := meta.SetStatusCondition(&toolServer.Status.Conditions, metav1.Condition{
 		Type:               v1alpha1.AgentConditionTypeAccepted,
 		Status:             status,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            message,
 	})
+
+	// only update if the status has changed to prevent looping the reconciler
+	if !conditionChanged &&
+		toolServer.Status.ObservedGeneration == toolServer.Generation &&
+		reflect.DeepEqual(toolServer.Status.DiscoveredTools, discoveredTools) {
+		return nil
+	}
 
 	toolServer.Status.ObservedGeneration = toolServer.Generation
 	toolServer.Status.DiscoveredTools = discoveredTools
@@ -368,7 +382,7 @@ func (a *kagentReconciler) reconcileMemoryStatus(ctx context.Context, memory *v1
 		reason = "MemoryReconciled"
 	}
 
-	meta.SetStatusCondition(&memory.Status.Conditions, metav1.Condition{
+	conditionChanged := meta.SetStatusCondition(&memory.Status.Conditions, metav1.Condition{
 		Type:               v1alpha1.MemoryConditionTypeAccepted,
 		Status:             status,
 		LastTransitionTime: metav1.Now(),
@@ -376,11 +390,12 @@ func (a *kagentReconciler) reconcileMemoryStatus(ctx context.Context, memory *v1
 		Message:            message,
 	})
 
-	memory.Status.ObservedGeneration = memory.Generation
-	if err := a.kube.Status().Update(ctx, memory); err != nil {
-		return fmt.Errorf("failed to update memory status: %v", err)
+	if conditionChanged || memory.Status.ObservedGeneration != memory.Generation {
+		memory.Status.ObservedGeneration = memory.Generation
+		if err := a.kube.Status().Update(ctx, memory); err != nil {
+			return fmt.Errorf("failed to update memory status: %v", err)
+		}
 	}
-
 	return nil
 }
 
