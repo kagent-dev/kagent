@@ -286,19 +286,19 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "update-db")
 
-	namespace, err := GetPathParam(r, "namespace")
-	if err != nil {
-		log.Error(err, "Failed to get namespace from path")
-		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
-		return
-	}
-
 	agentName, err := GetPathParam(r, "name")
 	if err != nil {
-		log.Error(err, "Failed to get name from path")
 		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
 		return
 	}
+	log = log.WithValues("agentName", agentName)
+
+	agentNamespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+	log = log.WithValues("agentNamespace", agentNamespace)
 
 	var req api.UpdateAgentRequest
 	if err := DecodeJSONBody(r, &req); err != nil {
@@ -307,7 +307,7 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	}
 
 	log = log.WithValues(
-		"agentNamespace", namespace,
+		"agentNamespace", agentNamespace,
 		"agentName", agentName,
 	)
 
