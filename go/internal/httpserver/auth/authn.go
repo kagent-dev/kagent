@@ -43,3 +43,21 @@ func AuthnMiddleware(authn func(r *http.Request) *Session) func(http.Handler) ht
 func NoopAuthn(r *http.Request) *Session {
 	return nil
 }
+
+func TestAuthn(r *http.Request) *Session {
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		return nil
+	}
+	return &Session{
+		Principal: Principal{
+			User: userID,
+		},
+	}
+}
+
+//// AuthZ
+
+type Authorizer interface {
+	Check(principal Principal, verb string, resource string) error
+}

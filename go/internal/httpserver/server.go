@@ -204,7 +204,7 @@ func (s *HTTPServer) setupRoutes() {
 	// Use middleware for common functionality
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
-	s.router.Use(auth.AuthnMiddleware(auth.NoopAuthn))
+	s.router.Use(auth.AuthnMiddleware(auth.TestAuthn))
 	s.router.Use(errorHandlerMiddleware)
 }
 
