@@ -157,19 +157,6 @@ type ToolServerResponse struct {
 	DiscoveredTools []*v1alpha1.MCPTool       `json:"discoveredTools"`
 }
 
-// CreateToolServerRequest represents a request to create a tool server
-type CreateToolServerRequest struct {
-	Ref         string                    `json:"ref"`
-	Description string                    `json:"description,omitempty"`
-	Config      v1alpha1.ToolServerConfig `json:"config"`
-}
-
-// UpdateToolServerRequest represents a request to update a tool server
-type UpdateToolServerRequest struct {
-	Description *string                    `json:"description,omitempty"`
-	Config      *v1alpha1.ToolServerConfig `json:"config,omitempty"`
-}
-
 // Memory types
 
 // MemoryResponse represents a memory response
