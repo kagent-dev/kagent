@@ -79,6 +79,7 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				return requests
 			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("modelconfig").
 		Complete(r)

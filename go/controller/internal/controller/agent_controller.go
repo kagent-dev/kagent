@@ -62,10 +62,10 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			NeedLeaderElection: ptr.To(true),
 		}).
 		For(&agentv1alpha1.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Owns(&appsv1.Deployment{}, builder.WithPredicates(ownedObjectPredicate{})).
-		Owns(&corev1.ConfigMap{}, builder.WithPredicates(ownedObjectPredicate{})).
-		Owns(&corev1.Service{}, builder.WithPredicates(ownedObjectPredicate{})).
-		Owns(&corev1.ServiceAccount{}, builder.WithPredicates(ownedObjectPredicate{})).
+		Owns(&appsv1.Deployment{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
+		Owns(&corev1.ConfigMap{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
+		Owns(&corev1.Service{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
+		Owns(&corev1.ServiceAccount{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
 		Watches(
 			&agentv1alpha1.Memory{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -85,6 +85,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				return requests
 			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Watches(
 			&agentv1alpha1.ModelConfig{},
@@ -105,6 +106,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				return requests
 			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Watches(
 			&agentv1alpha1.ToolServer{},
@@ -125,6 +127,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				return requests
 			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("agent").
 		Complete(r)
