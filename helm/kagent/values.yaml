@@ -125,7 +125,7 @@ ui:
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
 
-  # Init containers to add to the UI pod if your require a custom configuration
+  # -- Init containers to add to the UI pod if you require a custom configuration
   initContainers: []
   # - name: init-nginx
   #   image: busybox
