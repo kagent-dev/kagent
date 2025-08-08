@@ -129,15 +129,32 @@ ui:
   initContainers: []
   # - name: init-nginx
   #   image: busybox
-  #   command:
-  #     - sh
-  #     - -c
-  #     - |
-  #       mkdir -p /var/lib/nginx/tmp/client_body
-  #   volumeMounts:
-  #     - name: nginx-writable
-  #       mountPath: /var/lib/nginx
+  #   command: []
 
+  # -- Additional volumeMounts to the UI container
+  volumeMounts: []
+  #  - mountPath: /tmp
+  #    name: tmp
+
+  # -- Additional volumes to the UI pod
+  volumes: []
+  #  - name: tmp
+  #    emptyDir: {}
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: false
+    seccompProfile:
+      type: RuntimeDefault
+
+  podSecurityContext:
+    runAsUser: 1001
+    runAsGroup: 1001
+    runAsNonRoot: true
+    fsGroup: 1001 
+    
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
