@@ -34,13 +34,13 @@ const (
 )
 
 // AgentSpec defines the desired state of Agent.
-// +kubebuilder:validation:XValidation:message="agentType must be specified",rule="has(self.agentType)"
-// +kubebuilder:validation:XValidation:message="agentType must be either Inline or BYO",rule="self.agentType == 'Inline' || self.agentType == 'BYO'"
-// +kubebuilder:validation:XValidation:message="inline must be specified if agentType is Inline, or byo must be specified if agentType is BYO",rule="(self.agentType == 'Inline' && has(self.inline)) || (self.agentType == 'BYO' && has(self.byo))"
+// +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
+// +kubebuilder:validation:XValidation:message="type must be either Inline or BYO",rule="self.type == 'Inline' || self.type == 'BYO'"
+// +kubebuilder:validation:XValidation:message="inline must be specified if type is Inline, or byo must be specified if type is BYO",rule="(self.type == 'Inline' && has(self.inline)) || (self.type == 'BYO' && has(self.byo))"
 type AgentSpec struct {
 	// +kubebuilder:validation:Enum=Inline;BYO
 	// +kubebuilder:default=Inline
-	AgentType AgentType `json:"agentType"`
+	Type AgentType `json:"type"`
 
 	// +optional
 	BYO *BYOAgentSpec `json:"byo,omitempty"`

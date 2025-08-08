@@ -62,7 +62,7 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 
 	var modelConfig *v1alpha2.ModelConfig
 	var tools []*v1alpha2.Tool
-	if agent.Spec.AgentType == v1alpha2.AgentType_Inline {
+	if agent.Spec.Type == v1alpha2.AgentType_Inline {
 		// Get the ModelConfig for the team
 		modelConfig := &v1alpha2.ModelConfig{}
 		if err := h.KubeClient.Get(

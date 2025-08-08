@@ -44,7 +44,7 @@ func createTestAgent(name string, modelConfig *v1alpha2.ModelConfig) *v1alpha2.A
 			Namespace: "default",
 		},
 		Spec: v1alpha2.AgentSpec{
-			AgentType: v1alpha2.AgentType_Inline,
+			Type: v1alpha2.AgentType_Inline,
 			Inline: &v1alpha2.InlineAgentSpec{
 				ModelConfig: common.GetObjectRef(modelConfig),
 			},
@@ -150,7 +150,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 		existingAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
-				AgentType: v1alpha2.AgentType_Inline,
+				Type: v1alpha2.AgentType_Inline,
 				Inline: &v1alpha2.InlineAgentSpec{
 					ModelConfig: "default/old-model-config",
 				},
@@ -162,7 +162,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 		updatedAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
-				AgentType: v1alpha2.AgentType_Inline,
+				Type: v1alpha2.AgentType_Inline,
 				Inline: &v1alpha2.InlineAgentSpec{
 					ModelConfig: "kagent/new-model-config",
 				},
@@ -220,7 +220,7 @@ func TestHandleCreateAgent(t *testing.T) {
 		agent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
-				AgentType:   v1alpha2.AgentType_Inline,
+				Type:        v1alpha2.AgentType_Inline,
 				Description: "Test team description",
 				Inline: &v1alpha2.InlineAgentSpec{
 					ModelConfig:   modelConfig.Name,

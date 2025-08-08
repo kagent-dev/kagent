@@ -199,23 +199,31 @@ func ParseModel(bytes []byte) (Model, error) {
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
 
+type RemoteAgentConfig struct {
+	Name        string `json:"name"`
+	Url         string `json:"url"`
+	Description string `json:"description,omitempty"`
+}
+
 type AgentConfig struct {
-	Model       Model                 `json:"model"`
-	Description string                `json:"description"`
-	Instruction string                `json:"instruction"`
-	HttpTools   []HttpMcpServerConfig `json:"http_tools"`
-	SseTools    []SseMcpServerConfig  `json:"sse_tools"`
-	Agents      []AgentConfig         `json:"agents"`
+	Model        Model                 `json:"model"`
+	Description  string                `json:"description"`
+	Instruction  string                `json:"instruction"`
+	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
+	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
+	Agents       []AgentConfig         `json:"agents"`
+	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model       json.RawMessage       `json:"model"`
-		Description string                `json:"description"`
-		Instruction string                `json:"instruction"`
-		HttpTools   []HttpMcpServerConfig `json:"http_tools"`
-		SseTools    []SseMcpServerConfig  `json:"sse_tools"`
-		Agents      []AgentConfig         `json:"agents"`
+		Model        json.RawMessage       `json:"model"`
+		Description  string                `json:"description"`
+		Instruction  string                `json:"instruction"`
+		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
+		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
+		Agents       []AgentConfig         `json:"agents"`
+		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -230,6 +238,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.Agents = tmp.Agents
+	a.RemoteAgents = tmp.RemoteAgents
 	return nil
 }
 

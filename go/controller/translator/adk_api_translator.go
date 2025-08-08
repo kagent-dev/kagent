@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -90,43 +91,43 @@ func (t *tState) isVisited(agentName string) bool {
 	return slices.Contains(t.visitedAgents, agentName)
 }
 
-type modelDeploymentData struct {
-	EnvVars      []corev1.EnvVar
-	Volumes      []corev1.Volume
-	VolumeMounts []corev1.VolumeMount
-}
-
 func (a *adkApiTranslator) TranslateAgent(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
 ) (*AgentOutputs, error) {
 
-	switch agent.Spec.AgentType {
+	switch agent.Spec.Type {
 	case v1alpha2.AgentType_Inline:
-		adkAgent, agentCard, mdd, err := a.translateInlineAgent(ctx, agent, &tState{})
+		cfg, card, mdd, err := a.translateInlineAgent(ctx, agent, &tState{})
 		if err != nil {
 			return nil, err
 		}
-
-		outputs, err := a.translateOutputs(ctx, agent, adkAgent, agentCard, mdd)
+		dep, err := a.resolveInlineDeployment(agent, mdd)
 		if err != nil {
 			return nil, err
 		}
-
-		outputs.Config = adkAgent
-		outputs.AgentCard = *agentCard
-
-		return outputs, nil
+		return a.buildManifest(ctx, agent, dep, cfg, card)
 
 	case v1alpha2.AgentType_BYO:
-		return nil, fmt.Errorf("BYO agents are not supported yet")
-		// return a.translateRegisteredAgent(ctx, agent, &tState{})
+		dep, err := a.resolveByoDeployment(agent)
+		if err != nil {
+			return nil, err
+		}
+		// BYO: no cfg/card
+		return a.buildManifest(ctx, agent, dep, nil, nil)
+
 	default:
-		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.AgentType)
+		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
 }
 
-func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.Agent, adkAgent *adk.AgentConfig, agentCard *server.AgentCard, mdd *modelDeploymentData) (*AgentOutputs, error) {
+func (a *adkApiTranslator) buildManifest(
+	ctx context.Context,
+	agent *v1alpha2.Agent,
+	dep *resolvedDeployment,
+	cfg *adk.AgentConfig, // nil for BYO
+	card *server.AgentCard, // nil for BYO
+) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
 
 	podLabels := map[string]string{
@@ -140,10 +141,8 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 		Annotations: agent.Annotations,
 		Labels:      podLabels,
 	}
-	if agent.Spec.Deployment != nil {
-		mdd.EnvVars = append(mdd.EnvVars, agent.Spec.Deployment.Env...)
-	}
 
+	// Service Account
 	outputs.Manifest = append(outputs.Manifest, &corev1.ServiceAccount{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
@@ -152,195 +151,104 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 		ObjectMeta: objMeta,
 	})
 
-	// TODO: Come up with a better way to do tracing config for the agents
-	envVars = append(envVars, slices.Collect(utils.Map(
-		utils.Filter(
-			slices.Values(os.Environ()),
-			func(envVar string) bool {
-				return strings.HasPrefix(envVar, "OTEL_")
-			},
-		),
-		func(envVar string) corev1.EnvVar {
-			parts := strings.SplitN(envVar, "=", 2)
-			return corev1.EnvVar{
-				Name:  parts[0],
-				Value: parts[1],
-			}
-		},
-	))...)
-
-	envVars = append(envVars, corev1.EnvVar{
-		Name: "KAGENT_NAMESPACE",
-		ValueFrom: &corev1.EnvVarSource{
-			FieldRef: &corev1.ObjectFieldSelector{
-				FieldPath: "metadata.namespace",
+	// Base env for both types
+	sharedEnv := make([]corev1.EnvVar, 0, 8)
+	sharedEnv = append(sharedEnv, collectOtelEnvFromProcess()...)
+	sharedEnv = append(sharedEnv,
+		corev1.EnvVar{
+			Name: "KAGENT_NAMESPACE",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
 			},
 		},
-	}, corev1.EnvVar{
-		Name: "KAGENT_NAME",
-		ValueFrom: &corev1.EnvVarSource{
-			FieldRef: &corev1.ObjectFieldSelector{
-				FieldPath: "spec.serviceAccountName",
+		corev1.EnvVar{
+			Name: "KAGENT_NAME",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.serviceAccountName"},
 			},
 		},
-	}, corev1.EnvVar{
-		Name:  "KAGENT_URL",
-		Value: fmt.Sprintf("http://kagent-controller.%s.svc:8083", common.GetResourceNamespace()),
-	})
-
-	spec := defaultDeploymentSpec(objMeta.Name, podLabels, configHash, mdd)
-	outputs.Manifest = append(outputs.Manifest, &appsv1.Deployment{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "apps/v1",
-			Kind:       "Deployment",
+		corev1.EnvVar{
+			Name:  "KAGENT_URL",
+			Value: fmt.Sprintf("http://kagent-controller.%s.svc:8083", common.GetResourceNamespace()),
 		},
-		ObjectMeta: objMeta,
-		Spec:       spec,
-	})
+	)
 
-	if agentConfig != nil || card != nil {
-		configJson, err := json.Marshal(agentConfig)
+	// Optional config/card for Inline
+	var configHash uint64
+	var configVol []corev1.Volume
+	var configMounts []corev1.VolumeMount
+	if cfg != nil || card != nil {
+		bCfg, err := json.Marshal(cfg)
 		if err != nil {
 			return nil, err
 		}
-		cardJson, err := json.Marshal(card)
+		bCard, err := json.Marshal(card)
 		if err != nil {
 			return nil, err
 		}
-		hasher := sha256.New()
-		hasher.Write(configJson)
-		hasher.Write(cardJson)
-		hash := hasher.Sum(nil)
-		configHash := binary.BigEndian.Uint64(hash[:8])
-		spec.Template.ObjectMeta.Labels["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+		configHash = computeConfigHash(bCfg, bCard)
 
 		outputs.Manifest = append(outputs.Manifest, &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
 			ObjectMeta: objMeta,
 			Data: map[string]string{
-				"config.json":     string(configJson),
-				"agent-card.json": string(cardJson),
+				"config.json":     string(bCfg),
+				"agent-card.json": string(bCard),
 			},
 		})
 
-	}
-
-	outputs.Manifest = append(outputs.Manifest, &corev1.Service{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Service",
-		},
-		ObjectMeta: objMeta,
-		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{
-				"app":    "kagent",
-				"kagent": agent.Name,
-			},
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "http",
-					Port:       defaultDeploymentSpec.Port,
-					TargetPort: intstr.FromInt(int(defaultDeploymentSpec.Port)),
-				},
-			},
-			Type: corev1.ServiceTypeClusterIP,
-		},
-	})
-
-	for _, obj := range outputs.Manifest {
-		if err := controllerutil.SetControllerReference(agent, obj, a.kube.Scheme()); err != nil {
-			return nil, err
-		}
-	}
-
-	return outputs, nil
-}
-
-func defaultDeploymentSpec(name string, labels map[string]string, configHash uint64, mdd *modelDeploymentData) appsv1.DeploymentSpec {
-	// TODO: Come up with a better way to do tracing config for the agents
-	mdd.EnvVars = append(mdd.EnvVars, slices.Collect(utils.Map(
-		utils.Filter(
-			slices.Values(os.Environ()),
-			func(envVar string) bool {
-				return strings.HasPrefix(envVar, "OTEL_")
-			},
-		),
-		func(envVar string) corev1.EnvVar {
-			parts := strings.SplitN(envVar, "=", 2)
-			return corev1.EnvVar{
-				Name:  parts[0],
-				Value: parts[1],
-			}
-		},
-	))...)
-
-	mdd.EnvVars = append(mdd.EnvVars, corev1.EnvVar{
-		Name: "KAGENT_NAMESPACE",
-		ValueFrom: &corev1.EnvVarSource{
-			FieldRef: &corev1.ObjectFieldSelector{
-				FieldPath: "metadata.namespace",
-			},
-		},
-	})
-
-	podTemplateLabels := maps.Clone(deploymentSpec.Labels)
-
-	volumes := []corev1.Volume{
-		{
+		configVol = []corev1.Volume{{
 			Name: "config",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: name,
-					},
+					LocalObjectReference: corev1.LocalObjectReference{Name: agent.Name},
 				},
 			},
-		},
+		}}
+		configMounts = []corev1.VolumeMount{{Name: "config", MountPath: "/config"}}
 	}
-	volumes = append(volumes, mdd.Volumes...)
-	volumeMounts := []corev1.VolumeMount{
-		{
-			Name:      "config",
-			MountPath: "/config",
-		},
-	}
-	volumeMounts = append(volumeMounts, mdd.VolumeMounts...)
 
-	return appsv1.DeploymentSpec{
-		Replicas: ptr.To(int32(1)),
-		// Add min and max replicas constraints
-		Strategy: appsv1.DeploymentStrategy{
-			Type: appsv1.RollingUpdateDeploymentStrategyType,
-			RollingUpdate: &appsv1.RollingUpdateDeployment{
-				MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-				MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+	// Build Deployment
+	volumes := append(configVol, dep.Volumes...)
+	volumeMounts := append(configMounts, dep.VolumeMounts...)
+	env := append(dep.Env, sharedEnv...)
+
+	podTemplateLabels := maps.Clone(podLabels)
+	if dep.Labels != nil {
+		maps.Copy(podTemplateLabels, dep.Labels)
+	}
+	if configHash != 0 {
+		if podTemplateLabels == nil {
+			podTemplateLabels = map[string]string{}
+		}
+		podTemplateLabels["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+	}
+
+	deployment := &appsv1.Deployment{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+		ObjectMeta: objMeta,
+		Spec: appsv1.DeploymentSpec{
+			Replicas: dep.Replicas,
+			Strategy: appsv1.DeploymentStrategy{
+				Type: appsv1.RollingUpdateDeploymentStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDeployment{
+					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
+					MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+				},
 			},
-		},
-		Selector: &metav1.LabelSelector{
-			MatchLabels: labels,
-		},
-		Template: corev1.PodTemplateSpec{
-			ObjectMeta: metav1.ObjectMeta{
-				Labels: podTemplateLabels,
-			},
-			Spec: corev1.PodSpec{
-				ServiceAccountName: name,
-				Containers: []corev1.Container{
-					{
+			Selector: &metav1.LabelSelector{MatchLabels: podLabels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: podTemplateLabels, Annotations: dep.Annotations},
+				Spec: corev1.PodSpec{
+					ServiceAccountName: agent.Name,
+					ImagePullSecrets:   dep.ImagePullSecrets,
+					Containers: []corev1.Container{{
 						Name:            "kagent",
-						Image:           deploymentSpec.Image,
-						ImagePullPolicy: deploymentSpec.ImagePullPolicy,
-						Command:         []string{deploymentSpec.Cmd},
-						Args:            deploymentSpec.Args,
-						Ports: []corev1.ContainerPort{
-							{
-								Name:          "http",
-								ContainerPort: deploymentSpec.Port,
-							},
-						},
+						Image:           dep.Image,
+						ImagePullPolicy: dep.ImagePullPolicy,
+						Command:         []string{dep.Cmd},
+						Args:            dep.Args,
+						Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("100m"),
@@ -351,25 +259,52 @@ func defaultDeploymentSpec(name string, labels map[string]string, configHash uin
 								corev1.ResourceMemory: resource.MustParse("1Gi"),
 							},
 						},
-						Env: mdd.EnvVars,
+						Env: env,
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{
-									Path: "/health",
-									Port: intstr.FromString("http"),
-								},
+								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")},
 							},
 							InitialDelaySeconds: 15,
 							TimeoutSeconds:      15,
 							PeriodSeconds:       15,
 						},
 						VolumeMounts: volumeMounts,
-					},
+					}},
+					Volumes: volumes,
 				},
-				Volumes: volumes,
 			},
 		},
 	}
+	outputs.Manifest = append(outputs.Manifest, deployment)
+
+	// Service
+	outputs.Manifest = append(outputs.Manifest, &corev1.Service{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
+		ObjectMeta: objMeta,
+		Spec: corev1.ServiceSpec{
+			Selector: podLabels,
+			Ports: []corev1.ServicePort{{
+				Name:       "http",
+				Port:       dep.Port,
+				TargetPort: intstr.FromInt(int(dep.Port)),
+			}},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	})
+
+	// Owner refs
+	for _, obj := range outputs.Manifest {
+		if err := controllerutil.SetControllerReference(agent, obj, a.kube.Scheme()); err != nil {
+			return nil, err
+		}
+	}
+
+	// Inline-only return values
+	outputs.Config = cfg
+	if card != nil {
+		outputs.AgentCard = *card
+	}
+	return outputs, nil
 }
 
 func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, error) {
@@ -440,7 +375,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			}
 
 			var toolAgentCfg *adk.AgentConfig
-			switch toolAgent.Spec.AgentType {
+			switch toolAgent.Spec.Type {
 			case v1alpha2.AgentType_Inline:
 				toolAgentCfg, _, _, err = a.translateInlineAgent(ctx, toolAgent, state.with(agent))
 				if err != nil {
@@ -455,7 +390,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				// }
 				// cfg.Agents = append(cfg.Agents, *toolAgentCfg)
 			default:
-				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.AgentType)
+				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
 			}
 
 		default:
@@ -944,4 +879,163 @@ func getSecretValue(ctx context.Context, kube client.Client, source *v1alpha2.Va
 		return "", fmt.Errorf("key %s not found in Secret %s/%s", source.Key, secret.Namespace, secret.Name)
 	}
 	return string(value), nil
+}
+
+// Helper functions
+
+func computeConfigHash(config, card []byte) uint64 {
+	hasher := sha256.New()
+	hasher.Write(config)
+	hasher.Write(card)
+	hash := hasher.Sum(nil)
+	return binary.BigEndian.Uint64(hash[:8])
+}
+
+func collectOtelEnvFromProcess() []corev1.EnvVar {
+	return slices.Collect(utils.Map(
+		utils.Filter(
+			slices.Values(os.Environ()),
+			func(envVar string) bool {
+				return strings.HasPrefix(envVar, "OTEL_")
+			},
+		),
+		func(envVar string) corev1.EnvVar {
+			parts := strings.SplitN(envVar, "=", 2)
+			return corev1.EnvVar{
+				Name:  parts[0],
+				Value: parts[1],
+			}
+		},
+	))
+}
+
+// Internal to translator - Data added to the deployment spec for an inline agent
+// Mostly used for model auth and config.
+type modelDeploymentData struct {
+	EnvVars      []corev1.EnvVar
+	Volumes      []corev1.Volume
+	VolumeMounts []corev1.VolumeMount
+}
+
+// Internal to translator – a unified deployment spec for any agent.
+type resolvedDeployment struct {
+	// Required concrete runtime properties
+	Image           string
+	Cmd             string // empty → no explicit command
+	Args            []string
+	Port            int32 // container port and Service port
+	ImagePullPolicy corev1.PullPolicy
+
+	// SharedDeploymentSpec merged
+	Replicas         *int32
+	ImagePullSecrets []corev1.LocalObjectReference
+	Volumes          []corev1.Volume
+	VolumeMounts     []corev1.VolumeMount
+	Labels           map[string]string
+	Annotations      map[string]string
+	Env              []corev1.EnvVar
+}
+
+func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
+	// Defaults
+	image := fmt.Sprintf("ghcr.io/kagent-dev/kagent/app:%s", version.Get().Version)
+	port := int32(8080)
+	cmd := "kagent-adk"
+	args := []string{
+		"static",
+		"--host",
+		"0.0.0.0",
+		"--port",
+		fmt.Sprintf("%d", port),
+		"--filepath",
+		"/config/config.json",
+	}
+
+	// Start with shared deployment spec
+	shared := &v1alpha2.SharedDeploymentSpec{}
+	if agent.Spec.Inline.Deployment != nil {
+		shared = &agent.Spec.Inline.Deployment.SharedDeploymentSpec
+	}
+
+	dep := &resolvedDeployment{
+		Image:            image,
+		Cmd:              cmd,
+		Args:             args,
+		Port:             port,
+		ImagePullPolicy:  shared.ImagePullPolicy,
+		Replicas:         shared.Replicas,
+		ImagePullSecrets: slices.Clone(shared.ImagePullSecrets),
+		Volumes:          append(slices.Clone(shared.Volumes), mdd.Volumes...),
+		VolumeMounts:     append(slices.Clone(shared.VolumeMounts), mdd.VolumeMounts...),
+		Labels:           maps.Clone(shared.Labels),
+		Annotations:      maps.Clone(shared.Annotations),
+		Env:              append(slices.Clone(shared.Env), mdd.EnvVars...),
+	}
+
+	// Set default replicas if not specified
+	if dep.Replicas == nil {
+		dep.Replicas = ptr.To(int32(1))
+	}
+
+	return dep, nil
+}
+
+func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
+	spec := agent.Spec.BYO.Deployment
+	if spec == nil {
+		return nil, fmt.Errorf("BYO deployment spec is required")
+	}
+
+	// Defaults
+	port := int32(8080)
+
+	image := spec.Image
+	if image == "" {
+		image = fmt.Sprintf("ghcr.io/kagent-dev/kagent/app:%s", version.Get().Version)
+	}
+
+	cmd := spec.Cmd
+	if cmd == "" {
+		cmd = "kagent-adk"
+	}
+
+	args := spec.Args
+	if len(args) == 0 {
+		args = []string{
+			"static",
+			"--host",
+			"0.0.0.0",
+			"--port",
+			fmt.Sprintf("%d", port),
+			"--filepath",
+			"/config/config.json",
+		}
+	}
+
+	imagePullPolicy := corev1.PullIfNotPresent
+	if spec.ImagePullPolicy != "" {
+		imagePullPolicy = spec.ImagePullPolicy
+	}
+
+	replicas := spec.Replicas
+	if replicas == nil {
+		replicas = ptr.To(int32(1))
+	}
+
+	dep := &resolvedDeployment{
+		Image:            image,
+		Cmd:              cmd,
+		Args:             args,
+		Port:             port,
+		ImagePullPolicy:  imagePullPolicy,
+		Replicas:         replicas,
+		ImagePullSecrets: slices.Clone(spec.ImagePullSecrets),
+		Volumes:          slices.Clone(spec.Volumes),
+		VolumeMounts:     slices.Clone(spec.VolumeMounts),
+		Labels:           maps.Clone(spec.Labels),
+		Annotations:      maps.Clone(spec.Annotations),
+		Env:              slices.Clone(spec.Env),
+	}
+
+	return dep, nil
 }
