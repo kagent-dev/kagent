@@ -125,6 +125,19 @@ ui:
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
 
+  # Init containers to add to the UI pod if your require a custom configuration
+  initContainers: []
+  # - name: init-nginx
+  #   image: busybox
+  #   command:
+  #     - sh
+  #     - -c
+  #     - |
+  #       mkdir -p /var/lib/nginx/tmp/client_body
+  #   volumeMounts:
+  #     - name: nginx-writable
+  #       mountPath: /var/lib/nginx
+
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
