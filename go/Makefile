@@ -46,6 +46,7 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 .PHONY: govulncheck
 govulncheck:
 	$(call go-install-tool,bin/govulncheck,golang.org/x/vuln/cmd/govulncheck,latest)
+	go mod tidy -v
 	./bin/govulncheck-latest ./...
 
 ##@ Build

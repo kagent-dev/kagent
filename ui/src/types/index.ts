@@ -81,6 +81,32 @@ export interface OllamaConfigPayload {
   options?: Record<string, string>;
 }
 
+export interface GeminiConfigPayload {
+  baseUrl?: string;
+  temperature?: string;
+  maxTokens?: number;
+  topP?: string;
+  topK?: number;
+}
+
+export interface GeminiVertexAIConfigPayload {
+  project?: string;
+  location?: string;
+  temperature?: string;
+  maxTokens?: number;
+  topP?: string;
+  topK?: number;
+}
+
+export interface AnthropicVertexAIConfigPayload {
+  project?: string;
+  location?: string;
+  temperature?: string;
+  maxTokens?: number;
+  topP?: string;
+  topK?: number;
+}
+
 export interface CreateModelConfigPayload {
   ref: string;
   provider: Pick<Provider, "name" | "type">;
@@ -90,6 +116,9 @@ export interface CreateModelConfigPayload {
   anthropic?: AnthropicConfigPayload;
   azureOpenAI?: AzureOpenAIConfigPayload;
   ollama?: OllamaConfigPayload;
+  gemini?: GeminiConfigPayload;
+  geminiVertexAI?: GeminiVertexAIConfigPayload;
+  anthropicVertexAI?: AnthropicVertexAIConfigPayload;
 }
 
 export interface UpdateModelConfigPayload {
@@ -100,6 +129,9 @@ export interface UpdateModelConfigPayload {
   anthropic?: AnthropicConfigPayload;
   azureOpenAI?: AzureOpenAIConfigPayload;
   ollama?: OllamaConfigPayload;
+  gemini?: GeminiConfigPayload;
+  geminiVertexAI?: GeminiVertexAIConfigPayload;
+  anthropicVertexAI?: AnthropicVertexAIConfigPayload;
 }
 
 export interface MemoryResponse {
