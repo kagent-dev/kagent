@@ -42,7 +42,7 @@ type ServiceReconciler struct {
 
 func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileMCPService(ctx, req)
+	return ctrl.Result{}, r.Reconciler.ReconcileKagentMCPService(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.

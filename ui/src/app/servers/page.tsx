@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {  ToolServer, ToolServerWithTools } from "@/types";
+import {  RemoteMCPServer, RemoteMCPServerResponse } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
@@ -13,7 +13,7 @@ import { toast } from "sonner";
 
 export default function ServersPage() {
   // State for servers and tools
-  const [servers, setServers] = useState<ToolServerWithTools[]>([]);
+  const [servers, setServers] = useState<RemoteMCPServerResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
 
@@ -76,7 +76,7 @@ export default function ServersPage() {
   };
 
   // Handle adding a new server
-  const handleAddServer = async (server: ToolServer) => {
+  const handleAddServer = async (server: RemoteMCPServer) => {
     try {
       setIsLoading(true);
 

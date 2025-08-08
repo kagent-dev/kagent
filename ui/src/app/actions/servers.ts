@@ -1,5 +1,5 @@
 'use server'
-import { ToolServer, ToolServerWithTools } from "@/types";
+import { RemoteMCPServer, RemoteMCPServerResponse } from "@/types";
 import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse } from "@/types";
 import { revalidatePath } from "next/cache";
@@ -8,9 +8,9 @@ import { revalidatePath } from "next/cache";
  * Fetches all tool servers
  * @returns Promise with server data
  */
-export async function getServers(): Promise<BaseResponse<ToolServerWithTools[]>> {
+export async function getServers(): Promise<BaseResponse<RemoteMCPServerResponse[]>> {
   try {
-    const response = await fetchApi<BaseResponse<ToolServerWithTools[]>>(`/toolservers`);
+    const response = await fetchApi<BaseResponse<RemoteMCPServerResponse[]>>(`/toolservers`);
 
     if (!response) {
       throw new Error("Failed to get tool servers");
@@ -21,7 +21,7 @@ export async function getServers(): Promise<BaseResponse<ToolServerWithTools[]>>
       data: response.data,
     };  
   } catch (error) {
-    return createErrorResponse<ToolServerWithTools[]>(error, "Error getting tool servers");
+    return createErrorResponse<RemoteMCPServerResponse[]>(error, "Error getting tool servers");
   }
 }
 
@@ -51,21 +51,22 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
  * @param serverData Server data to create
  * @returns Promise with create result
  */
-export async function createServer(serverData: ToolServer): Promise<BaseResponse<ToolServer>> {
+export async function createServer(serverData: RemoteMCPServer): Promise<BaseResponse<RemoteMCPServer>> {
   try {
-    const response = await fetchApi<BaseResponse<ToolServer>>("/toolservers", {
+    const response = await fetchApi<BaseResponse<RemoteMCPServer>>("/toolservers", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(serverData),
     });
+    
 
     return {
       message: "Tool server created successfully",
       data: response.data,
     };
   } catch (error) {
-    return createErrorResponse<ToolServer>(error, "Error creating tool server");
+    return createErrorResponse<RemoteMCPServer>(error, "Error creating tool server");
   }
 }

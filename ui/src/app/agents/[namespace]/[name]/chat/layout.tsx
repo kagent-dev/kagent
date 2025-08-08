@@ -2,15 +2,15 @@ import React from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ErrorState } from "@/components/ErrorState";
 import { getAgent, getAgents } from "@/app/actions/agents";
-import { getTools } from "@/app/actions/tools";
+import { getServers } from "@/app/actions/servers";
 import ChatLayoutUI from "@/components/chat/ChatLayoutUI";
 
 async function getData(agentName: string, namespace: string) {
   try {
-    const [agentResponse, agentsResponse, toolsResponse] = await Promise.all([
+    const [agentResponse, agentsResponse, serversResponse] = await Promise.all([
       getAgent(agentName, namespace),
       getAgents(),
-      getTools()
+      getServers()
     ]);
 
     if (agentResponse.error || !agentResponse.data) {
@@ -19,10 +19,13 @@ async function getData(agentName: string, namespace: string) {
     if (agentsResponse.error || !agentsResponse.data) {
       return { error: agentsResponse.error || "Failed to fetch agents" };
     }
+    if (serversResponse.error || !serversResponse.data) {
+      return { error: serversResponse.error || "Failed to fetch servers" };
+    }
 
     const currentAgent = agentResponse.data;
     const allAgents = agentsResponse.data || [];
-    const allTools = toolsResponse || [];
+    const allTools = serversResponse.data || [];
 
     return {
       currentAgent,

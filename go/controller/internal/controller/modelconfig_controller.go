@@ -21,12 +21,16 @@ import (
 
 	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 )
@@ -44,7 +48,7 @@ type ModelConfigReconciler struct {
 
 func (r *ModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileModelConfig(ctx, req)
+	return ctrl.Result{}, r.Reconciler.ReconcileKagentModelConfig(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -54,6 +58,26 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			NeedLeaderElection: ptr.To(true),
 		}).
 		For(&v1alpha2.ModelConfig{}).
+		Watches(
+			&v1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, model := range r.Reconciler.FindModelsUsingSecret(ctx, types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      model.ObjectMeta.Name,
+							Namespace: model.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+		).
 		Named("modelconfig").
 		Complete(r)
 }

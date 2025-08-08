@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
-	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -91,6 +90,12 @@ func (t *tState) isVisited(agentName string) bool {
 	return slices.Contains(t.visitedAgents, agentName)
 }
 
+type modelDeploymentData struct {
+	EnvVars      []corev1.EnvVar
+	Volumes      []corev1.Volume
+	VolumeMounts []corev1.VolumeMount
+}
+
 func (a *adkApiTranslator) TranslateAgent(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
@@ -98,12 +103,12 @@ func (a *adkApiTranslator) TranslateAgent(
 
 	switch agent.Spec.AgentType {
 	case v1alpha2.AgentType_Inline:
-		adkAgent, agentCard, envVars, err := a.translateInlineAgent(ctx, agent, &tState{})
+		adkAgent, agentCard, mdd, err := a.translateInlineAgent(ctx, agent, &tState{})
 		if err != nil {
 			return nil, err
 		}
 
-		outputs, err := a.translateOutputs(ctx, agent, adkAgent, agentCard, envVars...)
+		outputs, err := a.translateOutputs(ctx, agent, adkAgent, agentCard, mdd)
 		if err != nil {
 			return nil, err
 		}
@@ -121,7 +126,7 @@ func (a *adkApiTranslator) TranslateAgent(
 	}
 }
 
-func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.Agent, agentConfig *adk.AgentConfig, card *server.AgentCard, envVars ...corev1.EnvVar) (*AgentOutputs, error) {
+func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.Agent, adkAgent *adk.AgentConfig, agentCard *server.AgentCard, mdd *modelDeploymentData) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
 
 	podLabels := map[string]string{
@@ -130,9 +135,13 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 	}
 
 	objMeta := metav1.ObjectMeta{
-		Name:      agent.Name,
-		Namespace: agent.Namespace,
-		Labels:    podLabels,
+		Name:        agent.Name,
+		Namespace:   agent.Namespace,
+		Annotations: agent.Annotations,
+		Labels:      podLabels,
+	}
+	if agent.Spec.Deployment != nil {
+		mdd.EnvVars = append(mdd.EnvVars, agent.Spec.Deployment.Env...)
 	}
 
 	outputs.Manifest = append(outputs.Manifest, &corev1.ServiceAccount{
@@ -179,37 +188,7 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 		Value: fmt.Sprintf("http://kagent-controller.%s.svc:8083", common.GetResourceNamespace()),
 	})
 
-	defaultDeploymentSpec := &v1alpha2.DeploymentSpec{
-		Replicas: ptr.To(int32(1)),
-		Volumes: []corev1.Volume{
-			{
-				Name: "config",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: objMeta.Name,
-						},
-					},
-				},
-			},
-		},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "config",
-				MountPath: "/config",
-			},
-		},
-		Labels:          podLabels,
-		Env:             envVars,
-		Image:           fmt.Sprintf("cr.kagent.dev/kagent-dev/kagent/app:%s", version.Get().Version),
-		ImagePullPolicy: corev1.PullIfNotPresent,
-		Cmd:             "kagent-adk",
-		Args:            []string{"static", "--host", "0.0.0.0", "--port", "8080", "--filepath", "/config/config.json"},
-		Port:            8080,
-	}
-
-	spec := buildDeploymentSpec(objMeta.Name, podLabels, defaultDeploymentSpec)
-
+	spec := defaultDeploymentSpec(objMeta.Name, podLabels, configHash, mdd)
 	outputs.Manifest = append(outputs.Manifest, &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
@@ -280,9 +259,55 @@ func (a *adkApiTranslator) translateOutputs(_ context.Context, agent *v1alpha2.A
 	return outputs, nil
 }
 
-func buildDeploymentSpec(name string, labels map[string]string, deploymentSpec *v1alpha2.DeploymentSpec) appsv1.DeploymentSpec {
+func defaultDeploymentSpec(name string, labels map[string]string, configHash uint64, mdd *modelDeploymentData) appsv1.DeploymentSpec {
+	// TODO: Come up with a better way to do tracing config for the agents
+	mdd.EnvVars = append(mdd.EnvVars, slices.Collect(utils.Map(
+		utils.Filter(
+			slices.Values(os.Environ()),
+			func(envVar string) bool {
+				return strings.HasPrefix(envVar, "OTEL_")
+			},
+		),
+		func(envVar string) corev1.EnvVar {
+			parts := strings.SplitN(envVar, "=", 2)
+			return corev1.EnvVar{
+				Name:  parts[0],
+				Value: parts[1],
+			}
+		},
+	))...)
+
+	mdd.EnvVars = append(mdd.EnvVars, corev1.EnvVar{
+		Name: "KAGENT_NAMESPACE",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.namespace",
+			},
+		},
+	})
 
 	podTemplateLabels := maps.Clone(deploymentSpec.Labels)
+
+	volumes := []corev1.Volume{
+		{
+			Name: "config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: name,
+					},
+				},
+			},
+		},
+	}
+	volumes = append(volumes, mdd.Volumes...)
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "config",
+			MountPath: "/config",
+		},
+	}
+	volumeMounts = append(volumeMounts, mdd.VolumeMounts...)
 
 	return appsv1.DeploymentSpec{
 		Replicas: ptr.To(int32(1)),
@@ -326,7 +351,7 @@ func buildDeploymentSpec(name string, labels map[string]string, deploymentSpec *
 								corev1.ResourceMemory: resource.MustParse("1Gi"),
 							},
 						},
-						Env: deploymentSpec.Env,
+						Env: mdd.EnvVars,
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{
@@ -338,18 +363,18 @@ func buildDeploymentSpec(name string, labels map[string]string, deploymentSpec *
 							TimeoutSeconds:      15,
 							PeriodSeconds:       15,
 						},
-						VolumeMounts: deploymentSpec.VolumeMounts,
+						VolumeMounts: volumeMounts,
 					},
 				},
-				Volumes: deploymentSpec.Volumes,
+				Volumes: volumes,
 			},
 		},
 	}
 }
 
-func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, *server.AgentCard, []corev1.EnvVar, error) {
+func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, error) {
 
-	model, envVars, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Inline.ModelConfig)
+	model, mdd, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Inline.ModelConfig)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -444,21 +469,25 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
-	return cfg, agentCard, envVars, nil
+	return cfg, agentCard, mdd, nil
 }
 
-func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, []corev1.EnvVar, error) {
+const (
+	googleCredsVolumeName = "google-creds"
+)
+
+func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, error) {
 	model := &v1alpha2.ModelConfig{}
 	err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: modelConfig}, model)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var envVars []corev1.EnvVar
+	modelDeploymentData := &modelDeploymentData{}
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
 		if model.Spec.APIKeySecret != "" {
-			envVars = append(envVars, corev1.EnvVar{
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: "OPENAI_API_KEY",
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
@@ -478,16 +507,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		if model.Spec.OpenAI != nil {
 			openai.BaseUrl = model.Spec.OpenAI.BaseURL
 			if model.Spec.OpenAI.Organization != "" {
-				envVars = append(envVars, corev1.EnvVar{
+				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 					Name:  "OPENAI_ORGANIZATION",
 					Value: model.Spec.OpenAI.Organization,
 				})
 			}
 		}
-		return openai, envVars, nil
+		return openai, modelDeploymentData, nil
 	case v1alpha2.ModelProviderAnthropic:
 		if model.Spec.APIKeySecret != "" {
-			envVars = append(envVars, corev1.EnvVar{
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: "ANTHROPIC_API_KEY",
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
@@ -507,12 +536,12 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		if model.Spec.Anthropic != nil {
 			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
 		}
-		return anthropic, envVars, nil
+		return anthropic, modelDeploymentData, nil
 	case v1alpha2.ModelProviderAzureOpenAI:
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
-		envVars = append(envVars, corev1.EnvVar{
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: "AZURE_API_KEY",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
@@ -524,19 +553,19 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			},
 		})
 		if model.Spec.AzureOpenAI.AzureADToken != "" {
-			envVars = append(envVars, corev1.EnvVar{
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  "AZURE_AD_TOKEN",
 				Value: model.Spec.AzureOpenAI.AzureADToken,
 			})
 		}
 		if model.Spec.AzureOpenAI.APIVersion != "" {
-			envVars = append(envVars, corev1.EnvVar{
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  "AZURE_API_VERSION",
 				Value: model.Spec.AzureOpenAI.APIVersion,
 			})
 		}
 		if model.Spec.AzureOpenAI.Endpoint != "" {
-			envVars = append(envVars, corev1.EnvVar{
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  "AZURE_API_BASE",
 				Value: model.Spec.AzureOpenAI.Endpoint,
 			})
@@ -546,30 +575,39 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model: model.Spec.AzureOpenAI.DeploymentName,
 			},
 		}
-		return azureOpenAI, envVars, nil
+		return azureOpenAI, modelDeploymentData, nil
 	case v1alpha2.ModelProviderGeminiVertexAI:
 		if model.Spec.GeminiVertexAI == nil {
 			return nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
 		}
-		envVars = append(envVars, corev1.EnvVar{
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "GOOGLE_CLOUD_PROJECT",
 			Value: model.Spec.GeminiVertexAI.ProjectID,
 		})
-		envVars = append(envVars, corev1.EnvVar{
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "GOOGLE_CLOUD_LOCATION",
 			Value: model.Spec.GeminiVertexAI.Location,
 		})
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+			Name:  "GOOGLE_GENAI_USE_VERTEXAI",
+			Value: "true",
+		})
 		if model.Spec.APIKeySecret != "" {
-			envVars = append(envVars, corev1.EnvVar{
-				Name: "GOOGLE_APPLICATION_CREDENTIALS",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
+				Value: "/creds/" + model.Spec.APIKeySecretKey,
+			})
+			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
+				Name: googleCredsVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: model.Spec.APIKeySecret,
 					},
 				},
+			})
+			modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
+				Name:      googleCredsVolumeName,
+				MountPath: "/creds",
 			})
 		}
 		gemini := &adk.GeminiVertexAI{
@@ -577,30 +615,35 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model: model.Spec.Model,
 			},
 		}
-		return gemini, envVars, nil
+		return gemini, modelDeploymentData, nil
 	case v1alpha2.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
 			return nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
 		}
-		envVars = append(envVars, corev1.EnvVar{
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "GOOGLE_CLOUD_PROJECT",
 			Value: model.Spec.AnthropicVertexAI.ProjectID,
 		})
-		envVars = append(envVars, corev1.EnvVar{
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "GOOGLE_CLOUD_LOCATION",
 			Value: model.Spec.AnthropicVertexAI.Location,
 		})
 		if model.Spec.APIKeySecret != "" {
-			envVars = append(envVars, corev1.EnvVar{
-				Name: "GOOGLE_APPLICATION_CREDENTIALS",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
+				Value: "/creds/" + model.Spec.APIKeySecretKey,
+			})
+			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
+				Name: googleCredsVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: model.Spec.APIKeySecret,
 					},
 				},
+			})
+			modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
+				Name:      googleCredsVolumeName,
+				MountPath: "/creds",
 			})
 		}
 		anthropic := &adk.GeminiAnthropic{
@@ -608,12 +651,12 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model: model.Spec.Model,
 			},
 		}
-		return anthropic, envVars, nil
+		return anthropic, modelDeploymentData, nil
 	case v1alpha2.ModelProviderOllama:
 		if model.Spec.Ollama == nil {
 			return nil, nil, fmt.Errorf("Ollama model config is required")
 		}
-		envVars = append(envVars, corev1.EnvVar{
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "OLLAMA_API_BASE",
 			Value: model.Spec.Ollama.Host,
 		})
@@ -622,9 +665,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model: model.Spec.Model,
 			},
 		}
-		return ollama, envVars, nil
+		return ollama, modelDeploymentData, nil
 	case v1alpha2.ModelProviderGemini:
-		envVars = append(envVars, corev1.EnvVar{
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: "GOOGLE_API_KEY",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
@@ -640,7 +683,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model: model.Spec.Model,
 			},
 		}
-		return gemini, envVars, nil
+		return gemini, modelDeploymentData, nil
 	}
 	return nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
 }
