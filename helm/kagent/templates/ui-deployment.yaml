@@ -33,6 +33,7 @@ spec:
       {{- with .Values.ui.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.ui.initContainers }}
       initContainers:
         {{- tpl (toYaml .) $ | nindent 8 }}
@@ -45,12 +46,6 @@ spec:
         - emptyDir: {}
           name: run-nginx
       {{- with .Values.ui.volumes }}
-      {{- with .Values.ui.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.ui.tolerations }}
-      tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
