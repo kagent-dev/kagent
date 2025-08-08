@@ -196,6 +196,7 @@ cython_debug/
 go/bin/
 *.db
 .vscode/
+.cursor/rules
 
 ## Helm
 *.tgz

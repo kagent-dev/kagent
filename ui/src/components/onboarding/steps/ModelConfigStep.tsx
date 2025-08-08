@@ -26,7 +26,7 @@ import { k8sRefUtils } from '@/lib/k8sUtils';
 import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
-const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
+const modelProviders = ["openai", "azure-openai", "anthropic", "ollama", "gemini", "gemini-vertex-ai", "anthropic-vertex-ai"] as const;
 const modelConfigSchema = z.object({
     providerName: z.enum(modelProviders, { required_error: "Please select a provider." }),
     configName: z.string().min(1, "Configuration name is required."),
@@ -190,6 +190,9 @@ export function ModelConfigStep({
                 payload.azureOpenAI = { azureEndpoint: values.azureEndpoint || "", apiVersion: values.azureApiVersion || "" }; break;
             case 'openai': payload.openAI = {}; break;
             case 'anthropic': payload.anthropic = {}; break;
+            case 'gemini': payload.gemini = {}; break;
+            case 'gemini-vertex-ai': payload.geminiVertexAI = {}; break;
+            case 'anthropic-vertex-ai': payload.anthropicVertexAI = {}; break;
             case 'ollama':
                 const modelTag = values.modelTag?.trim() || "";
                 if (modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {

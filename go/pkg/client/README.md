@@ -21,20 +21,23 @@ import (
     "log"
 
     "github.com/kagent-dev/kagent/go/pkg/client"
+    "github.com/kagent-dev/kagent/go/pkg/client/api"
+    "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func main() {
     // Create a new client set
-    c := client.NewClientSet("http://localhost:8080", 
+    c := client.New("http://localhost:8080",
         client.WithUserID("your-user-id"))
 
     // Check server health
-    if err := c.Health().Health(context.Background()); err != nil {
+    if err := c.Health.Get(context.Background()); err != nil {
         log.Fatal("Server is not healthy:", err)
     }
 
     // Get version information
-    version, err := c.Version().GetVersion(context.Background())
+    version, err := c.Version.GetVersion(context.Background())
     if err != nil {
         log.Fatal("Failed to get version:", err)
     }
@@ -46,18 +49,18 @@ func main() {
 
 The client is organized into sub-clients, each responsible for a specific API area:
 
-- **Health**: `c.Health()` - Server health checks
-- **Version**: `c.Version()` - Version information
-- **ModelConfigs**: `c.ModelConfigs()` - Model configuration management
-- **Sessions**: `c.Sessions()` - Session management
-- **Teams**: `c.Teams()` - Team management
-- **Tools**: `c.Tools()` - Tool listing
-- **ToolServers**: `c.ToolServers()` - Tool server management
-- **Memories**: `c.Memories()` - Memory management
-- **Providers**: `c.Providers()` - Provider information
-- **Models**: `c.Models()` - Model information
-- **Namespaces**: `c.Namespaces()` - Namespace listing
-- **Feedback**: `c.Feedback()` - Feedback management
+- **Health**: `c.Health` - Server health checks
+- **Version**: `c.Version` - Version information
+- **ModelConfigs**: `c.ModelConfig` - Model configuration management
+- **Sessions**: `c.Session` - Session management
+- **Agents**: `c.Agent` - Agent management
+- **Tools**: `c.Tool` - Tool listing
+- **ToolServers**: `c.ToolServer` - Tool server management
+- **Memories**: `c.Memory` - Memory management
+- **Providers**: `c.Provider` - Provider information
+- **Models**: `c.Model` - Model information
+- **Namespaces**: `c.Namespace` - Namespace listing
+- **Feedback**: `c.Feedback` - Feedback management
 
 ## Configuration
 
@@ -66,7 +69,7 @@ The client is organized into sub-clients, each responsible for a specific API ar
 ```go
 // With custom HTTP client
 httpClient := &http.Client{Timeout: 60 * time.Second}
-c := client.NewClientSet("http://localhost:8080", 
+c := client.New("http://localhost:8080",
     client.WithHTTPClient(httpClient),
     client.WithUserID("your-user-id"))
 ```
@@ -77,7 +80,7 @@ Many endpoints require a user ID. You can either:
 
 1. Set a default user ID when creating the client:
 ```go
-c := client.NewClientSet("http://localhost:8080", client.WithUserID("user123"))
+c := client.New("http://localhost:8080", client.WithUserID("user123"))
 ```
 
 2. Pass it explicitly to methods that require it:
@@ -91,20 +94,20 @@ sessions, err := c.Sessions().ListSessions(ctx, "user123")
 
 ```go
 // Health check
-err := c.Health(ctx)
+err := c.Health.Get(ctx)
 
 // Get version information
-version, err := c.GetVersion(ctx)
+version, err := c.Version.GetVersion(ctx)
 ```
 
 ### Model Configurations
 
 ```go
 // List all model configurations
-configs, err := c.ListModelConfigs(ctx)
+configs, err := c.ModelConfig.ListModelConfigs(ctx)
 
 // Get a specific model configuration
-config, err := c.GetModelConfig(ctx, "namespace", "config-name")
+config, err := c.ModelConfig.GetModelConfig(ctx, "namespace", "config-name")
 
 // Create a new model configuration
 request := &client.CreateModelConfigRequest{
@@ -117,7 +120,7 @@ request := &client.CreateModelConfigRequest{
         MaxTokens:   1000,
     },
 }
-config, err := c.CreateModelConfig(ctx, request)
+config, err := c.ModelConfig.CreateModelConfig(ctx, request)
 
 // Update a model configuration
 updateReq := &client.UpdateModelConfigRequest{
@@ -127,78 +130,83 @@ updateReq := &client.UpdateModelConfigRequest{
         Temperature: "0.8",
     },
 }
-config, err := c.UpdateModelConfig(ctx, "namespace", "config-name", updateReq)
+config, err := c.ModelConfig.UpdateModelConfig(ctx, "namespace", "config-name", updateReq)
 
 // Delete a model configuration
-err := c.DeleteModelConfig(ctx, "namespace", "config-name")
+err := c.ModelConfig.DeleteModelConfig(ctx, "namespace", "config-name")
 ```
 
 ### Sessions
 
 ```go
 // List sessions for a user
-sessions, err := c.ListSessions(ctx, "user123")
+sessions, err := c.Session.ListSessions(ctx, "user123")
 
 // Create a new session
 sessionReq := &client.SessionRequest{
-    Name:   "My Session",
-    UserID: "user123",
-    TeamID: &teamID, // optional
+    Name:     "My Session",
+    UserID:   "user123",
+    AgentRef: &agentRef, // optional
 }
-session, err := c.CreateSession(ctx, sessionReq)
+session, err := c.Session.CreateSession(ctx, sessionReq)
 
 // Get a specific session
-session, err := c.GetSession(ctx, "session-name", "user123")
+session, err := c.Session.GetSession(ctx, "session-name", "user123")
 
 // Update a session
-sessionReq.TeamID = &newTeamID
-session, err := c.UpdateSession(ctx, sessionReq)
+sessionReq.AgentRef = &newAgentRef
+session, err := c.Session.UpdateSession(ctx, sessionReq)
 
 // Delete a session
-err := c.DeleteSession(ctx, "session-name", "user123")
+err := c.Session.DeleteSession(ctx, "session-name", "user123")
 
 // List runs for a session
-runs, err := c.ListSessionRuns(ctx, "session-name", "user123")
+runs, err := c.Session.ListSessionRuns(ctx, "session-name", "user123")
 ```
 
-### Teams
+### Agents
 
 ```go
-// List teams for a user
-teams, err := c.ListTeams(ctx, "user123")
+// List agents for a user
+agents, err := c.Agent.ListAgents(ctx, "user123")
 
-// Create a new team
-teamReq := &client.TeamRequest{
-    AgentRef: "default/my-agent",
-    Component: api.Component{
-        Label: "My Team",
-        Description: "Team description",
+// Create a new agent
+agent := &v1alpha1.Agent{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      "my-agent",
+        Namespace: "default",
+    },
+    Spec: v1alpha1.AgentSpec{
+        Description:   "My agent description",
+        SystemMessage: "You are a helpful assistant",
+        ModelConfig:   "default/gpt-4-config",
     },
 }
-team, err := c.CreateTeam(ctx, teamReq)
+createdAgent, err := c.Agent.CreateAgent(ctx, agent)
 
-// Get a specific team
-team, err := c.GetTeam(ctx, "team-id")
+// Get a specific agent
+agentResponse, err := c.Agent.GetAgent(ctx, "default/my-agent")
 
-// Update a team
-team, err := c.UpdateTeam(ctx, "team-id", teamReq)
+// Update an agent
+agent.Spec.Description = "Updated description"
+updatedAgent, err := c.Agent.UpdateAgent(ctx, agent)
 
-// Delete a team
-err := c.DeleteTeam(ctx, "team-id")
+// Delete an agent
+err := c.Agent.DeleteAgent(ctx, "default/my-agent")
 ```
 
 ### Tools
 
 ```go
 // List tools for a user
-tools, err := c.ListTools(ctx, "user123")
+tools, err := c.Tool.ListTools(ctx, "user123")
 ```
 
 ### Tool Servers
 
 ```go
 // List all tool servers
-toolServers, err := c.ListToolServers(ctx)
+toolServers, err := c.ToolServer.ListToolServers(ctx)
 
 // Create a new tool server
 toolServer := &v1alpha1.ToolServer{
@@ -216,17 +224,17 @@ toolServer := &v1alpha1.ToolServer{
         },
     },
 }
-created, err := c.CreateToolServer(ctx, toolServer)
+created, err := c.ToolServer.CreateToolServer(ctx, toolServer)
 
 // Delete a tool server
-err := c.DeleteToolServer(ctx, "namespace", "tool-server-name")
+err := c.ToolServer.DeleteToolServer(ctx, "namespace", "tool-server-name")
 ```
 
 ### Memories
 
 ```go
 // List all memories
-memories, err := c.ListMemories(ctx)
+memories, err := c.Memory.ListMemories(ctx)
 
 // Create a new memory
 memoryReq := &client.CreateMemoryRequest{
@@ -238,10 +246,10 @@ memoryReq := &client.CreateMemoryRequest{
         TopK:      10,
     },
 }
-memory, err := c.CreateMemory(ctx, memoryReq)
+memory, err := c.Memory.CreateMemory(ctx, memoryReq)
 
 // Get a specific memory
-memory, err := c.GetMemory(ctx, "namespace", "memory-name")
+memory, err := c.Memory.GetMemory(ctx, "namespace", "memory-name")
 
 // Update a memory
 updateReq := &client.UpdateMemoryRequest{
@@ -250,34 +258,34 @@ updateReq := &client.UpdateMemoryRequest{
         TopK:      20,
     },
 }
-memory, err := c.UpdateMemory(ctx, "namespace", "memory-name", updateReq)
+memory, err := c.Memory.UpdateMemory(ctx, "namespace", "memory-name", updateReq)
 
 // Delete a memory
-err := c.DeleteMemory(ctx, "namespace", "memory-name")
+err := c.Memory.DeleteMemory(ctx, "namespace", "memory-name")
 ```
 
 ### Providers
 
 ```go
 // List supported model providers
-modelProviders, err := c.ListSupportedModelProviders(ctx)
+modelProviders, err := c.Provider.ListSupportedModelProviders(ctx)
 
 // List supported memory providers
-memoryProviders, err := c.ListSupportedMemoryProviders(ctx)
+memoryProviders, err := c.Provider.ListSupportedMemoryProviders(ctx)
 ```
 
 ### Models
 
 ```go
 // List supported models
-models, err := c.ListSupportedModels(ctx)
+models, err := c.Model.ListSupportedModels(ctx)
 ```
 
 ### Namespaces
 
 ```go
 // List namespaces
-namespaces, err := c.ListNamespaces(ctx)
+namespaces, err := c.Namespace.ListNamespaces(ctx)
 ```
 
 ### Feedback
@@ -290,10 +298,10 @@ feedback := &client.Feedback{
     FeedbackText: "Great response!",
     IssueType:    nil, // optional
 }
-err := c.CreateFeedback(ctx, feedback, "user123")
+err := c.Feedback.CreateFeedback(ctx, feedback, "user123")
 
 // List feedback for a user
-feedback, err := c.ListFeedback(ctx, "user123")
+feedback, err := c.Feedback.ListFeedback(ctx, "user123")
 ```
 
 ## Error Handling
@@ -312,17 +320,13 @@ if err != nil {
 }
 ```
 
-## Legacy Compatibility
+## Client Constructor
 
-For backward compatibility, you can still use the legacy `New()` function, though it returns the same clientset interface:
+The client is created using the `New()` function:
 
 ```go
-// Legacy usage (still works)
+// Standard usage
 c := client.New("http://localhost:8080", client.WithUserID("user123"))
-
-// Alternative modern usage
-c := client.NewClientSet("http://localhost:8080", client.WithUserID("user123"))
-c := client.NewClient("http://localhost:8080", client.WithUserID("user123"))
 ```
 
 ## Examples
@@ -340,7 +344,7 @@ import (
 )
 
 func main() {
-    c := client.NewClient("http://localhost:8080", client.WithUserID("user123"))
+    c := client.New("http://localhost:8080", client.WithUserID("user123"))
     ctx := context.Background()
 
     // Create a session
@@ -348,13 +352,13 @@ func main() {
         Name:   "Chat Session",
         UserID: "user123",
     }
-    session, err := c.CreateSession(ctx, sessionReq)
+    session, err := c.Session.CreateSession(ctx, sessionReq)
     if err != nil {
         log.Fatal("Failed to create session:", err)
     }
 
     // List all sessions
-    sessions, err := c.ListSessions(ctx, "user123")
+    sessions, err := c.Session.ListSessions(ctx, "user123")
     if err != nil {
         log.Fatal("Failed to list sessions:", err)
     }
@@ -363,7 +367,7 @@ func main() {
     log.Printf("Total sessions: %d\n", len(sessions))
 
     // Get session runs
-    runs, err := c.ListSessionRuns(ctx, session.Name, "user123")
+    runs, err := c.Session.ListSessionRuns(ctx, session.Name, "user123")
     if err != nil {
         log.Fatal("Failed to get session runs:", err)
     }
@@ -371,7 +375,7 @@ func main() {
     log.Printf("Session runs: %d\n", len(runs))
 
     // Clean up
-    err = c.DeleteSession(ctx, session.Name, "user123")
+    err = c.Session.DeleteSession(ctx, session.Name, "user123")
     if err != nil {
         log.Fatal("Failed to delete session:", err)
     }
