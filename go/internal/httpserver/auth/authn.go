@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 )
 
@@ -60,4 +61,10 @@ func TestAuthn(r *http.Request) *Session {
 
 type Authorizer interface {
 	Check(principal Principal, verb string, resource string) error
+}
+
+type NothingAuthorizer struct{}
+
+func (a *NothingAuthorizer) Check(principal Principal, verb string, resource string) error {
+	return errors.New("not authorized")
 }
