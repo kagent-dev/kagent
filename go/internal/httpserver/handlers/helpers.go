@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,14 +50,13 @@ func RespondWithError(w http.ResponseWriter, code int, message string) {
 func GetUserID(r *http.Request) (string, error) {
 	log := ctrllog.Log.WithName("http-helpers")
 
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		log.Info("Missing user_id parameter in request")
-		return "", fmt.Errorf("user_id is required")
+	s, ok := auth.AuthSessionFrom(r.Context())
+	if !ok || s == nil {
+		log.Info("No session found in request context")
+		return "", fmt.Errorf("no session found")
 	}
-
-	log.V(2).Info("Retrieved user_id from request", "userID", userID)
-	return userID, nil
+	log.V(2).Info("Retrieved session from request", "userID", s.Principal.User)
+	return s.Principal.User, nil
 }
 
 // GetPathParam gets a path parameter from the request
