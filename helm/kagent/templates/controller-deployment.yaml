@@ -31,6 +31,14 @@ spec:
         emptyDir:
           sizeLimit: 500Mi
           medium: Memory
+      {{- with .Values.controller.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: controller
           args:
