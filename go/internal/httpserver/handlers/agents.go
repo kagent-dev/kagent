@@ -192,19 +192,19 @@ func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "create-db")
 
-	var req api.CreateAgentRequest
-	if err := DecodeJSONBody(r, &req); err != nil {
+	var agentReq api.CreateAgentRequest
+	if err := DecodeJSONBody(r, &agentReq); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 
-	agentRef, err := common.ParseRefString(req.Ref, common.GetResourceNamespace())
+	agentRef, err := common.ParseRefString(agentReq.Ref, common.GetResourceNamespace())
 	if err != nil {
 		log.Error(err, "Failed to parse Ref")
 		w.RespondWithError(errors.NewBadRequestError("Invalid Ref", err))
 		return
 	}
-	if !strings.Contains(req.Ref, "/") {
+	if !strings.Contains(agentReq.Ref, "/") {
 		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
 			"namespace", agentRef.Namespace)
 	}
@@ -234,26 +234,23 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 		return
 	}
 
-	// Create the v1alpha1.Agent from the request
-	agentReq := &v1alpha1.Agent{
+	// Create the v1alpha1.Agent from the request, leaving some fields empty for now
+	agent := &v1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      agentRef.Name,
 			Namespace: agentRef.Namespace,
 		},
 		Spec: v1alpha1.AgentSpec{
-			Description:   req.Description,
-			SystemMessage: req.SystemMessage,
-			ModelConfig:   req.ModelConfig,
-			Stream:        req.Stream,
-			Tools:         req.Tools,
-			Memory:        req.Memory,
-			A2AConfig:     req.A2AConfig,
-			Deployment:    req.Deployment,
+			Description:   agentReq.Description,
+			SystemMessage: agentReq.SystemMessage,
+			ModelConfig:   agentReq.ModelConfig,
+			Tools:         agentReq.Tools,
+			Memory:        agentReq.Memory,
 		},
 	}
 
 	kubeClientWrapper := utils.NewKubeClientWrapper(h.KubeClient)
-	kubeClientWrapper.AddInMemory(agentReq)
+	kubeClientWrapper.AddInMemory(agent)
 
 	apiTranslator := translator.NewAdkApiTranslator(
 		kubeClientWrapper,
@@ -261,7 +258,7 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 	)
 
 	log.V(1).Info("Translating Agent to ADK format")
-	_, err = apiTranslator.TranslateAgent(r.Context(), agentReq)
+	_, err = apiTranslator.TranslateAgent(r.Context(), agent)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to translate Agent to ADK format", err))
 		return
@@ -269,13 +266,19 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 
 	// Agent is valid, we can store it
 	log.V(1).Info("Creating Agent in Kubernetes")
-	if err := h.KubeClient.Create(r.Context(), agentReq); err != nil {
+	if err := h.KubeClient.Create(r.Context(), agent); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create Agent in Kubernetes", err))
 		return
 	}
 
+	agentResponse, err := h.getAgentResponse(r.Context(), log, agent)
+	if err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
 	log.Info("Successfully created agent", "agentRef", agentRef)
-	data := api.NewResponse(agentReq, "Successfully created agent", false)
+	data := api.NewResponse(agentResponse, "Successfully created agent", false)
 	RespondWithJSON(w, http.StatusCreated, data)
 }
 

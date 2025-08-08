@@ -87,16 +87,14 @@ type AgentResponse struct {
 }
 
 // CreateAgentRequest represents a request to create an agent
+// This matches the AgentFormData structure from the UI
 type CreateAgentRequest struct {
-	Ref           string                   `json:"ref"`
-	Description   string                   `json:"description,omitempty"`
-	SystemMessage string                   `json:"systemMessage"`
-	ModelConfig   string                   `json:"modelConfig"`
-	Stream        *bool                    `json:"stream,omitempty"`
-	Tools         []*v1alpha1.Tool         `json:"tools,omitempty"`
-	Memory        []string                 `json:"memory,omitempty"`
-	A2AConfig     *v1alpha1.A2AConfig      `json:"a2aConfig,omitempty"`
-	Deployment    *v1alpha1.DeploymentSpec `json:"deployment,omitempty"`
+	Ref           string           `json:"ref"`
+	Description   string           `json:"description,omitempty"`
+	SystemMessage string           `json:"systemMessage"`
+	ModelConfig   string           `json:"modelConfig"`
+	Tools         []*v1alpha1.Tool `json:"tools,omitempty"`
+	Memory        []string         `json:"memory,omitempty"`
 }
 
 // UpdateAgentRequest represents a request to update an agent
