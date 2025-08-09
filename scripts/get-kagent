@@ -220,9 +220,7 @@ help () {
   echo -e "\t[--help|-h ] ->> prints this help"
   echo -e "\t[--version|-v <desired_version>] . When not defined it fetches the latest release tag from the kagent GitHub repository"
   echo -e "\te.g. --version v3.0.0 or -v canary"
-  echo -e "\t[--no-sudo]  ->> install without sudo"
-  echo -e "\t[--home-bin] ->> install in $HOME/bin instead of /usr/local/bin (ensure $HOME/bin is in your PATH)"
-  echo -e "\t[--home-bin] ->> install in $HOME/bin instead of /usr/local/bin (ensure $HOME/bin is in your PATH)"
+  echo -e "\t[--no-sudo]  ->> install without sudo to $HOME/bin"
 }
 
 # cleanup temporary files to avoid https://github.com/helm/helm/issues/2977
@@ -232,7 +230,7 @@ cleanup() {
   fi
 }
 
-# checkHomeBinPath checks if $HOME/bin is in the user's PATH and provides
+# checkHomeBinPath checks if $HOME/bin is in the user's PATH and provides warnings and instructions if it is missing.
 checkHomeBinPath() {
   if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
     echo "Warning: $HOME/bin is not in your PATH. You may need to add it to your PATH to use kagent."
@@ -273,25 +271,14 @@ while [[ $# -gt 0 ]]; do
        ;;
     '--no-sudo')
        USE_SUDO="false"
-       ;;
-    '--home-bin')
-      KAGENT_INSTALL_DIR="$HOME/bin"
-      USE_SUDO="false"
-      if [ ! -d "$HOME/bin" ]; then
-        mkdir -p "$HOME/bin"
-        echo "Created directory $HOME/bin"
-      fi
-      checkHomeBinPath
-      ;;
-    '--home-bin')
        KAGENT_INSTALL_DIR="$HOME/bin"
-       USE_SUDO="false"
        if [ ! -d "$HOME/bin" ]; then
          mkdir -p "$HOME/bin"
          echo "Created directory $HOME/bin"
        fi
        checkHomeBinPath
        ;;
+
     '--help'|-h)
        help
        exit 0
