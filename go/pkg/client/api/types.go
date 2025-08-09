@@ -86,6 +86,27 @@ type AgentResponse struct {
 	Tools          []*v1alpha1.Tool       `json:"tools"`
 }
 
+// CreateAgentRequest represents a request to create an agent
+// This matches the AgentFormData structure from the UI
+type CreateAgentRequest struct {
+	Ref           string           `json:"ref"`
+	Description   string           `json:"description,omitempty"`
+	SystemMessage string           `json:"systemMessage"`
+	ModelConfig   string           `json:"modelConfig"`
+	Tools         []*v1alpha1.Tool `json:"tools,omitempty"`
+	Memory        []string         `json:"memory,omitempty"`
+}
+
+// UpdateAgentRequest represents a request to update an agent
+// This matches the CreateAgentRequest structure but with pointer fields for optional updates
+type UpdateAgentRequest struct {
+	Description   *string          `json:"description,omitempty"`
+	SystemMessage *string          `json:"systemMessage,omitempty"`
+	ModelConfig   *string          `json:"modelConfig,omitempty"`
+	Tools         []*v1alpha1.Tool `json:"tools,omitempty"`
+	Memory        []string         `json:"memory,omitempty"`
+}
+
 // Session types
 
 // SessionRequest represents a session creation/update request
