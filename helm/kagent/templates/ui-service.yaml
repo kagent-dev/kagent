@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.ui.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.ui.service.type }}
+  ports:
+    - port: {{ .Values.ui.service.ports.port }}
+      targetPort: {{ .Values.ui.service.ports.targetPort }}
+      protocol: TCP
+      name: ui
+  selector:
+    {{- include "kagent.ui.selectorLabels" . | nindent 4 }}

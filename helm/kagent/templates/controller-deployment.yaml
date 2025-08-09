@@ -1,0 +1,164 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.controller.podAnnotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "kagent.controller.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.controller.imagePullSecrets | default .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml (.Values.controller.podSecurityContext | default .Values.podSecurityContext) | nindent 8 }}
+      serviceAccountName: {{ include "kagent.fullname" . }}-controller
+      volumes:
+      - name: sqlite-volume
+        emptyDir:
+          sizeLimit: 500Mi
+          medium: Memory
+      {{- with .Values.controller.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: controller
+          args:
+          # Consider using env vars (stored in a dedicated ConfigMap(s)) rather than this
+          {{/* #we need to pass the default model config name to the app otherwise helm upgrade will not allow provider type change due to validations */}}
+            - -default-model-config-name
+            - {{ include "kagent.defaultModelConfigName" . | quote }}
+            - -zap-log-level
+            - {{ .Values.controller.loglevel }}
+            - -watch-namespaces
+            - "{{ include "kagent.watchNamespaces" . }}"
+            - -streaming-max-buf-size
+            - {{ .Values.controller.streaming.maxBufSize | quote }}
+            - -streaming-initial-buf-size
+            - {{ .Values.controller.streaming.initialBufSize | quote }}
+            - -database-type
+            - {{ .Values.database.type }}
+            {{- if eq .Values.database.type "sqlite" }}
+            - -sqlite-database-path
+            - /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
+            {{- else if eq .Values.database.type "postgres" }}
+            - -postgres-database-url
+            - {{ .Values.database.postgres.url }}
+            {{- end }}          
+          securityContext:
+            {{- toYaml .Values.controller.securityContext | nindent 12 }}
+          image: "{{ .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          env:
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LOG_LEVEL
+              value: {{ .Values.controller.loglevel | quote }}
+            - name: OTEL_TRACING_ENABLED
+              value: {{ .Values.otel.tracing.enabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+            - name: OTEL_TRACING_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+              value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
+              value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+            - name: OTEL_LOGGING_ENABLED
+              value: {{ .Values.otel.logging.enabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+              value: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_LOGS_TIMEOUT
+              value: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+            - name: OTEL_EXPORTER_OTLP_LOGS_INSECURE
+              value: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
+            {{- with .Values.controller.env }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.controller.service.ports.targetPort }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 1
+            initialDelaySeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+          volumeMounts:
+            - name: sqlite-volume
+              mountPath: /sqlite-volume
+        - name: grafana-mcp # Temporary workaround until kmcp is ready.
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: mcp/grafana:latest
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: GRAFANA_URL
+              value: {{ .Values.tools.grafana.url | quote }}
+            - name: GRAFANA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-mcp-grafana
+                  key: GRAFANA_API_KEY
+                  optional: true
+            - name: KAGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: OTEL_TRACING_ENABLED
+              value: {{ .Values.otel.tracing.enabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+              value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
+              value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+          ports:
+            - name: http-grafana
+              containerPort: 8000
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: http-grafana
+            periodSeconds: 1
+            initialDelaySeconds: 1
+          readinessProbe:
+            tcpSocket:
+              port: http-grafana
+            periodSeconds: 30

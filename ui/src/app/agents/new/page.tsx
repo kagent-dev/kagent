@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Settings2 } from "lucide-react";
-import { ModelConfig, MemoryResponse } from "@/lib/types";
+import { ModelConfig, MemoryResponse } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
@@ -16,12 +16,14 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { Tool } from "@/types/datamodel";
+import { Tool } from "@/types";
 import { toast } from "sonner";
 import { listMemories } from "@/app/actions/memories";
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   description?: string;
   systemPrompt?: string;
   model?: string;
@@ -32,7 +34,8 @@ interface ValidationErrors {
 
 interface AgentPageContentProps {
   isEditMode: boolean;
-  agentId: string | null;
+  agentName: string | null;
+  agentNamespace: string | null;
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
@@ -49,18 +52,19 @@ const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
     - If you created any artifacts such as files or resources, you will include those in your response as well`
 
 // Inner component that uses useSearchParams, wrapped in Suspense
-function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
+function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageContentProps) {
   const router = useRouter();
-  const { models, tools, loading, error, createNewAgent, updateAgent, getAgentById, validateAgentData } = useAgents();
+  const { models, tools, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
 
   // Basic form state
   const [name, setName] = useState("");
+  const [namespace, setNamespace] = useState("");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState(isEditMode ? "" : DEFAULT_SYSTEM_PROMPT);
 
   // Default to the first model
-  type SelectedModelType = Pick<ModelConfig, 'name' | 'model'>;
-  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { name: models[0].name, model: models[0].model } : null);
+  type SelectedModelType = Pick<ModelConfig, 'ref' | 'model'>;
+  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { ref: models[0].ref, model: models[0].model } : null);
 
   // Tools state - now using AgentTool interface correctly
   const [selectedTools, setSelectedTools] = useState<Tool[]>([]);
@@ -83,10 +87,10 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   // Fetch existing agent data if in edit mode
   useEffect(() => {
     const fetchAgentData = async () => {
-      if (isEditMode && agentId) {
+      if (isEditMode && agentName && agentNamespace) {
         try {
           setIsLoading(true);
-          const agentResponse = await getAgentById(agentId);
+          const agentResponse = await getAgent(agentName, agentNamespace);
 
           if (!agentResponse) {
             toast.error("Agent not found");
@@ -98,21 +102,22 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
             try {
               // Populate form with existing agent data
               setName(agent.metadata.name || "");
+              setNamespace(agent.metadata.namespace || "");
               setDescription(agent.spec.description || "");
               setSystemPrompt(agent.spec.systemMessage || "");
-              setSelectedTools(agent.spec.tools || []);
+              setSelectedTools(agentResponse.tools || []);
               setSelectedModel({
                 model: agentResponse.model,
-                name: agent.spec.modelConfig,
+                ref: agentResponse.modelConfigRef,
               });
-              
+
               // Set selected memories if they exist
-              if (agent.spec.memory && Array.isArray(agent.spec.memory)) {
-                setSelectedMemories(agent.spec.memory);
+              if (agentResponse.memoryRefs && Array.isArray(agentResponse.memoryRefs)) {
+                setSelectedMemories(agentResponse.memoryRefs);
               }
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
-              toast.error("Failed to extract agent data from team structure");
+              toast.error("Failed to extract agent data");
             }
           } else {
             toast.error("Agent not found");
@@ -127,7 +132,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
     };
 
     fetchAgentData();
-  }, [isEditMode, agentId, getAgentById]);
+  }, [isEditMode, agentName, agentNamespace, getAgent]);
 
   useEffect(() => {
     const fetchMemories = async () => {
@@ -145,6 +150,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
   const validateForm = () => {
     const formData = {
       name,
+      namespace,
       description,
       systemPrompt,
       model: selectedModel || undefined,
@@ -164,6 +170,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
     // Set only the field being validated
     switch (fieldName) {
       case 'name': formData.name = value; break;
+      case 'namespace': formData.namespace = value; break;
       case 'description': formData.description = value; break;
       case 'systemPrompt': formData.systemPrompt = value; break;
       case 'model': formData.model = value; break;
@@ -193,6 +200,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 
       const agentData = {
         name,
+        namespace,
         systemPrompt,
         description,
         model: selectedModel,
@@ -202,16 +210,16 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
 
       let result;
 
-      if (isEditMode && agentId) {
+      if (isEditMode && agentName && agentNamespace) {
         // Update existing agent
-        result = await updateAgent(agentId, agentData);
+        result = await updateAgent(agentData);
       } else {
         // Create new agent
         result = await createNewAgent(agentData);
       }
 
-      if (!result.success) {
-        throw new Error(result.error || `Failed to ${isEditMode ? "update" : "create"} agent`);
+      if (result.error) {
+        throw new Error(result.error);
       }
 
       router.push(`/agents`);
@@ -260,9 +268,24 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                 </div>
 
                 <div>
-                  <label className="text-base mb-2 block font-bold">Description</label>
+                  <label className="text-base mb-2 block font-bold">Agent Namespace</label>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    This is a description of the agent. It's for your reference only and it's not going to be used by the agent.
+                    This is the namespace of the agent that will be displayed in the UI and used to identify the agent.
+                  </p>
+                  <NamespaceCombobox
+                    value={namespace}
+                    onValueChange={(value) => {
+                      setNamespace(value);
+                      validateField('namespace', value);
+                    }}
+                    disabled={isSubmitting || isLoading || isEditMode}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm mb-2 block">Description</label>
+                  <p className="text-xs mb-2 block text-muted-foreground">
+                    This is a description of the agent. It&apos;s for your reference only and it&apos;s not going to be used by the agent.
                   </p>
                   <Textarea
                     value={description}
@@ -287,7 +310,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   allModels={models} 
                   selectedModel={selectedModel} 
                   setSelectedModel={(model) => {
-                    setSelectedModel(model as Pick<ModelConfig, 'name' | 'model'>);
+                    setSelectedModel(model as Pick<ModelConfig, 'ref' | 'model'>);
                     validateField('model', model);
                   }} 
                   error={errors.model} 
@@ -303,7 +326,7 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
                   Memory
                 </CardTitle>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    The memories that the agent will use to answer the user's questions.
+                    The memories that the agent will use to answer the user&apos;s questions.
                   </p>
               </CardHeader>
               <CardContent>
@@ -324,11 +347,11 @@ function AgentPageContent({ isEditMode, agentId }: AgentPageContentProps) {
               </CardHeader>
               <CardContent>
                 <ToolsSection 
-                  allTools={tools} 
                   selectedTools={selectedTools} 
                   setSelectedTools={setSelectedTools} 
                   isSubmitting={isSubmitting || isLoading} 
                   onBlur={() => validateField('tools', selectedTools)}
+                  currentAgentName={name}
                 />
               </CardContent>
             </Card>
@@ -365,14 +388,15 @@ export default function AgentPage() {
   // Determine if in edit mode
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get("edit") === "true";
-  const agentId = searchParams.get("id");
+  const agentName = searchParams.get("name");
+  const agentNamespace = searchParams.get("namespace");
   
   // Create a key based on the edit mode and agent ID
-  const formKey = isEditMode ? `edit-${agentId}` : 'create';
+  const formKey = isEditMode ? `edit-${agentName}-${agentNamespace}` : 'create';
   
   return (
     <Suspense fallback={<LoadingState />}>
-      <AgentPageContent key={formKey} isEditMode={isEditMode} agentId={agentId} />
+      <AgentPageContent key={formKey} isEditMode={isEditMode} agentName={agentName} agentNamespace={agentNamespace} />
     </Suspense>
   );
 }

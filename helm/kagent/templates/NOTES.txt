@@ -1,10 +1,55 @@
-################################ To open kagent UI: ###########################################
-#
-#  This is a Helm chart for Kagent, a Kubernetes agent.
-#
-#  1. Forward application port by running these commands in the terminal:
-#  kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ .Release.Name }} 8001:80
-#
-#  2. Then visit http://127.0.0.1:8001 to use the application.
-#
-###############################################################################################
+################################################################################
+#                            KAGENT DEPLOYED                                  #
+################################################################################
+
+Kagent has been successfully deployed to namespace: {{ include "kagent.namespace" . }}
+
+ACCESSING THE UI:
+  1. Forward the UI service port:
+     kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-ui 8080:{{ .Values.ui.service.ports.port }}
+
+  2. Open your browser and visit:
+     http://localhost:8080
+
+ACCESSING THE CONTROLLER API:
+  kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-controller {{ .Values.controller.service.ports.port }}:{{ .Values.controller.service.ports.port }}
+  
+  API endpoint: http://localhost:{{ .Values.controller.service.ports.port }}/api
+
+DEPLOYED COMPONENTS:
+  - Controller: {{ include "kagent.fullname" . }}-controller (manages Kubernetes resources)
+  - Engine: {{ include "kagent.fullname" . }}-engine (AI agent runtime)
+  - UI: {{ include "kagent.fullname" . }}-ui (web interface)
+{{- if index .Values "kagent-tools" "enabled" }}
+  - Tool Server: Kagent's Built-in tools
+{{- end }}
+{{- if index .Values "querydoc" "enabled" }}
+  - QueryDoc: Document search and analysis
+{{- end }}
+
+ENABLED AGENTS:
+{{- range $agent, $config := .Values.agents }}
+{{- if $config.enabled }}
+  - {{ $agent }}
+{{- end }}
+{{- end }}
+
+USEFUL COMMANDS:
+  # View all kagent resources
+  kubectl -n {{ include "kagent.namespace" . }} get agents,modelconfigs,toolservers,memories
+
+  # Get agents
+  kubectl -n {{ include "kagent.namespace" . }} get agents
+
+  # View logs
+  kubectl -n {{ include "kagent.namespace" . }} logs -l app.kubernetes.io/name=kagent -f
+
+TROUBLESHOOTING:
+  - Check pod status: kubectl -n {{ include "kagent.namespace" . }} get pods
+  - View events: kubectl -n {{ include "kagent.namespace" . }} get events --sort-by='.lastTimestamp'
+  - Controller logs: kubectl -n {{ include "kagent.namespace" . }} logs -l app.kubernetes.io/component=controller -f
+
+DOCUMENTATION:
+  Visit https://kagent.dev for comprehensive documentation and examples.
+
+################################################################################

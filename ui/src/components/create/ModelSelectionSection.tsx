@@ -1,5 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { ModelConfig } from "@/lib/types";
+import type { ModelConfig } from "@/types";
 
 interface ModelSelectionSectionProps {
   allModels: ModelConfig[];
@@ -15,13 +15,13 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
     <>
       <label className="text-base mb-2 block font-bold">Model</label>
       <p className="text-xs mb-2 block text-muted-foreground">
-        This is the model that will be used to generate the agent's responses.
+        This is the model that will be used to generate the agent&apos;s responses.
       </p>
       <Select 
-        value={selectedModel?.name || ""} 
+        value={selectedModel?.ref || ""} 
         disabled={isSubmitting || allModels.length === 0} 
         onValueChange={(value) => {
-          const model = allModels.find((m) => m.name === value);
+          const model = allModels.find((m) => m.ref === value);
           if (model) {
             setSelectedModel(model);
             if (onBlur) {
@@ -35,8 +35,8 @@ export const ModelSelectionSection = ({ allModels, selectedModel, setSelectedMod
         </SelectTrigger>
         <SelectContent>
           {allModels.map((model, idx) => (
-            <SelectItem key={`${idx}_${model.name}`} value={model.name}>
-              {model.model} ({model.name})
+            <SelectItem key={`${idx}_${model.ref}`} value={model.ref}>
+              {model.model} ({model.ref})
             </SelectItem>
           ))}
         </SelectContent>

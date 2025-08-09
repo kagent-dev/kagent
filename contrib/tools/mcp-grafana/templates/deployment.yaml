@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-grafana.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-grafana.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mcp-grafana.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if .Values.config }}
+        checksum/configmap: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "mcp-grafana.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mcp-grafana.serviceAccountName" . }}
+      containers:
+        - name: mcp-grafana
+          args:
+            - "-t"
+            - "streamable-http"
+            - -debug
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          envFrom:
+            {{- if .Values.config }}
+            - configMapRef:
+                name: {{ include "mcp-grafana.fullname" . }}
+            {{- end }}
+            - secretRef:
+                name: {{ include "mcp-grafana.fullname" . }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP

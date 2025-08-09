@@ -94,6 +94,11 @@ verifySupported() {
     echo "[ERROR] Could not find tar. It is required to extract the kagent binary archive."
     exit 1
   fi
+
+  if [ "${HAS_JQ}" != "true" ]; then
+    echo "[ERROR] Could not find jq. It is required to parse the kagent version."
+    exit 1
+  fi
 }
 
 # checkDesiredVersion checks if the desired version is available.
@@ -121,7 +126,7 @@ checkDesiredVersion() {
 # if it needs to be changed.
 checkKagentInstalledVersion() {
   if [[ -f "${KAGENT_INSTALL_DIR}/${BINARY_NAME}" ]]; then
-    local version=$("${KAGENT_INSTALL_DIR}/${BINARY_NAME}" version --template="{{ .Version }}")
+    local version=$("${KAGENT_INSTALL_DIR}/${BINARY_NAME}" version | jq -r '.kagent_version')
     if [[ "$version" == "$TAG" ]]; then
       echo "kagent ${version} is already ${DESIRED_VERSION:-latest}"
       return 0
@@ -217,6 +222,7 @@ help () {
   echo -e "\te.g. --version v3.0.0 or -v canary"
   echo -e "\t[--no-sudo]  ->> install without sudo"
   echo -e "\t[--home-bin] ->> install in $HOME/bin instead of /usr/local/bin (ensure $HOME/bin is in your PATH)"
+  echo -e "\t[--home-bin] ->> install in $HOME/bin instead of /usr/local/bin (ensure $HOME/bin is in your PATH)"
 }
 
 # cleanup temporary files to avoid https://github.com/helm/helm/issues/2977
@@ -268,6 +274,15 @@ while [[ $# -gt 0 ]]; do
     '--no-sudo')
        USE_SUDO="false"
        ;;
+    '--home-bin')
+      KAGENT_INSTALL_DIR="$HOME/bin"
+      USE_SUDO="false"
+      if [ ! -d "$HOME/bin" ]; then
+        mkdir -p "$HOME/bin"
+        echo "Created directory $HOME/bin"
+      fi
+      checkHomeBinPath
+      ;;
     '--home-bin')
        KAGENT_INSTALL_DIR="$HOME/bin"
        USE_SUDO="false"

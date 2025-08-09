@@ -5,28 +5,30 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowBigUp, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Session, AgentMessageConfig } from "@/types/datamodel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import StreamingMessage from "./StreamingMessage";
 import TokenStatsDisplay from "./TokenStats";
-import { TokenStats } from "@/lib/types";
+import type { TokenStats, Session, ChatStatus } from "@/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionMessages, checkSessionExists, updateSession } from "@/app/actions/sessions";
+import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers } from "@/lib/messageHandlers";
-
-export type ChatStatus = "ready" | "thinking" | "error";
+import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromTasks, createMessage } from "@/lib/messageHandlers";
+import { kagentA2AClient } from "@/lib/a2aClient";
+import { v4 as uuidv4 } from "uuid";
+import { getStatusPlaceholder } from "@/lib/statusUtils";
+import { Message } from "@a2a-js/sdk";
 
 interface ChatInterfaceProps {
-  selectedAgentId: number;
+  selectedAgentName: string;
+  selectedNamespace: string;
   selectedSession?: Session | null;
   sessionId?: string;
 }
 
-export default function ChatInterface({ selectedAgentId, selectedSession, sessionId }: ChatInterfaceProps) {
+export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -39,7 +41,8 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
   const [session, setSession] = useState<Session | null>(selectedSession || null);
-  const [messages, setMessages] = useState<AgentMessageConfig[]>([]);
+  const [storedMessages, setStoredMessages] = useState<Message[]>([]);
+  const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -50,14 +53,22 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
 
   const { handleMessageEvent } = createMessageHandlers({
-    setMessages,
+    setMessages: setStreamingMessages,
     setIsStreaming,
     setStreamingContent,
-    setTokenStats
+    setTokenStats,
+    setChatStatus,
+    agentContext: {
+      namespace: selectedNamespace,
+      agentName: selectedAgentName
+    }
   });
 
   useEffect(() => {
     async function initializeChat() {
+      setTokenStats({ total: 0, input: 0, output: 0 });
+      setStreamingMessages([]);
+
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
         return;
@@ -66,6 +77,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
       // Skip loading state for empty sessionId (new chat)
       if (!sessionId) {
         setIsLoading(false);
+        setStoredMessages([]);
         return;
       }
 
@@ -74,23 +86,27 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
 
       try {
         const sessionExistsResponse = await checkSessionExists(sessionId);
-        if (!sessionExistsResponse.success || !sessionExistsResponse.data) {
+        if (sessionExistsResponse.error || !sessionExistsResponse.data) {
           setSessionNotFound(true);
           setIsLoading(false);
           return;
         }
 
-        const messagesResponse = await getSessionMessages(sessionId);
-        if (!messagesResponse.success) {
+        const messagesResponse = await getSessionTasks(sessionId);
+        if (messagesResponse.error) {
           toast.error("Failed to load messages");
           setIsLoading(false);
           return;
         }
         if (!messagesResponse.data || messagesResponse?.data?.length === 0) {
-          setMessages([])
+          setStoredMessages([]);
+          setTokenStats({ total: 0, input: 0, output: 0 });
         }
         else {
-          setMessages(messagesResponse.data);
+          const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
+          const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
+          setStoredMessages(extractedMessages);
+          setTokenStats(extractedTokenStats);
         }
       } catch (error) {
         console.error("Error loading messages:", error);
@@ -101,7 +117,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
     }
 
     initializeChat();
-  }, [sessionId, selectedAgentId, isFirstMessage]);
+  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -110,23 +126,39 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
         viewport.scrollTop = viewport.scrollHeight;
       }
     }
-  }, [messages, streamingContent]);
+  }, [storedMessages, streamingMessages, streamingContent]);
+
+
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentInputMessage.trim() || !selectedAgentId) {
+    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
       return;
     }
 
     const userMessageText = currentInputMessage;
-    // Instantly show the user's message
-    setMessages(prevMessages => [...prevMessages, {
-      type: "TextMessage",
-      content: userMessageText,
-      source: "user"
-    }]);
     setCurrentInputMessage("");
     setChatStatus("thinking");
+    setStoredMessages(prev => [...prev, ...streamingMessages]);
+    setStreamingMessages([]);
+
+    // For new sessions or when no stored messages exist, show the user message immediately
+    const userMessage: Message = {
+      kind: "message",
+      messageId: uuidv4(),
+      role: "user",
+      parts: [{
+        kind: "text",
+        text: userMessageText
+      }],
+      metadata: {
+        timestamp: Date.now()
+      }
+    };
+
+    // Add user message to streaming messages to show immediately 
+    // (will be replaced by server response that includes the user message)
+    setStreamingMessages([userMessage]);
 
     isFirstAssistantChunkRef.current = true;
 
@@ -142,11 +174,11 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
 
           const newSessionResponse = await createSession({
             user_id: await getCurrentUserId(),
-            team_id: String(selectedAgentId),
+            agent_ref: `${selectedNamespace}/${selectedAgentName}`,
             name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
           });
 
-          if (!newSessionResponse.success || !newSessionResponse.data) {
+          if (newSessionResponse.error || !newSessionResponse.data) {
             toast.error("Failed to create session");
             setChatStatus("error");
             setCurrentInputMessage(userMessageText);
@@ -158,14 +190,14 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
           setSession(newSessionResponse.data);
 
           // Update URL without triggering navigation or component reload
-          const newUrl = `/agents/${selectedAgentId}/chat/${currentSessionId}`;
+          const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
           window.history.replaceState({}, '', newUrl);
 
           // Dispatch a custom event to notify that a new session was created
           // Include the full session object to avoid needing a DB reload
           const newSessionEvent = new CustomEvent('new-session-created', {
             detail: {
-              agentId: selectedAgentId,
+              agentRef: `${selectedNamespace}/${selectedAgentName}`,
               session: newSessionResponse.data
             }
           });
@@ -178,104 +210,59 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
           isCreatingSessionRef.current = false;
           return;
         }
-      } else if (messages.length === 0) {
-        // Rename session if this is the first message (for existing sessions with no messages)
-        try {
-          const sessionTitle = userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : "");
-          await updateSession({
-            id: Number(currentSessionId),
-            name: sessionTitle,
-            team_id: selectedAgentId,
-            user_id: session?.user_id || "",
-            created_at: session?.created_at || "",
-            updated_at: session?.updated_at || ""
-          });
-        } catch (error) {
-          console.error("Failed to rename session:", error);
-        }
       }
 
       abortControllerRef.current = new AbortController();
 
       try {
-        const response = await fetch(
-          `/stream/${currentSessionId}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'text/plain',
-            },
-            body: userMessageText,
-            signal: abortControllerRef.current.signal,
-          }
-        );
+        const messageId = uuidv4();
+        const a2aMessage = createMessage(userMessageText, "user", {
+          messageId,
+          contextId: currentSessionId,
+        });
+        const sendParams = {
+          message: a2aMessage,
+          metadata: {}
+        };
+        const stream = await kagentA2AClient.sendMessageStream(selectedNamespace, selectedAgentName, sendParams);
 
-        if (!response.ok) {
-          let errorText = `HTTP error! status: ${response.status}`;
+        let lastEventTime = Date.now();
+        const streamTimeout = 60000;
+
+        for await (const event of stream) {
+          lastEventTime = Date.now();
+
           try {
-            const resText = await response.text();
-            if (resText) errorText = `${errorText} - ${resText}`;
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          } catch (e) { /* ignore */ }
-          toast.error(errorText);
-          throw new Error(errorText);
-        }
+            handleMessageEvent(event);
+          } catch (error) {
+            console.error("❌ Event that caused error:", event);
+          }
 
-        if (!response.body) {
-          toast.error("Response body is null");
-          throw new Error("Response body is null");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        let buffer = "";
-
-        while (true) {
-          const { value, done } = await reader.read();
-
-          if (done) {
+          // Check if we should stop streaming due to cancellation
+          if (abortControllerRef.current?.signal.aborted) {
             break;
           }
 
-          if (!value) {
-            continue;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-
-          let eventData = '';
-          // Process all complete lines in buffer
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep the last incomplete line in buffer
-
-          for (const line of lines) {
-            if (line.trim() === '') continue;
-
-            if (line.includes('data:')) {
-              eventData = line.substring(line.indexOf('data:') + 5).trim();
-
-              if (eventData) {
-                try {
-                  const eventDataJson = JSON.parse(eventData) as AgentMessageConfig;
-                  handleMessageEvent(eventDataJson);
-                } catch (error) {
-                  toast.error("Error parsing event data");
-                  console.error("Error parsing event data:", error, eventData);
-                }
-              }
-            }
+          // Timeout check (in case stream hangs)
+          if (Date.now() - lastEventTime > streamTimeout) {
+            console.warn("⏰ Stream timeout - no events received for 30 seconds");
+            break;
           }
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         if (error.name === "AbortError") {
-          toast.error("Fetch aborted");
+          toast.info("Request cancelled");
+          setChatStatus("ready");
         } else {
-          toast.error("Streaming failed");
+          toast.error(`Streaming failed: ${error.message}`);
           setChatStatus("error");
           setCurrentInputMessage(userMessageText);
         }
+
+        // Clean up streaming state
+        setIsStreaming(false);
+        setStreamingContent("");
       } finally {
         setChatStatus("ready");
         abortControllerRef.current = null;
@@ -290,16 +277,21 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
 
   const handleCancel = (e: React.FormEvent) => {
     e.preventDefault();
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+
+    setIsStreaming(false);
+    setStreamingContent("");
     setChatStatus("ready");
+    toast.error("Request cancelled");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentId) {
+      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
         handleSendMessage(e);
       }
     }
@@ -310,13 +302,12 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
       <div className="flex flex-col items-center justify-center w-full h-full">
         <div className="text-xl font-semibold mb-4">Session not found</div>
         <p className="text-muted-foreground mb-6">This chat session may have been deleted or does not exist.</p>
-        <Button onClick={() => router.push(`/agents/${selectedAgentId}/chat`)}>
+        <Button onClick={() => router.push(`/agents/${selectedNamespace}/${selectedAgentName}/chat`)}>
           Start a new chat
         </Button>
       </div>
     );
   }
-
   return (
     <div className="w-full h-screen flex flex-col justify-center min-w-full items-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">
@@ -330,7 +321,7 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
                   <p className="text-muted-foreground text-sm">Loading your chat session...</p>
                 </div>
               </div>
-            ) : messages.length === 0 && !isStreaming ? (
+            ) : storedMessages.length === 0 && streamingMessages.length === 0 && !isStreaming ? (
               <div className="flex items-center justify-center h-full min-h-[50vh]">
                 <div className="bg-card p-6 rounded-lg shadow-sm border max-w-md text-center">
                   <h3 className="text-lg font-medium mb-2">Start a conversation</h3>
@@ -341,8 +332,30 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
               </div>
             ) : (
               <>
-                {messages.map((message, index) => {
-                  return <ChatMessage key={index} message={message} allMessages={messages} />
+                {/* Display stored messages from session */}
+                {storedMessages.map((message, index) => {
+                  return <ChatMessage
+                    key={`stored-${index}`}
+                    message={message}
+                    allMessages={storedMessages}
+                    agentContext={{
+                      namespace: selectedNamespace,
+                      agentName: selectedAgentName
+                    }}
+                  />
+                })}
+
+                {/* Display streaming messages */}
+                {streamingMessages.map((message, index) => {
+                  return <ChatMessage
+                    key={`stream-${index}`}
+                    message={message}
+                    allMessages={streamingMessages}
+                    agentContext={{
+                      namespace: selectedNamespace,
+                      agentName: selectedAgentName
+                    }}
+                  />
                 })}
 
                 {isStreaming && (
@@ -366,18 +379,18 @@ export default function ChatInterface({ selectedAgentId, selectedSession, sessio
           <Textarea
             value={currentInputMessage}
             onChange={(e) => setCurrentInputMessage(e.target.value)}
-            placeholder={"Send a message..."}
+            placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
-            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus === "thinking" ? "opacity-50 cursor-not-allowed" : ""}`}
-            disabled={chatStatus === "thinking"}
+            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
+            disabled={chatStatus !== "ready"}
           />
 
           <div className="flex items-center justify-end gap-2 mt-4">
-            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus === "thinking"}>
+            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
               Send
               <ArrowBigUp className="h-4 w-4 ml-2" />
             </Button>
-            {chatStatus === "thinking" && (
+            {chatStatus !== "ready" && chatStatus !== "error" && (
               <Button type="button" variant="outline" onClick={handleCancel}>
                 <X className="h-4 w-4 mr-2" /> Cancel
               </Button>

@@ -2,9 +2,9 @@ VERSION ?= dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 
-LDFLAGS := -X github.com/kagent-dev/kagent/go/cli/internal/cli.Version=$(VERSION) \
-           -X github.com/kagent-dev/kagent/go/cli/internal/cli.GitCommit=$(GIT_COMMIT) \
-           -X github.com/kagent-dev/kagent/go/cli/internal/cli.BuildDate=$(BUILD_DATE)
+LDFLAGS := -X github.com/kagent-dev/kagent/go/internal/version=$(VERSION)    \
+           -X github.com/kagent-dev/kagent/go/internal/version=$(GIT_COMMIT) \
+           -X github.com/kagent-dev/kagent/go/internal/version=$(BUILD_DATE)
 
 .PHONY: build
 build:

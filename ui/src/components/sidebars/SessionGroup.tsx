@@ -1,4 +1,4 @@
-import { Session } from "@/types/datamodel";
+import type { Session } from "@/types";
 import ChatItem from "@/components/sidebars/ChatItem";
 import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub } from "../ui/sidebar";
 import { Collapsible } from "@radix-ui/react-collapsible";
@@ -8,13 +8,14 @@ import { CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 interface ChatGroupProps {
   title: string;
   sessions: Session[];
-  onDeleteSession: (sessionId: number) => Promise<void>;
-  onDownloadSession: (sessionId: number) => Promise<void>;
-  agentId?: number;
+  onDeleteSession: (sessionId: string) => Promise<void>;
+  onDownloadSession: (sessionId: string) => Promise<void>;
+  agentName: string;
+  agentNamespace: string;
 }
 
 // The sessions are grouped by today, yesterday, and older
-const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentId }: ChatGroupProps) => {
+const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentName, agentNamespace }: ChatGroupProps) => {
   return (
     <SidebarGroup>
       <SidebarMenu>
@@ -29,7 +30,7 @@ const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentI
             <CollapsibleContent>
               <SidebarMenuSub>
                 {sessions.map((session) => (
-                  <ChatItem key={session.id} sessionId={session.id!} agentId={agentId} onDelete={onDeleteSession} sessionName={session.name} onDownload={onDownloadSession} />
+                  <ChatItem key={session.id} sessionId={session.id!} agentName={agentName} agentNamespace={agentNamespace} onDelete={onDeleteSession} sessionName={session.name} onDownload={onDownloadSession} />
                 ))}
               </SidebarMenuSub>
             </CollapsibleContent>

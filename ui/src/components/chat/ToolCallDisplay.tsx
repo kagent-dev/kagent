@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { messageUtils } from "@/lib/utils";
-import { AgentMessageConfig, ToolCallExecutionEvent, FunctionCall } from "@/types/datamodel";
+import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
+import { ADKMetadata, ProcessedToolResultData, ToolResponseData } from "@/lib/messageHandlers";
+import { FunctionCall } from "@/types";
 
 interface ToolCallDisplayProps {
-  currentMessage: AgentMessageConfig;
-  allMessages: AgentMessageConfig[];
+  currentMessage: Message;
+  allMessages: Message[];
 }
 
 interface ToolCallState {
@@ -21,6 +22,124 @@ interface ToolCallState {
 // Create a global cache to track tool calls across components
 const toolCallCache = new Map<string, boolean>();
 
+// Helper functions to work with A2A SDK Messages
+const isToolCallRequestMessage = (message: Message): boolean => {
+  // Check data parts for adk_type first
+  const hasDataParts = message.parts?.some(part => {
+    if (part.kind === "data" && part.metadata) {
+      const partMetadata = part.metadata as ADKMetadata;
+      return partMetadata?.adk_type === "function_call";
+    }
+    return false;
+  }) || false;
+  
+  // Fallback to streaming format check
+  if (!hasDataParts) {
+    const metadata = message.metadata as ADKMetadata;
+    return metadata?.originalType === "ToolCallRequestEvent";
+  }
+  
+  return hasDataParts;
+};
+
+const isToolCallExecutionMessage = (message: Message): boolean => {
+  const hasDataParts = message.parts?.some(part => {
+    if (part.kind === "data" && part.metadata) {
+      const partMetadata = part.metadata as ADKMetadata;
+      return partMetadata?.adk_type === "function_response";
+    }
+    return false;
+  }) || false;
+  
+  // Fallback to streaming format check
+  if (!hasDataParts) {
+    const metadata = message.metadata as ADKMetadata;
+    return metadata?.originalType === "ToolCallExecutionEvent";
+  }
+  
+  return hasDataParts;
+};
+
+const isToolCallSummaryMessage = (message: Message): boolean => {
+  const metadata = message.metadata as ADKMetadata;
+  return metadata?.originalType === "ToolCallSummaryMessage";
+};
+
+const extractToolCallRequests = (message: Message): FunctionCall[] => {
+  if (!isToolCallRequestMessage(message)) return [];
+  
+  // Check for stored task format first (data parts)
+  const dataParts = message.parts?.filter(part => part.kind === "data") || [];
+  for (const part of dataParts) {
+    if (part.metadata) {
+      const partMetadata = part.metadata as ADKMetadata;
+      if (partMetadata?.adk_type === "function_call") {
+        const data = part.data as unknown as FunctionCall;
+        return [{
+          id: data.id,
+          name: data.name,
+          args: data.args
+        }];
+      }
+    }
+  }
+  
+  // Try streaming format (metadata or text content)
+  const textParts = message.parts?.filter(part => part.kind === "text") || [];
+  const content = textParts.map(part => (part as TextPart).text).join("");
+  
+  try {
+    // Tool call data might be stored as JSON in content or metadata
+    const metadata = message.metadata as ADKMetadata;
+    const toolCallData = metadata?.toolCallData || JSON.parse(content || "[]");
+    return Array.isArray(toolCallData) ? toolCallData : [];
+  } catch {
+    return [];
+  }
+};
+
+const extractToolCallResults = (message: Message): ProcessedToolResultData[] => {
+  if (!isToolCallExecutionMessage(message)) return [];
+  
+  // Check for stored task format first (data parts)
+  const dataParts = message.parts?.filter(part => part.kind === "data") || [];
+  for (const part of dataParts) {
+    if (part.metadata) {
+      const partMetadata = part.metadata as ADKMetadata;
+      if (partMetadata?.adk_type === "function_response") {
+        const data = part.data as unknown as ToolResponseData;
+        // Extract content from the result
+        const content = data.response?.result?.content || [];
+        const textContent = content.map((c: unknown) => {
+          if (typeof c === 'object' && c !== null && 'text' in c) {
+            return c.text || '';
+          }
+          return String(c);
+        }).join("");
+        
+        return [{
+          call_id: data.id,
+          name: data.name,
+          content: textContent,
+          is_error: data.response?.isError || false
+        }];
+      }
+    }
+  }
+  
+  // Try streaming format (metadata or text content)
+  const textParts = message.parts?.filter(part => part.kind === "text") || [];
+  const content = textParts.map(part => (part as any).text).join("");
+  
+  try {
+    const metadata = message.metadata as ADKMetadata;
+    const resultData = metadata?.toolResultData || JSON.parse(content || "[]");
+    return Array.isArray(resultData) ? resultData : [];
+  } catch {
+    return [];
+  }
+};
+
 const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) => {
   // Track tool calls with their status
   const [toolCalls, setToolCalls] = useState<Map<string, ToolCallState>>(new Map());
@@ -29,14 +148,12 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
 
   useEffect(() => {
     const currentOwnedIds = new Set<string>();
-    if (messageUtils.isToolCallRequestEvent(currentMessage)) {
-      const requests = currentMessage.content;
-      if (Array.isArray(requests)) {
-        for (const request of requests) {
-          if (request.id && !toolCallCache.has(request.id)) {
-            currentOwnedIds.add(request.id);
-            toolCallCache.set(request.id, true);
-          }
+    if (isToolCallRequestMessage(currentMessage)) {
+      const requests = extractToolCallRequests(currentMessage);
+      for (const request of requests) {
+        if (request.id && !toolCallCache.has(request.id)) {
+          currentOwnedIds.add(request.id);
+          toolCallCache.set(request.id, true);
         }
       }
     }
@@ -62,17 +179,15 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
 
     // First pass: collect all tool call requests that this component owns
     for (const message of allMessages) {
-      if (messageUtils.isToolCallRequestEvent(message)) {
-        const requests = message.content;
-        if (Array.isArray(requests)) {
-          for (const request of requests) {
-            if (request.id && ownedCallIds.has(request.id)) {
-              newToolCalls.set(request.id, {
-                id: request.id,
-                call: request,
-                status: "requested"
-              });
-            }
+      if (isToolCallRequestMessage(message)) {
+        const requests = extractToolCallRequests(message);
+        for (const request of requests) {
+          if (request.id && ownedCallIds.has(request.id)) {
+            newToolCalls.set(request.id, {
+              id: request.id,
+              call: request,
+              status: "requested"
+            });
           }
         }
       }
@@ -80,20 +195,16 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
 
     // Second pass: update with execution results
     for (const message of allMessages) {
-      if (messageUtils.isToolCallExecutionEvent(message)) {
-        const executionEvent = message as ToolCallExecutionEvent;
-        const results = executionEvent.content;
-
-        if (Array.isArray(results)) {
-          for (const result of results) {
-            if (result.call_id && newToolCalls.has(result.call_id)) { // ownedCallIds.has check is implicitly covered by newToolCalls.has
-              const existingCall = newToolCalls.get(result.call_id)!;
-              existingCall.result = {
-                content: result.content,
-                is_error: result.is_error
-              };
-              existingCall.status = "executing";
-            }
+      if (isToolCallExecutionMessage(message)) {
+        const results = extractToolCallResults(message);
+        for (const result of results) {
+          if (result.call_id && newToolCalls.has(result.call_id)) {
+            const existingCall = newToolCalls.get(result.call_id)!;
+            existingCall.result = {
+              content: result.content,
+              is_error: result.is_error
+            };
+            existingCall.status = "executing";
           }
         }
       }
@@ -102,7 +213,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
     // Third pass: mark completed calls using summary messages
     let summaryMessageEncountered = false;
     for (const message of allMessages) {
-      if (messageUtils.isToolCallSummaryMessage(message)) {
+      if (isToolCallSummaryMessage(message)) {
         summaryMessageEncountered = true;
         break; 
       }
@@ -111,6 +222,13 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
     if (summaryMessageEncountered) {
       newToolCalls.forEach((call, id) => {
         // Only update owned calls that are in 'executing' state and have a result
+        if (call.status === "executing" && call.result && ownedCallIds.has(id)) {
+          call.status = "completed";
+        }
+      });
+    } else {
+      // For stored tasks without summary messages, auto-complete tool calls that have results
+      newToolCalls.forEach((call, id) => {
         if (call.status === "executing" && call.result && ownedCallIds.has(id)) {
           call.status = "completed";
         }

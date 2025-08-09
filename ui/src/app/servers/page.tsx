@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getToolDescription, getToolDisplayName, getToolIdentifier } from "@/lib/toolUtils";
-import {  ToolServer, ToolServerWithTools } from "@/types/datamodel";
+import {  ToolServer, ToolServerWithTools } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
@@ -33,15 +32,15 @@ export default function ServersPage() {
     try {
       setIsLoading(true);
 
-      // Fetch servers
       const serversResponse = await getServers();
-      if (serversResponse.success && serversResponse.data) {
-        setServers(serversResponse.data);
-
-        // Initially expand all servers
-        const serverNames = serversResponse.data.map((server) => server.name).filter((name): name is string => name !== undefined);
-
-        setExpandedServers(new Set(serverNames));
+      if (!serversResponse.error && serversResponse.data) {
+        const sortedServers = [...serversResponse.data].sort((a, b) => {
+          return (a.ref || '').localeCompare(b.ref || '');
+        });
+        setServers(sortedServers);
+        
+        // Start with all servers collapsed
+        setExpandedServers(new Set());
       } else {
         console.error("Failed to fetch servers:", serversResponse);
         toast.error(serversResponse.error || "Failed to fetch servers data.");
@@ -61,7 +60,7 @@ export default function ServersPage() {
 
       const response = await deleteServer(serverName);
 
-      if (response.success) {
+      if (!response.error) {
         toast.success("Server deleted successfully");
         fetchServers();
       } else {
@@ -83,7 +82,7 @@ export default function ServersPage() {
 
       const response = await createServer(server);
 
-      if (!response.success) {
+      if (response.error) {
         throw new Error(response.error || "Failed to add server");
       }
 
@@ -98,6 +97,18 @@ export default function ServersPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const toggleServer = (serverName: string) => {
+    setExpandedServers(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(serverName)) {
+        newSet.delete(serverName);
+      } else {
+        newSet.add(serverName);
+      }
+      return newSet;
+    });
   };
 
   return (
@@ -125,23 +136,26 @@ export default function ServersPage() {
       ) : servers.length > 0 ? (
         <div className="space-y-4">
           {servers.map((server) => {
-            if (!server.name) return null;
-            const serverName: string = server.name;
+            if (!server.ref) return null;
+            const serverName: string = server.ref;
             const isExpanded = expandedServers.has(serverName);
 
             return (
-              <div key={server.name} className="border rounded-md overflow-hidden">
+              <div key={server.ref} className="border rounded-md overflow-hidden">
                 {/* Server Header */}
                 <div className="bg-secondary/10 p-4">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 cursor-pointer">
+                    <div 
+                      className="flex items-center gap-3 cursor-pointer" 
+                      onClick={() => toggleServer(serverName)}
+                    >
                       {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                       <div className="flex items-center gap-2">
                         <Globe className="h-5 w-5 text-green-500" />
                         <div>
-                          <div className="font-medium">{server.name}</div>
+                          <div className="font-medium">{server.ref}</div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
-                            <span className="font-mono">{server.name}</span>
+                            <span className="font-mono">{server.ref}</span>
                           </div>
                         </div>
                       </div>
@@ -182,18 +196,17 @@ export default function ServersPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {server.discoveredTools
                           .sort((a, b) => {
-                            const aName = getToolDisplayName(a.component) || "";
-                            const bName = getToolDisplayName(b.component) || "";
+                            const aName = a.name || "";
+                            const bName = b.name || "";
                             return aName.localeCompare(bName);
                           })
                           .map((tool) => (
-                            <div key={getToolIdentifier(tool.component)} className="p-3 border rounded-md hover:bg-secondary/5 transition-colors">
+                            <div key={tool.name} className="p-3 border rounded-md hover:bg-secondary/5 transition-colors">
                               <div className="flex items-start gap-2">
                                 <FunctionSquare className="h-4 w-4 text-blue-500 mt-0.5" />
                                 <div>
-                                  <div className="font-medium text-sm">{getToolDisplayName(tool.component)}</div>
-                                  <div className="text-xs text-muted-foreground mt-1">{getToolDescription(tool.component)}</div>
-                                  <div className="text-xs text-muted-foreground mt-1 font-mono">{getToolIdentifier(tool.component)}</div>
+                                  <div className="font-medium text-sm">{tool.name}</div>
+                                  <div className="text-xs text-muted-foreground mt-1">{tool.description}</div>
                                 </div>
                               </div>
                             </div>

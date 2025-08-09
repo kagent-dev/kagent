@@ -4,9 +4,6 @@ This directory contains the Go components of the Kagent project, including the c
 
 ## Directory Structure
 
-- **autogen/**: Contains the autogen API client and related code
-  - `api/`: API definitions
-  - `client/`: Client implementation for interacting with the autogen API
 
 - **cli/**: Command-line interface for Kagent
   - `cmd/`: Entry points for CLI commands
@@ -17,12 +14,23 @@ This directory contains the Go components of the Kagent project, including the c
   - `cmd/`: Controller entry point
   - `internal/`: Internal controller implementation
   - `hack/`: Helper scripts and tools
+  - `translator/`: Translator implementation.
 
-- **config/**: Configuration files for the controller
+- **internal/**: Internal code for the controller and CLI.
+  - `httpserver/`: HTTP server for the controller.
+  - `a2a/`: A2A implementation.
+  - `adk/`: Go types for the declarative ADK framework.
+  - `database/`: Database implementation.
+  - `version/`: Version information for the controller.
+  - `utils/`: Utility functions for the controller.
+
+- **pkg/**: Shared code for the controller and CLI.
+
 
 - **bin/**: Output directory for compiled binaries
 
-- **test/**: Test files and e2e tests
+- **test/**: Test files and e2e tests. Unit tests are co-located with the code they test.
+
 
 ## Building the Code
 
