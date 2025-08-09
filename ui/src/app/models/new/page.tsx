@@ -6,27 +6,30 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getModelConfig, createModelConfig, updateModelConfig } from "@/app/actions/modelConfigs";
-import {
+import type {
     CreateModelConfigPayload,
     UpdateModelConfigPayload,
     Provider,
     OpenAIConfigPayload,
     AzureOpenAIConfigPayload,
     AnthropicConfigPayload,
-    OllamaConfigPayload
-} from "@/lib/types";
+    OllamaConfigPayload,
+    ProviderModelsResponse
+} from "@/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { OLLAMA_DEFAULT_TAG } from "@/lib/constants"
 import { getSupportedModelProviders } from "@/app/actions/providers";
-import { getModels, ProviderModelsResponse } from "@/app/actions/models";
+import { getModels } from "@/app/actions/models";
 import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   selectedCombinedModel?: string;
   apiKey?: string;
   requiredParams?: Record<string, string>;
@@ -99,9 +102,11 @@ function ModelPageContent() {
   const searchParams = useSearchParams();
 
   const isEditMode = searchParams.get("edit") === "true";
-  const modelId = searchParams.get("id");
+  const modelConfigName = searchParams.get("name");
+  const modelConfigNamespace = searchParams.get("namespace");
 
   const [name, setName] = useState("");
+  const [namespace, setNamespace] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [apiKey, setApiKey] = useState("");
@@ -134,14 +139,15 @@ function ModelPageContent() {
         ]);
 
         if (!isMounted) return;
-
-        if (providersResponse.success && providersResponse.data) {
+        
+        console.log('providers response', providersResponse);
+        if (!providersResponse.error && providersResponse.data) {
           setProviders(providersResponse.data);
         } else {
           throw new Error(providersResponse.error || "Failed to fetch supported providers");
         }
 
-        if (modelsResponse.success && modelsResponse.data) {
+        if (!modelsResponse.error && modelsResponse.data) {
           setProviderModelsData(modelsResponse.data);
         } else {
           throw new Error(modelsResponse.error || "Failed to fetch available models");
@@ -168,17 +174,21 @@ function ModelPageContent() {
   useEffect(() => {
     let isMounted = true;
     const fetchModelData = async () => {
-      if (isEditMode && modelId && providers.length > 0 && providerModelsData) {
+      if (isEditMode && modelConfigName && providers.length > 0 && providerModelsData) {
         try {
           if (!isLoading) setIsLoading(true);
-          const response = await getModelConfig(modelId);
+          const response = await getModelConfig(
+            k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName)
+          );
           if (!isMounted) return;
 
-          if (!response.success || !response.data) {
+          if (response.error || !response.data) {
             throw new Error(response.error || "Failed to fetch model");
           }
           const modelData = response.data;
-          setName(modelData.name);
+          const modelRef = k8sRefUtils.fromRef(modelData.ref);
+          setName(modelRef.name);
+          setNamespace(modelRef.namespace);
 
           const provider = providers.find(p => p.type === modelData.providerName);
           setSelectedProvider(provider || null);
@@ -243,7 +253,7 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelId, providers, providerModelsData]);
+  }, [isEditMode, modelConfigName, providers, providerModelsData]);
 
   useEffect(() => {
     if (selectedProvider) {
@@ -409,7 +419,7 @@ function ModelPageContent() {
     }
 
     const payload: CreateModelConfigPayload = {
-      name: name.trim(),
+      ref: k8sRefUtils.toRef(namespace, name),
       provider: {
         name: finalSelectedProvider.name,
         type: finalSelectedProvider.type,
@@ -443,7 +453,7 @@ function ModelPageContent() {
 
     try {
       let response;
-      if (isEditMode && modelId) {
+      if (isEditMode && modelConfigName) {
         const updatePayload: UpdateModelConfigPayload = {
           provider: payload.provider,
           model: payload.model,
@@ -453,12 +463,13 @@ function ModelPageContent() {
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
         };
-        response = await updateModelConfig(modelId, updatePayload);
+        const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
+        response = await updateModelConfig(modelConfigRef, updatePayload);
       } else {
         response = await createModelConfig(payload);
       }
 
-      if (response.success) {
+      if (!response.error) {
         toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
         router.push("/models");
       } else {
@@ -499,11 +510,13 @@ function ModelPageContent() {
           <BasicInfoSection
             name={name}
             isEditingName={isEditingName}
+            namespace={namespace}
             errors={errors}
             isSubmitting={isSubmitting}
             isLoading={isLoading}
             onNameChange={setName}
             onToggleEditName={() => setIsEditingName(!isEditingName)}
+            onNamespaceChange={setNamespace}
             providers={providers}
             providerModelsData={providerModelsData}
             selectedCombinedModel={selectedCombinedModel}

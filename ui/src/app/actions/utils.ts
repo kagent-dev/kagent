@@ -66,7 +66,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
     }
 
     const jsonResponse = await response.json();
-    return jsonResponse?.data || jsonResponse;
+    return jsonResponse;
   } catch (error) {
     if (error instanceof TypeError && error.message === "Failed to fetch") {
       throw new Error(`Network error - Could not reach backend server. ${url}`);
@@ -92,8 +92,8 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
  * @param defaultMessage Default error message if the error doesn't have a message
  * @returns A BaseResponse object with error information
  */
-export function createErrorResponse<T>(error: unknown, defaultMessage: string): { success: false; error: string; data?: T } {
+export function createErrorResponse<T>(error: unknown, defaultMessage: string): { message: string; data?: T } {
   const errorMessage = error instanceof Error ? error.message : defaultMessage;
   console.error(defaultMessage, error);
-  return { success: false, error: errorMessage };
+  return { message: errorMessage };
 }

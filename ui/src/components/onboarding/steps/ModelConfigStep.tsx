@@ -11,22 +11,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import { CreateModelConfigPayload, ModelConfig, Provider } from '@/lib/types';
+import type { CreateModelConfigPayload, ModelConfig, Provider, ProviderModelsResponse } from '@/types';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { getModels, ProviderModelsResponse } from '@/app/actions/models';
+import { getModels } from '@/app/actions/models';
 import { getSupportedModelProviders } from '@/app/actions/providers';
 import { cn, isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { createModelConfig } from '@/app/actions/modelConfigs';
 import { ModelProviderCombobox } from '@/components/ModelProviderCombobox';
 import { PROVIDERS_INFO, isValidProviderInfoKey } from '@/lib/providers';
 import { OLLAMA_DEFAULT_TAG, OLLAMA_DEFAULT_HOST } from '@/lib/constants';
+import { k8sRefUtils } from '@/lib/k8sUtils';
+import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
-const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
+const modelProviders = ["openai", "azure-openai", "anthropic", "ollama", "gemini", "gemini-vertex-ai", "anthropic-vertex-ai"] as const;
 const modelConfigSchema = z.object({
     providerName: z.enum(modelProviders, { required_error: "Please select a provider." }),
     configName: z.string().min(1, "Configuration name is required."),
+    configNamespace: z.string().optional(),
     modelName: z.string().min(1, "Model name is required."),
     apiKey: z.string().optional(),
     azureEndpoint: z.string().optional(),
@@ -89,7 +93,7 @@ export function ModelConfigStep({
             setProviderModelsError(null);
             try {
                 const result = await getModels();
-                if (result.success && result.data) {
+                if (!result.error && result.data) {
                     setProviderModelsData(result.data);
                 } else {
                     throw new Error(result.error || 'Failed to fetch available models.');
@@ -110,7 +114,7 @@ export function ModelConfigStep({
             setProvidersError(null);
             try {
                 const result = await getSupportedModelProviders();
-                if (result.success && result.data) {
+                if (!result.error && result.data) {
                     setSupportedProviders(result.data);
                 } else {
                     throw new Error(result.error || 'Failed to fetch supported providers.');
@@ -129,7 +133,7 @@ export function ModelConfigStep({
     const formStep1Create = useForm<ModelConfigFormData>({
         resolver: zodResolver(modelConfigSchema),
         defaultValues: {
-            providerName: undefined, configName: "", modelName: "",
+            providerName: undefined, configName: "", configNamespace: "", modelName: "",
             apiKey: "", azureEndpoint: "", azureApiVersion: "", modelTag: "",
             ollamaBaseUrl: "",
         },
@@ -176,7 +180,7 @@ export function ModelConfigStep({
         }
         const providerInfo = PROVIDERS_INFO[values.providerName];
         const payload: CreateModelConfigPayload = {
-            name: values.configName,
+            ref: k8sRefUtils.toRef(values.configNamespace || "", values.configName),
             provider: { name: providerInfo.name, type: providerInfo.type },
             model: values.modelName,
             apiKey: values.apiKey || "",
@@ -186,6 +190,9 @@ export function ModelConfigStep({
                 payload.azureOpenAI = { azureEndpoint: values.azureEndpoint || "", apiVersion: values.azureApiVersion || "" }; break;
             case 'openai': payload.openAI = {}; break;
             case 'anthropic': payload.anthropic = {}; break;
+            case 'gemini': payload.gemini = {}; break;
+            case 'gemini-vertex-ai': payload.geminiVertexAI = {}; break;
+            case 'anthropic-vertex-ai': payload.anthropicVertexAI = {}; break;
             case 'ollama':
                 const modelTag = values.modelTag?.trim() || "";
                 if (modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
@@ -199,9 +206,10 @@ export function ModelConfigStep({
 
         try {
             const result = await createModelConfig(payload);
-            if (result.success) {
-                toast.success(`Model configuration '${values.configName}' created successfully!`);
-                onNext(values.configName, values.modelName); // Pass data to parent
+            if (!result.error) {
+                const configRef = k8sRefUtils.toRef(values.configNamespace || K8S_AGENT_DEFAULTS.namespace, values.configName)
+                toast.success(`Model configuration '${configRef}' created successfully!`);
+                onNext(configRef, values.modelName); // Pass data to parent
             } else {
                 throw new Error(result.error || 'Failed to create model configuration.');
             }
@@ -214,9 +222,9 @@ export function ModelConfigStep({
     }
 
     function onSubmitStep1Select(values: SelectModelFormData) {
-        const selectedModel = existingModels?.find(m => m.name === values.selectedModelName);
+        const selectedModel = existingModels?.find(m => m.ref === values.selectedModelName);
         if (selectedModel) {
-            onNext(selectedModel.name, selectedModel.model); // Pass data to parent
+            onNext(selectedModel.ref, selectedModel.model); // Pass data to parent
         } else {
             toast.error("Selected model configuration not found. Please try again.");
         }
@@ -278,8 +286,8 @@ export function ModelConfigStep({
                                             </FormControl>
                                             <SelectContent>
                                                 {existingModels?.map(model => (
-                                                    <SelectItem key={model.name} value={model.name}>
-                                                        {model.name} ({model.providerName}: {model.model})
+                                                    <SelectItem key={model.ref} value={model.ref}>
+                                                        {model.ref} ({model.providerName}: {model.model})
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -429,6 +437,24 @@ export function ModelConfigStep({
                                             />
                                         </FormControl>
                                         <FormDescription>We picked a unique name, but feel free to change it!</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            <FormField
+                                control={formStep1Create.control}
+                                name="configNamespace"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Configuration Namespace</FormLabel>
+                                        <FormControl>
+                                            <NamespaceCombobox
+                                                value={field.value || ""}
+                                                onValueChange={field.onChange}
+                                            />
+                                        </FormControl>
+                                        <FormDescription>A kubernetes namespace for your ModelConfig</FormDescription>
                                         <FormMessage />
                                     </FormItem>
                                 )}

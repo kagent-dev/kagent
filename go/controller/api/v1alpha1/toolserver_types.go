@@ -17,6 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -26,9 +30,38 @@ type ToolServerSpec struct {
 	Config      ToolServerConfig `json:"config"`
 }
 
+type ToolServerType string
+
+const (
+	ToolServerTypeStdio          ToolServerType = "stdio"
+	ToolServerTypeSse            ToolServerType = "sse"
+	ToolServerTypeStreamableHttp ToolServerType = "streamableHttp"
+)
+
+// Only one of stdio, sse, or streamableHttp can be specified.
+// +kubebuilder:validation:XValidation:rule="(has(self.stdio) && !has(self.sse) && !has(self.streamableHttp)) || (!has(self.stdio) && has(self.sse) && !has(self.streamableHttp)) || (!has(self.stdio) && !has(self.sse) && has(self.streamableHttp))",message="Exactly one of stdio, sse, or streamableHttp must be specified"
 type ToolServerConfig struct {
-	Stdio *StdioMcpServerConfig `json:"stdio,omitempty"`
-	Sse   *SseMcpServerConfig   `json:"sse,omitempty"`
+	// +optional
+	Type           ToolServerType              `json:"type"`
+	Stdio          *StdioMcpServerConfig       `json:"stdio,omitempty"`
+	Sse            *SseMcpServerConfig         `json:"sse,omitempty"`
+	StreamableHttp *StreamableHttpServerConfig `json:"streamableHttp,omitempty"`
+}
+
+var _ sql.Scanner = (*ToolServerConfig)(nil)
+
+func (t *ToolServerConfig) Scan(src any) error {
+	switch v := src.(type) {
+	case []uint8:
+		return json.Unmarshal(v, t)
+	}
+	return nil
+}
+
+var _ driver.Valuer = (*ToolServerConfig)(nil)
+
+func (t ToolServerConfig) Value() (driver.Value, error) {
+	return json.Marshal(t)
 }
 
 type ValueSourceType string
@@ -65,16 +98,30 @@ type StdioMcpServerConfig struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	EnvFrom []ValueRef        `json:"envFrom,omitempty"`
+	// Default value is 10 seconds
+	// +kubebuilder:default:=10
+	ReadTimeoutSeconds uint8 `json:"readTimeoutSeconds,omitempty"`
 }
 
-type SseMcpServerConfig struct {
+type HttpToolServerConfig struct {
 	URL string `json:"url"`
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
-	Headers        map[string]AnyType `json:"headers,omitempty"`
-	HeadersFrom    []ValueRef         `json:"headersFrom,omitempty"`
-	Timeout        string             `json:"timeout,omitempty"`
-	SseReadTimeout string             `json:"sse_read_timeout,omitempty"`
+	Headers     map[string]AnyType `json:"headers,omitempty"`
+	HeadersFrom []ValueRef         `json:"headersFrom,omitempty"`
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	// +optional
+	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"`
+}
+
+type SseMcpServerConfig struct {
+	HttpToolServerConfig `json:",inline"`
+}
+
+type StreamableHttpServerConfig struct {
+	HttpToolServerConfig `json:",inline"`
+	TerminateOnClose     *bool `json:"terminateOnClose,omitempty"`
 }
 
 // ToolServerStatus defines the observed state of ToolServer.
@@ -88,8 +135,9 @@ type ToolServerStatus struct {
 }
 
 type MCPTool struct {
-	Name      string    `json:"name"`
-	Component Component `json:"component"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Component   *Component `json:"component,omitempty"`
 }
 
 type Component struct {
@@ -103,11 +151,6 @@ type Component struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
 	Config map[string]AnyType `json:"config,omitempty"`
-}
-
-type MCPToolServerParams struct {
-	Stdio *StdioMcpServerConfig `json:"stdio,omitempty"`
-	Sse   *SseMcpServerConfig   `json:"sse,omitempty"`
 }
 
 // +kubebuilder:object:root=true

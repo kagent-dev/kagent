@@ -1,72 +1,97 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogTitle, DialogHeader, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Plus, FunctionSquare, X, Settings2 } from "lucide-react";
+import { Plus, FunctionSquare, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { getToolDescription, getToolDisplayName, getToolIdentifier, getToolProvider, isAgentTool, isBuiltinTool, isMcpTool, isSameTool, isMcpProvider } from "@/lib/toolUtils";
-import { Label } from "@/components/ui/label";
+import { isAgentTool, isMcpTool, getToolResponseDescription } from "@/lib/toolUtils";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
-import { Tool, Component, ToolConfig, AgentResponse } from "@/types/datamodel";
-import { getTeams } from "@/app/actions/teams";
-import { Textarea } from "@/components/ui/textarea";
+import type { Tool, ToolResponse, AgentResponse } from "@/types";
+import { getAgents } from "@/app/actions/agents";
+import { getTools } from "@/app/actions/tools";
 import KagentLogo from "../kagent-logo";
 
 interface ToolsSectionProps {
-  allTools: Component<ToolConfig>[];
   selectedTools: Tool[];
   setSelectedTools: (tools: Tool[]) => void;
   isSubmitting: boolean;
   onBlur?: () => void;
-  currentAgentName?: string;
+  currentAgentName: string;
 }
 
-export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
+export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
   const [showToolSelector, setShowToolSelector] = useState(false);
-  const [configTool, setConfigTool] = useState<Tool | null>(null);
-  const [showConfig, setShowConfig] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
+  const [availableTools, setAvailableTools] = useState<ToolResponse[]>([]);
+  const [loadingTools, setLoadingTools] = useState(true);
+
+  // Helper functions for Tool objects
+  const getToolIdentifier = (tool: Tool): string => {
+    if (isAgentTool(tool) && tool.agent) {
+      return `agent-${tool.agent.ref}`;
+    } else if (isMcpTool(tool) && tool.mcpServer) {
+      return `mcp-${tool.mcpServer.toolServer}`;
+    }
+    return `unknown-tool-${Math.random().toString(36).substring(7)}`;
+  };
+
+  const getToolDisplayName = (tool: Tool): string => {
+    if (isAgentTool(tool) && tool.agent) {
+      return tool.agent.ref;
+    } else if (isMcpTool(tool) && tool.mcpServer) {
+      return tool.mcpServer.toolServer;
+    }
+    return "Unknown Tool";
+  };
+
+  const getToolDescription = (tool: Tool): string => {
+    if (isAgentTool(tool) && tool.agent) {
+      if (tool.agent.description) {
+        return tool.agent.description
+      }
+      
+      const foundAgent = availableAgents.find(a => k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name) === tool.agent.ref);
+      return foundAgent ? foundAgent.agent.spec.description : "Agent description not available";
+    } else if (isMcpTool(tool) && tool.mcpServer) {
+      // For MCP tools, look up description from availableTools
+      const foundTool = availableTools.find(t => t.server_name === tool.mcpServer!.toolServer);
+      return foundTool ? getToolResponseDescription(foundTool) : "MCP tool description not available";
+    }
+    return "No description available";
+  };
 
   useEffect(() => {
-    const fetchAgents = async () => {
+    const fetchData = async () => {
       setLoadingAgents(true);
-      const response = await getTeams();
-      if (response.success && response.data) {
-        const filteredAgents = currentAgentName
-          ? response.data.filter((agentResp: AgentResponse) => agentResp.agent.metadata.name !== currentAgentName)
-          : response.data;
-        setAvailableAgents(filteredAgents);
-      } else {
-        console.error("Failed to fetch agents:", response.error);
+      setLoadingTools(true);
+      
+      try {
+        const [agentsResponse, toolsResponse] = await Promise.all([
+          getAgents(),
+          getTools()
+        ]);
+
+        // Handle agents
+        if (!agentsResponse.error && agentsResponse.data) {
+          const filteredAgents = currentAgentName
+            ? agentsResponse.data.filter((agentResp: AgentResponse) => agentResp.agent.metadata.name !== currentAgentName)
+            : agentsResponse.data;
+          setAvailableAgents(filteredAgents);
+        } else {
+          console.error("Failed to fetch agents:", agentsResponse.error);
+        }
+        setAvailableTools(toolsResponse);
+      } catch (error) {
+        console.error("Failed to fetch data:", error);
+      } finally {
+        setLoadingAgents(false);
+        setLoadingTools(false);
       }
-      setLoadingAgents(false);
     };
 
-    fetchAgents();
+    fetchData();
   }, [currentAgentName]);
-
-  const openConfigDialog = (agentTool: Tool) => {
-    const toolCopy = JSON.parse(JSON.stringify(agentTool)) as Tool;
-    setConfigTool(toolCopy);
-    setShowConfig(true);
-  };
-
-  const handleConfigSave = () => {
-    if (!configTool) return;
-
-    const updatedTools = selectedTools.map((tool) => {
-      if (isSameTool(tool, configTool)) {
-        return configTool;
-      }
-      return tool;
-    });
-
-    setSelectedTools(updatedTools);
-    setShowConfig(false);
-    setConfigTool(null);
-  };
 
   const handleToolSelect = (newSelectedTools: Tool[]) => {
     setSelectedTools(newSelectedTools);
@@ -103,134 +128,6 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
     setSelectedTools(updatedTools);
   };
 
-  const handleConfigChange = (field: string, value: string) => {
-    if (!configTool) return;
-
-    setConfigTool((prevTool) => {
-      if (!prevTool) return null;
-
-      if (isMcpTool(prevTool) && field === "toolServer") {
-        return {
-          ...prevTool,
-          mcpServer: {
-            ...prevTool.mcpServer,
-            toolServer: value
-          }
-        };
-      } else if (isBuiltinTool(prevTool)) {
-        return {
-          ...prevTool,
-          builtin: {
-            ...prevTool.builtin,
-            config: {
-              ...prevTool.builtin?.config,
-              [field]: value,
-            },
-          },
-        };
-      }
-      
-      return prevTool;
-    });
-  };
-
-  const renderConfigDialog = () => {
-    if (!configTool) return null;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let configObj: Record<string, any> = {};
-    let configTitle = "Configure Tool";
-
-    if (isBuiltinTool(configTool) && configTool.builtin) {
-      configObj = configTool.builtin.config || {};
-      configTitle = `Configure ${configTool.builtin.name}`;
-    } else if (isMcpTool(configTool) && configTool.mcpServer) {
-      configObj = {
-        toolServer: configTool.mcpServer.toolServer,
-        toolNames: configTool.mcpServer.toolNames.join(", "),
-      };
-      configTitle = `Configure McpServer Tool: ${configTool.mcpServer.toolServer}`;
-    }
-
-    if (Object.keys(configObj).length === 0) {
-      return null;
-    }
-
-    return (
-      <Dialog
-        open={showConfig}
-        onOpenChange={(open) => {
-          if (!open) {
-            setShowConfig(false);
-            setConfigTool(null);
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{configTitle}</DialogTitle>
-            <DialogDescription>
-              Configure the settings for <span className="text-primary">{getToolProvider(configTool)}</span>. These settings will be used when the tool is executed.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4">
-            <div className="space-y-4">
-              {Object.keys(configObj)
-                .filter((k) => k !== "description")
-                .map((field: string) => {
-                  const value = configObj[field];
-                  const isObject = typeof value === "object" && value !== null;
-
-                  return (
-                    <div key={field} className="space-y-2">
-                      <Label htmlFor={field} className="flex items-center">
-                        {field}
-                      </Label>
-                      {isObject ? (
-                        <Textarea
-                          id={field}
-                          value={JSON.stringify(value, null, 2)}
-                          onChange={(e) => {
-                            try {
-                              const parsed = JSON.parse(e.target.value);
-                              handleConfigChange(field, parsed);
-                            } catch (err) {
-                              console.error("Invalid JSON", err);
-                            }
-                          }}
-                          rows={4}
-                        />
-                      ) : (
-                        <Input id={field} type="text" value={String(value || "")} onChange={(e) => handleConfigChange(field, e.target.value)} />
-                      )}
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <div className="flex justify-end gap-2 w-full">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setShowConfig(false);
-                  setConfigTool(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button className="bg-violet-500 hover:bg-violet-600 disabled:opacity-50" onClick={handleConfigSave}>
-                Save Configuration
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  };
-
   const renderSelectedTools = () => (
     <div className="space-y-2">
       {selectedTools.flatMap((agentTool: Tool) => {
@@ -242,14 +139,12 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
             const displayName = mcpToolName;
 
             let displayDescription = "Description not available.";
-            const mcpToolDef = allTools.find(def =>
-              isMcpProvider(def.provider) &&
-              (def.config as ToolConfig & { tool?: { name: string, description?: string } })?.tool?.name === mcpToolName
+            const mcpToolDef = availableTools.find(tool => 
+              tool.server_name === agentTool.mcpServer!.toolServer && tool.id === mcpToolName
             );
 
             if (mcpToolDef) {
-              const toolConfig = (mcpToolDef.config as ToolConfig & { tool?: { name: string, description?: string } });
-              displayDescription = toolConfig?.tool?.description || displayDescription;
+              displayDescription = getToolResponseDescription(mcpToolDef);
             }
 
             const Icon = FunctionSquare;
@@ -307,11 +202,6 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {!isMcpTool(agentTool) && !isAgentTool(agentTool) && (
-                      <Button variant="outline" size="sm" onClick={() => openConfigDialog(agentTool)} disabled={isSubmitting}>
-                        <Settings2 className="h-4 w-4" />
-                      </Button>
-                    )}
                     <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
                       <X className="h-4 w-4" />
                     </Button>
@@ -369,11 +259,10 @@ export const ToolsSection = ({ allTools, selectedTools, setSelectedTools, isSubm
         )}
       </ScrollArea>
 
-      {renderConfigDialog()}
       <SelectToolsDialog
         open={showToolSelector}
         onOpenChange={setShowToolSelector}
-        availableTools={allTools}
+        availableTools={availableTools}
         availableAgents={availableAgents}
         selectedTools={selectedTools}
         onToolsSelected={handleToolSelect}

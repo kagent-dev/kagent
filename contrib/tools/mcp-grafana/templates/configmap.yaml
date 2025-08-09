@@ -1,0 +1,13 @@
+{{- if .Values.config }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-grafana.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-grafana.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}

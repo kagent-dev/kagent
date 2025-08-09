@@ -1,11 +1,12 @@
 'use server'
 
-import { FeedbackData, FeedbackIssueType } from "@/lib/types";
+import { FeedbackData, FeedbackIssueType } from "@/types";
 import { fetchApi, getCurrentUserId } from "./utils";
 
 /**
  * Submit feedback to the server
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function submitFeedback(feedbackData: FeedbackData): Promise<any> {
     const userID = await getCurrentUserId();
     const body = { 

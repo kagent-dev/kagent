@@ -2,9 +2,9 @@ BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-$(GIT_COMMIT)")
 
-LDFLAGS := -X github.com/kagent-dev/kagent/go/cli/internal/cli.Version=$(VERSION) \
-           -X github.com/kagent-dev/kagent/go/cli/internal/cli.GitCommit=$(GIT_COMMIT) \
-           -X github.com/kagent-dev/kagent/go/cli/internal/cli.BuildDate=$(BUILD_DATE)
+LDFLAGS := -X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)    \
+           -X github.com/kagent-dev/kagent/go/internal/version.GitCommit=$(GIT_COMMIT) \
+           -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -31,7 +31,6 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -46,8 +45,9 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: govulncheck
 govulncheck:
-	go install golang.org/x/vuln/cmd/govulncheck@latest
-	govulncheck ./...
+	$(call go-install-tool,bin/govulncheck,golang.org/x/vuln/cmd/govulncheck,latest)
+	go mod tidy -v
+	./bin/govulncheck-latest ./...
 
 ##@ Build
 
@@ -87,7 +87,7 @@ bin/kagent-windows-amd64.exe.sha256: bin/kagent-windows-amd64.exe
 
 .PHONY: clean
 clean:
-	rm -f bin/* && mkdir -p bin
+	rm -f bin/kagent* && mkdir -p bin
 
 .PHONY: build
 build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-darwin-amd64.sha256 bin/kagent-darwin-arm64.sha256 bin/kagent-windows-amd64.exe.sha256
@@ -96,12 +96,16 @@ build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-da
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./controller/cmd/main.go
 
+.PHONY: test
+test:
+	CGO_ENABLED=0 go mod tidy -v
+	CGO_ENABLED=0 go test ./cli/...
+#	CGO_ENABLED=0 go test ./controller/...
 
-##@ Deployment
-
-ifndef ignore-not-found
-  ignore-not-found = false
-endif
+.PHONY: e2e
+e2e:
+	#UPDATE_GOLDEN=true go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
+	go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
 
 .PHONY: install
 install: manifests

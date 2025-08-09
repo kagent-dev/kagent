@@ -1,0 +1,127 @@
+suite: test controller deployment
+templates:
+  - controller-deployment.yaml
+tests:
+  - it: should render controller deployment with default values
+    template: controller-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-controller
+      - equal:
+          path: spec.replicas
+          value: 1
+      - hasDocuments:
+          count: 1
+
+  - it: should render controller deployment with custom replica count
+    template: controller-deployment.yaml
+    set:
+      controller:
+        replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should have correct controller container image
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: controller
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/controller:.+"
+
+  - it: should use global tag when set
+    template: controller-deployment.yaml
+    set:
+      tag: "v1.0.0"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: cr.kagent.dev/kagent-dev/kagent/controller:v1.0.0
+
+  - it: should have correct controller resources
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 128Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 2
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 512Mi
+
+  - it: should have correct service account name
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-controller
+
+  - it: should have correct container port
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8083
+
+  - it: should use custom loglevel when set
+    template: controller-deployment.yaml
+    set:
+      controller:
+        loglevel: "debug"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "debug"
+
+  - it: should configure watch namespaces
+    template: controller-deployment.yaml
+    set:
+      controller:
+        watchNamespaces:
+          - namespace-1
+          - namespace-2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "namespace-1,namespace-2"
+
+  - it: should set nodeSelector
+    set:
+      controller:
+        nodeSelector:
+          role: AI
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            role: AI
+
+  - it: should set tolerations
+    set:
+      controller:
+        tolerations:
+          - key: role
+            operator: Equal
+            value: AI
+            effect: NoSchedule
+    asserts:
+      - contains:
+          any: true
+          path: spec.template.spec.tolerations
+          content:
+            key: role
+            value: AI
+            effect: NoSchedule
+            operator: Equal

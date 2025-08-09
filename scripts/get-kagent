@@ -94,6 +94,11 @@ verifySupported() {
     echo "[ERROR] Could not find tar. It is required to extract the kagent binary archive."
     exit 1
   fi
+
+  if [ "${HAS_JQ}" != "true" ]; then
+    echo "[ERROR] Could not find jq. It is required to parse the kagent version."
+    exit 1
+  fi
 }
 
 # checkDesiredVersion checks if the desired version is available.
@@ -121,7 +126,7 @@ checkDesiredVersion() {
 # if it needs to be changed.
 checkKagentInstalledVersion() {
   if [[ -f "${KAGENT_INSTALL_DIR}/${BINARY_NAME}" ]]; then
-    local version=$("${KAGENT_INSTALL_DIR}/${BINARY_NAME}" version --template="{{ .Version }}")
+    local version=$("${KAGENT_INSTALL_DIR}/${BINARY_NAME}" version | jq -r '.kagent_version')
     if [[ "$version" == "$TAG" ]]; then
       echo "kagent ${version} is already ${DESIRED_VERSION:-latest}"
       return 0

@@ -1,70 +1,17 @@
-[build-system]
-requires = [
-  "hatchling >= 1.27.0",
-  "hatch >=1.14.1",
-  "setuptools>=67.0.0"
-]
-build-backend = "hatchling.build"
+[tool.uv.workspace]
+members = ["packages/*"]
 
-[project]
-name = "kagent"
-version = "0.3.0"
-description = "kagent is a tool for building and deploying agent-based applications."
-readme = "README.md"
-requires-python = ">=3.12"
-dependencies = [
-  "autogen-core>=0.5.7",
-  "autogen-agentchat>=0.5.7",
-  "autogen-ext[anthropic,azure,mcp,ollama,openai]>=0.5.7",
-  "openai>=1.72.0",
-  "tiktoken==0.8.0",
-  "python-dotenv>=1.1.0",
-  "pyyaml>=6.0.2",
-  "mcp>=1.2.0",
-  "sqlite-vec>=0.1.7a2",
-  "typer>=0.15.2",
-  "numpy>=2.2.4",
-  "opentelemetry-api>=1.32.0",
-  "opentelemetry-sdk>=1.32.0",
-  "opentelemetry-exporter-otlp-proto-grpc>=1.32.0",
-  "opentelemetry-instrumentation-openai>= 0.39.0",
-  "opentelemetry-instrumentation-httpx >= 0.52.0",
-  "anthropic[vertex]>=0.49.0",
-  "pinecone>=6.0.2",
-  "loguru>=0.7.3",
-  "sqlalchemy>=2.0.40",
-  "sqlmodel>=0.0.24",
-  "alembic>=1.11.0",
-  "fastapi>=0.103.1",
-  "playwright>=1.48.0",
-  "html2text>=2025.4.15",
-  "bs4>=0.0.2",
-  "magika>=0.6.2",
-  "markitdown[all]>=v0.1.1",
-  "websockets>=11.0",
-  "google-genai>=1.18.0",
-  "google-auth>=2.40.2",
-]
-
-[project.optional-dependencies]
-jupyter-executor = [
-    "ipykernel>=6.29.5",
-    "nbclient>=0.10.2",
-]
-test = [
+[dependency-groups]
+dev = [
+  "protobuf>=6.31.1",
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
-]
-lint = [
   "ruff>=0.11.5",
 ]
 
-[project.scripts]
-kagent-engine = "kagent.cli:run"
-tool_gen = "kagent.tools.utils.tool_gen:main"
-
 [tool.uv.sources]
 kagent = { workspace = true }
+kagent-adk = { workspace = true }
 
 [tool.ruff]
 line-length = 120
@@ -82,8 +29,11 @@ docstring-code-format = true
 select = ["E", "F", "W", "B", "Q", "I", "ASYNC", "T20"]
 ignore = ["F401", "E501", "B008", "ASYNC109"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/kagent", "src/autogenstudio"]
+[tool.setuptools.packages.find]
+where = ["packages"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.yaml", "*.yml", "*.txt", "*.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

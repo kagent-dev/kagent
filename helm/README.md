@@ -7,6 +7,8 @@ These Helm charts install kagent-crds,kagent, it is required that the Kagent CRD
 ### Using Helm
 
 ```bash
+helm install kmcp-crds oci://ghcr.io/kagent-dev/kmcp/helm/kmcp-crds --version 0.1.2 --namespace kagent
+
 # First, install the required CRDs
 helm install kagent-crds ./helm/kagent-crds/  --namespace kagent
 
@@ -55,8 +57,13 @@ export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
 export KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI
 export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
 
-# use local helm chart to install kagent
+# use local helm chart to install kagent with openAI provider
 export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+export KAGENT_HELM_REPO=./helm/
+make kagent-cli-install
+
+# use local helm chart to install kagent with ollama provider
+export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
 export KAGENT_HELM_REPO=./helm/
 make kagent-cli-install
 

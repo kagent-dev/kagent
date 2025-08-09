@@ -7,7 +7,7 @@ import (
 
 	"github.com/abiosoft/ishell/v2"
 	"github.com/fatih/color"
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
+	"github.com/kagent-dev/kagent/go/pkg/client"
 )
 
 const (
@@ -19,7 +19,7 @@ func SetCfg(shell *ishell.Shell, cfg *Config) {
 	shell.Set(configKey, cfg)
 }
 
-func SetClient(shell *ishell.Shell, client autogen_client.Client) {
+func SetClient(shell *ishell.Shell, client *client.ClientSet) {
 	shell.Set(clientKey, client)
 }
 
@@ -27,8 +27,8 @@ func GetCfg(shell *ishell.Context) *Config {
 	return shell.Get(configKey).(*Config)
 }
 
-func GetClient(shell *ishell.Context) autogen_client.Client {
-	return shell.Get(clientKey).(autogen_client.Client)
+func GetClient(shell *ishell.Context) *client.ClientSet {
+	return shell.Get(clientKey).(*client.ClientSet)
 }
 
 func BoldBlue(s string) string {

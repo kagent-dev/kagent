@@ -1,0 +1,71 @@
+suite: test configuration options
+tests:
+  - it: should use custom baseUrl when provided
+    template: templates/toolserver.yaml
+    set:
+      baseUrl: "https://custom.github.api.com/mcp"
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readwrite: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.config.streamableHttp.url
+          value: https://custom.github.api.com/mcp/x/repos
+
+  - it: should use custom timeout when provided globally
+    template: templates/toolserver.yaml
+    set:
+      timeout: "60s"
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readwrite: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.config.streamableHttp.timeout
+          value: 60s
+
+  - it: should use toolset-specific timeout when provided
+    template: templates/toolserver.yaml
+    set:
+      timeout: "30s"
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readwrite: true
+      tools.repositories.timeout: "90s"
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.config.streamableHttp.timeout
+          value: 90s
+
+  - it: should use custom description when provided
+    template: templates/toolserver.yaml
+    set:
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readwrite: true
+      tools.repositories.description: "Custom repository tools"
+    asserts:
+      - hasDocuments:
+          count: 1
+      - matchRegex:
+          path: spec.description
+          pattern: "Custom repository tools"
+
+  - it: should use default description when not provided
+    template: templates/toolserver.yaml
+    set:
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readwrite: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - matchRegex:
+          path: spec.description
+          pattern: "Official GitHub MCP Remote Server - GitHub Repository related tools \\(read-write\\)"

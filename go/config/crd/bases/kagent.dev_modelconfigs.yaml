@@ -46,6 +46,7 @@ spec:
           metadata:
             type: object
           spec:
+            description: ModelConfigSpec defines the desired state of ModelConfig.
             properties:
               anthropic:
                 description: Anthropic-specific configuration
@@ -101,9 +102,8 @@ spec:
                 type: string
               apiKeySecretRef:
                 description: The reference to the secret that contains the API key.
-                  Can either be a reference to the name of a secret in the same namespace
-                  as the referencing ModelConfig, or a reference to the name of a
-                  Secret in a different namespace in the form <namespace>/<name>
+                  Must be a reference to the name of a secret in the same namespace
+                  as the referencing ModelConfig
                 type: string
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
@@ -137,8 +137,11 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
-              geminiVertexAI:
+              gemini:
                 description: Gemini-specific configuration
+                type: object
+              geminiVertexAI:
+                description: Gemini Vertex AI-specific configuration
                 properties:
                   candidateCount:
                     description: Candidate count
@@ -248,6 +251,7 @@ spec:
                 - OpenAI
                 - AzureOpenAI
                 - Ollama
+                - Gemini
                 - GeminiVertexAI
                 - AnthropicVertexAI
                 type: string
@@ -264,6 +268,8 @@ spec:
               rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
             - message: provider.ollama must be nil if the provider is not Ollama
               rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
+            - message: provider.gemini must be nil if the provider is not Gemini
+              rule: '!(has(self.gemini) && self.provider != ''Gemini'')'
             - message: provider.geminiVertexAI must be nil if the provider is not
                 GeminiVertexAI
               rule: '!(has(self.geminiVertexAI) && self.provider != ''GeminiVertexAI'')'

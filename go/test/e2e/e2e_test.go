@@ -10,15 +10,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/internal/a2a"
+	"github.com/kagent-dev/kagent/go/internal/database"
+	kagent_client "github.com/kagent-dev/kagent/go/pkg/client"
+	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	a2a_client "trpc.group/trpc-go/trpc-a2a-go/client"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 const (
@@ -36,7 +42,9 @@ func TestE2E(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize agent client
-	agentClient := autogen_client.New(APIEndpoint)
+	agentClient := kagent_client.New(APIEndpoint)
+	a2aClient, err := a2a_client.NewA2AClient(APIEndpoint + "/a2a")
+	require.NoError(t, err)
 
 	// Initialize controller-runtime client
 	cfg, err := config.GetConfig()
@@ -52,41 +60,49 @@ func TestE2E(t *testing.T) {
 	// Initialize fresh test start time for unique sessions on each run
 	testStartTime := time.Now().String()
 
-	createOrFetchAgentSession := func(agentName string) *autogen_client.Session {
-		agentTeam, err := agentClient.GetTeam(agentName, GlobalUserID)
+	createOrFetchAgentSession := func(agentName string) (*database.Session, *api.AgentResponse) {
+		agentTeam, err := agentClient.Agent.GetAgent(ctx, agentName)
 		require.NoError(t, err)
-
-		require.NotNil(t, agentTeam, fmt.Sprintf("Agent with label %s not found", agentName))
-
-		apiTestTeam := agentTeam
 
 		// reuse existing sessions if available
-		existingSessions, err := agentClient.ListSessions(GlobalUserID)
+		existingSessions, err := agentClient.Session.ListSessions(ctx, GlobalUserID)
 		require.NoError(t, err)
-		for _, session := range existingSessions {
-			if session.TeamID == apiTestTeam.Id && session.UserID == GlobalUserID {
-				return session
+		for _, session := range existingSessions.Data {
+			if session.UserID == GlobalUserID {
+				return session, agentTeam.Data
 			}
 		}
 
-		sess, err := agentClient.CreateSession(&autogen_client.CreateSession{
+		sess, err := agentClient.Session.CreateSession(ctx, &api.SessionRequest{
 			UserID: GlobalUserID,
-			TeamID: apiTestTeam.Id,
-			Name:   fmt.Sprintf("e2e-test-%s-%s", agentName, testStartTime),
+			Name:   ptr.To(fmt.Sprintf("e2e-test-%s-%s", agentName, testStartTime)),
 		})
 		require.NoError(t, err)
 
-		return sess
+		return sess.Data, agentTeam.Data
 	}
 
 	// Helper function to run an interactive session with an agent
 	runAgentInteraction := func(agentLabel, prompt string) string {
-		sess := createOrFetchAgentSession(agentLabel)
+		sess, _ := createOrFetchAgentSession(agentLabel)
 
-		result, err := agentClient.InvokeSession(sess.ID, GlobalUserID, prompt+`\nComplete the task without asking for confirmation, even if the task involves creating or deleting namespaces or other critical resources.`)
+		result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
+			Message: protocol.Message{
+				ContextID: &sess.ID,
+				Role:      protocol.MessageRoleUser,
+				Parts: []protocol.Part{
+					protocol.NewTextPart(prompt + `\nComplete the task without asking for confirmation, even if the task involves creating or deleting namespaces or other critical resources.`),
+				},
+			},
+			Configuration: &protocol.SendMessageConfiguration{
+				Blocking: ptr.To(true),
+			},
+		})
 		require.NoError(t, err)
 
-		return result.TaskResult.Messages[len(result.TaskResult.Messages)-1]["content"].(string)
+		resultMsg, ok := result.Result.(*protocol.Message)
+		require.True(t, ok)
+		return a2a.ExtractText(*resultMsg)
 	}
 
 	// Helper to check if a namespace exists
@@ -97,7 +113,7 @@ func TestE2E(t *testing.T) {
 	}
 
 	// Helper to check if a resource exists
-	resourceExists := func(namespace, kind, name string, obj client.Object) bool {
+	resourceExists := func(namespace, name string, obj client.Object) bool {
 		err := k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, obj)
 		return err == nil
 	}
@@ -144,7 +160,7 @@ func TestE2E(t *testing.T) {
 		// Verify pod exists and has correct label
 		pod := &corev1.Pod{}
 		require.Eventually(t, func() bool {
-			if !resourceExists(namespace, "Pod", podName, pod) {
+			if !resourceExists(namespace, podName, pod) {
 				return false
 			}
 			return pod.Labels["app"] == "nginx"
@@ -192,7 +208,7 @@ func TestE2E(t *testing.T) {
 		// Verify the deployment exists
 		deployment := &appsv1.Deployment{}
 		require.Eventually(t, func() bool {
-			return resourceExists(namespace, "Deployment", deploymentName, deployment)
+			return resourceExists(namespace, deploymentName, deployment)
 		}, 60*time.Second, 1*time.Second, "Deployment should exist after Helm release install")
 
 		// Verify the deployment has the correct replica count
@@ -209,7 +225,7 @@ func TestE2E(t *testing.T) {
 
 		// Verify the deployment is removed
 		require.Eventually(t, func() bool {
-			return !resourceExists(namespace, "Deployment", deploymentName, deployment)
+			return !resourceExists(namespace, deploymentName, deployment)
 		}, 60*time.Second, 1*time.Second, "Deployment should be removed after Helm release uninstall")
 
 		// Delete namespace
@@ -238,7 +254,7 @@ func TestE2E(t *testing.T) {
 		// Verify namespace exists with correct label
 		ns := &corev1.Namespace{}
 		require.Eventually(t, func() bool {
-			if !resourceExists("", "Namespace", namespace, ns) {
+			if !resourceExists("", namespace, ns) {
 				return false
 			}
 			return ns.Labels["istio-injection"] == "enabled"
@@ -256,7 +272,7 @@ func TestE2E(t *testing.T) {
 		// Verify istiod deployment exists
 		istiod := &appsv1.Deployment{}
 		require.Eventually(t, func() bool {
-			return resourceExists("istio-system", "Deployment", "istiod", istiod)
+			return resourceExists("istio-system", "istiod", istiod)
 		}, 120*time.Second, 1*time.Second, "istiod deployment should exist")
 
 		// Deploy a simple application
@@ -266,7 +282,7 @@ func TestE2E(t *testing.T) {
 		// Verify deployment exists with correct replica count
 		deployment := &appsv1.Deployment{}
 		require.Eventually(t, func() bool {
-			if !resourceExists(namespace, "Deployment", deploymentName, deployment) {
+			if !resourceExists(namespace, deploymentName, deployment) {
 				return false
 			}
 			return *deployment.Spec.Replicas == int32(2)
@@ -279,7 +295,7 @@ func TestE2E(t *testing.T) {
 		// Verify service exists
 		service := &corev1.Service{}
 		require.Eventually(t, func() bool {
-			if !resourceExists(namespace, "Service", serviceName, service) {
+			if !resourceExists(namespace, serviceName, service) {
 				return false
 			}
 			return service.Spec.Type == corev1.ServiceTypeClusterIP && len(service.Spec.Ports) > 0 && service.Spec.Ports[0].Port == 80

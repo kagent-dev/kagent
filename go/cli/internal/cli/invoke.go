@@ -2,145 +2,134 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
+	"time"
 
-	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/pkg/client"
+	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 type InvokeCfg struct {
-	Config  *config.Config
-	Task    string
-	Session string
-	Agent   string
-	Stream  bool
+	Config      *config.Config
+	Task        string
+	File        string
+	Session     string
+	Agent       string
+	Stream      bool
+	URLOverride string
 }
 
 func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 
-	client := autogen_client.New(cfg.Config.APIURL)
+	clientSet := client.New(cfg.Config.APIURL)
 
 	var pf *portForward
-	if err := CheckServerConnection(client); err != nil {
+	if err := CheckServerConnection(clientSet); err != nil {
 		pf = NewPortForward(ctx, cfg.Config)
 		defer pf.Stop()
 	}
 
 	var task string
-	switch cfg.Task {
-	case "":
-		fmt.Fprintln(os.Stderr, "Task is required")
-		return
-	case "-":
-		// Read from stdin
-		content, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
-			return
-		}
-		task = string(content)
-	default:
-		// Read from file
-		content, err := os.ReadFile(cfg.Task)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading from file: %v\n", err)
-			return
-		}
-		task = string(content)
-	}
-	// If session is set invoke within a session.
-	if cfg.Session != "" {
-		session, err := client.GetSession(cfg.Session, cfg.Config.UserID)
-		if err != nil {
-			if errors.Is(err, autogen_client.NotFoundError) {
-				if cfg.Agent == "" {
-					fmt.Fprintln(os.Stderr, "Agent is required when creating a new session")
-					return
-				}
-				// If the session is not found, create it
-				team, err := client.GetTeam(cfg.Agent, cfg.Config.UserID)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error getting team: %v\n", err)
-					return
-				}
-				session, err = client.CreateSession(&autogen_client.CreateSession{
-					Name:   cfg.Session,
-					UserID: cfg.Config.UserID,
-					TeamID: team.Id,
-				})
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error creating session: %v\n", err)
-					return
-				}
-			} else {
-				fmt.Fprintf(os.Stderr, "Error getting session: %v\n", err)
-				return
-			}
-		}
-
-		if cfg.Stream {
-			usage := &autogen_client.ModelsUsage{}
-			ch, err := client.InvokeSessionStream(session.ID, cfg.Config.UserID, task)
+	// If task is set, use it. Otherwise, read from file or stdin.
+	if cfg.Task != "" {
+		task = cfg.Task
+	} else if cfg.File != "" {
+		switch cfg.File {
+		case "-":
+			// Read from stdin
+			content, err := io.ReadAll(os.Stdin)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
 				return
 			}
-			StreamEvents(ch, usage, cfg.Config.Verbose)
-		} else {
-			result, err := client.InvokeSession(session.ID, cfg.Config.UserID, task)
+			task = string(content)
+		default:
+			// Read from file
+			content, err := os.ReadFile(cfg.File)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error reading from file: %v\n", err)
 				return
 			}
-
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			if err := enc.Encode(result.TaskResult); err != nil {
-				fmt.Fprintf(os.Stderr, "Error encoding task result: %v\n", err)
-				return
-			}
+			task = string(content)
 		}
-
 	} else {
+		fmt.Fprintln(os.Stderr, "Task or file is required")
+		return
+	}
 
-		team, err := client.GetTeam(cfg.Agent, cfg.Config.UserID)
+	var a2aClient *a2aclient.A2AClient
+	var err error
+	if cfg.URLOverride != "" {
+
+		a2aClient, err = a2aclient.NewA2AClient(cfg.URLOverride)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting team: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
+			return
+		}
+	} else {
+		if cfg.Agent == "" {
+			fmt.Fprintln(os.Stderr, "Agent is required")
 			return
 		}
 
-		req := &autogen_client.InvokeTaskRequest{
-			Task:       task,
-			TeamConfig: team.Component,
-		}
-
-		if cfg.Stream {
-			usage := &autogen_client.ModelsUsage{}
-			ch, err := client.InvokeTaskStream(req)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error invoking task: %v\n", err)
-				return
-			}
-			StreamEvents(ch, usage, cfg.Config.Verbose)
-		} else {
-			result, err := client.InvokeTask(req)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error invoking task: %v\n", err)
-				return
-			}
-
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			if err := enc.Encode(result.TaskResult); err != nil {
-				fmt.Fprintf(os.Stderr, "Error encoding task result: %v\n", err)
-				return
-			}
+		a2aURL := fmt.Sprintf("%s/a2a/%s/%s", cfg.Config.APIURL, cfg.Config.Namespace, cfg.Agent)
+		a2aClient, err = a2aclient.NewA2AClient(a2aURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
+			return
 		}
 	}
 
-	return
+	var sessionID *string
+	if cfg.Session != "" {
+		sessionID = &cfg.Session
+	}
+
+	// Use A2A client to send message
+	if cfg.Stream {
+		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+		defer cancel()
+
+		result, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
+			Message: protocol.Message{
+				Kind:      protocol.KindMessage,
+				Role:      protocol.MessageRoleUser,
+				ContextID: sessionID,
+				Parts:     []protocol.Part{protocol.NewTextPart(task)},
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
+			return
+		}
+		StreamA2AEvents(result, cfg.Config.Verbose)
+	} else {
+		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+		defer cancel()
+
+		result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
+			Message: protocol.Message{
+				Kind:      protocol.KindMessage,
+				Role:      protocol.MessageRoleUser,
+				ContextID: sessionID,
+				Parts:     []protocol.Part{protocol.NewTextPart(task)},
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
+			return
+		}
+
+		jsn, err := result.MarshalJSON()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling result: %v\n", err)
+			return
+		}
+
+		fmt.Fprintf(os.Stdout, "%+v\n", string(jsn))
+	}
 }

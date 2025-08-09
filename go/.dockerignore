@@ -1,1 +1,48 @@
+# Build artifacts
 ./bin/
+bin/
+
+# Test files
+*_test.go
+**/testdata/
+test/
+
+# Documentation
+README.md
+*.md
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Kubernetes manifests (not needed for build)
+config/
+
+# CLI specific files (not needed for controller build)
+cli/
+
+# Project files
+PROJECT
+hack/
+
+# Makefiles
+Makefile

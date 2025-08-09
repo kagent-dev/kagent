@@ -1,0 +1,61 @@
+suite: test edge cases and validation
+tests:
+  - it: should handle tokenSecret and tokenSecretRef both present (tokenSecretRef takes precedence)
+    template: templates/toolserver.yaml
+    set:
+      tools.repositories.readwrite: true
+      tools.repositories.tokenSecret.value: "ghp_should_be_ignored"
+      tools.repositories.tokenSecretRef.name: "existing-secret"
+      tools.repositories.tokenSecretRef.key: "token"
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.config.streamableHttp.headersFrom[0].valueFrom.valueRef
+          value: existing-secret
+      - equal:
+          path: spec.config.streamableHttp.headersFrom[0].valueFrom.key
+          value: token
+
+  - it: should not generate toolserver when neither readwrite nor readonly is set
+    template: templates/toolserver.yaml
+    set:
+      tools.repositories.enabled: true  # This should not work
+      tools.issues.description: "Should not generate"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not generate toolserver with empty readwrite/readonly values
+    template: templates/toolserver.yaml
+    set:
+      tools.repositories.readwrite: false
+      tools.repositories.readonly: false
+      tools.issues.readwrite: ""
+      tools.issues.readonly: ""
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not create secret when tokenSecret has empty value
+    template: templates/secret.yaml
+    set:
+      tools.repositories.tokenSecret.value: ""
+      tools.repositories.tokenSecret.name: "should-not-create"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should handle empty baseUrl gracefully
+    template: templates/toolserver.yaml
+    set:
+      baseUrl: ""
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readwrite: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.config.streamableHttp.url
+          value: "/x/repos"

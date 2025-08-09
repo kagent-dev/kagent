@@ -4,40 +4,10 @@ To understand how to develop for kagent, It's important to understand the archit
 
 When making changes to `kagent`, the most important thing is to figure out which piece of the project is affected by the change, and then make the change in the appropriate folder. Each piece of the project has its own README with more information about how to setup the development environment and run that piece of the project.
 
-- [python](python): Contains the code for the autogen engine.
+- [python](python): Contains the code for the ADK  engine.
 - [go](go): Contains the code for the kubernetes controller, and the CLI.
 - [ui](ui): Contains the code for the web UI.
 
-
-## How to run everything locally
-
-Running outside Kubernetes:
-
-
-1. Run the backend from the `python` folder:
-
-```bash
-uv sync --all-extras
-
-# Run the autogen backend
-uv run kagent-engine serve
-```
-
-If you get an error that looks like this:
-
-```
-Smudge error: Error downloading...
-```
-
-Set the `GIT_LFS_SKIP_SMUDGE=1` variable and then run sync command.
-
-2. Run the frontend from the `ui` folder:
-
-```bash
-npm install
-
-npm run dev
-```
 
 ## How to run everything in Kubernetes
 
@@ -61,10 +31,11 @@ export ANTHROPIC_API_KEY=your-anthropic-api-key
 make helm-install
 ```
 
-To access the UI, port-forward to the app service:
+To access the UI, port-forward to the UI port on the `kagent-ui` service:
 
 ```shell
-kubectl port-forward svc/app 8001:80
+kubectl port-forward svc/kagent-ui 8001:80
 ```
 
 Then open your browser and go to `http://localhost:8001`.
+
