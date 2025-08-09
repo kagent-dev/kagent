@@ -16,7 +16,8 @@ type Agent struct {
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	Config *adk.AgentConfig `gorm:"type:json;not null" json:"config"`
+	Type   string           `gorm:"not null" json:"type"`
+	Config *adk.AgentConfig `gorm:"type:json" json:"config"`
 }
 
 type Event struct {

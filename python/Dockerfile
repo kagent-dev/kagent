@@ -25,26 +25,25 @@ ENV GIT_LFS_SKIP_SMUDGE=1
 ENV UV_LINK_MODE=copy
 ENV UV_COMPILE_BYTECODE=1
 
-ENV UV_CACHE_DIR=/app/python/.cache/uv
-ENV UV_PROJECT_ENVIRONMENT="/app/python/.venv"
+ENV UV_CACHE_DIR=/.kagent/python/.cache/uv
 
 RUN addgroup -g 1001 pythongroup                       && \
-    adduser  -u 1001 -G pythongroup -s /bin/bash -D python -h /app/python/  && \
-    mkdir    -p /app/python/bin                        && \
-    mkdir    -p /app/python/downloads                  && \
-    mkdir    -p /app/python/.cache/uv                  && \
-    chown    -vR 1001:1001 /app
+    adduser  -u 1001 -G pythongroup -s /bin/bash -D python -h /.kagent/python/  && \
+    mkdir    -p /.kagent/python/bin                        && \
+    mkdir    -p /.kagent/python/downloads                  && \
+    mkdir    -p /.kagent/python/.cache/uv                  && \
+    chown    -vR 1001:1001 /.kagent
 
 USER python
-WORKDIR /app/python
+WORKDIR /.kagent/python
 
 ### STAGE 3: final
 FROM python-os AS final
 ARG TOOLS_PYTHON_VERSION
 
-WORKDIR /app/python
+WORKDIR /.kagent/python
 
-ENV PATH=$PATH:/app/python/bin:/app/python/.venv/bin
+ENV PATH=$PATH:/.kagent/python/bin:/.kagent/python/.venv/bin
 
 COPY --chown=python:pythongroup pyproject.toml  .
 COPY --chown=python:pythongroup .python-version .
@@ -62,17 +61,4 @@ RUN echo "Installing dependencies..."                   \
     && uv build --package kagent-adk                    \
     && uv cache prune
 
-# Offline mode
-ENV UV_OFFLINE=1
-
-# Test if the tool is working and fetch all dependencies
-RUN kagent-adk --help
-
-EXPOSE 8080
-
-LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
-LABEL org.opencontainers.image.description="Kagent app is the apiserver for running agents."
-LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
-LABEL org.opencontainers.image.version="$VERSION"
-
-CMD ["kagent-adk", "--host", "0.0.0.0", "--port", "8080"]
+WORKDIR /app

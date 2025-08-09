@@ -257,7 +257,7 @@ func (a *kagentReconciler) FindAgentsUsingMCPService(ctx context.Context, obj ty
 			continue
 		}
 
-		if agent.Spec.Type == v1alpha2.AgentType_Inline {
+		if agent.Spec.Type != v1alpha2.AgentType_Inline {
 			continue
 		}
 
@@ -376,7 +376,7 @@ func (a *kagentReconciler) FindAgentsUsingMCPServer(ctx context.Context, obj typ
 			continue
 		}
 
-		if agent.Spec.Type == v1alpha2.AgentType_Inline {
+		if agent.Spec.Type != v1alpha2.AgentType_Inline {
 			continue
 		}
 
@@ -511,6 +511,7 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
 	dbAgent := &database.Agent{
 		ID:     id,
+		Type:   string(agent.Spec.Type),
 		Config: agentOutputs.Config,
 	}
 
@@ -628,7 +629,7 @@ func (a *kagentReconciler) FindAgentsUsingModelConfig(ctx context.Context, obj t
 			continue
 		}
 
-		if agent.Spec.Type == v1alpha2.AgentType_Inline {
+		if agent.Spec.Type != v1alpha2.AgentType_Inline {
 			continue
 		}
 
@@ -684,7 +685,7 @@ func (a *kagentReconciler) FindAgentsUsingRemoteMCPServer(ctx context.Context, o
 	}
 
 	appendAgentIfUsesRemoteMCPServer := func(agent *v1alpha2.Agent) {
-		if agent.Spec.Type == v1alpha2.AgentType_Inline {
+		if agent.Spec.Type != v1alpha2.AgentType_Inline {
 			return
 		}
 

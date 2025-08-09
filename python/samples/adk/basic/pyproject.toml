@@ -2,7 +2,6 @@
 name = "basic"
 version = "0.1"
 description = "Basic agent"
-license = "Apache License 2.0"
 readme = "README.md"
 dependencies = [
   "google-adk>=1.8.0",

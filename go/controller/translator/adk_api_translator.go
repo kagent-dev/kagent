@@ -109,12 +109,27 @@ func (a *adkApiTranslator) TranslateAgent(
 		return a.buildManifest(ctx, agent, dep, cfg, card)
 
 	case v1alpha2.AgentType_BYO:
+
 		dep, err := a.resolveByoDeployment(agent)
 		if err != nil {
 			return nil, err
 		}
-		// BYO: no cfg/card
-		return a.buildManifest(ctx, agent, dep, nil, nil)
+		// TODO: Resolve this from the actual pod
+		agentCard := &server.AgentCard{
+			Name:        strings.ReplaceAll(agent.Name, "-", "_"),
+			Description: agent.Spec.Description,
+			URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
+			Capabilities: server.AgentCapabilities{
+				Streaming:              ptr.To(true),
+				PushNotifications:      ptr.To(false),
+				StateTransitionHistory: ptr.To(true),
+			},
+			// Can't be null for Python, so set to empty list
+			Skills:             []server.AgentSkill{},
+			DefaultInputModes:  []string{"text"},
+			DefaultOutputModes: []string{"text"},
+		}
+		return a.buildManifest(ctx, agent, dep, nil, agentCard)
 
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
@@ -177,7 +192,7 @@ func (a *adkApiTranslator) buildManifest(
 	var configHash uint64
 	var configVol []corev1.Volume
 	var configMounts []corev1.VolumeMount
-	if cfg != nil || card != nil {
+	if cfg != nil && card != nil {
 		bCfg, err := json.Marshal(cfg)
 		if err != nil {
 			return nil, err
@@ -224,6 +239,11 @@ func (a *adkApiTranslator) buildManifest(
 		podTemplateLabels["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
 	}
 
+	var cmd []string
+	if len(dep.Cmd) != 0 {
+		cmd = []string{dep.Cmd}
+	}
+
 	deployment := &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: objMeta,
@@ -246,7 +266,7 @@ func (a *adkApiTranslator) buildManifest(
 						Name:            "kagent",
 						Image:           dep.Image,
 						ImagePullPolicy: dep.ImagePullPolicy,
-						Command:         []string{dep.Cmd},
+						Command:         cmd,
 						Args:            dep.Args,
 						Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
 						Resources: corev1.ResourceRequirements{
@@ -992,25 +1012,18 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 
 	image := spec.Image
 	if image == "" {
-		image = fmt.Sprintf("cr.kagent.dev/kagent-dev/kagent/app:%s", version.Get().Version)
+		// This should never happen as it's required by the API
+		return nil, fmt.Errorf("image is required for BYO deployment")
 	}
 
-	cmd := spec.Cmd
-	if cmd == "" {
-		cmd = "kagent-adk"
+	cmd := ""
+	if spec.Cmd != nil && len(*spec.Cmd) != 0 {
+		cmd = *spec.Cmd
 	}
 
-	args := spec.Args
-	if len(args) == 0 {
-		args = []string{
-			"static",
-			"--host",
-			"0.0.0.0",
-			"--port",
-			fmt.Sprintf("%d", port),
-			"--filepath",
-			"/config",
-		}
+	var args []string
+	if len(spec.Args) != 0 {
+		args = spec.Args
 	}
 
 	imagePullPolicy := corev1.PullIfNotPresent

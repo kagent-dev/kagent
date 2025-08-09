@@ -2202,9 +2202,9 @@ spec:
     subresources:
       status: {}
   - additionalPrinterColumns:
-    - description: The ModelConfig resource referenced by this agent.
-      jsonPath: .spec.modelConfig
-      name: ModelConfig
+    - description: The type of the agent.
+      jsonPath: .spec.type
+      name: Type
       type: string
     - description: Whether or not the agent is ready to serve requests.
       jsonPath: .status.conditions[?(@.type=='Ready')].status
@@ -2374,6 +2374,7 @@ spec:
                           type: object
                         type: array
                       image:
+                        minLength: 1
                         type: string
                       imagePullPolicy:
                         description: PullPolicy describes a policy for if/when to

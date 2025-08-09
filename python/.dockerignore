@@ -181,7 +181,6 @@ tools/
 
 # Examples and samples
 examples/
-samples/
 demo/
 
 # Configuration files not needed in container

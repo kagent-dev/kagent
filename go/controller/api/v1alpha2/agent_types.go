@@ -92,9 +92,12 @@ type BYOAgentSpec struct {
 }
 
 type ByoDeploymentSpec struct {
-	Image string   `json:"image,omitempty"`
-	Cmd   string   `json:"cmd,omitempty"`
-	Args  []string `json:"args,omitempty"`
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image,omitempty"`
+	// +optional
+	Cmd *string `json:"cmd,omitempty"`
+	// +optional
+	Args []string `json:"args,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
 }
@@ -193,7 +196,7 @@ type AgentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="ModelConfig",type="string",JSONPath=".spec.modelConfig",description="The ModelConfig resource referenced by this agent."
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
 // +kubebuilder:storageversion

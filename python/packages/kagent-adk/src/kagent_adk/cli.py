@@ -12,7 +12,6 @@ from opentelemetry import _logs, trace
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._events import EventLoggerProvider
@@ -112,15 +111,11 @@ def configure_tracing():
         event_logger_provider = EventLoggerProvider(logger_provider)
         OpenAIInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
         AnthropicInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
-        GoogleGenerativeAiInstrumentor(use_legacy_attributes=False).instrument(
-            event_logger_provider=event_logger_provider
-        )
     else:
         # Use legacy attributes (input/output as GenAI span attributes)
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
         OpenAIInstrumentor().instrument()
         AnthropicInstrumentor().instrument()
-        GoogleGenerativeAiInstrumentor().instrument()
 
 
 @app.command()
@@ -156,7 +151,7 @@ def static(
 
 @app.command()
 def run(
-    name: str,
+    name: Annotated[str, typer.Argument(help="The name of the agent to run")],
     working_dir: str = ".",
     host: str = "127.0.0.1",
     port: int = 8080,

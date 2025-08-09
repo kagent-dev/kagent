@@ -24,14 +24,12 @@ from google.adk.a2a.converters.request_converter import convert_a2a_request_to_a
 from google.adk.a2a.converters.utils import _get_adk_metadata_key
 from google.adk.a2a.executor.task_result_aggregator import TaskResultAggregator
 from google.adk.runners import Runner
-from google.adk.utils.feature_decorator import experimental
 from pydantic import BaseModel
 from typing_extensions import override
 
 logger = logging.getLogger("google_adk." + __name__)
 
 
-@experimental
 class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the A2aAgentExecutor."""
 
@@ -42,7 +40,6 @@ class A2aAgentExecutorConfig(BaseModel):
 # with the following changes:
 # - The runner is ALWAYS a callable that returns a Runner instance
 # - The runner is cleaned up at the end of the execution
-@experimental
 class A2aAgentExecutor(AgentExecutor):
     """An AgentExecutor that runs an ADK Agent against an A2A request and
     publishes updates to an event queue.

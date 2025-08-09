@@ -18,26 +18,30 @@ BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
 DOCKER_BUILDER ?= docker buildx
-DOCKER_BUILD_ARGS ?= --builder $(BUILDX_BUILDER_NAME) --pull --load --platform linux/$(LOCALARCH)
+DOCKER_BUILD_ARGS ?= --builder $(BUILDX_BUILDER_NAME) --pull=false --load --platform linux/$(LOCALARCH)
 KIND_CLUSTER_NAME ?= kagent
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
+KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
+KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 
 # Retagged image variables for kind loading; the Helm chart uses these
 RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
 RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+RETAGGED_KAGENT_ADK_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -142,6 +146,7 @@ build: buildx-create build-controller build-ui build-app
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
+	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Tools Image: $(TOOLS_IMG)"
 
 .PHONY: build-monitor
@@ -162,9 +167,10 @@ build-img-versions:
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
 	@echo app=$(APP_IMG)
+	@echo kagent-adk=$(KAGENT_ADK_IMG)
 
 .PHONY: push
-push: push-controller push-ui push-app
+push: push-controller push-ui push-app push-kagent-adk
 
 .PHONY: controller-manifests
 controller-manifests:
@@ -179,9 +185,14 @@ build-controller: buildx-create controller-manifests
 build-ui: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 
+.PHONY: build-kagent-adk
+build-kagent-adk: buildx-create
+		$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
+
 .PHONY: build-app
-build-app: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
+build-app: buildx-create build-kagent-adk
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) -t $(APP_IMG) -f python/Dockerfile.app ./python
+
 
 .PHONY: kind-load-docker-images
 kind-load-docker-images: retag-docker-images use-kind-cluster
@@ -197,6 +208,7 @@ retag-docker-images: build
 	docker tag $(CONTROLLER_IMG) $(RETAGGED_CONTROLLER_IMG)
 	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
 	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
+	docker tag $(KAGENT_ADK_IMG) $(RETAGGED_KAGENT_ADK_IMG)
 
 .PHONY: helm-cleanup
 helm-cleanup:
