@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 )
 
@@ -16,10 +16,10 @@ func setupScheme() *runtime.Scheme {
 	s := scheme.Scheme
 
 	s.AddKnownTypes(schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha1"},
-		&v1alpha1.Agent{},
-		&v1alpha1.AgentList{},
-		&v1alpha1.ModelConfig{},
-		&v1alpha1.ModelConfigList{},
+		&v1alpha2.Agent{},
+		&v1alpha2.AgentList{},
+		&v1alpha2.ModelConfig{},
+		&v1alpha2.ModelConfigList{},
 	)
 
 	metav1.AddToGroupVersion(s, schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha1"})

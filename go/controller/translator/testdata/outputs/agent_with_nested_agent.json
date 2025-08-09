@@ -112,7 +112,7 @@
         "namespace": "test",
         "ownerReferences": [
           {
-            "apiVersion": "kagent.dev/v1alpha1",
+            "apiVersion": "kagent.dev/v1alpha2",
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
@@ -138,7 +138,7 @@
         "namespace": "test",
         "ownerReferences": [
           {
-            "apiVersion": "kagent.dev/v1alpha1",
+            "apiVersion": "kagent.dev/v1alpha2",
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
@@ -161,7 +161,7 @@
         "namespace": "test",
         "ownerReferences": [
           {
-            "apiVersion": "kagent.dev/v1alpha1",
+            "apiVersion": "kagent.dev/v1alpha2",
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
@@ -289,7 +289,7 @@
         "namespace": "test",
         "ownerReferences": [
           {
-            "apiVersion": "kagent.dev/v1alpha1",
+            "apiVersion": "kagent.dev/v1alpha2",
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",

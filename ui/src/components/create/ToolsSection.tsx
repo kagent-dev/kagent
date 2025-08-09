@@ -3,13 +3,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Plus, FunctionSquare, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { isAgentTool, isMcpTool, getToolResponseDescription } from "@/lib/toolUtils";
-import { k8sRefUtils } from "@/lib/k8sUtils";
+import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
-import type { Tool, ToolResponse, AgentResponse } from "@/types";
+import type { Tool, AgentResponse, ToolsResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import KagentLogo from "../kagent-logo";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ToolsSectionProps {
   selectedTools: Tool[];
@@ -23,48 +23,11 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
   const [showToolSelector, setShowToolSelector] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
-  const [availableTools, setAvailableTools] = useState<ToolResponse[]>([]);
-  const [loadingTools, setLoadingTools] = useState(true);
-
-  // Helper functions for Tool objects
-  const getToolIdentifier = (tool: Tool): string => {
-    if (isAgentTool(tool) && tool.agent) {
-      return `agent-${tool.agent.ref}`;
-    } else if (isMcpTool(tool) && tool.mcpServer) {
-      return `mcp-${tool.mcpServer.toolServer}`;
-    }
-    return `unknown-tool-${Math.random().toString(36).substring(7)}`;
-  };
-
-  const getToolDisplayName = (tool: Tool): string => {
-    if (isAgentTool(tool) && tool.agent) {
-      return tool.agent.ref;
-    } else if (isMcpTool(tool) && tool.mcpServer) {
-      return tool.mcpServer.toolServer;
-    }
-    return "Unknown Tool";
-  };
-
-  const getToolDescription = (tool: Tool): string => {
-    if (isAgentTool(tool) && tool.agent) {
-      if (tool.agent.description) {
-        return tool.agent.description
-      }
-      
-      const foundAgent = availableAgents.find(a => k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name) === tool.agent.ref);
-      return foundAgent ? foundAgent.agent.spec.description : "Agent description not available";
-    } else if (isMcpTool(tool) && tool.mcpServer) {
-      // For MCP tools, look up description from availableTools
-      const foundTool = availableTools.find(t => t.server_name === tool.mcpServer!.toolServer);
-      return foundTool ? getToolResponseDescription(foundTool) : "MCP tool description not available";
-    }
-    return "No description available";
-  };
+  const [availableTools, setAvailableTools] = useState<ToolsResponse[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoadingAgents(true);
-      setLoadingTools(true);
       
       try {
         const [agentsResponse, toolsResponse] = await Promise.all([
@@ -86,7 +49,6 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
         console.error("Failed to fetch data:", error);
       } finally {
         setLoadingAgents(false);
-        setLoadingTools(false);
       }
     };
 
@@ -107,15 +69,16 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
 
     if (mcpToolNameToRemove) {
       updatedTools = selectedTools.map(tool => {
-        if (getToolIdentifier(tool) === parentToolIdentifier && isMcpTool(tool) && tool.mcpServer) {
-          const newToolNames = tool.mcpServer.toolNames.filter(name => name !== mcpToolNameToRemove);
+        if (getToolIdentifier(tool) === parentToolIdentifier && isMcpTool(tool)) {
+          const mcpTool = tool as Tool;
+          const newToolNames = mcpTool.mcpServer?.toolNames.filter(name => name !== mcpToolNameToRemove) || [];
           if (newToolNames.length === 0) {
             return null; 
           }
           return {
-            ...tool,
+            ...mcpTool,
             mcpServer: {
-              ...tool.mcpServer,
+              ...mcpTool.mcpServer,
               toolNames: newToolNames,
             },
           };
@@ -133,18 +96,24 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
       {selectedTools.flatMap((agentTool: Tool) => {
         const parentToolIdentifier = getToolIdentifier(agentTool);
 
-        if (isMcpTool(agentTool) && agentTool.mcpServer && agentTool.mcpServer.toolNames && agentTool.mcpServer.toolNames.length > 0) {
-          return agentTool.mcpServer.toolNames.map((mcpToolName) => {
+        if (isMcpTool(agentTool)) {
+          const mcpTool = agentTool as Tool;
+          return mcpTool.mcpServer?.toolNames.map((mcpToolName: string) => {
             const toolIdentifierForDisplay = `${parentToolIdentifier}::${mcpToolName}`;
             const displayName = mcpToolName;
 
+            // The tools on agent resource don't have descriptions, so we need to 
+            // get the descriptions from the db
             let displayDescription = "Description not available.";
-            const mcpToolDef = availableTools.find(tool => 
-              tool.server_name === agentTool.mcpServer!.toolServer && tool.id === mcpToolName
-            );
+            const toolFromDB = availableTools.find(server => {
+              // The server_name is the full ref, so we need to get the name part of it
+              // as the name from the mcpServer is just a name (no namespace)
+              const { name } = k8sRefUtils.fromRef(server.server_name);
+              return name === mcpTool.mcpServer?.name && server.id === mcpToolName;
+            });
 
-            if (mcpToolDef) {
-              displayDescription = getToolResponseDescription(mcpToolDef);
+            if (toolFromDB) {
+              displayDescription = toolFromDB.description;
             }
 
             const Icon = FunctionSquare;
@@ -175,7 +144,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
           });
         } else {
           const displayName = getToolDisplayName(agentTool);
-          const displayDescription = getToolDescription(agentTool);
+          const displayDescription = getToolDescription(agentTool, availableTools);
 
           let CurrentIcon: React.ElementType;
           let currentIconColor: string;
@@ -259,7 +228,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
         )}
       </ScrollArea>
 
-      <SelectToolsDialog
+     <SelectToolsDialog
         open={showToolSelector}
         onOpenChange={setShowToolSelector}
         availableTools={availableTools}

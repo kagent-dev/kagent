@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
@@ -418,7 +418,7 @@ func (c *InMemmoryFakeClient) ListEventsForSession(sessionID, userID string, opt
 }
 
 // RefreshToolsForServer refreshes a tool server
-func (c *InMemmoryFakeClient) RefreshToolsForServer(serverName string, tools ...*v1alpha1.MCPTool) error {
+func (c *InMemmoryFakeClient) RefreshToolsForServer(serverName string, tools ...*v1alpha2.MCPTool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

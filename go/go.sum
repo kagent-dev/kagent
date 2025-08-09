@@ -128,6 +128,8 @@ github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnr
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
 github.com/kagent-dev/a2a-go v0.0.0-20250806145931-0fab01f644c3 h1:NrQCHyIOsQTtq9u7fpfQuDOMQAGVOa+n5Km/8csdqOM=
 github.com/kagent-dev/a2a-go v0.0.0-20250806145931-0fab01f644c3/go.mod h1:lu052zH/pTlTBwWMU/E3UckR0U9ajL1NlhiRkIF9R6A=
+github.com/kagent-dev/kmcp v0.1.1 h1:2QGJ4+IR7mTVvI+Gc22XP9T4S5dpF4ZvnW6ZdEITmS4=
+github.com/kagent-dev/kmcp v0.1.1/go.mod h1:aPwM1QtoAackdbQqLrPaNSSg/KZa0fFjbTJyOZFJNK8=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=

@@ -18,7 +18,7 @@ import (
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
@@ -26,7 +26,7 @@ import (
 func TestModelConfigHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
 
-	err := v1alpha1.AddToScheme(scheme)
+	err := v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
 	require.NoError(t, err)
@@ -47,17 +47,17 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, kubeClient, responseRecorder := setupHandler()
 
 			// Create test model configs
-			modelConfig1 := &v1alpha1.ModelConfig{
+			modelConfig1 := &v1alpha2.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-config-1",
 					Namespace: "default",
 				},
-				Spec: v1alpha1.ModelConfigSpec{
+				Spec: v1alpha2.ModelConfigSpec{
 					Model:           "gpt-4",
-					Provider:        v1alpha1.ModelProviderOpenAI,
-					APIKeySecretRef: "test-secret",
+					Provider:        v1alpha2.ModelProviderOpenAI,
+					APIKeySecret:    "test-secret",
 					APIKeySecretKey: "OPENAI_API_KEY",
-					OpenAI: &v1alpha1.OpenAIConfig{
+					OpenAI: &v1alpha2.OpenAIConfig{
 						BaseURL:     "https://api.openai.com/v1",
 						Temperature: "0.7",
 						MaxTokens:   1000,
@@ -83,9 +83,8 @@ func TestModelConfigHandler(t *testing.T) {
 			assert.Equal(t, "default/test-config-1", config.Ref)
 			assert.Equal(t, "OpenAI", config.ProviderName)
 			assert.Equal(t, "gpt-4", config.Model)
-			assert.Equal(t, "test-secret", config.APIKeySecretRef)
+			assert.Equal(t, "test-secret", config.APIKeySecret)
 			assert.Equal(t, "OPENAI_API_KEY", config.APIKeySecretKey)
-			assert.NotEmpty(t, config.ModelParams)
 		})
 
 		t.Run("EmptyList", func(t *testing.T) {
@@ -112,7 +111,7 @@ func TestModelConfigHandler(t *testing.T) {
 				Provider: api.Provider{Type: "OpenAI"},
 				Model:    "gpt-4",
 				APIKey:   "test-api-key",
-				OpenAIParams: &v1alpha1.OpenAIConfig{
+				OpenAIParams: &v1alpha2.OpenAIConfig{
 					BaseURL:     "https://api.openai.com/v1",
 					Temperature: "0.7",
 					MaxTokens:   1000,
@@ -127,12 +126,12 @@ func TestModelConfigHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
 
-			var config api.StandardResponse[v1alpha1.ModelConfig]
+			var config api.StandardResponse[v1alpha2.ModelConfig]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
 			require.NoError(t, err)
 			assert.Equal(t, "test-config", config.Data.Name)
 			assert.Equal(t, "default", config.Data.Namespace)
-			assert.Equal(t, v1alpha1.ModelProviderOpenAI, config.Data.Spec.Provider)
+			assert.Equal(t, v1alpha2.ModelProviderOpenAI, config.Data.Spec.Provider)
 			assert.Equal(t, "gpt-4", config.Data.Spec.Model)
 		})
 
@@ -144,7 +143,7 @@ func TestModelConfigHandler(t *testing.T) {
 				Provider: api.Provider{Type: "Anthropic"},
 				Model:    "claude-3-sonnet",
 				APIKey:   "test-api-key",
-				AnthropicParams: &v1alpha1.AnthropicConfig{
+				AnthropicParams: &v1alpha2.AnthropicConfig{
 					BaseURL:     "https://api.anthropic.com",
 					Temperature: "0.5",
 					MaxTokens:   2000,
@@ -159,10 +158,10 @@ func TestModelConfigHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
 
-			var config api.StandardResponse[v1alpha1.ModelConfig]
+			var config api.StandardResponse[v1alpha2.ModelConfig]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
 			require.NoError(t, err)
-			assert.Equal(t, v1alpha1.ModelProviderAnthropic, config.Data.Spec.Provider)
+			assert.Equal(t, v1alpha2.ModelProviderAnthropic, config.Data.Spec.Provider)
 		})
 
 		t.Run("Success_Ollama_NoAPIKey", func(t *testing.T) {
@@ -172,7 +171,7 @@ func TestModelConfigHandler(t *testing.T) {
 				Ref:      "default/test-ollama",
 				Provider: api.Provider{Type: "Ollama"},
 				Model:    "llama2",
-				OllamaParams: &v1alpha1.OllamaConfig{
+				OllamaParams: &v1alpha2.OllamaConfig{
 					Host: "http://localhost:11434",
 					Options: map[string]string{
 						"temperature": "0.8",
@@ -188,11 +187,11 @@ func TestModelConfigHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
 
-			var config api.StandardResponse[v1alpha1.ModelConfig]
+			var config api.StandardResponse[v1alpha2.ModelConfig]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
 			require.NoError(t, err)
-			assert.Equal(t, v1alpha1.ModelProviderOllama, config.Data.Spec.Provider)
-			assert.Empty(t, config.Data.Spec.APIKeySecretRef)
+			assert.Equal(t, v1alpha2.ModelProviderOllama, config.Data.Spec.Provider)
+			assert.Empty(t, config.Data.Spec.APIKeySecret)
 		})
 
 		t.Run("Success_AzureOpenAI", func(t *testing.T) {
@@ -203,7 +202,7 @@ func TestModelConfigHandler(t *testing.T) {
 				Provider: api.Provider{Type: "AzureOpenAI"},
 				Model:    "gpt-4",
 				APIKey:   "test-api-key",
-				AzureParams: &v1alpha1.AzureOpenAIConfig{
+				AzureParams: &v1alpha2.AzureOpenAIConfig{
 					Endpoint:   "https://myresource.openai.azure.com/",
 					APIVersion: "2023-05-15",
 				},
@@ -217,10 +216,10 @@ func TestModelConfigHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusCreated, responseRecorder.Code, responseRecorder.Body.String())
 
-			var config api.StandardResponse[v1alpha1.ModelConfig]
+			var config api.StandardResponse[v1alpha2.ModelConfig]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
 			require.NoError(t, err)
-			assert.Equal(t, v1alpha1.ModelProviderAzureOpenAI, config.Data.Spec.Provider)
+			assert.Equal(t, v1alpha2.ModelProviderAzureOpenAI, config.Data.Spec.Provider)
 		})
 
 		t.Run("InvalidJSON", func(t *testing.T) {
@@ -259,14 +258,14 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, kubeClient, responseRecorder := setupHandler()
 
 			// Create existing model config
-			existingConfig := &v1alpha1.ModelConfig{
+			existingConfig := &v1alpha2.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-config",
 					Namespace: "default",
 				},
-				Spec: v1alpha1.ModelConfigSpec{
+				Spec: v1alpha2.ModelConfigSpec{
 					Model:    "gpt-4",
-					Provider: v1alpha1.ModelProviderOpenAI,
+					Provider: v1alpha2.ModelProviderOpenAI,
 				},
 			}
 			err := kubeClient.Create(context.Background(), existingConfig)
@@ -297,7 +296,7 @@ func TestModelConfigHandler(t *testing.T) {
 				Provider:    api.Provider{Type: "AzureOpenAI"},
 				Model:       "gpt-4",
 				APIKey:      "test-api-key",
-				AzureParams: &v1alpha1.AzureOpenAIConfig{
+				AzureParams: &v1alpha2.AzureOpenAIConfig{
 					// Missing required Endpoint and APIVersion
 				},
 			}
@@ -338,17 +337,17 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, kubeClient, responseRecorder := setupHandler()
 
 			// Create test model config
-			config := &v1alpha1.ModelConfig{
+			config := &v1alpha2.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-config",
 					Namespace: "default",
 				},
-				Spec: v1alpha1.ModelConfigSpec{
+				Spec: v1alpha2.ModelConfigSpec{
 					Model:           "gpt-4",
-					Provider:        v1alpha1.ModelProviderOpenAI,
-					APIKeySecretRef: "test-secret",
+					Provider:        v1alpha2.ModelProviderOpenAI,
+					APIKeySecret:    "test-secret",
 					APIKeySecretKey: "OPENAI_API_KEY",
-					OpenAI: &v1alpha1.OpenAIConfig{
+					OpenAI: &v1alpha2.OpenAIConfig{
 						BaseURL:     "https://api.openai.com/v1",
 						Temperature: "0.7",
 					},
@@ -375,7 +374,7 @@ func TestModelConfigHandler(t *testing.T) {
 			assert.Equal(t, "default/test-config", configResponse.Data.Ref)
 			assert.Equal(t, "OpenAI", configResponse.Data.ProviderName)
 			assert.Equal(t, "gpt-4", configResponse.Data.Model)
-			assert.Equal(t, "test-secret", configResponse.Data.APIKeySecretRef)
+			assert.Equal(t, "test-secret", configResponse.Data.APIKeySecret)
 			assert.Equal(t, "OPENAI_API_KEY", configResponse.Data.APIKeySecretKey)
 			assert.NotEmpty(t, configResponse.Data.ModelParams)
 		})
@@ -402,15 +401,15 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, kubeClient, responseRecorder := setupHandler()
 
 			// Create existing model config
-			config := &v1alpha1.ModelConfig{
+			config := &v1alpha2.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-config",
 					Namespace: "default",
 				},
-				Spec: v1alpha1.ModelConfigSpec{
+				Spec: v1alpha2.ModelConfigSpec{
 					Model:    "gpt-3.5-turbo",
-					Provider: v1alpha1.ModelProviderOpenAI,
-					OpenAI: &v1alpha1.OpenAIConfig{
+					Provider: v1alpha2.ModelProviderOpenAI,
+					OpenAI: &v1alpha2.OpenAIConfig{
 						BaseURL:     "https://api.openai.com/v1",
 						Temperature: "0.5",
 					},
@@ -425,7 +424,7 @@ func TestModelConfigHandler(t *testing.T) {
 				Provider: api.Provider{Type: "OpenAI"},
 				Model:    "gpt-4",
 				APIKey:   &apiKey,
-				OpenAIParams: &v1alpha1.OpenAIConfig{
+				OpenAIParams: &v1alpha2.OpenAIConfig{
 					BaseURL:     "https://api.openai.com/v1",
 					Temperature: "0.7",
 					MaxTokens:   2000,
@@ -475,7 +474,7 @@ func TestModelConfigHandler(t *testing.T) {
 			reqBody := api.UpdateModelConfigRequest{
 				Provider: api.Provider{Type: "OpenAI"},
 				Model:    "gpt-4",
-				OpenAIParams: &v1alpha1.OpenAIConfig{
+				OpenAIParams: &v1alpha2.OpenAIConfig{
 					Temperature: "0.7",
 				},
 			}
@@ -501,14 +500,14 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, kubeClient, responseRecorder := setupHandler()
 
 			// Create config to delete
-			config := &v1alpha1.ModelConfig{
+			config := &v1alpha2.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-config",
 					Namespace: "default",
 				},
-				Spec: v1alpha1.ModelConfigSpec{
+				Spec: v1alpha2.ModelConfigSpec{
 					Model:    "gpt-4",
-					Provider: v1alpha1.ModelProviderOpenAI,
+					Provider: v1alpha2.ModelProviderOpenAI,
 				},
 			}
 

@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 )
 
 // ModelConfigReconciler reconciles a ModelConfig object
@@ -59,7 +59,7 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&agentv1alpha1.ModelConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha2.ModelConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&v1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {

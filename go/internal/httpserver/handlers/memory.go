@@ -8,6 +8,7 @@ import (
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
@@ -92,12 +93,13 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 
 	log.V(1).Info("Checking if Memory already exists")
 	existingMemory := &v1alpha1.Memory{}
-	err = common.GetObject(
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: memoryRef.Namespace,
+			Name:      memoryRef.Name,
+		},
 		existingMemory,
-		memoryRef.Name,
-		memoryRef.Namespace,
 	)
 	if err == nil {
 		log.Info("Memory already exists")
@@ -178,12 +180,13 @@ func (h *MemoryHandler) HandleDeleteMemory(w ErrorResponseWriter, r *http.Reques
 
 	log.V(1).Info("Checking if Memory exists")
 	existingMemory := &v1alpha1.Memory{}
-	err = common.GetObject(
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      memoryName,
+		},
 		existingMemory,
-		memoryName,
-		namespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -234,12 +237,13 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 
 	log.V(1).Info("Checking if Memory already exists")
 	memory := &v1alpha1.Memory{}
-	err = common.GetObject(
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      memoryName,
+		},
 		memory,
-		memoryName,
-		namespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -309,12 +313,13 @@ func (h *MemoryHandler) HandleUpdateMemory(w ErrorResponseWriter, r *http.Reques
 	}
 
 	existingMemory := &v1alpha1.Memory{}
-	err = common.GetObject(
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      memoryName,
+		},
 		existingMemory,
-		memoryName,
-		namespace,
 	)
 	if err != nil {
 		log.Error(err, "Failed to get Memory")

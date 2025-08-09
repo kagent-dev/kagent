@@ -16,7 +16,7 @@ objects:
       namespace: test
     data:
       math: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     metadata:
       name: nested-model
@@ -24,9 +24,9 @@ objects:
     spec:
       provider: OpenAI
       model: gpt-4o
-      apiKeySecretRef: openai-secret
+      apiKeySecret: openai-secret
       apiKeySecretKey: api-key
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
       name: agent
@@ -38,18 +38,17 @@ objects:
       tools:
         - type: MCPServer
           mcpServer:
-            toolServer: toolserver
+            name: toolserver
+            kind: RemoteMCPServer
             toolNames:
               - k8s_get_resources
-  - apiVersion: kagent.dev/v1alpha1
-    kind: ToolServer
+  - apiVersion: kagent.dev/v1alpha2
+    kind: RemoteMCPServer
     metadata:
       name: toolserver
       namespace: test
     spec:
-      config:
-        streamableHttp:
-          sseReadTimeout: 5m0s
-          timeout: 30s
-          url: http://localhost:8084/mcp
+      sseReadTimeout: 5m0s
+      timeout: 30s
+      url: http://localhost:8084/mcp
       description: "KAgent Tool Server"

@@ -155,7 +155,7 @@ type Component struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=ts
+// +kubebuilder:resource:shortName=ts,categories=kagent
 
 // ToolServer is the Schema for the toolservers API.
 type ToolServer struct {

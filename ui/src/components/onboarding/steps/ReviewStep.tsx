@@ -75,9 +75,9 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                         <ScrollArea className="h-[100px] w-full rounded-md border p-3 bg-muted/50">
                             <div className="flex flex-wrap gap-2">
                                 {onboardingData.selectedTools.map(tool => (
-                                    <Badge variant="secondary" key={tool.mcpServer?.toolServer} className="flex items-center gap-1">
+                                    <Badge variant="secondary" key={tool.mcpServer?.name} className="flex items-center gap-1">
                                         <FunctionSquare className="h-3 w-3" />
-                                        {tool.mcpServer?.toolServer}
+                                        {tool.mcpServer?.name}
                                     </Badge>
                                 ))}
                             </div>

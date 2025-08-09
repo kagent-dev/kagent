@@ -80,6 +80,7 @@ type MemoryStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider"
+// +kubebuilder:resource:categories=kagent
 
 // Memory is the Schema for the memories API.
 type Memory struct {

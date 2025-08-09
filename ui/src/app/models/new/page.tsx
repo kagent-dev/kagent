@@ -139,8 +139,6 @@ function ModelPageContent() {
         ]);
 
         if (!isMounted) return;
-        
-        console.log('providers response', providersResponse);
         if (!providersResponse.error && providersResponse.data) {
           setProviders(providersResponse.data);
         } else {

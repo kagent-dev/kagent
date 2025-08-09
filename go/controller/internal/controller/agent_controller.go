@@ -35,8 +35,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
+	v1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 // AgentReconciler reconciles a Agent object
@@ -61,34 +62,13 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&agentv1alpha1.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
 		Owns(&corev1.ConfigMap{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
 		Owns(&corev1.Service{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
 		Owns(&corev1.ServiceAccount{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
 		Watches(
-			&agentv1alpha1.Memory{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				requests := []reconcile.Request{}
-
-				for _, agent := range r.Reconciler.FindAgentsUsingMemory(ctx, types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      agent.ObjectMeta.Name,
-							Namespace: agent.ObjectMeta.Namespace,
-						},
-					})
-				}
-
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		).
-		Watches(
-			&agentv1alpha1.ModelConfig{},
+			&v1alpha2.ModelConfig{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
@@ -109,11 +89,52 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Watches(
-			&agentv1alpha1.ToolServer{},
+			&v1alpha2.RemoteMCPServer{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
-				for _, agent := range r.Reconciler.FindAgentsUsingToolServer(ctx, types.NamespacedName{
+				for _, agent := range r.Reconciler.FindAgentsUsingRemoteMCPServer(ctx, types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.ObjectMeta.Name,
+							Namespace: agent.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+		).
+		Watches(
+			&v1alpha1.MCPServer{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.Reconciler.FindAgentsUsingMCPServer(ctx, types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.ObjectMeta.Name,
+							Namespace: agent.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&corev1.Service{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.Reconciler.FindAgentsUsingMCPService(ctx, types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
 				}) {

@@ -20,8 +20,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -33,33 +33,31 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// ToolServerReconciler reconciles a ToolServer object
-type ToolServerReconciler struct {
+// MCPServerReconciler reconciles a MCPServer object
+type MCPServerReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
-// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=agent.kagent.dev,resources=toolservers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers,verbs=get;list;watch
 
-func (r *ToolServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	return ctrl.Result{
 		// loop forever because we need to refresh tools server status
 		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileKagentToolServer(ctx, req)
+	}, r.Reconciler.ReconcileKagentMCPServer(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ToolServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha1.ToolServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha1.MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("toolserver").
 		Complete(r)
 }

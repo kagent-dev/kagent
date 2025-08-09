@@ -1,17 +1,14 @@
 package utils
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 	"unicode"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // ObjectWithModelConfig represents a Kubernetes resource that can be associated with a ModelConfig.
@@ -145,68 +142,6 @@ func ParseRefString(ref string, parentNamespace string) (types.NamespacedName, e
 		Namespace: namespace,
 		Name:      name,
 	}, nil
-}
-
-// GetModelConfig retrieves the ModelConfig for a resource.
-// It uses the resource's specified model config name or falls back to the default.
-func GetModelConfig(
-	ctx context.Context,
-	kube client.Client,
-	resource ObjectWithModelConfig,
-	defaultModelConfig types.NamespacedName,
-) (*v1alpha1.ModelConfig, error) {
-	// Start with the default model config reference
-	modelConfigRef := defaultModelConfig
-
-	// If the resource specifies a model config, parse and use that reference instead
-	if modelConfigName := resource.GetModelConfigName(); modelConfigName != "" {
-		// Parse the model config name, which could be just a name or namespace/name
-		// If just a name, use the resource's namespace as the parent namespace
-		if parsedRef, err := ParseRefString(modelConfigName, resource.GetNamespace()); err != nil {
-			return nil, err
-		} else {
-			modelConfigRef = parsedRef
-		}
-	} else {
-		// Log (DEBUG) that we're using the default model config when none is specified
-		ctrllog.FromContext(ctx).V(4).Info("Using default ModelConfig",
-			"kind", resource.GetObjectKind().GroupVersionKind().Kind,
-			"namespace", resource.GetNamespace(),
-			"name", resource.GetName(),
-			"modelconfig", modelConfigRef.String(),
-		)
-	}
-
-	// Fetch the model config object from the Kubernetes API
-	modelConfigObj := &v1alpha1.ModelConfig{}
-	if err := GetObject(
-		ctx,
-		kube,
-		modelConfigObj,
-		modelConfigRef.Name,
-		modelConfigRef.Namespace,
-	); err != nil {
-		return nil, fmt.Errorf(
-			"failed to fetch ModelConfig %s: %w", modelConfigRef.String(), err,
-		)
-	}
-	return modelConfigObj, nil
-}
-
-// GetObject fetches the Kubernetes resource identified by objRef into obj.
-// objRef may be given as "namespace/name" or just "name"; if the namespace is missing, defaultNamespace is applied
-func GetObject(ctx context.Context, kube client.Client, obj client.Object, objRef, defaultNamespace string) error {
-	ref, err := ParseRefString(objRef, defaultNamespace)
-	if err != nil {
-		return err
-	}
-
-	err = kube.Get(ctx, ref, obj)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // ConvertToPythonIdentifier converts Kubernetes identifiers to Python-compatible format

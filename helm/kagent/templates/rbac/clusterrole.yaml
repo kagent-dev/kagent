@@ -10,9 +10,10 @@ rules:
   resources:
   - agents
   - modelconfigs
-  - teams
   - toolservers
   - memories
+  - remotemcpservers
+  - mcpservers
   verbs:
   - get
   - list
@@ -22,9 +23,10 @@ rules:
   resources:
   - agents/status
   - modelconfigs/status
-  - teams/status
   - toolservers/status
   - memories/status
+  - remotemcpservers/status
+  - mcpservers/status
   verbs:
   - get
   - patch
@@ -91,9 +93,10 @@ rules:
   resources:
   - agents
   - modelconfigs
-  - teams
   - toolservers
   - memories
+  - remotemcpservers
+  - mcpservers
   verbs:
   - create
   - update

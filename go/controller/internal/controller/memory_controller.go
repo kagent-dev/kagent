@@ -46,7 +46,8 @@ type MemoryReconciler struct {
 
 func (r *MemoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileKagentMemory(ctx, req)
+	// TODO: Re-implement memory controller
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

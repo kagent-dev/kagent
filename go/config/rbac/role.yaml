@@ -5,37 +5,20 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - agent.kagent.dev
+  - ""
   resources:
-  - toolservers
+  - services
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - agent.kagent.dev
-  resources:
-  - toolservers/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - agent.kagent.dev
-  resources:
-  - toolservers/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - kagent.dev
   resources:
   - agents
   - memories
   - modelconfigs
+  - remotemcpservers
   verbs:
   - create
   - delete
@@ -50,6 +33,7 @@ rules:
   - agents/finalizers
   - memories/finalizers
   - modelconfigs/finalizers
+  - remotemcpservers/finalizers
   verbs:
   - update
 - apiGroups:
@@ -58,7 +42,16 @@ rules:
   - agents/status
   - memories/status
   - modelconfigs/status
+  - remotemcpservers/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - kagent.dev
+  resources:
+  - mcpservers
+  verbs:
+  - get
+  - list
+  - watch

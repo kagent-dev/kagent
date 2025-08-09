@@ -1,4 +1,4 @@
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
   name: istio-agent
@@ -193,12 +193,15 @@ spec:
   tools:
     - type: McpServer
       mcpServer:
-        toolServer: kagent-querydoc
+        name: kagent-querydoc
+        kind: Service
         toolNames:
           - query_documentation
     - type: McpServer
       mcpServer:
-        toolServer: kagent-tool-server
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
         toolNames:
         - k8s_create_resource
         - k8s_create_resource_from_url

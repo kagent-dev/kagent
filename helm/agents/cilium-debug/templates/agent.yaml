@@ -1,4 +1,4 @@
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
   name: cilium-debug-agent
@@ -113,12 +113,15 @@ spec:
   tools:
   - type: McpServer
     mcpServer:
-      toolServer: kagent-querydoc
+      name: kagent-querydoc
+      kind: Service
       toolNames:
         - query_documentation
   - type: McpServer
     mcpServer:
-      toolServer: kagent-tool-server
+      name: kagent-tool-server
+      kind: RemoteMCPServer
+      apiGroup: kagent.dev
       toolNames:
       - cilium_manage_endpoint_config
       - cilium_get_endpoint_health

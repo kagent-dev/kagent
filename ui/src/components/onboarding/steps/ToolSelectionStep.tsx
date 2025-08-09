@@ -9,14 +9,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, toolResponseToAgentTool } from "@/lib/toolUtils";
-import type { Tool, ToolResponse } from "@/types";
+import type { Tool, ToolsResponse } from "@/types";
 
-const getToolCategory = (tool: ToolResponse): string => {
-    const parts = tool.server_name.split(".");
-    if (parts.length > 1) {
-        return parts[parts.length - 1];
-    }
-    if (tool.server_name.includes("kagent-tool-server")) {
+const getToolCategory = (tool: ToolsResponse): string => {
+    const serverName = tool.server_name;
+    if (serverName.includes("kagent-tool-server")) {
         return "k8s";
     }
     
@@ -24,7 +21,7 @@ const getToolCategory = (tool: ToolResponse): string => {
 };
 
 interface ToolSelectionStepProps {
-    availableTools: ToolResponse[] | null;
+    availableTools: ToolsResponse[] | null;
     loadingTools: boolean;
     errorTools: string | null;
     initialSelectedTools: Tool[];
@@ -44,11 +41,11 @@ export function ToolSelectionStep({
     const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
     const [showAllTools, setShowAllTools] = useState(false);
 
-    const toolResponseMatchesTool = (toolResponse: ToolResponse, tool: Tool): boolean => {
+    const toolResponseMatchesTool = (toolResponse: ToolsResponse, tool: Tool): boolean => {
         if (tool.type === "Agent" && tool.agent) {
             return false; // Agents don't match ToolResponse objects
         } else if (tool.type === "McpServer" && tool.mcpServer) {
-            return tool.mcpServer.toolServer === toolResponse.server_name && 
+            return tool.mcpServer.name === toolResponse.server_name && 
                    tool.mcpServer.toolNames.includes(toolResponse.id);
         }
         return false;
@@ -56,9 +53,10 @@ export function ToolSelectionStep({
 
     const toolsByCategory = useMemo(() => {
         if (!availableTools) return {};
-        const groups: Record<string, ToolResponse[]> = {};
+        const groups: Record<string, ToolsResponse[]> = {};
+        
         const sortedTools = [...availableTools].sort((a, b) => getToolResponseDisplayName(a).localeCompare(getToolResponseDisplayName(b)));
-        sortedTools.forEach(tool => {
+        sortedTools.forEach((tool) => {
             const category = getToolCategory(tool);
             if (!groups[category]) groups[category] = [];
             groups[category].push(tool);
@@ -93,10 +91,10 @@ export function ToolSelectionStep({
             if (k8sCategoryKey) {
                 const k8sToolsResponses = toolsByCategory[k8sCategoryKey];
                 const initialSelection: Tool[] = [];
-                k8sToolsResponses.forEach(toolResponse => {
-                    const toolName = getToolResponseDisplayName(toolResponse);
+                k8sToolsResponses.forEach((tool) => {
+                    const toolName = getToolResponseDisplayName(tool);
                     if (toolsToSelect.includes(toolName)) {
-                        initialSelection.push(toolResponseToAgentTool(toolResponse));
+                        initialSelection.push(toolResponseToAgentTool(tool, tool.server_name));
                     }
                 });
                 if (initialSelection.length > 0) {
@@ -106,8 +104,8 @@ export function ToolSelectionStep({
         }
     }, [availableTools, toolsByCategory, initialSelectedTools, selectedTools.length]);
 
-    const handleToolToggle = (toolResponse: ToolResponse) => {
-        const agentTool = toolResponseToAgentTool(toolResponse);
+    const handleToolToggle = (toolResponse: ToolsResponse) => {
+        const agentTool = toolResponseToAgentTool(toolResponse, toolResponse.server_name);
         setSelectedTools(prev => {
             const isSelected = prev.some(t => toolResponseMatchesTool(toolResponse, t));
             return isSelected ? prev.filter(t => !toolResponseMatchesTool(toolResponse, t)) : [...prev, agentTool];
@@ -118,7 +116,7 @@ export function ToolSelectionStep({
         setExpandedCategories((prev) => ({ ...prev, [category]: !prev[category] }));
     };
 
-    const isToolSelected = (toolResponse: ToolResponse): boolean => {
+    const isToolSelected = (toolResponse: ToolsResponse): boolean => {
         return selectedTools.some(t => toolResponseMatchesTool(toolResponse, t));
     };
 
@@ -126,8 +124,9 @@ export function ToolSelectionStep({
         onNext(selectedTools);
     };
 
-    const getResourcesTool = availableTools?.find(t => getToolResponseDisplayName(t) === 'GetResources');
-    const getApiResourcesTool = availableTools?.find(t => getToolResponseDisplayName(t) === 'GetAvailableAPIResources');
+    // Find specific tools for descriptions
+    const getResourcesTool = availableTools?.find(tool => getToolResponseDisplayName(tool) === 'GetResources');
+    const getApiResourcesTool = availableTools?.find(tool => getToolResponseDisplayName(tool) === 'GetAvailableAPIResources');
     const getResourcesDesc = getResourcesTool ? getToolResponseDescription(getResourcesTool) : "No description available.";
     const getApiResourcesDesc = getApiResourcesTool ? getToolResponseDescription(getApiResourcesTool) : "No description available.";
 
@@ -184,7 +183,7 @@ export function ToolSelectionStep({
                                     </div>
                                     {expandedCategories[category] && (
                                         <div className="pl-6 pt-2 space-y-2">
-                                            {categoryTools.map((tool: ToolResponse) => (
+                                            {categoryTools.map((tool) => (
                                                 <div key={getToolResponseIdentifier(tool)} className="flex items-start space-x-3">
                                                     <Checkbox
                                                         id={getToolResponseIdentifier(tool)}

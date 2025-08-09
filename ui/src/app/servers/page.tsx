@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
+import { Server, Globe, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {  ToolServer, ToolServerWithTools } from "@/types";
+import { ToolServerResponse, ToolServerCreateRequest } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createServer, deleteServer, getServers } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
@@ -13,7 +13,7 @@ import { toast } from "sonner";
 
 export default function ServersPage() {
   // State for servers and tools
-  const [servers, setServers] = useState<ToolServerWithTools[]>([]);
+  const [servers, setServers] = useState<ToolServerResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
 
@@ -76,11 +76,11 @@ export default function ServersPage() {
   };
 
   // Handle adding a new server
-  const handleAddServer = async (server: ToolServer) => {
+  const handleAddServer = async (serverRequest: ToolServerCreateRequest) => {
     try {
       setIsLoading(true);
 
-      const response = await createServer(server);
+      const response = await createServer(serverRequest);
 
       if (response.error) {
         throw new Error(response.error || "Failed to add server");
@@ -151,7 +151,6 @@ export default function ServersPage() {
                     >
                       {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                       <div className="flex items-center gap-2">
-                        <Globe className="h-5 w-5 text-green-500" />
                         <div>
                           <div className="font-medium">{server.ref}</div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
@@ -177,7 +176,7 @@ export default function ServersPage() {
                              onSelect={(e) => {
                                e.preventDefault();
                                setOpenDropdownMenu(null);
-                                setShowConfirmDelete(serverName);
+                               setShowConfirmDelete(serverName);
                              }}
                            >
                              <Trash2 className="h-4 w-4 mr-2" />
