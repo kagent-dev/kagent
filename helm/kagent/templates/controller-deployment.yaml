@@ -80,10 +80,20 @@ spec:
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+            - name: OTEL_TRACING_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
               value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+            - name: OTEL_LOGGING_ENABLED
+              value: {{ .Values.otel.logging.enabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+              value: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_LOGS_TIMEOUT
+              value: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+            - name: OTEL_EXPORTER_OTLP_LOGS_INSECURE
+              value: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
