@@ -7,13 +7,12 @@ from typing import Annotated
 import typer
 import uvicorn
 from a2a.types import AgentCard
-from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
-from openai import BaseModel
 from opentelemetry import _logs, trace
-from opentelemetry._logs import get_logger_provider
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._events import EventLoggerProvider
@@ -112,10 +111,16 @@ def configure_tracing():
         # Create event logger provider using the configured logger provider
         event_logger_provider = EventLoggerProvider(logger_provider)
         OpenAIInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
+        AnthropicInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
+        GoogleGenerativeAiInstrumentor(use_legacy_attributes=False).instrument(
+            event_logger_provider=event_logger_provider
+        )
     else:
         # Use legacy attributes (input/output as GenAI span attributes)
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
         OpenAIInstrumentor().instrument()
+        AnthropicInstrumentor().instrument()
+        GoogleGenerativeAiInstrumentor().instrument()
 
 
 @app.command()
@@ -126,15 +131,7 @@ def static(
     filepath: str = "/config",
     reload: Annotated[bool, typer.Option("--reload")] = False,
 ):
-    tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
-    if tracing_enabled:
-        logging.info("Enabling tracing")
-        tracer_provider = TracerProvider(resource=Resource({"service.name": "kagent"}))
-        processor = BatchSpanProcessor(OTLPSpanExporter())
-        tracer_provider.add_span_processor(processor)
-        trace.set_tracer_provider(tracer_provider)
-        HTTPXClientInstrumentor().instrument()
-        OpenAIInstrumentor().instrument()
+    configure_tracing()
 
     app_cfg = Config()
 
@@ -165,6 +162,7 @@ def run(
     port: int = 8080,
     workers: int = 1,
 ):
+    configure_tracing()
     app_cfg = Config()
 
     agent_loader = AgentLoader(agents_dir=working_dir)

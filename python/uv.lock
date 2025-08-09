@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12.11"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -13,7 +13,6 @@ members = [
 
 [manifest.dependency-groups]
 dev = [
-    { name = "protobuf", specifier = ">=6.31.1" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", specifier = ">=0.25.3" },
     { name = "ruff", specifier = ">=0.11.5" },
@@ -1165,6 +1164,8 @@ dependencies = [
     { name = "openai" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
+    { name = "opentelemetry-instrumentation-anthropic" },
+    { name = "opentelemetry-instrumentation-google-generativeai" },
     { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-instrumentation-openai" },
     { name = "opentelemetry-sdk" },
@@ -1199,12 +1200,14 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.74.3" },
     { name = "mcp", specifier = ">=1.12.0" },
     { name = "openai", specifier = ">=1.72.0" },
-    { name = "opentelemetry-api", specifier = ">=1.32.0" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.32.0" },
+    { name = "opentelemetry-api", specifier = ">=1.36.0" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.36.0" },
+    { name = "opentelemetry-instrumentation-anthropic", specifier = ">=0.44.0" },
+    { name = "opentelemetry-instrumentation-google-generativeai", specifier = ">=0.44.0" },
     { name = "opentelemetry-instrumentation-httpx", specifier = ">=0.52.0" },
-    { name = "opentelemetry-instrumentation-openai", specifier = ">=0.39.0" },
-    { name = "opentelemetry-sdk", specifier = ">=1.32.0" },
-    { name = "protobuf", specifier = ">=6.31.1" },
+    { name = "opentelemetry-instrumentation-openai", specifier = ">=0.44.0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.36.0" },
+    { name = "protobuf", specifier = ">=6" },
     { name = "psutil", marker = "extra == 'memory'", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
@@ -1531,6 +1534,36 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/12/37/cf17cf28f945a3aca5a038cfbb45ee01317d4f7f3a0e5209920883fe9b08/opentelemetry_instrumentation-0.57b0.tar.gz", hash = "sha256:f2a30135ba77cdea2b0e1df272f4163c154e978f57214795d72f40befd4fcf05", size = 30807, upload-time = "2025-07-29T15:42:44.746Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/6f/f20cd1542959f43fb26a5bf9bb18cd81a1ea0700e8870c8f369bd07f5c65/opentelemetry_instrumentation-0.57b0-py3-none-any.whl", hash = "sha256:9109280f44882e07cec2850db28210b90600ae9110b42824d196de357cbddf7e", size = 32460, upload-time = "2025-07-29T15:41:40.883Z" },
+]
+
+[[package]]
+name = "opentelemetry-instrumentation-anthropic"
+version = "0.44.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "opentelemetry-semantic-conventions-ai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/50/4f083f3a6eb89ec7be5b56b7399839a066aefcfb9e95e69bf8f7d12135cc/opentelemetry_instrumentation_anthropic-0.44.1.tar.gz", hash = "sha256:21e1daeba0c43806a523b71d89c23fdb76d823759c4811292f93b7abda996c90", size = 12676, upload-time = "2025-08-04T08:39:56.741Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/8d/05ce308a2dfbe8417acf9026a313072085c88b77ac4b343866d81761e638/opentelemetry_instrumentation_anthropic-0.44.1-py3-none-any.whl", hash = "sha256:d81f440353c62df473892d0ab966a37eee422f0badb47db336b66e33d5972a7b", size = 16225, upload-time = "2025-08-04T08:39:18.813Z" },
+]
+
+[[package]]
+name = "opentelemetry-instrumentation-google-generativeai"
+version = "0.44.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "opentelemetry-semantic-conventions-ai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4e/c7/2124e6bd4647f39fec56aee522294328adf84ebff0777a44901bdeb30048/opentelemetry_instrumentation_google_generativeai-0.44.1.tar.gz", hash = "sha256:e12ab2e5874866406efa96cfa5c84c15f9fdf9672122cc255d429b4534874a63", size = 7110, upload-time = "2025-08-04T08:40:01.477Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/e9/2a36517143a065982e5f91c8abc3ea541fc1fefdf8f0059382e648640444/opentelemetry_instrumentation_google_generativeai-0.44.1-py3-none-any.whl", hash = "sha256:6c04fbc72cde046ca9248b5d55d517f68f0e4a643c1bdc1f00a68b4fd2e82175", size = 9789, upload-time = "2025-08-04T08:39:26.019Z" },
 ]
 
 [[package]]
