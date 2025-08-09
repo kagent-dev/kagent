@@ -106,8 +106,7 @@ build-all: buildx-create
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
-	docker pull kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) || true
-	kind create cluster --name $(KIND_CLUSTER_NAME) --image kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) --config ./scripts/kind/kind-config.yaml
+	sh ./scripts/kind/setup-kind.sh
 	sh ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
