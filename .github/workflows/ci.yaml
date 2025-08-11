@@ -166,6 +166,11 @@ jobs:
           - app
           - cli
     runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -180,6 +185,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           version: ${{ env.BUILDX_VERSION }}
           use: 'true'
+          driver-opts: network=host
       - name: Run make build
         env:
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
@@ -188,10 +194,10 @@ jobs:
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}
             --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
             --platform=linux/amd64,linux/arm64
-            --pull=false
-            --load
+            --output=type=tar,dest=/dev/null
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx"
+          DOCKER_REGISTRY: "localhost:5000"
         run: make build-${{ matrix.image }}
         working-directory: ./
 
