@@ -250,6 +250,14 @@ helm-version: helm-cleanup helm-agents helm-tools
 
 .PHONY: helm-install-provider
 helm-install-provider: helm-version check-openai-key
+	helm $(HELM_ACTION) kmcp-crds oci://ghcr.io/kagent-dev/kmcp/helm/kmcp-crds \
+		--namespace kagent \
+		--create-namespace \
+		--history-max 2    \
+		--timeout 5m 			\
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--version 0.1.2 \
+		--wait
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
@@ -293,6 +301,7 @@ helm-test-install: helm-install-provider
 helm-uninstall:
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
+	helm uninstall kmcp-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
 .PHONY: helm-publish
 helm-publish: helm-version

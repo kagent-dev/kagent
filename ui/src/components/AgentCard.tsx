@@ -37,7 +37,7 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider } }
             <Button variant="ghost" size="icon" onClick={handleEditClick} aria-label="Edit Agent">
               <Pencil className="h-4 w-4" />
             </Button>
-            <DeleteButton agentName={agentRef} />
+            <DeleteButton agentName={agent.metadata.name} namespace={agent.metadata.namespace || ''} />
           </div>
         </CardHeader>
         <CardContent className="flex flex-col justify-between h-32">

@@ -47,3 +47,6 @@ tests:
       - equal:
           path: metadata.labels["app.kubernetes.io/managed-by"]
           value: Helm
+      - equal:
+          path: metadata.labels["kagent.dev/mcp-service"]
+          value: "true"

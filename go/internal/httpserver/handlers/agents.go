@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/utils"
@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -31,7 +32,7 @@ func NewAgentsHandler(base *Base) *AgentsHandler {
 func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "list-db")
 
-	agentList := &v1alpha1.AgentList{}
+	agentList := &v1alpha2.AgentList{}
 	if err := h.KubeClient.List(r.Context(), agentList); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to list Agents from Kubernetes", err))
 		return
@@ -41,12 +42,6 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 	for _, agent := range agentList.Items {
 		agentRef := common.GetObjectRef(&agent)
 		log.V(1).Info("Processing Agent", "agentRef", agentRef)
-
-		// dgAgent, err := h.DatabaseService.GetAgent(common.ConvertToPythonIdentifier(agentRef))
-		// if err != nil {
-		// 	w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-		// 	return
-		// }
 
 		agentResponse, err := h.getAgentResponse(r.Context(), log, &agent)
 		if err != nil {
@@ -62,19 +57,20 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, agent *v1alpha1.Agent) (api.AgentResponse, error) {
+func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, agent *v1alpha2.Agent) (api.AgentResponse, error) {
 
 	agentRef := common.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
 	// Get the ModelConfig for the team
-	modelConfig := &v1alpha1.ModelConfig{}
-	if err := common.GetObject(
+	modelConfig := &v1alpha2.ModelConfig{}
+	if err := h.KubeClient.Get(
 		ctx,
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: agent.Namespace,
+			Name:      agent.Spec.ModelConfig,
+		},
 		modelConfig,
-		agent.Spec.ModelConfig,
-		agent.Namespace,
 	); err != nil {
 		modelConfigRef := common.GetObjectRef(modelConfig)
 		if k8serrors.IsNotFound(err) {
@@ -84,59 +80,13 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		}
 	}
 
-	// Get the MemoryRefs for the team
-	memoryRefs := make([]string, 0, len(agent.Spec.Memory))
-	for _, memory := range agent.Spec.Memory {
-		memoryRef, err := common.ParseRefString(memory, agent.Namespace)
-		if err != nil {
-			log.Error(err, "Failed to parse memory reference", "memoryRef", memory)
-			continue
-		}
-		memoryRefs = append(memoryRefs, memoryRef.String())
-	}
-
-	// Get the tools for the team
-	tools := make([]*v1alpha1.Tool, 0, len(agent.Spec.Tools))
-	for _, tool := range agent.Spec.Tools {
-		toolCopy := tool.DeepCopy()
-
-		switch toolCopy.Type {
-		case v1alpha1.ToolProviderType_Agent:
-			if toolCopy.Agent == nil {
-				log.Info("Agent tool has nil Agent field", "tool", toolCopy)
-				continue
-			}
-			if err := updateRef(&toolCopy.Agent.Ref, agent.Namespace); err != nil {
-				log.Error(err, "Failed to parse agent tool reference", "toolRef", toolCopy.Agent.Ref)
-				continue
-			}
-			tools = append(tools, toolCopy)
-
-		case v1alpha1.ToolProviderType_McpServer:
-			if toolCopy.McpServer == nil {
-				log.Info("McpServer tool has nil McpServer field", "tool", toolCopy)
-				continue
-			}
-			if err := updateRef(&toolCopy.McpServer.ToolServer, agent.Namespace); err != nil {
-				log.Error(err, "Failed to parse server tool reference", "toolRef", toolCopy.McpServer.ToolServer)
-				continue
-			}
-			tools = append(tools, toolCopy)
-
-		default:
-			log.Info("Unknown tool type", "toolType", toolCopy.Type)
-		}
-	}
-
 	return api.AgentResponse{
-		ID:    common.ConvertToPythonIdentifier(agentRef),
-		Agent: agent,
-		// Config:         dbAgent.Config,
+		ID:             common.ConvertToPythonIdentifier(agentRef),
+		Agent:          agent,
 		ModelProvider:  modelConfig.Spec.Provider,
 		Model:          modelConfig.Spec.Model,
 		ModelConfigRef: common.GetObjectRef(modelConfig),
-		MemoryRefs:     memoryRefs,
-		Tools:          tools,
+		Tools:          agent.Spec.Tools,
 	}, nil
 }
 
@@ -158,24 +108,18 @@ func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 	}
 	log = log.WithValues("agentNamespace", agentNamespace)
 
-	agent := &v1alpha1.Agent{}
-	if err := common.GetObject(
+	agent := &v1alpha2.Agent{}
+	if err := h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: agentNamespace,
+			Name:      agentName,
+		},
 		agent,
-		agentName,
-		agentNamespace,
 	); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
 	}
-
-	// log.V(1).Info("Getting agent from database")
-	// dbAgent, err := h.DatabaseService.GetAgent(fmt.Sprintf("%s/%s", agentNamespace, agentName))
-	// if err != nil {
-	// 	w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-	// 	return
-	// }
 
 	agentResponse, err := h.getAgentResponse(r.Context(), log, agent)
 	if err != nil {
@@ -216,13 +160,14 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 
 	// Check if agent already exists
 	log.V(1).Info("Checking if Agent already exists")
-	existingAgent := &v1alpha1.Agent{}
-	err = common.GetObject(
+	existingAgent := &v1alpha2.Agent{}
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: agentRef.Namespace,
+			Name:      agentRef.Name,
+		},
 		existingAgent,
-		agentRef.Name,
-		agentRef.Namespace,
 	)
 	if err == nil {
 		log.Info("Agent already exists")
@@ -235,17 +180,16 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 	}
 
 	// Create the v1alpha1.Agent from the request, leaving some fields empty for now
-	agent := &v1alpha1.Agent{
+	agent := &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      agentRef.Name,
 			Namespace: agentRef.Namespace,
 		},
-		Spec: v1alpha1.AgentSpec{
+		Spec: v1alpha2.AgentSpec{
 			Description:   agentReq.Description,
 			SystemMessage: agentReq.SystemMessage,
 			ModelConfig:   agentReq.ModelConfig,
 			Tools:         agentReq.Tools,
-			Memory:        agentReq.Memory,
 		},
 	}
 
@@ -312,13 +256,14 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	)
 
 	log.V(1).Info("Getting existing Agent")
-	existingAgent := &v1alpha1.Agent{}
-	err = common.GetObject(
+	existingAgent := &v1alpha2.Agent{}
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: agentName,
+			Name:      agentNamespace,
+		},
 		existingAgent,
-		agentName,
-		agentNamespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -343,9 +288,6 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	}
 	if req.Tools != nil {
 		existingAgent.Spec.Tools = req.Tools
-	}
-	if req.Memory != nil {
-		existingAgent.Spec.Memory = req.Memory
 	}
 
 	if err := h.KubeClient.Update(r.Context(), existingAgent); err != nil {
@@ -384,13 +326,14 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 	log = log.WithValues("agentNamespace", agentNamespace)
 
 	log.V(1).Info("Getting Agent from Kubernetes")
-	agent := &v1alpha1.Agent{}
-	err = common.GetObject(
+	agent := &v1alpha2.Agent{}
+	err = h.KubeClient.Get(
 		r.Context(),
-		h.KubeClient,
+		client.ObjectKey{
+			Namespace: agentNamespace,
+			Name:      agentName,
+		},
 		agent,
-		agentName,
-		agentNamespace,
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {

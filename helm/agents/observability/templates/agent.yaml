@@ -1,4 +1,4 @@
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
   name: observability-agent
@@ -78,18 +78,23 @@ spec:
   tools:
     - type: McpServer
       mcpServer:
-        toolServer: kagent-querydoc
+        name: kagent-querydoc
+        kind: Service
         toolNames:
           - query_documentation
     - type: McpServer
       mcpServer:
-        toolServer: kagent-tool-server
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
         toolNames:
         - k8s_get_resources
         - k8s_get_available_api_resources
     - type: McpServer
       mcpServer:
-        toolServer: kagent/kagent-mcp-grafana
+        name: grafana
+        kind: MCPServer
+        apiGroup: kagent.dev
         toolNames:
         - update_dashboard
         - search_dashboards
@@ -128,7 +133,7 @@ spec:
         - add_activity_to_incident
     - type: Agent
       agent:
-        ref: promql-agent
+        name: promql-agent
   a2aConfig:
     skills:
       - id: prometheus-monitoring-querying

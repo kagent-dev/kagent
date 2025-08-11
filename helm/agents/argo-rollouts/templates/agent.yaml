@@ -1,4 +1,4 @@
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
   name: argo-rollouts-conversion-agent
@@ -111,22 +111,25 @@ spec:
     Always follow this recommended approach unless the user specifies otherwise.
   modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
   tools:
-  - type: McpServer
-    mcpServer:
-      toolServer: kagent-querydoc
-      toolNames:
-        - query_documentation
-  - type: McpServer
-    mcpServer:
-      toolServer: kagent-tool-server
-      toolNames:
-      - argo_verify_argo_rollouts_controller_install
-      - k8s_get_resources
-      - k8s_get_resource_yaml
-      - k8s_create_resource
-      - k8s_delete_resource
-      - k8s_apply_manifest
-      - k8s_describe_resource
+    - type: McpServer
+      mcpServer:
+        name: kagent-querydoc
+        kind: Service
+        toolNames:
+          - query_documentation
+    - type: McpServer
+      mcpServer:
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
+        toolNames:
+        - argo_verify_argo_rollouts_controller_install
+        - k8s_get_resources
+        - k8s_get_resource_yaml
+        - k8s_create_resource
+        - k8s_delete_resource
+        - k8s_apply_manifest
+        - k8s_describe_resource
   a2aConfig:
     skills:
       - id: convert-deployment-to-rollout

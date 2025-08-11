@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
@@ -19,7 +19,7 @@ var (
 type A2AReconciler interface {
 	ReconcileAgent(
 		ctx context.Context,
-		agent *v1alpha1.Agent,
+		agent *v1alpha2.Agent,
 		adkConfig *adk.AgentConfig,
 	) error
 
@@ -52,7 +52,7 @@ func NewReconciler(
 
 func (a *a2aReconciler) ReconcileAgent(
 	ctx context.Context,
-	agent *v1alpha1.Agent,
+	agent *v1alpha2.Agent,
 	adkConfig *adk.AgentConfig,
 ) error {
 	cardCopy := adkConfig.AgentCard

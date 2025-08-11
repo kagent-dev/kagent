@@ -5,7 +5,7 @@
 {{- fail  (printf "Provider key=%s is not found under .Values.providers" $defaultProfider)  }}
 {{- end }}
 ---
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: {{ include "kagent.defaultModelConfigName" $dot | quote }}
@@ -17,7 +17,7 @@ spec:
   provider: {{ .provider | quote }}
   model: {{ .model | quote }}
   {{- if $model.apiKeySecretRef }}
-  apiKeySecretRef: {{.apiKeySecretRef}}
+  apiKeySecret: {{.apiKeySecretRef}}
   {{- end }}
   {{- if $model.apiKeySecretKey }}
   apiKeySecretKey: {{.apiKeySecretKey}}

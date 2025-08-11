@@ -9,7 +9,7 @@ objects:
       namespace: test
     data:
       api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     metadata:
       name: nested-model
@@ -17,9 +17,9 @@ objects:
     spec:
       provider: OpenAI
       model: gpt-4o
-      apiKeySecretRef: openai-secret
+      apiKeySecret: openai-secret
       apiKeySecretKey: api-key
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
       name: specialist-agent
@@ -29,7 +29,7 @@ objects:
       systemMessage: You are a math specialist. Focus on solving mathematical problems step by step.
       modelConfig: nested-model
       tools: []
-  - apiVersion: kagent.dev/v1alpha1
+  - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
       name: parent-agent
@@ -40,4 +40,4 @@ objects:
       modelConfig: nested-model
       tools:
         - agent:
-            ref: specialist-agent 
+            name: specialist-agent

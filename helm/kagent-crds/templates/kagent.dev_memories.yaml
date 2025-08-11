@@ -8,6 +8,8 @@ metadata:
 spec:
   group: kagent.dev
   names:
+    categories:
+    - kagent
     kind: Memory
     listKind: MemoryList
     plural: memories

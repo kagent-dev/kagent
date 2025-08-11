@@ -45,9 +45,12 @@ export function NamespaceCombobox({
       setLoading(true);
       setError(null);
       const response = await listNamespaces();
-      
+
       if (!response.error) {
-        setNamespaces(response.data || []);
+        const sorted = [...(response.data || [])].sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        );
+        setNamespaces(sorted);
         setError(null);
         onError?.(null);
       } else {

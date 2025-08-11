@@ -65,5 +65,5 @@ Create the name of the service account to use
 Create the querydoc server URL
 */}}
 {{- define "querydoc.serverUrl" -}}
-{{- printf "http://%s.%s.svc.cluster.local:%d/mcp" (include "querydoc.fullname" .) .Release.Namespace (.Values.service.port | int) }}
+{{- printf "http://%s.%s:%d/mcp" (include "querydoc.fullname" .) .Release.Namespace (.Values.service.port | int) }}
 {{- end }}

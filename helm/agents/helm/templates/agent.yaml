@@ -1,4 +1,4 @@
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
   name: helm-agent
@@ -147,12 +147,15 @@ spec:
   tools:
     - type: McpServer
       mcpServer:
-        toolServer: kagent-querydoc
+        name: kagent-querydoc
+        kind: Service
         toolNames:
           - query_documentation
     - type: McpServer
       mcpServer:
-        toolServer: kagent-tool-server
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
         toolNames:
         - helm_list_releases
         - helm_get_release

@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 )
 
@@ -40,7 +41,7 @@ func createSecretWithOwnerReference(
 	switch owner.(type) {
 	case *v1alpha1.Memory:
 		ownerKind = "Memory"
-	case *v1alpha1.ModelConfig:
+	case *v1alpha2.ModelConfig:
 		ownerKind = "ModelConfig"
 	default:
 		return fmt.Errorf("unsupported owner type")
@@ -73,15 +74,10 @@ func createOrUpdateSecretWithOwnerReference(
 	owner client.Object,
 ) error {
 	existingSecret := &corev1.Secret{}
-
-	err := common.GetObject(
-		ctx,
-		kubeClient,
-		existingSecret,
-		owner.GetName(),
-		owner.GetNamespace(),
-	)
-
+	err := kubeClient.Get(ctx, client.ObjectKey{
+		Name:      owner.GetName(),
+		Namespace: owner.GetNamespace(),
+	}, existingSecret)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return createSecretWithOwnerReference(ctx, kubeClient, data, owner)

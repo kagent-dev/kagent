@@ -61,8 +61,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/internal/controller"
 	"github.com/kagent-dev/kagent/go/internal/goruntime"
+	kmcpv1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
+	kmcpcontroller "github.com/kagent-dev/kmcp/pkg/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -81,6 +84,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(kmcpv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -337,6 +342,32 @@ func main() {
 		a2aReconciler,
 	)
 
+	if err = (&kmcpcontroller.MCPServerReconciler{
+		Client: kubeClient,
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ServiceReconciler{
+		Client:     kubeClient,
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Service")
+		os.Exit(1)
+	}
+
+	if err := (&controller.MCPServerReconciler{
+		Client:     kubeClient,
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
+		os.Exit(1)
+	}
+
 	if err = (&controller.AgentReconciler{
 		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
@@ -353,7 +384,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelConfig")
 		os.Exit(1)
 	}
-	if err = (&controller.ToolServerReconciler{
+	if err = (&controller.RemoteMCPServerReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,

@@ -289,6 +289,7 @@ type ModelConfigStatus struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:resource:categories=kagent
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider"
 // +kubebuilder:printcolumn:name="Model",type="string",JSONPath=".spec.model"

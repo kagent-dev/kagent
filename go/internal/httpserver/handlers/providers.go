@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -20,12 +21,12 @@ func NewProviderHandler(base *Base) *ProviderHandler {
 }
 
 // Helper function to get JSON keys specifically marked as required
-func getRequiredKeysForModelProvider(providerType v1alpha1.ModelProvider) []string {
+func getRequiredKeysForModelProvider(providerType v1alpha2.ModelProvider) []string {
 	switch providerType {
-	case v1alpha1.ModelProviderAzureOpenAI:
+	case v1alpha2.ModelProviderAzureOpenAI:
 		// Based on the +required comments in the AzureOpenAIConfig struct definition
 		return []string{"azureEndpoint", "apiVersion"}
-	case v1alpha1.ModelProviderOpenAI, v1alpha1.ModelProviderAnthropic, v1alpha1.ModelProviderOllama:
+	case v1alpha2.ModelProviderOpenAI, v1alpha2.ModelProviderAnthropic, v1alpha2.ModelProviderOllama:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
 	default:
@@ -90,16 +91,16 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 	log.Info("Listing supported model providers with parameters")
 
 	providersData := []struct {
-		providerEnum v1alpha1.ModelProvider
+		providerEnum v1alpha2.ModelProvider
 		configType   reflect.Type
 	}{
-		{v1alpha1.ModelProviderOpenAI, reflect.TypeOf(v1alpha1.OpenAIConfig{})},
-		{v1alpha1.ModelProviderAnthropic, reflect.TypeOf(v1alpha1.AnthropicConfig{})},
-		{v1alpha1.ModelProviderAzureOpenAI, reflect.TypeOf(v1alpha1.AzureOpenAIConfig{})},
-		{v1alpha1.ModelProviderOllama, reflect.TypeOf(v1alpha1.OllamaConfig{})},
-		{v1alpha1.ModelProviderGemini, reflect.TypeOf(v1alpha1.GeminiConfig{})},
-		{v1alpha1.ModelProviderGeminiVertexAI, reflect.TypeOf(v1alpha1.GeminiVertexAIConfig{})},
-		{v1alpha1.ModelProviderAnthropicVertexAI, reflect.TypeOf(v1alpha1.AnthropicVertexAIConfig{})},
+		{v1alpha2.ModelProviderOpenAI, reflect.TypeOf(v1alpha2.OpenAIConfig{})},
+		{v1alpha2.ModelProviderAnthropic, reflect.TypeOf(v1alpha2.AnthropicConfig{})},
+		{v1alpha2.ModelProviderAzureOpenAI, reflect.TypeOf(v1alpha2.AzureOpenAIConfig{})},
+		{v1alpha2.ModelProviderOllama, reflect.TypeOf(v1alpha2.OllamaConfig{})},
+		{v1alpha2.ModelProviderGemini, reflect.TypeOf(v1alpha2.GeminiConfig{})},
+		{v1alpha2.ModelProviderGeminiVertexAI, reflect.TypeOf(v1alpha2.GeminiVertexAIConfig{})},
+		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeOf(v1alpha2.AnthropicVertexAIConfig{})},
 	}
 
 	providersResponse := []map[string]interface{}{}

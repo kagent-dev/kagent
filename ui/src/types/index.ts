@@ -191,47 +191,10 @@ export interface FeedbackData {
   messageId: number;
 }
 
-
-
 export interface FunctionCall {
   id: string;
   args: Record<string, unknown>;
   name: string;
-}
-
-export interface MCPTool {
-  name: string;
-  description: string;
-  inputSchema: any; // Schema equivalent
-}
-
-export interface StdioMcpServerConfig {
-  /**
-   * The executable to run to start the server.
-   */
-  command: string;
-  /**
-   * Command line arguments to pass to the executable.
-   */
-  args?: string[];
-  /**
-   * The environment to use when spawning the process.
-   */
-  env?: Record<string, string>;
-}
-
-export interface SseMcpServerConfig {
-  url: string;
-  headers?: Record<string, any>;
-  timeout?: string;
-  sseReadTimeout?: string;
-}
-
-export interface StreamableHttpMcpServerConfig {
-  url: string;
-  headers?: Record<string, any>;
-  timeout?: string;
-  sseReadTimeout?: string;
 }
 
 export interface Session {
@@ -242,6 +205,15 @@ export interface Session {
   created_at: string;
   updated_at: string;
   deleted_at: string;
+}
+
+export interface ToolsResponse {
+  id: string;
+  server_name: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string;
+  description: string;
 }
 
 
@@ -260,11 +232,12 @@ export interface Tool {
 
 export interface AgentTool {
   ref: string;
-  description?: string;
 }
 
 export interface McpServerTool {
-  toolServer: string;
+  name: string;
+  apiGroup: string;
+  kind: string
   toolNames: string[];
 }
 
@@ -275,6 +248,7 @@ export interface AgentResourceSpec {
   // Name of the model config resource
   modelConfig: string;
   memory?: string[];
+  stream?: boolean;
 }
 export interface Agent {
   metadata: ResourceMetadata;
@@ -291,38 +265,92 @@ export interface AgentResponse {
   tools: Tool[];
 }
 
-export interface ToolServer {
+export interface RemoteMCPServer {
   metadata: ResourceMetadata;
-  spec: ToolServerSpec;
+  spec: RemoteMCPServerSpec;
 }
 
-export interface ToolServerSpec {
+export interface ValueSource {
+  type: string;
+  name: string;
+  key: string;
+}
+
+export interface ValueRef {
+  name: string;
+  value?: string;
+  valueFrom?: ValueSource;
+}
+
+export type RemoteMCPServerProtocol = "SSE" | "STREAMABLE_HTTP"
+
+export interface RemoteMCPServerSpec {
   description: string;
-  config: ToolServerConfiguration;
+  protocol: RemoteMCPServerProtocol;
+  url: string;
+  headersFrom: ValueRef[];
+  timeout?: string;
+  sseReadTimeout?: string;
+  terminateOnClose?: boolean;
 }
 
-export interface ToolServerConfiguration {
-  stdio?: StdioMcpServerConfig;
-  sse?: SseMcpServerConfig;
-  streamableHttp?: StreamableHttpMcpServerConfig;
-}
-
-export interface ToolServerWithTools {
-  ref: string;
-  config: ToolServerConfiguration;
+export interface RemoteMCPServerResponse {
+  ref: string; // namespace/name
+  groupKind: string;
   discoveredTools: DiscoveredTool[];
 }
+
+// MCPServer types for stdio-based servers
+export interface MCPServerDeployment {
+  image: string;
+  port: number;
+  cmd?: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface StdioTransport {
+  // Empty interface for stdio transport
+}
+
+export type TransportType = "stdio";
+
+export interface MCPServerSpec {
+  deployment: MCPServerDeployment;
+  transportType: TransportType;
+  stdioTransport: StdioTransport;
+}
+
+export interface MCPServer {
+  metadata: {
+    name: string;
+    namespace: string;
+  };
+  spec: MCPServerSpec;
+}
+
+export interface MCPServerResponse {
+  ref: string; // namespace/name
+  groupKind: string;
+  discoveredTools: DiscoveredTool[];
+}
+
+// Union type for tool server responses
+export type ToolServerResponse = RemoteMCPServerResponse | MCPServerResponse;
+
+// Union type for tool server creation
+export type ToolServer = RemoteMCPServer | MCPServer;
+
+// Tool server creation request
+export interface ToolServerCreateRequest {
+  type: "RemoteMCPServer" | "MCPServer";
+  remoteMCPServer?: RemoteMCPServer;
+  mcpServer?: MCPServer;
+}
+
 
 export interface DiscoveredTool {
   name: string;
   description: string;
-}
-
-export interface ToolResponse {
-  id: string;
-  server_name: string;
-  created_at?: string;
-  updated_at?: string;
-  deleted_at?: string;
-  description?: string;
 }

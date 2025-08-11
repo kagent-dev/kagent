@@ -113,7 +113,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
               namespace: agentRef.namespace,
               description: onboardingData.agentDescription || "",
               systemPrompt: onboardingData.agentInstructions,
-              model: { ref: onboardingData.modelConfigRef },
+              modelName: onboardingData.modelConfigRef || "",
               tools: onboardingData.selectedTools || [],
           };
           const result = await createNewAgent(agentPayload);

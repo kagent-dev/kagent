@@ -12,91 +12,68 @@
       "defaultOutputModes": [
         "text"
       ],
-      "description": "An agent that uses another agent from a different namespace",
-      "name": "agent-with-cross-ns-agent",
+      "description": "A toolserver for math problems",
+      "name": "agent",
       "skills": null,
-      "url": "http://agent-with-cross-ns-agent.test-consumer.svc:8080",
+      "url": "http://agent.test.svc:8080",
       "version": ""
     },
-    "agents": [
+    "agents": null,
+    "description": "A toolserver for math problems",
+    "http_tools": [
       {
-        "agent_card": {
-          "capabilities": {
-            "pushNotifications": false,
-            "stateTransitionHistory": true,
-            "streaming": true
-          },
-          "defaultInputModes": [
-            "text"
-          ],
-          "defaultOutputModes": [
-            "text"
-          ],
-          "description": "A provider agent with vector memory",
-          "name": "provider-agent",
-          "skills": null,
-          "url": "http://provider-agent.test-provider.svc:8080",
-          "version": ""
+        "params": {
+          "headers": {},
+          "url": "http://toolserver.test:8084/mcp"
         },
-        "agents": null,
-        "description": "A provider agent with vector memory",
-        "http_tools": null,
-        "instruction": "You are a provider assistant with access to memory.",
-        "kagent_url": "http://kagent-controller.kagent.svc:8083",
-        "model": {
-          "base_url": "",
-          "model": "gpt-4o",
-          "type": "openai"
-        },
-        "name": "test_provider__NS__provider_agent",
-        "sse_tools": null
+        "tools": [
+          "k8s_get_resources"
+        ]
       }
     ],
-    "description": "An agent that uses another agent from a different namespace",
-    "http_tools": null,
-    "instruction": "You are an assistant that can delegate to other agents.",
+    "instruction": "You are a math toolserver. Focus on solving mathematical problems step by step.",
     "kagent_url": "http://kagent-controller.kagent.svc:8083",
     "model": {
       "base_url": "",
-      "model": "gpt-3.5-turbo",
+      "model": "gpt-4o",
       "type": "openai"
     },
-    "name": "test_consumer__NS__agent_with_cross_ns_agent",
+    "name": "test__NS__agent",
     "sse_tools": null
   },
   "configHash": [
-    14,
-    44,
-    2,
-    77,
-    93,
-    227,
-    237,
+    35,
+    62,
+    207,
+    195,
+    116,
+    103,
+    177,
+    170,
+    192,
+    24,
+    60,
     73,
-    72,
-    224,
-    211,
-    183,
-    186,
-    67,
-    148,
-    200,
-    121,
-    109,
-    166,
-    3,
-    29,
-    0,
+    252,
+    188,
+    60,
+    44,
+    140,
+    58,
+    42,
+    98,
+    165,
+    154,
+    30,
+    162,
     196,
-    167,
-    159,
-    144,
-    199,
-    159,
-    96,
-    49,
-    37,
-    97
+    113,
+    36,
+    196,
+    127,
+    76,
+    90,
+    169
   ],
   "manifest": [
     {
@@ -106,17 +83,17 @@
         "creationTimestamp": null,
         "labels": {
           "app": "kagent",
-          "kagent": "agent-with-cross-ns-agent"
+          "kagent": "agent"
         },
-        "name": "agent-with-cross-ns-agent",
-        "namespace": "test-consumer",
+        "name": "agent",
+        "namespace": "test",
         "ownerReferences": [
           {
-            "apiVersion": "kagent.dev/v1alpha1",
+            "apiVersion": "kagent.dev/v1alpha2",
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-cross-ns-agent",
+            "name": "agent",
             "uid": ""
           }
         ]
@@ -125,24 +102,24 @@
     {
       "apiVersion": "v1",
       "data": {
-        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"agent-with-cross-ns-agent\",\"description\":\"An agent that uses another agent from a different namespace\",\"url\":\"http://agent-with-cross-ns-agent.test-consumer.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test_consumer__NS__agent_with_cross_ns_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-3.5-turbo\",\"type\":\"openai\"},\"description\":\"An agent that uses another agent from a different namespace\",\"instruction\":\"You are an assistant that can delegate to other agents.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":[{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"provider-agent\",\"description\":\"A provider agent with vector memory\",\"url\":\"http://provider-agent.test-provider.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test_provider__NS__provider_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A provider agent with vector memory\",\"instruction\":\"You are a provider assistant with access to memory.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}]}"
+        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"agent\",\"description\":\"A toolserver for math problems\",\"url\":\"http://agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A toolserver for math problems\",\"instruction\":\"You are a math toolserver. Focus on solving mathematical problems step by step.\",\"http_tools\":[{\"params\":{\"url\":\"http://toolserver.test:8084/mcp\",\"headers\":{}},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
           "app": "kagent",
-          "kagent": "agent-with-cross-ns-agent"
+          "kagent": "agent"
         },
-        "name": "agent-with-cross-ns-agent",
-        "namespace": "test-consumer",
+        "name": "agent",
+        "namespace": "test",
         "ownerReferences": [
           {
-            "apiVersion": "kagent.dev/v1alpha1",
+            "apiVersion": "kagent.dev/v1alpha2",
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-cross-ns-agent",
+            "name": "agent",
             "uid": ""
           }
         ]
@@ -155,17 +132,17 @@
         "creationTimestamp": null,
         "labels": {
           "app": "kagent",
-          "kagent": "agent-with-cross-ns-agent"
+          "kagent": "agent"
         },
-        "name": "agent-with-cross-ns-agent",
-        "namespace": "test-consumer",
+        "name": "agent",
+        "namespace": "test",
         "ownerReferences": [
           {
-            "apiVersion": "kagent.dev/v1alpha1",
+            "apiVersion": "kagent.dev/v1alpha2",
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-cross-ns-agent",
+            "name": "agent",
             "uid": ""
           }
         ]
@@ -175,7 +152,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "agent-with-cross-ns-agent"
+            "kagent": "agent"
           }
         },
         "strategy": {
@@ -190,8 +167,8 @@
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "config.kagent.dev/hash": "1021193746817215817",
-              "kagent": "agent-with-cross-ns-agent"
+              "config.kagent.dev/hash": "2539695678262063530",
+              "kagent": "agent"
             }
           },
           "spec": {
@@ -262,11 +239,11 @@
                 ]
               }
             ],
-            "serviceAccountName": "agent-with-cross-ns-agent",
+            "serviceAccountName": "agent",
             "volumes": [
               {
                 "configMap": {
-                  "name": "agent-with-cross-ns-agent"
+                  "name": "agent"
                 },
                 "name": "config"
               }
@@ -283,17 +260,17 @@
         "creationTimestamp": null,
         "labels": {
           "app": "kagent",
-          "kagent": "agent-with-cross-ns-agent"
+          "kagent": "agent"
         },
-        "name": "agent-with-cross-ns-agent",
-        "namespace": "test-consumer",
+        "name": "agent",
+        "namespace": "test",
         "ownerReferences": [
           {
-            "apiVersion": "kagent.dev/v1alpha1",
+            "apiVersion": "kagent.dev/v1alpha2",
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-cross-ns-agent",
+            "name": "agent",
             "uid": ""
           }
         ]
@@ -308,7 +285,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "agent-with-cross-ns-agent"
+          "kagent": "agent"
         },
         "type": "ClusterIP"
       },

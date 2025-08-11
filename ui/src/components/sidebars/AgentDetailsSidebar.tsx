@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { ChevronRight, Edit, Plus } from "lucide-react";
-import type { AgentResponse, Tool, ToolResponse } from "@/types";
+import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
-import { isAgentTool, getToolResponseDescription } from "@/lib/toolUtils";
+import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -18,7 +18,7 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
 interface AgentDetailsSidebarProps {
   selectedAgentName: string;
   currentAgent: AgentResponse;
-  allTools: ToolResponse[];
+  allTools: ToolsResponse[];
 }
 
 export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools }: AgentDetailsSidebarProps) {
@@ -48,33 +48,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
     fetchAgents();
   }, []);
 
-  // Helper functions for Tool objects
-  const getToolIdentifier = (tool: Tool): string => {
-    if (isAgentTool(tool)) {
-      return `agent-${tool.agent?.ref}`;
-    } else if (tool.mcpServer) {
-      return `mcp-${tool.mcpServer.toolServer}`;
-    }
-    return `unknown-tool-${Math.random().toString(36).substring(7)}`;
-  };
 
-  const getToolProvider = (tool: Tool): string => {
-    if (isAgentTool(tool)) {
-      return tool.agent?.ref || "unknown";
-    } else if (tool.mcpServer) {
-      return tool.mcpServer.toolServer;
-    }
-    return "unknown";
-  };
-
-  const getToolDisplayName = (tool: Tool): string => {
-    if (isAgentTool(tool)) {
-      return tool.agent?.ref || "Unknown Agent";
-    } else if (tool.mcpServer) {
-      return tool.mcpServer.toolServer;
-    }
-    return "Unknown Tool";
-  };
 
   const RenderToolCollapsibleItem = ({
     itemKey,
@@ -128,66 +102,34 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
 
       if (!selectedTeam || !allTools) return;
 
-
-
       const descriptions: Record<string, string> = {};
       const toolRefs = selectedTeam.tools;
 
       if (toolRefs && Array.isArray(toolRefs)) {
         toolRefs.forEach((tool) => {
-          if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
+          if (isMcpTool(tool)) {
+            const mcpTool = tool as Tool;
             // For MCP tools, each tool name gets its own description
-            const baseToolIdentifier = getToolIdentifier(tool);
-            tool.mcpServer.toolNames.forEach((mcpToolName) => {
+            const baseToolIdentifier = getToolIdentifier(mcpTool);
+            mcpTool.mcpServer?.toolNames.forEach((mcpToolName) => {
               const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
               
-              // Find the tool in allTools by matching server_name and tool id
-              const foundTool = allTools.find(
-                (toolResponse) => toolResponse.server_name === tool.mcpServer!.toolServer && toolResponse.id === mcpToolName
-              );
+              // Find the tool in allTools by matching server ref and tool name
+              const toolFromDB = allTools.find(server => {
+                const { name } = k8sRefUtils.fromRef(server.server_name);
+                return name === mcpTool.mcpServer?.name && server.id === mcpToolName;
+              });
 
-              descriptions[subToolIdentifier] = foundTool ? getToolResponseDescription(foundTool) : "No description available";
+              if (toolFromDB) {
+                descriptions[subToolIdentifier] = toolFromDB.description;
+              } else {
+                descriptions[subToolIdentifier] = "No description available";
+              }
             });
           } else {
-            // Handle Agent tools or regular tools
+            // Handle Agent tools or regular tools using getToolDescription
             const toolIdentifier = getToolIdentifier(tool);
-            
-            if (isAgentTool(tool)) {
-              // Try to get description from the tool itself first
-              let agentDescription = tool.agent?.description;
-              
-              // If no description in tool, try to look it up from available agents
-              if (!agentDescription && tool.agent?.ref) {
-                // First check if it matches the current agent
-                const currentAgentRef = k8sRefUtils.toRef(
-                  currentAgent.agent.metadata.namespace || "",
-                  currentAgent.agent.metadata.name
-                );
-                if (tool.agent.ref === currentAgentRef) {
-                  agentDescription = currentAgent.agent.spec.description;
-                } else {
-                  // Look up in available agents
-                  const foundAgent = availableAgents.find(agent => {
-                    const agentRef = k8sRefUtils.toRef(
-                      agent.agent.metadata.namespace || "",
-                      agent.agent.metadata.name
-                    );
-                    return agentRef === tool.agent?.ref;
-                  });
-                  
-                  if (foundAgent) {
-                    agentDescription = foundAgent.agent.spec.description;
-                  }
-                }
-              }
-              
-              descriptions[toolIdentifier] = agentDescription || "Agent description not found";
-            } else {
-              // For regular tools, find by server name
-              const toolProvider = getToolProvider(tool);
-              const foundTool = allTools.find(toolResponse => toolResponse.server_name === toolProvider);
-              descriptions[toolIdentifier] = foundTool ? getToolResponseDescription(foundTool) : "No description available";
-            }
+            descriptions[toolIdentifier] = getToolDescription(tool, allTools);
           }
         });
       }
@@ -224,7 +166,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
           const baseToolIdentifier = getToolIdentifier(tool);
 
           if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
-            const mcpProvider = getToolProvider(tool) || "mcp_server";
+            const mcpProvider = tool.mcpServer.name || "mcp_server";
             const mcpProviderParts = mcpProvider.split(".");
             const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
 
@@ -247,7 +189,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             });
           } else {
             const toolIdentifier = baseToolIdentifier;
-            const provider = getToolProvider(tool) || "unknown";
+            const provider = isAgentTool(tool) ? (tool.agent?.ref || "unknown") : (tool.mcpServer?.name || "unknown");
             const displayName = getToolDisplayName(tool);
             const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
             const isExpanded = expandedTools[toolIdentifier] || false;

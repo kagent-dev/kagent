@@ -48,16 +48,26 @@ type OpenAI struct {
 	BaseUrl string `json:"base_url"`
 }
 
+const (
+	ModelTypeOpenAI          = "openai"
+	ModelTypeAzureOpenAI     = "azure_openai"
+	ModelTypeAnthropic       = "anthropic"
+	ModelTypeGeminiVertexAI  = "gemini_vertex_ai"
+	ModelTypeGeminiAnthropic = "gemini_anthropic"
+	ModelTypeOllama          = "ollama"
+	ModelTypeGemini          = "gemini"
+)
+
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":     "openai",
+		"type":     ModelTypeOpenAI,
 		"model":    o.Model,
 		"base_url": o.BaseUrl,
 	})
 }
 
 func (o *OpenAI) GetType() string {
-	return "openai"
+	return ModelTypeOpenAI
 }
 
 type AzureOpenAI struct {
@@ -65,12 +75,12 @@ type AzureOpenAI struct {
 }
 
 func (a *AzureOpenAI) GetType() string {
-	return "azure_openai"
+	return ModelTypeAzureOpenAI
 }
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":  "azure_openai",
+		"type":  ModelTypeAzureOpenAI,
 		"model": a.Model,
 	})
 }
@@ -82,14 +92,14 @@ type Anthropic struct {
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":     "anthropic",
+		"type":     ModelTypeAnthropic,
 		"model":    a.Model,
 		"base_url": a.BaseUrl,
 	})
 }
 
 func (a *Anthropic) GetType() string {
-	return "anthropic"
+	return ModelTypeAnthropic
 }
 
 type GeminiVertexAI struct {
@@ -99,13 +109,13 @@ type GeminiVertexAI struct {
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(map[string]interface{}{
-		"type":  "gemini_vertex_ai",
+		"type":  ModelTypeGeminiVertexAI,
 		"model": g.Model,
 	})
 }
 
 func (g *GeminiVertexAI) GetType() string {
-	return "gemini_vertex_ai"
+	return ModelTypeGeminiVertexAI
 }
 
 type GeminiAnthropic struct {
@@ -115,13 +125,13 @@ type GeminiAnthropic struct {
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(map[string]interface{}{
-		"type":  "gemini_anthropic",
+		"type":  ModelTypeGeminiAnthropic,
 		"model": g.Model,
 	})
 }
 
 func (g *GeminiAnthropic) GetType() string {
-	return "gemini_anthropic"
+	return ModelTypeGeminiAnthropic
 }
 
 type Ollama struct {
@@ -130,13 +140,13 @@ type Ollama struct {
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":  "ollama",
+		"type":  ModelTypeOllama,
 		"model": o.Model,
 	})
 }
 
 func (o *Ollama) GetType() string {
-	return "ollama"
+	return ModelTypeOllama
 }
 
 type Gemini struct {
@@ -146,13 +156,13 @@ type Gemini struct {
 func (g *Gemini) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(map[string]interface{}{
-		"type":  "gemini",
+		"type":  ModelTypeGemini,
 		"model": g.Model,
 	})
 }
 
 func (g *Gemini) GetType() string {
-	return "gemini"
+	return ModelTypeGemini
 }
 
 func ParseModel(bytes []byte) (Model, error) {
@@ -161,42 +171,48 @@ func ParseModel(bytes []byte) (Model, error) {
 		return nil, err
 	}
 	switch model.Type {
-	case "openai":
-		var openai OpenAI
-		if err := json.Unmarshal(bytes, &openai); err != nil {
-			return nil, err
-		}
-		return &openai, nil
-	case "anthropic":
-		var anthropic Anthropic
-		if err := json.Unmarshal(bytes, &anthropic); err != nil {
-			return nil, err
-		}
-		return &anthropic, nil
-	case "gemini_vertex_ai":
-		var geminiVertexAI GeminiVertexAI
-		if err := json.Unmarshal(bytes, &geminiVertexAI); err != nil {
-			return nil, err
-		}
-		return &geminiVertexAI, nil
-	case "gemini_anthropic":
-		var geminiAnthropic GeminiAnthropic
-		if err := json.Unmarshal(bytes, &geminiAnthropic); err != nil {
-			return nil, err
-		}
-		return &geminiAnthropic, nil
-	case "ollama":
-		var ollama Ollama
-		if err := json.Unmarshal(bytes, &ollama); err != nil {
-			return nil, err
-		}
-		return &ollama, nil
-	case "gemini":
+	case ModelTypeGemini:
 		var gemini Gemini
 		if err := json.Unmarshal(bytes, &gemini); err != nil {
 			return nil, err
 		}
 		return &gemini, nil
+	case ModelTypeAzureOpenAI:
+		var azureOpenAI AzureOpenAI
+		if err := json.Unmarshal(bytes, &azureOpenAI); err != nil {
+			return nil, err
+		}
+		return &azureOpenAI, nil
+	case ModelTypeOpenAI:
+		var openai OpenAI
+		if err := json.Unmarshal(bytes, &openai); err != nil {
+			return nil, err
+		}
+		return &openai, nil
+	case ModelTypeAnthropic:
+		var anthropic Anthropic
+		if err := json.Unmarshal(bytes, &anthropic); err != nil {
+			return nil, err
+		}
+		return &anthropic, nil
+	case ModelTypeGeminiVertexAI:
+		var geminiVertexAI GeminiVertexAI
+		if err := json.Unmarshal(bytes, &geminiVertexAI); err != nil {
+			return nil, err
+		}
+		return &geminiVertexAI, nil
+	case ModelTypeGeminiAnthropic:
+		var geminiAnthropic GeminiAnthropic
+		if err := json.Unmarshal(bytes, &geminiAnthropic); err != nil {
+			return nil, err
+		}
+		return &geminiAnthropic, nil
+	case ModelTypeOllama:
+		var ollama Ollama
+		if err := json.Unmarshal(bytes, &ollama); err != nil {
+			return nil, err
+		}
+		return &ollama, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
