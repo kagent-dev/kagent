@@ -1,5 +1,6 @@
 ARG KAGENT_ADK_VERSION=latest
-FROM ghcr.io/kagent-dev/kagent/kagent-adk:$KAGENT_ADK_VERSION
+ARG DOCKER_REGISTRY=ghcr.io
+FROM $DOCKER_REGISTRY/kagent-dev/kagent/kagent-adk:$KAGENT_ADK_VERSION
 
 # Offline mode
 ENV UV_OFFLINE=1
