@@ -229,7 +229,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	if providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-		modelConfigSpec.APIKeySecretRef = secretName
+		modelConfigSpec.APIKeySecret = secretName
 		modelConfigSpec.APIKeySecretKey = secretKey
 	}
 

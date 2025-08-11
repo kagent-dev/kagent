@@ -179,9 +179,9 @@ export async function deleteAgent(agentName: string, namespace: string): Promise
 export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
   try {
     // Only get the name of the model, not the full ref
-    if (agentConfig.model.ref) {
-      if (k8sRefUtils.isValidRef(agentConfig.model.ref)) {
-        agentConfig.model.ref = k8sRefUtils.fromRef(agentConfig.model.ref).name;
+    if (agentConfig.modelName) {
+      if (k8sRefUtils.isValidRef(agentConfig.modelName)) {
+        agentConfig.modelName = k8sRefUtils.fromRef(agentConfig.modelName).name;
       }
     }
 
