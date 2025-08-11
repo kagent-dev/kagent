@@ -68,7 +68,7 @@ jobs:
         with:
           cluster_name: kagent
           registry: true
-          registry_name: localhost
+          registry_name: registry
           registry_port: 5001
           registry_enable_delete: true
 
