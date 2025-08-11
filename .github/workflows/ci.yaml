@@ -189,7 +189,7 @@ jobs:
             --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
             --platform=linux/amd64,linux/arm64
             --pull=false
-            --output=type=tar,dest=/dev/null
+            --load
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx"
         run: make build-${{ matrix.image }}
