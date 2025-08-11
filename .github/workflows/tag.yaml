@@ -46,7 +46,7 @@ jobs:
         use: 'true'
     - name: 'Build Images'
       env:
-        DOCKER_BUILD_ARGS: "--push --platform linux/amd64,linux/arm64"
+        DOCKER_BUILD_ARGS: "--push --platform linux/amd64,linux/arm64 --pull=false"
         DOCKER_BUILDER: "docker buildx"
       run: |
         # if workflow_dispatch is used, use the version input

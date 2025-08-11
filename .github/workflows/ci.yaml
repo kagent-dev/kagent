@@ -76,6 +76,7 @@ jobs:
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
             --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
             --platform=linux/amd64
+            --pull=false
             --load
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
