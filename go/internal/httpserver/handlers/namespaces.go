@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
@@ -48,6 +50,10 @@ func (h *NamespacesHandler) HandleListNamespaces(w ErrorResponseWriter, r *http.
 			})
 		}
 
+		sort.SliceStable(namespaces, func(i, j int) bool {
+			return strings.ToLower(namespaces[i].Name) < strings.ToLower(namespaces[j].Name)
+		})
+
 		data := api.NewResponse(namespaces, "Successfully listed namespaces", false)
 		RespondWithJSON(w, http.StatusOK, data)
 		return
@@ -73,6 +79,10 @@ func (h *NamespacesHandler) HandleListNamespaces(w ErrorResponseWriter, r *http.
 			Status: string(namespace.Status.Phase),
 		})
 	}
+
+	sort.SliceStable(namespaces, func(i, j int) bool {
+		return strings.ToLower(namespaces[i].Name) < strings.ToLower(namespaces[j].Name)
+	})
 
 	data := api.NewResponse(namespaces, "Successfully listed namespaces", false)
 	RespondWithJSON(w, http.StatusOK, data)
