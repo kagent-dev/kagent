@@ -49,6 +49,14 @@ func createTestAgent(name string, modelConfig *v1alpha2.ModelConfig) *v1alpha2.A
 	}
 }
 
+func createTestAgentWithStatus(name string, modelConfig *v1alpha2.ModelConfig, conditions []metav1.Condition) *v1alpha2.Agent {
+	agent := createTestAgent(name, modelConfig)
+	agent.Status = v1alpha2.AgentStatus{
+		Conditions: conditions,
+	}
+	return agent
+}
+
 func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string) {
 	kubeClient := fake.NewClientBuilder().
 		WithScheme(setupScheme()).
@@ -101,6 +109,96 @@ func TestHandleGetAgent(t *testing.T) {
 		require.Equal(t, "default/test-model-config", response.Data.ModelConfigRef, w.Body.String())
 		require.Equal(t, "gpt-4", response.Data.Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data.ModelProvider)
+		require.False(t, response.Data.DeploymentReady) // No status conditions, should be false
+	})
+
+	t.Run("gets agent with DeploymentReady=true", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{
+				Type:   "Accepted",
+				Status: "True",
+				Reason: "AgentReconciled",
+			},
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DeploymentReady",
+			},
+		}
+		agent := createTestAgentWithStatus("test-agent-ready", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(agent, modelConfig)
+		createAgent(handler.Base.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-ready", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-ready"})
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.True(t, response.Data.DeploymentReady)
+	})
+
+	t.Run("gets agent with DeploymentReady=false when Ready status is False", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{
+				Type:   "Ready",
+				Status: "False", // Status is False
+				Reason: "DeploymentReady",
+			},
+		}
+		agent := createTestAgentWithStatus("test-agent-not-ready", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(agent, modelConfig)
+		createAgent(handler.Base.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-not-ready", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-not-ready"})
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.False(t, response.Data.DeploymentReady)
+	})
+
+	t.Run("gets agent with DeploymentReady=false when reason is not DeploymentReady", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DifferentReason", // Different reason
+			},
+		}
+		agent := createTestAgentWithStatus("test-agent-different-reason", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(agent, modelConfig)
+		createAgent(handler.Base.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-different-reason", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-different-reason"})
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.False(t, response.Data.DeploymentReady)
 	})
 
 	t.Run("returns 404 for missing agent", func(t *testing.T) {
@@ -116,13 +214,26 @@ func TestHandleGetAgent(t *testing.T) {
 	})
 }
 
-func TestHandleListTeams(t *testing.T) {
-	t.Run("lists teams successfully", func(t *testing.T) {
+func TestHandleListAgents(t *testing.T) {
+	t.Run("lists agents successfully", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
-		team := createTestAgent("test-team", modelConfig)
 
-		handler, _ := setupTestHandler(team, modelConfig)
-		createAgent(handler.Base.DatabaseService, team)
+		// Agent with DeploymentReady=true
+		readyConditions := []metav1.Condition{
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DeploymentReady",
+			},
+		}
+		readyAgent := createTestAgentWithStatus("ready-agent", modelConfig, readyConditions)
+
+		// Agent with DeploymentReady=false
+		notReadyAgent := createTestAgent("not-ready-agent", modelConfig)
+
+		handler, _ := setupTestHandler(readyAgent, notReadyAgent, modelConfig)
+		createAgent(handler.Base.DatabaseService, readyAgent)
+		createAgent(handler.Base.DatabaseService, notReadyAgent)
 
 		req := httptest.NewRequest("GET", "/api/agents", nil)
 		w := httptest.NewRecorder()
@@ -134,11 +245,17 @@ func TestHandleListTeams(t *testing.T) {
 		var response api.StandardResponse[[]api.AgentResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Len(t, response.Data, 1)
-		require.Equal(t, "test-team", response.Data[0].Agent.Name)
+		require.Len(t, response.Data, 2)
+		require.Equal(t, "not-ready-agent", response.Data[0].Agent.Name)
 		require.Equal(t, "default/test-model-config", response.Data[0].ModelConfigRef)
 		require.Equal(t, "gpt-4", response.Data[0].Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[0].ModelProvider)
+		require.Equal(t, false, response.Data[0].DeploymentReady)
+		require.Equal(t, "ready-agent", response.Data[1].Agent.Name)
+		require.Equal(t, "default/test-model-config", response.Data[1].ModelConfigRef)
+		require.Equal(t, "gpt-4", response.Data[1].Model)
+		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[1].ModelProvider)
+		require.Equal(t, true, response.Data[1].DeploymentReady)
 	})
 }
 

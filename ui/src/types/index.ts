@@ -263,6 +263,7 @@ export interface AgentResponse {
   modelConfigRef: string;
   memoryRefs: string[];
   tools: Tool[];
+  deploymentReady: boolean;
 }
 
 export interface RemoteMCPServer {

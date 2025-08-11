@@ -80,11 +80,12 @@ type AgentResponse struct {
 	ID    string          `json:"id"`
 	Agent *v1alpha2.Agent `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
-	ModelProvider  v1alpha2.ModelProvider `json:"modelProvider"`
-	Model          string                 `json:"model"`
-	ModelConfigRef string                 `json:"modelConfigRef"`
-	MemoryRefs     []string               `json:"memoryRefs"`
-	Tools          []*v1alpha2.Tool       `json:"tools"`
+	ModelProvider   v1alpha2.ModelProvider `json:"modelProvider"`
+	Model           string                 `json:"model"`
+	ModelConfigRef  string                 `json:"modelConfigRef"`
+	MemoryRefs      []string               `json:"memoryRefs"`
+	Tools           []*v1alpha2.Tool       `json:"tools"`
+	DeploymentReady bool                   `json:"deploymentReady"`
 }
 
 // Session types

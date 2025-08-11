@@ -78,13 +78,23 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		}
 	}
 
+	// Get the Deployment status for the agent
+	deploymentReady := false
+	for _, condition := range agent.Status.Conditions {
+		if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
+			deploymentReady = true
+			break
+		}
+	}
+
 	return api.AgentResponse{
-		ID:             common.ConvertToPythonIdentifier(agentRef),
-		Agent:          agent,
-		ModelProvider:  modelConfig.Spec.Provider,
-		Model:          modelConfig.Spec.Model,
-		ModelConfigRef: common.GetObjectRef(modelConfig),
-		Tools:          agent.Spec.Tools,
+		ID:              common.ConvertToPythonIdentifier(agentRef),
+		Agent:           agent,
+		ModelProvider:   modelConfig.Spec.Provider,
+		Model:           modelConfig.Spec.Model,
+		ModelConfigRef:  common.GetObjectRef(modelConfig),
+		Tools:           agent.Spec.Tools,
+		DeploymentReady: deploymentReady,
 	}, nil
 }
 

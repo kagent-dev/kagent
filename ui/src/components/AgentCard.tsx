@@ -13,7 +13,7 @@ interface AgentCardProps {
   id: number;
 }
 
-export function AgentCard({ id, agentResponse: { agent, model, modelProvider } }: AgentCardProps) {
+export function AgentCard({ id, agentResponse: { agent, model, modelProvider, deploymentReady } }: AgentCardProps) {
   const router = useRouter();
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
@@ -25,30 +25,55 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider } }
     router.push(`/agents/new?edit=true&name=${agent.metadata.name}&namespace=${agent.metadata.namespace}`);
   };
 
-  return (
-    <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
-      <Card className={`group transition-colors cursor-pointer hover:border-violet-500`}>
-        <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-          <CardTitle className="flex items-center gap-2">
-            <KagentLogo className="h-5 w-5" />
-            {agentRef}
-          </CardTitle>
-          <div className="flex items-center space-x-2 invisible group-hover:visible">
-            <Button variant="ghost" size="icon" onClick={handleEditClick} aria-label="Edit Agent">
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <DeleteButton agentName={agent.metadata.name} namespace={agent.metadata.namespace || ''} />
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col justify-between h-32">
-          <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">{agent.spec.description}</p>
-          <div className="mt-4 flex items-center text-xs text-muted-foreground">
-            <span>
-              {modelProvider} ({model})
+  const cardContent = (
+    <Card className={`group transition-colors ${
+      deploymentReady 
+        ? 'cursor-pointer hover:border-violet-500' 
+        : 'cursor-not-allowed opacity-60 border-gray-300'
+    }`}>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+        <CardTitle className="flex items-center gap-2">
+          <KagentLogo className="h-5 w-5" />
+          {agentRef}
+          {!deploymentReady && (
+            <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+              Not Ready
             </span>
-          </div>
-        </CardContent>
-      </Card>
+          )}
+        </CardTitle>
+        <div className={`flex items-center space-x-2 ${deploymentReady ? 'invisible group-hover:visible' : 'invisible'}`}>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={handleEditClick} 
+            aria-label="Edit Agent"
+            disabled={!deploymentReady}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <DeleteButton 
+            agentName={agent.metadata.name} 
+            namespace={agent.metadata.namespace || ''} 
+            disabled={!deploymentReady}
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col justify-between h-32">
+        <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">{agent.spec.description}</p>
+        <div className="mt-4 flex items-center text-xs text-muted-foreground">
+          <span>
+            {modelProvider} ({model})
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  return deploymentReady ? (
+    <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
+      {cardContent}
     </Link>
+  ) : (
+    cardContent
   );
 }
