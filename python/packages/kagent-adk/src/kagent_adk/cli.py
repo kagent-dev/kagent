@@ -16,7 +16,7 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._events import EventLoggerProvider
 from opentelemetry.sdk._logs import LoggerProvider
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, ConsoleLogExporter
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -99,12 +99,8 @@ def configure_tracing():
             log_processor = BatchLogRecordProcessor(OTLPLogExporter())
         logger_provider.add_log_record_processor(log_processor)
 
-        # Add console exporter for debugging
-        console_processor = BatchLogRecordProcessor(ConsoleLogExporter())
-        logger_provider.add_log_record_processor(console_processor)
-
         _logs.set_logger_provider(logger_provider)
-        logging.info("Log provider configured with OTLP and console exporters")
+        logging.info("Log provider configured with OTLP")
         # When logging is enabled, use new event-based approach (input/output as log events in Body)
         logging.info("OpenAI instrumentation configured with event logging capability")
         # Create event logger provider using the configured logger provider

@@ -12,7 +12,7 @@
       "text"
     ],
     "description": "",
-    "name": "test__NS__basic_agent",
+    "name": "basic_agent",
     "skills": null,
     "url": "http://basic-agent.test:8080",
     "version": ""
@@ -27,6 +27,7 @@
       "model": "gpt-4o",
       "type": "openai"
     },
+    "remote_agents": null,
     "sse_tools": null
   },
   "manifest": [
@@ -56,8 +57,8 @@
     {
       "apiVersion": "v1",
       "data": {
-        "agent-card.json": "{\"name\":\"test__NS__basic_agent\",\"description\":\"\",\"url\":\"http://basic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+        "agent-card.json": "{\"name\":\"basic_agent\",\"description\":\"\",\"url\":\"http://basic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -123,7 +124,7 @@
             "labels": {
               "app": "kagent",
               "kagent": "basic-agent",
-              "kagent.dev/config-hash": "5000212196624131391"
+              "kagent.dev/config-hash": "12137819271482250959"
             }
           },
           "spec": {
@@ -136,7 +137,7 @@
                   "--port",
                   "8080",
                   "--filepath",
-                  "/config/config.json"
+                  "/config"
                 ],
                 "command": [
                   "kagent-adk"
@@ -169,10 +170,10 @@
                   },
                   {
                     "name": "KAGENT_URL",
-                    "value": "http://kagent-controller.kagent.svc:8083"
+                    "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
-                "image": "ghcr.io/kagent-dev/kagent/kagent-inline-agent:latest",
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
                 "name": "kagent",
                 "ports": [
                   {

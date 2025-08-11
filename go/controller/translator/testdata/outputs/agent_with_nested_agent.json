@@ -12,7 +12,7 @@
       "text"
     ],
     "description": "",
-    "name": "test__NS__parent_agent",
+    "name": "parent_agent",
     "skills": null,
     "url": "http://parent-agent.test:8080",
     "version": ""
@@ -29,6 +29,7 @@
           "model": "gpt-4o",
           "type": "openai"
         },
+        "remote_agents": null,
         "sse_tools": null
       }
     ],
@@ -40,6 +41,7 @@
       "model": "gpt-4o",
       "type": "openai"
     },
+    "remote_agents": null,
     "sse_tools": null
   },
   "manifest": [
@@ -69,8 +71,8 @@
     {
       "apiVersion": "v1",
       "data": {
-        "agent-card.json": "{\"name\":\"test__NS__parent_agent\",\"description\":\"\",\"url\":\"http://parent-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":[{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a math specialist. Focus on solving mathematical problems step by step.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}]}"
+        "agent-card.json": "{\"name\":\"parent_agent\",\"description\":\"\",\"url\":\"http://parent-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":[{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a math specialist. Focus on solving mathematical problems step by step.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}],\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -136,7 +138,7 @@
             "labels": {
               "app": "kagent",
               "kagent": "parent-agent",
-              "kagent.dev/config-hash": "2888712511788841907"
+              "kagent.dev/config-hash": "17956464138537191240"
             }
           },
           "spec": {
@@ -149,7 +151,7 @@
                   "--port",
                   "8080",
                   "--filepath",
-                  "/config/config.json"
+                  "/config"
                 ],
                 "command": [
                   "kagent-adk"
@@ -182,10 +184,10 @@
                   },
                   {
                     "name": "KAGENT_URL",
-                    "value": "http://kagent-controller.kagent.svc:8083"
+                    "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
-                "image": "ghcr.io/kagent-dev/kagent/kagent-inline-agent:latest",
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
                 "name": "kagent",
                 "ports": [
                   {

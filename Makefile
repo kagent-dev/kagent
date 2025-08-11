@@ -18,7 +18,7 @@ BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
 DOCKER_BUILDER ?= docker buildx
-DOCKER_BUILD_ARGS ?= --builder $(BUILDX_BUILDER_NAME) --pull=false --load --platform linux/$(LOCALARCH)
+DOCKER_BUILD_ARGS ?= --pull=false --load --platform linux/$(LOCALARCH)
 KIND_CLUSTER_NAME ?= kagent
 
 CONTROLLER_IMAGE_NAME ?= controller

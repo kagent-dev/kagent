@@ -397,7 +397,7 @@ func TestToolServersHandler(t *testing.T) {
 
 	t.Run("HandleDeleteToolServer", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, kubeClient, _, responseRecorder := setupHandler()
+			handler, kubeClient, dbClient, responseRecorder := setupHandler()
 
 			// Create tool server to delete
 			toolServer := &v1alpha2.RemoteMCPServer{
@@ -412,6 +412,12 @@ func TestToolServersHandler(t *testing.T) {
 			}
 
 			err := kubeClient.Create(context.Background(), toolServer)
+			require.NoError(t, err)
+
+			_, err = dbClient.StoreToolServer(&database.ToolServer{
+				Name:      "default/test-toolserver",
+				GroupKind: "RemoteMCPServer.kagent.dev",
+			})
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("DELETE", "/api/toolservers/default/test-toolserver", nil)

@@ -23,7 +23,7 @@ export interface AgentFormData {
   namespace: string;
   description: string;
   systemPrompt: string;
-  model: Partial<ModelConfig>;
+  modelName: string;
   tools: Tool[];
   memory?: string[];
 }
@@ -140,7 +140,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.systemPrompt = "Agent instructions are required";
     }
 
-    if (!data.model || data.model === undefined) {
+    if (!data.modelName || data.modelName.trim() === "") {
       errors.model = "Please select a model";
     }
 

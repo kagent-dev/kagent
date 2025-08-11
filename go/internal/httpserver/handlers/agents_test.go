@@ -101,7 +101,7 @@ func TestHandleGetAgent(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		require.Equal(t, "test-team", response.Data.Agent.Name)
-		require.Equal(t, "default/test-model-config", response.Data.ModelConfigRef)
+		require.Equal(t, "default/test-model-config", response.Data.ModelConfigRef, w.Body.String())
 		require.Equal(t, "gpt-4", response.Data.Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data.ModelProvider)
 	})
@@ -152,7 +152,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 			Spec: v1alpha2.AgentSpec{
 				Type: v1alpha2.AgentType_Inline,
 				Inline: &v1alpha2.InlineAgentSpec{
-					ModelConfig: "default/old-model-config",
+					ModelConfig: "old-model-config",
 				},
 			},
 		}
@@ -164,7 +164,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 			Spec: v1alpha2.AgentSpec{
 				Type: v1alpha2.AgentType_Inline,
 				Inline: &v1alpha2.InlineAgentSpec{
-					ModelConfig: "kagent/new-model-config",
+					ModelConfig: "new-model-config",
 				},
 			},
 		}

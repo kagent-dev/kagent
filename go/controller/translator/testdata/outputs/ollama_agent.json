@@ -12,7 +12,7 @@
       "text"
     ],
     "description": "",
-    "name": "test__NS__ollama_agent",
+    "name": "ollama_agent",
     "skills": null,
     "url": "http://ollama-agent.test:8080",
     "version": ""
@@ -26,6 +26,7 @@
       "model": "llama3.2:latest",
       "type": "ollama"
     },
+    "remote_agents": null,
     "sse_tools": null
   },
   "manifest": [
@@ -55,8 +56,8 @@
     {
       "apiVersion": "v1",
       "data": {
-        "agent-card.json": "{\"name\":\"test__NS__ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -122,7 +123,7 @@
             "labels": {
               "app": "kagent",
               "kagent": "ollama-agent",
-              "kagent.dev/config-hash": "6954788652216249961"
+              "kagent.dev/config-hash": "6003282004506696624"
             }
           },
           "spec": {
@@ -135,7 +136,7 @@
                   "--port",
                   "8080",
                   "--filepath",
-                  "/config/config.json"
+                  "/config"
                 ],
                 "command": [
                   "kagent-adk"
@@ -163,10 +164,10 @@
                   },
                   {
                     "name": "KAGENT_URL",
-                    "value": "http://kagent-controller.kagent.svc:8083"
+                    "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
-                "image": "ghcr.io/kagent-dev/kagent/kagent-inline-agent:latest",
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
                 "name": "kagent",
                 "ports": [
                   {

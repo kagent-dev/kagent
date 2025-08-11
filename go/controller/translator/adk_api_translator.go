@@ -821,7 +821,6 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 		Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
 	}, nil
 }
-
 func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string, agentNamespace string) error {
 	switch {
 	case remoteMcpServer.Protocol == v1alpha2.RemoteMCPServerProtocolSse:
