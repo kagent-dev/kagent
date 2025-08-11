@@ -260,8 +260,8 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	err = h.KubeClient.Get(
 		r.Context(),
 		client.ObjectKey{
-			Namespace: agentName,
-			Name:      agentNamespace,
+			Namespace: agentNamespace,
+			Name:      agentName,
 		},
 		existingAgent,
 	)

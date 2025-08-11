@@ -229,7 +229,7 @@ func TestHandleCreateAgent(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "test-team", response.Data.Agent.Name)
 		require.Equal(t, "default", response.Data.Agent.Namespace)
-		require.Equal(t, "You are an imagenary agent", response.Data.Agent.Spec.SystemMessage)
+		require.Equal(t, "You are an imaginary agent", response.Data.Agent.Spec.SystemMessage)
 		require.Equal(t, "test-model-config", response.Data.Agent.Spec.ModelConfig)
 	})
 }
