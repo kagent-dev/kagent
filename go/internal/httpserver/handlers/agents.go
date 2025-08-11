@@ -60,7 +60,7 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	agentRef := common.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
-	// Get the ModelConfig for the team
+	// Get the ModelConfig for the agent
 	modelConfig := &v1alpha2.ModelConfig{}
 	if err := h.KubeClient.Get(
 		ctx,
@@ -150,8 +150,8 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 	}
 
 	log = log.WithValues(
-		"teamNamespace", agentRef.Namespace,
-		"teamName", agentRef.Name,
+		"agentNamespace", agentRef.Namespace,
+		"agentName", agentRef.Name,
 	)
 
 	kubeClientWrapper := utils.NewKubeClientWrapper(h.KubeClient)

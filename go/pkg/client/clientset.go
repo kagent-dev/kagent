@@ -28,7 +28,7 @@ func New(baseURL string, options ...ClientOption) *ClientSet {
 		Version:     NewVersionClient(baseClient),
 		ModelConfig: NewModelConfigClient(baseClient),
 		Session:     NewSessionClient(baseClient),
-		Agent:       NewTeamClient(baseClient),
+		Agent:       NewAgentClient(baseClient),
 		Tool:        NewToolClient(baseClient),
 		ToolServer:  NewToolServerClient(baseClient),
 		Memory:      NewMemoryClient(baseClient),
