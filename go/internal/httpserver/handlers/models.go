@@ -3,11 +3,10 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	kclient "github.com/kagent-dev/kagent/go/pkg/client"
+	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
-
 
 // ModelHandler handles model requests
 type ModelHandler struct {
@@ -28,6 +27,9 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 	// The keys need to match what the UI expects (camelCase for API keys)
 	supportedModels := kclient.ProviderModels{
 		"openAI": {
+			{Name: "gpt-5", FunctionCalling: true},
+			{Name: "gpt-5-mini", FunctionCalling: true},
+			{Name: "gpt-5-nano", FunctionCalling: true},
 			{Name: "gpt-4o", FunctionCalling: true},
 			{Name: "gpt-4-turbo", FunctionCalling: true},
 			{Name: "gpt-4", FunctionCalling: true},

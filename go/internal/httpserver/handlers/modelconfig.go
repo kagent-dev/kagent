@@ -228,9 +228,8 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	// Set secret references if needed, but don't create secret yet
 	if providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
-		secretNamespace := modelConfigRef.Namespace
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-		modelConfigSpec.APIKeySecret = common.ResourceRefString(secretNamespace, secretName)
+		modelConfigSpec.APIKeySecretRef = secretName
 		modelConfigSpec.APIKeySecretKey = secretKey
 	}
 
