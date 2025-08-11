@@ -37,6 +37,11 @@ jobs:
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -71,6 +76,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          DOCKER_REGISTRY: "localhost:5000"
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
