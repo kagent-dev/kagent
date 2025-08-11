@@ -58,13 +58,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   // Basic form state
   const [name, setName] = useState("");
-  const [namespace, setNamespace] = useState("");
+  const [namespace, setNamespace] = useState("default");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState(isEditMode ? "" : DEFAULT_SYSTEM_PROMPT);
 
-  // Default to the first model
   type SelectedModelType = Pick<ModelConfig, 'ref' | 'model'>;
-  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(models && models.length > 0 ? { ref: models[0].ref, model: models[0].model } : null);
+  const [selectedModel, setSelectedModel] = useState<SelectedModelType | null>(null);
 
   // Tools state - now using AgentTool interface correctly
   const [selectedTools, setSelectedTools] = useState<Tool[]>([]);
@@ -77,12 +76,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(isEditMode);
   const [errors, setErrors] = useState<ValidationErrors>({});
-
-  useEffect(() => {
-    if (models && models.length > 0 && !selectedModel) {
-      setSelectedModel(models[0]);
-    }
-  }, [models, selectedModel]);
 
   // Fetch existing agent data if in edit mode
   useEffect(() => {
@@ -223,16 +216,20 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       }
 
       router.push(`/agents`);
+      return;
     } catch (error) {
       console.error(`Error ${isEditMode ? "updating" : "creating"} agent:`, error);
       const errorMessage = error instanceof Error ? error.message : `Failed to ${isEditMode ? "update" : "create"} agent. Please try again.`;
       toast.error(errorMessage);
-    } finally {
       setIsSubmitting(false);
     }
   };
 
   const renderPageContent = () => {
+    if (isSubmitting) {
+      return <LoadingState />;
+    }
+
     if (error) {
       return <ErrorState message={error} />;
     }
@@ -275,6 +272,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   <NamespaceCombobox
                     value={namespace}
                     onValueChange={(value) => {
+                      setSelectedModel(null);
                       setNamespace(value);
                       validateField('namespace', value);
                     }}
@@ -310,12 +308,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   allModels={models} 
                   selectedModel={selectedModel} 
                   setSelectedModel={(model) => {
-                    setSelectedModel(model as Pick<ModelConfig, 'ref' | 'model'>);
-                    validateField('model', model);
+                    setSelectedModel(model as Pick<ModelConfig, 'ref' | 'model'> | null);
                   }} 
                   error={errors.model} 
                   isSubmitting={isSubmitting || isLoading} 
-                  onBlur={() => validateField('model', selectedModel)}
+                  onChange={(modelRef) => validateField('model', modelRef)}
+                  agentNamespace={namespace}
                 />
               </CardContent>
             </Card>
@@ -377,7 +375,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   return (
     <>
-      {(loading || isSubmitting || isLoading) && <LoadingState />}
+      {(loading || isLoading) && <LoadingState />}
       {renderPageContent()}
     </>
   );
