@@ -41,7 +41,7 @@ jobs:
       registry:
         image: registry:2
         ports:
-          - 5000:5000
+          - 5001:5000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,6 +56,7 @@ jobs:
           version: ${{ env.BUILDX_VERSION }}
           platforms: linux/amd64,linux/arm64
           use: 'true'
+          driver-opts: network=host
 
       - name: Set up Helm
         uses: azure/setup-helm@v4.2.0
@@ -66,6 +67,10 @@ jobs:
         uses: helm/kind-action@v1
         with:
           cluster_name: kagent
+          registry: true
+          registry_name: localhost
+          registry_port: 5001
+          registry_enable_delete: true
 
       # This allows us to not rely on port-forwarding which is flaky
       - name: Setup Metallb
@@ -76,7 +81,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
-          DOCKER_REGISTRY: "localhost:5000"
+          DOCKER_REGISTRY: "localhost:5001"
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
@@ -175,7 +180,7 @@ jobs:
       registry:
         image: registry:2
         ports:
-          - 5000:5000
+          - 5001:5000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -202,7 +207,7 @@ jobs:
             --push
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx"
-          DOCKER_REGISTRY: "localhost:5000"
+          DOCKER_REGISTRY: "localhost:5001"
         run: make build-${{ matrix.image }}
         working-directory: ./
 
