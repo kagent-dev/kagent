@@ -76,8 +76,7 @@ jobs:
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
             --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
             --platform=linux/amd64
-            --pull=false
-            --load
+            --push
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
@@ -194,7 +193,7 @@ jobs:
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}
             --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
             --platform=linux/amd64,linux/arm64
-            --output=type=tar,dest=/dev/null
+            --push
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx"
           DOCKER_REGISTRY: "localhost:5000"
