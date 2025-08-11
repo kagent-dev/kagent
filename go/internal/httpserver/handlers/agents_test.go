@@ -44,7 +44,7 @@ func createTestAgent(name string, modelConfig *v1alpha2.ModelConfig) *v1alpha2.A
 			Namespace: "default",
 		},
 		Spec: v1alpha2.AgentSpec{
-			ModelConfig: common.GetObjectRef(modelConfig),
+			ModelConfig: modelConfig.Name,
 		},
 	}
 }
@@ -98,7 +98,7 @@ func TestHandleGetAgent(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		require.Equal(t, "test-team", response.Data.Agent.Name)
-		require.Equal(t, "default/test-model-config", response.Data.ModelConfigRef)
+		require.Equal(t, "default/test-model-config", response.Data.ModelConfigRef, w.Body.String())
 		require.Equal(t, "gpt-4", response.Data.Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data.ModelProvider)
 	})
