@@ -180,7 +180,7 @@ func TestSessionsHandler(t *testing.T) {
 
 			handler.HandleCreateSession(responseRecorder, req)
 
-			assert.Equal(t, http.StatusNotFound, responseRecorder.Code)
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 

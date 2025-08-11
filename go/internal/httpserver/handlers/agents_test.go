@@ -46,7 +46,7 @@ func createTestAgent(name string, modelConfig *v1alpha2.ModelConfig) *v1alpha2.A
 		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_Inline,
 			Inline: &v1alpha2.InlineAgentSpec{
-				ModelConfig: common.GetObjectRef(modelConfig),
+				ModelConfig: modelConfig.Name,
 			},
 		},
 	}
@@ -182,7 +182,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 		var response api.StandardResponse[v1alpha2.Agent]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Equal(t, "kagent/new-model-config", response.Data.Spec.Inline.ModelConfig)
+		require.Equal(t, "new-model-config", response.Data.Spec.Inline.ModelConfig)
 	})
 
 	t.Run("returns 404 for non-existent team", func(t *testing.T) {
