@@ -188,7 +188,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     
     return localSelectedTools.some(tool => {
       if (isAgentTool(tool)) {
-        return tool.agent?.ref === identifier.replace('agent-', '');
+        return tool.agent?.name === identifier.replace('agent-', '');
       } else if (isMcpTool(tool)) {
         const mcpTool = tool as Tool;
         return mcpTool.mcpServer?.name === identifier.split('-')[1];
@@ -205,7 +205,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       toolToAdd = {
         type: "Agent",
         agent: {
-          ref: k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name)
+          name: agentResp.agent.metadata.name,
+          kind: "Agent",
+          apiGroup: "kagent.dev",
         }
       };
     } else {
