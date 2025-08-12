@@ -157,6 +157,10 @@ func main() {
 	flag.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
 	flag.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
 
+	flag.StringVar(&translator.DefaultImageConfig.Registry, "image-registry", "cr.kagent.dev", "The registry to use for the image.")
+	flag.StringVar(&translator.DefaultImageConfig.Tag, "image-tag", version.GetVersion(), "The tag to use for the image.")
+	flag.StringVar(&translator.DefaultImageConfig.PullPolicy, "image-pull-policy", "IfNotPresent", "The pull policy to use for the image.")
+
 	opts := zap.Options{
 		Development: true,
 	}

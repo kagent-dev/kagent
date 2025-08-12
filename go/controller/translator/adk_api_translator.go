@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
-	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +40,17 @@ const (
 	MCPServicePathDefault     = "/mcp"
 	MCPServiceProtocolDefault = v1alpha2.RemoteMCPServerProtocolStreamableHttp
 )
+
+type ImageConfig struct {
+	// +optional
+	Registry string `json:"registry,omitempty"`
+	// +optional
+	Tag string `json:"tag,omitempty"`
+	// +optional
+	PullPolicy string `json:"pullPolicy,omitempty"`
+}
+
+var DefaultImageConfig = ImageConfig{}
 
 type AgentOutputs struct {
 	Manifest []client.Object `json:"manifest,omitempty"`
@@ -68,6 +78,7 @@ func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.Namespaced
 type adkApiTranslator struct {
 	kube               client.Client
 	defaultModelConfig types.NamespacedName
+	imageConfig        ImageConfig
 }
 
 const MAX_DEPTH = 10
@@ -958,7 +969,6 @@ type resolvedDeployment struct {
 
 func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	// Defaults
-	image := fmt.Sprintf("cr.kagent.dev/kagent-dev/kagent/app:%s", version.Get().Version)
 	port := int32(8080)
 	cmd := "kagent-adk"
 	args := []string{
@@ -971,10 +981,20 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		"/config",
 	}
 
-	// Start with shared deployment spec
-	shared := &v1alpha2.SharedDeploymentSpec{}
+	// Start with spec deployment spec
+	spec := v1alpha2.InlineDeploymentSpec{}
 	if agent.Spec.Inline.Deployment != nil {
-		shared = &agent.Spec.Inline.Deployment.SharedDeploymentSpec
+		spec = *agent.Spec.Inline.Deployment
+	}
+	registry := DefaultImageConfig.Registry
+	if spec.ImageRegistry != "" {
+		registry = spec.ImageRegistry
+	}
+	image := fmt.Sprintf("%s/kagent-dev/kagent/app:%s", registry, DefaultImageConfig.Tag)
+
+	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
+	if spec.ImagePullPolicy != "" {
+		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
 	}
 
 	dep := &resolvedDeployment{
@@ -982,14 +1002,14 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		Cmd:              cmd,
 		Args:             args,
 		Port:             port,
-		ImagePullPolicy:  shared.ImagePullPolicy,
-		Replicas:         shared.Replicas,
-		ImagePullSecrets: slices.Clone(shared.ImagePullSecrets),
-		Volumes:          append(slices.Clone(shared.Volumes), mdd.Volumes...),
-		VolumeMounts:     append(slices.Clone(shared.VolumeMounts), mdd.VolumeMounts...),
-		Labels:           maps.Clone(shared.Labels),
-		Annotations:      maps.Clone(shared.Annotations),
-		Env:              append(slices.Clone(shared.Env), mdd.EnvVars...),
+		ImagePullPolicy:  imagePullPolicy,
+		Replicas:         spec.Replicas,
+		ImagePullSecrets: slices.Clone(spec.ImagePullSecrets),
+		Volumes:          append(slices.Clone(spec.Volumes), mdd.Volumes...),
+		VolumeMounts:     append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
+		Labels:           maps.Clone(spec.Labels),
+		Annotations:      maps.Clone(spec.Annotations),
+		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
 	}
 
 	// Set default replicas if not specified

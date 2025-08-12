@@ -1,5 +1,5 @@
 ### STAGE 1: base image
-FROM ghcr.io/kagent-dev/kagent/kagent-adk:v0.5.3-49-g4e168982
+FROM ghcr.io/kagent-dev/kagent/kagent-adk:v0.5.5-61-g199a6e60
 
 WORKDIR /app
 
