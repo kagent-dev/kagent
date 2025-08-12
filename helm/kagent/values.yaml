@@ -5,7 +5,7 @@
 # ==============================================================================
 
 tag: ""
-registry: ""
+registry: "cr.kagent.dev"
 
 
 imagePullSecrets: []
@@ -77,10 +77,10 @@ controller:
   nodeSelector: {}
 
   image:
-    registry: cr.kagent.dev
+    registry: ""
     repository: kagent-dev/kagent/controller
     tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
+    pullPolicy: ""
   resources:
     requests:
       cpu: 100m
@@ -102,10 +102,10 @@ controller:
 ui:
   replicas: 1
   image:
-    registry: cr.kagent.dev
+    registry: ""
     repository: kagent-dev/kagent/ui
     tag: ""
-    pullPolicy: IfNotPresent
+    pullPolicy: ""
   resources:
     requests:
       cpu: 100m

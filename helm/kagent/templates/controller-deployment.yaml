@@ -77,7 +77,7 @@ spec:
             {{- end }}
           securityContext:
             {{- toYaml .Values.controller.securityContext | nindent 12 }}
-          image: "{{ coalesce .Values.registry .Values.controller.image.registry }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
+          image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
