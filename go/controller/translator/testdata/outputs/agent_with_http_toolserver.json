@@ -186,6 +186,7 @@
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
                 "name": "kagent",
                 "ports": [
                   {

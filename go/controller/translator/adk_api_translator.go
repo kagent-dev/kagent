@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -50,7 +51,11 @@ type ImageConfig struct {
 	PullPolicy string `json:"pullPolicy,omitempty"`
 }
 
-var DefaultImageConfig = ImageConfig{}
+var DefaultImageConfig = ImageConfig{
+	Registry:   "cr.kagent.dev",
+	Tag:        version.Get().Version,
+	PullPolicy: string(corev1.PullIfNotPresent),
+}
 
 type AgentOutputs struct {
 	Manifest []client.Object `json:"manifest,omitempty"`
