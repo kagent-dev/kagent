@@ -94,13 +94,13 @@ func TestToolServersHandler(t *testing.T) {
 			require.Len(t, toolServers.Data, 2)
 
 			// Verify first tool server response
-			toolServer := toolServers.Data[1]
+			toolServer := toolServers.Data[0]
 			require.Equal(t, "default/test-toolserver-1", toolServer.Ref)
 			require.Len(t, toolServer.DiscoveredTools, 1)
 			require.Equal(t, "test-tool", toolServer.DiscoveredTools[0].Name)
 
 			// Verify second tool server response
-			toolServer = toolServers.Data[0]
+			toolServer = toolServers.Data[1]
 			require.Equal(t, "test-ns/test-toolserver-2", toolServer.Ref)
 		})
 
