@@ -65,9 +65,11 @@ jobs:
           install_only: true
 
       - name: Install Kagent
+        id: install-kagent
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
@@ -81,12 +83,22 @@ jobs:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
+        if: ${{ steps.install-kagent.outcome == 'success' }}
         working-directory: go
         run: |
           export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083/api"
           echo $KAGENT_API_URL
 
           go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
+      - name: fail print info
+        if: ${{ steps.install-kagent.outcome == 'failure' }}
+        run: |
+          echo "::error::Failed to run e2e tests"
+          echo "::error::Kubectl get pods -n kagent"
+          kubectl describe pods -n kagent
+          echo "::error::Kubectl get events -n kagent"
+          kubectl get events -n kagent
+          echo "::error::Kubectl get agents -n kagent"
 
   go-unit-tests:
     runs-on: ubuntu-latest
