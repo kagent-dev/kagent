@@ -28,6 +28,44 @@ logger = logging.getLogger(__name__)
 app = typer.Typer()
 
 
+def setup_logging_with_timestamps():
+    """Configure logging to include timestamps for better debugging."""
+    enhanced_logging = os.getenv("KAGENT_ENHANCED_LOGGING", "true").lower() == "true"
+    
+    if enhanced_logging:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        asyncio_logger = logging.getLogger('asyncio')
+        asyncio_logger.setLevel(logging.INFO)
+        
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        # Add handler to asyncio logger if it doesn't have one
+        if not asyncio_logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(formatter)
+            asyncio_logger.addHandler(handler)
+        
+        #configure the a2a logger to include timestamps
+        a2a_logger = logging.getLogger('a2a')
+        a2a_logger.setLevel(logging.INFO)
+        if not a2a_logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(formatter)
+            a2a_logger.addHandler(handler)
+        
+        logger.info("Enhanced logging configured with timestamps for better debugging")
+    else:
+        logger.info("Enhanced logging disabled - using default logging configuration")
+
+
 @app.command()
 def static(
     host: str = "127.0.0.1",
@@ -36,6 +74,7 @@ def static(
     filepath: str = "/config/config.json",
     reload: Annotated[bool, typer.Option("--reload")] = False,
 ):
+    setup_logging_with_timestamps()
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
 
