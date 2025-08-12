@@ -74,7 +74,6 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
-          KAGENT_HELM_EXTRA_ARGS: --dry-run
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
