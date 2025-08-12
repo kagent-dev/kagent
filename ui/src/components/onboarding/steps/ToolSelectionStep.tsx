@@ -4,21 +4,14 @@ import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Info, ChevronDown, ChevronRight, FunctionSquare, Filter, FilterX, HelpCircle } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Info, ChevronDown, ChevronRight, FunctionSquare, Search } from 'lucide-react';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, toolResponseToAgentTool } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, getToolResponseCategory, toolResponseToAgentTool } from "@/lib/toolUtils";
 import type { Tool, ToolsResponse } from "@/types";
+import { Input } from "@/components/ui/input";
 
-const getToolCategory = (tool: ToolsResponse): string => {
-    const serverName = tool.server_name;
-    if (serverName.includes("kagent-tool-server")) {
-        return "k8s";
-    }
-    
-    return "other";
-};
+// Grouping category logic should mirror SelectToolsDialog: use getToolResponseCategory
 
 interface ToolSelectionStepProps {
     availableTools: ToolsResponse[] | null;
@@ -39,7 +32,8 @@ export function ToolSelectionStep({
 }: ToolSelectionStepProps) {
     const [selectedTools, setSelectedTools] = useState<Tool[]>(initialSelectedTools);
     const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
-    const [showAllTools, setShowAllTools] = useState(false);
+    
+    const [searchQuery, setSearchQuery] = useState<string>("");
 
     const toolResponseMatchesTool = (toolResponse: ToolsResponse, tool: Tool): boolean => {
         if (tool.type === "Agent" && tool.agent) {
@@ -52,24 +46,56 @@ export function ToolSelectionStep({
     };
 
     const toolsByCategory = useMemo(() => {
-        if (!availableTools) return {};
+        if (!availableTools) return {} as Record<string, ToolsResponse[]>;
+
+        // Only include Kubernetes tools in onboarding step
+        const k8sTools = availableTools.filter((tool) => tool.server_name?.includes("kagent-tool-server"));
+
         const groups: Record<string, ToolsResponse[]> = {};
-        
-        const sortedTools = [...availableTools].sort((a, b) => getToolResponseDisplayName(a).localeCompare(getToolResponseDisplayName(b)));
+        const sortedTools = [...k8sTools].sort((a, b) =>
+            getToolResponseDisplayName(a).localeCompare(getToolResponseDisplayName(b))
+        );
         sortedTools.forEach((tool) => {
-            const category = getToolCategory(tool);
+            const category = getToolResponseCategory(tool);
             if (!groups[category]) groups[category] = [];
             groups[category].push(tool);
         });
-        return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
-               .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
+        return Object.entries(groups)
+            .sort(([catA], [catB]) => catA.localeCompare(catB))
+            .reduce((acc, [key, value]) => {
+                acc[key] = value;
+                return acc;
+            }, {} as typeof groups);
     }, [availableTools]);
 
     const filteredToolsByCategory = useMemo(() => {
-        if (showAllTools) return toolsByCategory;
-        const k8sCategory = toolsByCategory['k8s'];
-        return k8sCategory ? { k8s: k8sCategory } : {};
-    }, [toolsByCategory, showAllTools]);
+        // Already filtered to K8s tools above; keep identity here for clarity
+        return toolsByCategory;
+    }, [toolsByCategory]);
+
+    const searchedToolsByCategory = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        if (!query) return filteredToolsByCategory;
+
+        const matchesQuery = (tool: ToolsResponse): boolean => {
+            const name = getToolResponseDisplayName(tool).toLowerCase();
+            const description = getToolResponseDescription(tool).toLowerCase();
+            const server = tool.server_name?.toLowerCase() ?? "";
+            const id = tool.id?.toLowerCase() ?? "";
+            return (
+                name.includes(query) ||
+                description.includes(query) ||
+                server.includes(query) ||
+                id.includes(query)
+            );
+        };
+
+        return Object.entries(filteredToolsByCategory).reduce((acc, [category, tools]) => {
+            const matched = tools.filter(matchesQuery);
+            if (matched.length > 0) acc[category] = matched;
+            return acc;
+        }, {} as Record<string, ToolsResponse[]>);
+    }, [filteredToolsByCategory, searchQuery]);
 
     useEffect(() => {
         if (availableTools && Object.keys(expandedCategories).length === 0) {
@@ -85,24 +111,24 @@ export function ToolSelectionStep({
     useEffect(() => {
         // Only run when tools are loaded and no tools are initially selected from props
         if (availableTools && initialSelectedTools.length === 0 && selectedTools.length === 0) {
-            const toolsToSelect: string[] = ["GetResources", "GetAvailableAPIResources"];
-            const k8sCategoryKey = Object.keys(toolsByCategory).find(key => key.toLowerCase() === 'k8s');
+            const desiredIds: string[] = [
+                "k8s_get_available_api_resources",
+                "k8s_get_resources",
+            ];
 
-            if (k8sCategoryKey) {
-                const k8sToolsResponses = toolsByCategory[k8sCategoryKey];
-                const initialSelection: Tool[] = [];
-                k8sToolsResponses.forEach((tool) => {
-                    const toolName = getToolResponseDisplayName(tool);
-                    if (toolsToSelect.includes(toolName)) {
-                        initialSelection.push(toolResponseToAgentTool(tool, tool.server_name));
-                    }
-                });
-                if (initialSelection.length > 0) {
-                    setSelectedTools(initialSelection);
+            const initialSelection: Tool[] = [];
+            availableTools.forEach((tool) => {
+                const toolId = getToolResponseDisplayName(tool);
+                if (desiredIds.includes(toolId)) {
+                    initialSelection.push(toolResponseToAgentTool(tool, tool.server_name));
                 }
+            });
+
+            if (initialSelection.length > 0) {
+                setSelectedTools(initialSelection);
             }
         }
-    }, [availableTools, toolsByCategory, initialSelectedTools, selectedTools.length]);
+    }, [availableTools, initialSelectedTools, selectedTools.length]);
 
     const handleToolToggle = (toolResponse: ToolsResponse) => {
         const agentTool = toolResponseToAgentTool(toolResponse, toolResponse.server_name);
@@ -124,52 +150,50 @@ export function ToolSelectionStep({
         onNext(selectedTools);
     };
 
-    // Find specific tools for descriptions
-    const getResourcesTool = availableTools?.find(tool => getToolResponseDisplayName(tool) === 'GetResources');
-    const getApiResourcesTool = availableTools?.find(tool => getToolResponseDisplayName(tool) === 'GetAvailableAPIResources');
-    const getResourcesDesc = getResourcesTool ? getToolResponseDescription(getResourcesTool) : "No description available.";
-    const getApiResourcesDesc = getApiResourcesTool ? getToolResponseDescription(getApiResourcesTool) : "No description available.";
+    // Tooltips removed; no description lookups needed
 
     if (loadingTools) return <LoadingState />;
     if (errorTools) return <ErrorState message={`Failed to load tools: ${errorTools}`} />;
 
     const hasAnyTools = availableTools && availableTools.length > 0;
-    const hasFilteredTools = Object.keys(filteredToolsByCategory).length > 0;
+    const hasCategoryToolsBeforeSearch = Object.keys(filteredToolsByCategory).length > 0;
+    const hasSearchedTools = Object.keys(searchedToolsByCategory).length > 0;
 
     return (
         <>
             <CardHeader className="pt-8 pb-4 border-b">
                 <CardTitle className="text-2xl">Step 3: Select Tools</CardTitle>
                 <CardDescription className="text-md">
-                    <TooltipProvider delayDuration={100}>
-                        Tools give your agent actions. We&apos;ve selected two for you (
-                        <Tooltip><TooltipTrigger asChild><span className="italic inline-flex items-center cursor-help">GetAvailableAPIResources<HelpCircle className="h-3 w-3 ml-0.5 text-primary" /></span></TooltipTrigger><TooltipContent side="top" className="max-w-xs p-2"><p className="text-xs">{getApiResourcesDesc}</p></TooltipContent></Tooltip>
-                        {' '}
-                        <Tooltip><TooltipTrigger asChild><span className="italic inline-flex items-center cursor-help">GetResources<HelpCircle className="h-3 w-3 ml-0.5 text-primary" /></span></TooltipTrigger><TooltipContent side="top" className="max-w-xs p-2"><p className="text-xs">{getResourcesDesc}</p></TooltipContent></Tooltip>
-                        ), but you can add more later.
-                    </TooltipProvider>
+                    Tools give your agent actions. We&apos;ve selected two for you (
+                    <span className="italic">k8s_get_available_api_resources</span>{' '}
+                    <span className="italic">k8s_get_resources</span>
+                    ), but you can add more later.
                 </CardDescription>
             </CardHeader>
             <CardContent className="px-8 pt-6 pb-6 space-y-4">
-                <div className="flex justify-end mb-3">
-                    <Button
-                        variant="outline" size="sm"
-                        onClick={() => setShowAllTools(!showAllTools)}
-                        disabled={!hasAnyTools}
-                    >
-                        {showAllTools ? <FilterX className="mr-2 h-4 w-4" /> : <Filter className="mr-2 h-4 w-4" />}
-                        {showAllTools ? "Show K8s Tools Only" : "Show All Available Tools"}
-                    </Button>
+                <div className="mb-3 w-full">
+                    <div className="relative w-full">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search tools by name or description..."
+                            aria-label="Search tools"
+                            className="pl-8"
+                        />
+                    </div>
                 </div>
 
                 {!hasAnyTools ? (
                     <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Tools Available</AlertTitle><AlertDescription>No tools found. Connect Tool Servers or define tools later.</AlertDescription></Alert>
-                ) : !hasFilteredTools && !showAllTools ? (
-                    <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Kubernetes Tools Found</AlertTitle><AlertDescription>Couldn&apos;t find specific K8s tools. Try showing all available tools.</AlertDescription></Alert>
+                ) : !hasCategoryToolsBeforeSearch ? (
+                    <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Kubernetes Tools Found</AlertTitle><AlertDescription>Couldn&apos;t find specific K8s tools. Connect tool servers or define tools later.</AlertDescription></Alert>
+                ) : !hasSearchedTools ? (
+                    <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Matching Tools</AlertTitle><AlertDescription>No tools match your search. Try a different query or clear the search.</AlertDescription></Alert>
                 ) : (
                     <ScrollArea className="h-[300px] border rounded-md p-2">
                         <div className="space-y-3 pr-2">
-                            {Object.entries(filteredToolsByCategory).map(([category, categoryTools]) => (
+                            {Object.entries(searchedToolsByCategory).map(([category, categoryTools]) => (
                                 <div key={category}>
                                     <div
                                         className="flex items-center justify-between cursor-pointer py-1 px-1 rounded hover:bg-muted/50"
@@ -183,7 +207,7 @@ export function ToolSelectionStep({
                                     </div>
                                     {expandedCategories[category] && (
                                         <div className="pl-6 pt-2 space-y-2">
-                                            {categoryTools.map((tool) => (
+                                            {categoryTools.map((tool: ToolsResponse) => (
                                                 <div key={getToolResponseIdentifier(tool)} className="flex items-start space-x-3">
                                                     <Checkbox
                                                         id={getToolResponseIdentifier(tool)}
