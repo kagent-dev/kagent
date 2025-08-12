@@ -810,11 +810,15 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 		}
 	}
 	if port == 0 {
-		// Look through ports to find AppProtcol = mcp
-		for _, svcPort := range svc.Spec.Ports {
-			if svcPort.AppProtocol != nil && strings.ToLower(*svcPort.AppProtocol) == "mcp" {
-				port = int64(svcPort.Port)
-				break
+		if len(svc.Spec.Ports) == 1 {
+			port = int64(svc.Spec.Ports[0].Port)
+		} else {
+			// Look through ports to find AppProtcol = mcp
+			for _, svcPort := range svc.Spec.Ports {
+				if svcPort.AppProtocol != nil && strings.ToLower(*svcPort.AppProtocol) == "mcp" {
+					port = int64(svcPort.Port)
+					break
+				}
 			}
 		}
 	}
