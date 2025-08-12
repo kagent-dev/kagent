@@ -59,7 +59,7 @@ jobs:
           version: v3.17.0
 
       - name: Create k8s Kind Cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@b72c923563e6e80ea66e8e8c810798cc73e97e5e
         with:
           cluster_name: kagent
           registry: true
