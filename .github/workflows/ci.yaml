@@ -63,7 +63,7 @@ jobs:
           chmod +x kind
           mv kind $GITHUB_PATH
 
-          make kind-create-cluster
+          make create-kind-cluster
 
       - name: Install Kagent
         env:
