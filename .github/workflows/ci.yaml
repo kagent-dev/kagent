@@ -76,7 +76,6 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
-          DOCKER_REGISTRY: "localhost:5001"
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
@@ -202,7 +201,6 @@ jobs:
             --push
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx"
-          DOCKER_REGISTRY: "localhost:5001"
         run: make build-${{ matrix.image }}
         working-directory: ./
 
