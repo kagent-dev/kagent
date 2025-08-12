@@ -58,18 +58,11 @@ jobs:
         with:
           version: v3.17.0
 
-      - name: Create k8s Kind Cluster
+      - name: Install Kind
         id: kind
         uses: helm/kind-action@b72c923563e6e80ea66e8e8c810798cc73e97e5e
         with:
-          cluster_name: kagent
-          registry: true
-          registry_enable_delete: true
-
-      # This allows us to not rely on port-forwarding which is flaky
-      - name: Setup Metallb
-        run: |
-          bash scripts/kind/setup-metallb.sh
+          install_only: true
 
       - name: Install Kagent
         env:
@@ -82,8 +75,9 @@ jobs:
             --platform=linux/amd64
             --push
         run: |
+          make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          DOCKER_REGISTRY=${{ steps.kind.outputs.LOCAL_REGISTRY }} make helm-install
+          make helm-install
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
