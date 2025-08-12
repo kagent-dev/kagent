@@ -373,7 +373,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                         const agentResp = item as AgentResponse;
                                         const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
                                         const toolToRemove = localSelectedTools.find(tool => 
-                                          isAgentTool(tool) && tool.agent?.ref === agentRef
+                                          isAgentTool(tool) && tool.agent?.name === agentRef
                                         );
                                         if (toolToRemove) handleRemoveTool(toolToRemove);
                                       } else {
@@ -481,7 +481,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                     } else {
                       const { displayName, description, Icon, iconColor } = getItemDisplayInfo(
                         isAgentTool(tool) 
-                          ? availableAgents.find(a => k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name) === tool.agent?.ref)!: availableTools.find(s => s.server_name === tool.mcpServer?.name)!
+                          ? availableAgents.find(a => k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name) === tool.agent?.name)!: availableTools.find(s => s.server_name === tool.mcpServer?.name)!
                       );
                       
                       return [( 

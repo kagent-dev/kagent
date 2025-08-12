@@ -24,7 +24,7 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
         a.agent.metadata.namespace || "",
         a.agent.metadata.name,
       )
-      return aRef === typedTool.agent.ref
+      return aRef === typedTool.agent.name
     });
     const description = foundAgent?.agent.spec.description;
     return {
@@ -32,7 +32,7 @@ function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): T
       type: "Agent",
       agent: {
         ...typedTool.agent,
-        ref: typedTool.agent.ref,
+        name: typedTool.agent.name,
         description: description
       }
     } as Tool;

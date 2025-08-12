@@ -1,6 +1,6 @@
-import type{ Tool, McpServerTool, AgentTool, ToolsResponse, DiscoveredTool } from "@/types";
+import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference} from "@/types";
 
-export const isAgentTool = (tool: unknown): tool is { agent: AgentTool } => {
+export const isAgentTool = (tool: unknown): tool is { agent: TypedLocalReference  } => {
   if (!tool || typeof tool !== "object") return false;
 
   return "agent" in tool && typeof tool.agent === "object" && tool.agent !== null && Object.keys(tool.agent).length > 0;
@@ -69,7 +69,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
 
 export const getToolIdentifier = (tool: Tool): string => {
   if (isAgentTool(tool) && tool.agent) {
-    return `agent-${tool.agent.ref}`;
+    return `agent-${tool.agent.name}`;
   } else if (isMcpTool(tool)) {
     const mcpTool = tool as Tool;
     return `mcp-${mcpTool.mcpServer?.name || "No name"}`;
@@ -79,7 +79,7 @@ export const getToolIdentifier = (tool: Tool): string => {
 
 export const getToolDisplayName = (tool: Tool): string => {
   if (isAgentTool(tool) && tool.agent) {
-    return tool.agent.ref;
+    return tool.agent.name;
   } else if (isMcpTool(tool)) {
     const mcpTool = tool as Tool;
     return mcpTool.mcpServer?.name || "No name";
