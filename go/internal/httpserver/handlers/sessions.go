@@ -123,7 +123,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 
 	log.V(1).Info("Getting agent from database", "session_request", sessionRequest)
 
-	agent, err := h.DatabaseService.GetAgent(*sessionRequest.AgentRef)
+	agent, err := h.DatabaseService.GetAgent(utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
 		return
