@@ -7,7 +7,7 @@ spec:
   type: BYO
   byo:
     deployment:
-      image: my-byo:latest
+      image: localhost:5001/my-byo:latest
       env:
         - name: GOOGLE_API_KEY
           valueFrom:

@@ -5,9 +5,6 @@ FROM $DOCKER_REGISTRY/kagent-dev/kagent/kagent-adk:$KAGENT_ADK_VERSION
 # Offline mode
 ENV UV_OFFLINE=1
 
-# Test if the tool is working and fetch all dependencies
-RUN kagent-adk --help
-
 EXPOSE 8080
 ARG VERSION
 

@@ -5,7 +5,7 @@ This is a basic agent that can used to test KAgent BYO agent with ADK.
 1. Build the agent image
 
 ```bash
-docker build  . -t my-byo
+docker build  . --push -t localhost:5001/my-byo:latest
 ```
 
 2. Create a secret with the google api key
