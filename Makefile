@@ -99,8 +99,8 @@ build-all: buildx-create
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
-	sh ./scripts/kind/setup-kind.sh
-	sh ./scripts/kind/setup-metallb.sh
+	bash ./scripts/kind/setup-kind.sh
+	bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
 use-kind-cluster:
@@ -243,7 +243,7 @@ helm-install-provider: helm-version check-openai-key
 		--history-max 2    \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--version 0.1.2 \
+		--version 0.1.3 \
 		--wait
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
