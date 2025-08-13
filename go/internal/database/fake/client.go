@@ -346,6 +346,7 @@ func (c *InMemmoryFakeClient) ListAgents() ([]database.Agent, error) {
 	for _, agent := range c.agents {
 		result = append(result, *agent)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
 }
 

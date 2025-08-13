@@ -164,8 +164,8 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 	}
 
 	log = log.WithValues(
-		"teamNamespace", agentRef.Namespace,
-		"teamName", agentRef.Name,
+		"agentNamespace", agentRef.Namespace,
+		"agentName", agentRef.Name,
 	)
 
 	kubeClientWrapper := utils.NewKubeClientWrapper(h.KubeClient)
