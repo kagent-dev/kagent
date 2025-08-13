@@ -17,6 +17,9 @@ type Agent struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	Type   string           `gorm:"not null" json:"type"`
+	// Config is optional and may be nil for some agent types.
+	// For agent types that require configuration, this field should be populated.
+	// For agent types that do not require configuration, this field should be nil.
 	Config *adk.AgentConfig `gorm:"type:json" json:"config"`
 }
 

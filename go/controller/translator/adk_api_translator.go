@@ -1045,7 +1045,7 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 	}
 
 	cmd := ""
-	if spec.Cmd != nil && len(*spec.Cmd) != 0 {
+	if spec.Cmd != nil && *spec.Cmd != "" {
 		cmd = *spec.Cmd
 	}
 
