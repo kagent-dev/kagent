@@ -4,8 +4,10 @@ import inspect
 import logging
 import os
 import sys
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Awaitable, Callable, override
+from datetime import datetime
 
 import httpx
 from a2a.auth.user import User
@@ -31,6 +33,24 @@ USER_ID = "admin@kagent.dev"
 
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
+
+
+def setup_asyncio_exception_handler():
+    """Setup custom asyncio exception handler with timestamps."""
+    def exception_handler(loop, context):
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        exception = context.get('exception')
+        message = context.get('message', 'Unknown error')
+        
+        if exception:
+            logger.error(f"Asyncio exception in {context.get('source', 'unknown')}: {message}", 
+                        exc_info=exception)
+        else:
+            logger.error(f"Asyncio error in {context.get('source', 'unknown')}: {message}")
+    
+    loop = asyncio.get_event_loop()
+    loop.set_exception_handler(exception_handler)
+    logger.info("Custom asyncio exception handler configured with timestamps")
 
 
 class KAgentUser(User):
@@ -101,6 +121,7 @@ class KAgentApp:
         self.agent_card = agent_card
 
     def build(self) -> FastAPI:
+        setup_asyncio_exception_handler()
         http_client = httpx.AsyncClient(base_url=kagent_url_override or self.kagent_url)
         session_service = KAgentSessionService(http_client)
 

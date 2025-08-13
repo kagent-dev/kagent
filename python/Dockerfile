@@ -27,6 +27,8 @@ ENV UV_COMPILE_BYTECODE=1
 
 ENV UV_CACHE_DIR=/app/python/.cache/uv
 ENV UV_PROJECT_ENVIRONMENT="/app/python/.venv"
+# Enhanced logging with timestamps
+ENV KAGENT_ENHANCED_LOGGING=true
 
 RUN addgroup -g 1001 pythongroup                       && \
     adduser  -u 1001 -G pythongroup -s /bin/bash -D python -h /app/python/  && \
