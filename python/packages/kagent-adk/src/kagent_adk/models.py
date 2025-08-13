@@ -80,6 +80,8 @@ class AgentConfig(BaseModel):
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
 
     def to_agent(self, name: str) -> Agent:
+        if name is None or not str(name).strip():
+            raise ValueError("Agent name must be a non-empty string.")
         mcp_toolsets: list[ToolUnion] = []
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
