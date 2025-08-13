@@ -147,7 +147,7 @@ func (a *kagentReconciler) handleExistingAgent(ctx context.Context, agent *v1alp
 	return multiErr.ErrorOrNil()
 }
 
-func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, configHash *[]byte, inputErr error) error {
+func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, configHash []byte, inputErr error) error {
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -202,13 +202,13 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	conditionChanged = meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
 
 	// Only update the config hash if the config hash has changed and there was no error
-	configHashChanged := configHash != nil && !bytes.Equal((agent.Status.ConfigHash)[:], (*configHash)[:])
+	configHashChanged := len(configHash) > 0 && !bytes.Equal((agent.Status.ConfigHash)[:], configHash[:])
 
 	// update the status if it has changed or the generation has changed
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation || configHashChanged {
 		// If the config hash is nil, it means there was an error during the reconciliation
-		if configHash != nil {
-			agent.Status.ConfigHash = (*configHash)[:]
+		if configHashChanged {
+			agent.Status.ConfigHash = configHash[:]
 		}
 		agent.Status.ObservedGeneration = agent.Generation
 		if err := a.kube.Status().Update(ctx, agent); err != nil {
@@ -480,7 +480,7 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	return nil
 }
 
-func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) (*[]byte, error) {
+func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) ([]byte, error) {
 	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
@@ -500,7 +500,7 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 		return nil, fmt.Errorf("failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
 
-	return ptr.To(hash[:]), nil
+	return hash[:], nil
 }
 
 func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *translator.AgentOutputs, configHash []byte) error {

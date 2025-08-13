@@ -62,3 +62,5 @@ RUN echo "Installing dependencies..."                   \
     && uv cache prune
 
 WORKDIR /app
+
+ENTRYPOINT ["kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]

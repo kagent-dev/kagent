@@ -89,7 +89,7 @@ jobs:
           export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083/api"
           echo $KAGENT_API_URL
 
-          go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
+          go test -v -run ^TestInvokeInlineAgent$ github.com/kagent-dev/kagent/go/test/e2e
       - name: fail print info
         if: failure()
         run: |
@@ -116,7 +116,7 @@ jobs:
       - name: Run cmd/main.go tests
         working-directory: go
         run: |
-          go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
+          go test -skip 'TestInvokeInlineAgent|TestE2E|TestAutogenClient' -v ./...
 
   helm-unit-tests:
     runs-on: ubuntu-latest

@@ -1,5 +1,7 @@
 ### STAGE 1: base image
-FROM localhost:5001/kagent-dev/kagent/kagent-adk:v0.5.5-95-g3f8cd1f4
+ARG DOCKER_REGISTRY=ghcr.io
+ARG VERSION=latest
+FROM $DOCKER_REGISTRY/kagent-dev/kagent/kagent-adk:$VERSION
 
 WORKDIR /app
 
@@ -11,4 +13,4 @@ COPY  uv.lock uv.lock
 
 RUN uv sync --locked --refresh
 
-ENTRYPOINT ["kagent-adk", "run", "basic", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["basic"]
