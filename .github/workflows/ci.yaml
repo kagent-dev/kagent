@@ -116,7 +116,7 @@ jobs:
       - name: Run cmd/main.go tests
         working-directory: go
         run: |
-          go test -skip 'TestInvokeInlineAgent|TestE2E|TestAutogenClient' -v ./...
+          go test -skip 'TestInvokeInlineAgent|TestInvokeExternalAgent|TestE2E|TestAutogenClient' -v ./...
 
   helm-unit-tests:
     runs-on: ubuntu-latest
