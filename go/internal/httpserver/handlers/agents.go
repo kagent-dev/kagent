@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"net/http"
-	"sort"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
@@ -50,11 +49,6 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 
 		agentsWithID = append(agentsWithID, agentResponse)
 	}
-
-	// Sort agentsWithID by name and namespace
-	sort.Slice(agentsWithID, func(i, j int) bool {
-		return agentsWithID[i].ID < agentsWithID[j].ID
-	})
 
 	log.Info("Successfully listed agents", "count", len(agentsWithID))
 	data := api.NewResponse(agentsWithID, "Successfully listed agents", false)

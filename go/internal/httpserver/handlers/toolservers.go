@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"net/http"
-	"sort"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
@@ -80,11 +79,6 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 			DiscoveredTools: discoveredTools,
 		}
 	}
-
-	// Sort toolServerWithTools by name and namespace
-	sort.Slice(toolServerWithTools, func(i, j int) bool {
-		return toolServerWithTools[i].Ref < toolServerWithTools[j].Ref
-	})
 
 	log.Info("Successfully listed ToolServers", "count", len(toolServerWithTools))
 	data := api.NewResponse(toolServerWithTools, "Successfully listed ToolServers", false)

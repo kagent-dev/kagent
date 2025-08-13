@@ -346,6 +346,7 @@ func (c *InMemmoryFakeClient) ListAgents() ([]database.Agent, error) {
 	for _, agent := range c.agents {
 		result = append(result, *agent)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
 }
 
@@ -358,6 +359,7 @@ func (c *InMemmoryFakeClient) ListToolServers() ([]database.ToolServer, error) {
 	for _, server := range c.toolServers {
 		result = append(result, *server)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result, nil
 }
 
@@ -370,6 +372,7 @@ func (c *InMemmoryFakeClient) ListTools() ([]database.Tool, error) {
 	for _, tool := range c.tools {
 		result = append(result, *tool)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
 }
 
@@ -389,6 +392,7 @@ func (c *InMemmoryFakeClient) ListToolsForServer(serverName string) ([]database.
 			result = append(result, *tool)
 		}
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
 }
 
