@@ -370,6 +370,9 @@ func (c *InMemmoryFakeClient) ListTools() ([]database.Tool, error) {
 	for _, tool := range c.tools {
 		result = append(result, *tool)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return (result[i].ServerName + result[i].ID) < (result[j].ServerName + result[j].ID)
+	})
 	return result, nil
 }
 
@@ -391,7 +394,7 @@ func (c *InMemmoryFakeClient) ListToolsForServer(serverName string) ([]database.
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].ID < result[j].ID
+		return (result[i].ServerName + result[i].ID) < (result[j].ServerName + result[j].ID)
 	})
 	return result, nil
 }
