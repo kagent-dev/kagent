@@ -43,18 +43,17 @@ const (
 )
 
 type ImageConfig struct {
-	// +optional
-	Registry string `json:"registry,omitempty"`
-	// +optional
-	Tag string `json:"tag,omitempty"`
-	// +optional
+	Registry   string `json:"registry,omitempty"`
+	Tag        string `json:"tag,omitempty"`
 	PullPolicy string `json:"pullPolicy,omitempty"`
+	Repository string `json:"repository,omitempty"`
 }
 
 var DefaultImageConfig = ImageConfig{
 	Registry:   "cr.kagent.dev",
 	Tag:        version.Get().Version,
 	PullPolicy: string(corev1.PullIfNotPresent),
+	Repository: "kagent-dev/kagent/app",
 }
 
 type AgentOutputs struct {
@@ -999,7 +998,8 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	if spec.ImageRegistry != "" {
 		registry = spec.ImageRegistry
 	}
-	image := fmt.Sprintf("%s/kagent-dev/kagent/app:%s", registry, DefaultImageConfig.Tag)
+	repository := DefaultImageConfig.Repository
+	image := fmt.Sprintf("%s/%s:%s", registry, repository, DefaultImageConfig.Tag)
 
 	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
 	if spec.ImagePullPolicy != "" {

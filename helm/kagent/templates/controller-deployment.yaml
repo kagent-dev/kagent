@@ -75,6 +75,8 @@ spec:
             - -image-pull-policy
             - {{ .Values.imagePullPolicy }}
             {{- end }}
+            - image-repository
+            - {{ .Values.controller.agentImage.repository }}
           securityContext:
             {{- toYaml .Values.controller.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"

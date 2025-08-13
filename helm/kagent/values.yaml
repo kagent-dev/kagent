@@ -59,6 +59,11 @@ database:
 controller:
   replicas: 1
   loglevel: "info"
+  agentImage:
+    registry: ""
+    repository: kagent-dev/kagent/app
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: ""
   streaming: # Streaming buffer size for A2A communication
     maxBufSize: 1Mi # 1024 * 1024
     initialBufSize: 4Ki # 4 * 1024
