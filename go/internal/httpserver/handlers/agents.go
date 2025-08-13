@@ -60,9 +60,18 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	agentRef := common.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
+	deploymentReady := false
+	for _, condition := range agent.Status.Conditions {
+		if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
+			deploymentReady = true
+			break
+		}
+	}
+
 	response := api.AgentResponse{
-		ID:    common.ConvertToPythonIdentifier(agentRef),
-		Agent: agent,
+		ID:              common.ConvertToPythonIdentifier(agentRef),
+		Agent:           agent,
+		DeploymentReady: deploymentReady,
 	}
 
 	if agent.Spec.Type == v1alpha2.AgentType_Inline {
