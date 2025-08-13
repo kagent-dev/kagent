@@ -63,6 +63,15 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 
+# KMCP chart version: latest GitHub release (no 'v' prefix)
+KMCP_REPO ?= kagent-dev/kmcp
+KMCP_VERSION ?= $(shell \
+	URL=https://api.github.com/repos/$(KMCP_REPO)/releases/latest; \
+	RESP=$$(curl -fsSL $$URL 2>/dev/null || true); \
+	VALUE=$$(printf '%s' "$$RESP" | sed -nE 's/.*"tag_name":\s*"v?([^"]+)".*/\1/p'); \
+	if [ -n "$$VALUE" ]; then echo "$$VALUE"; else echo "0.1.3"; fi \
+)
+
 HELM_ACTION=upgrade --install
 
 # Helm chart variables
@@ -76,6 +85,7 @@ print-tools-versions:
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
+	@echo "KMCP Version : $(KMCP_VERSION)"
 
 # Check if OPENAI_API_KEY is set
 check-openai-key:
@@ -243,7 +253,7 @@ helm-install-provider: helm-version check-openai-key
 		--history-max 2    \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--version 0.1.3 \
+		--version $(KMCP_VERSION) \
 		--wait
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
