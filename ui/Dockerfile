@@ -84,8 +84,9 @@ RUN mkdir -p /app/ui/public /run/nginx/ /var/run/nginx/ /var/lib/nginx/tmp/ /var
     && chown    -vR nextjs:nginx /run/nginx             \
     && chown    -vR nextjs:nginx /var/run/nginx         \
     && chown    -vR nextjs:nginx /var/lib/nginx/        \
+    && chown    -vR nextjs:nginx /var/run/nginx         \
     && touch /var/lib/nginx/logs/error.log              
-    
+
 WORKDIR /app
 COPY conf/nginx.conf /etc/nginx/nginx.conf
 COPY conf/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
