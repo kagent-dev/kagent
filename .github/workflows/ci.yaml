@@ -83,7 +83,7 @@ jobs:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
-        if: ${{ steps.install-kagent.outcome == 'success' }}
+        if: success()
         working-directory: go
         run: |
           export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083/api"
@@ -91,7 +91,7 @@ jobs:
 
           go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
       - name: fail print info
-        if: ${{ steps.install-kagent.outcome == 'failure' }}
+        if: failure()
         run: |
           echo "::error::Failed to run e2e tests"
           echo "::error::Kubectl get pods -n kagent"
