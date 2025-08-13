@@ -358,6 +358,9 @@ func (c *InMemmoryFakeClient) ListToolServers() ([]database.ToolServer, error) {
 	for _, server := range c.toolServers {
 		result = append(result, *server)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return (result[i].Name + result[i].GroupKind) < (result[j].Name + result[j].GroupKind)
+	})
 	return result, nil
 }
 
