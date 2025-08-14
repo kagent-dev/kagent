@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -142,7 +143,16 @@ class A2aAgentExecutor(AgentExecutor):
             except Exception as enqueue_error:
                 logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
         finally:
-            await runner.close()
+            # Shield cleanup from external cancellation so toolsets (e.g., MCP) can
+            # gracefully close their sessions without being torn down mid-flight.
+            try:
+                await asyncio.wait_for(asyncio.shield(runner.close()), timeout=15.0)
+            except asyncio.CancelledError:
+                # Suppress cancellation during cleanup to avoid noisy tracebacks
+                # from libraries that assume non-cancelled close semantics.
+                logger.warning("Runner.close() was cancelled; suppressing during cleanup")
+            except Exception as close_error:
+                logger.error("Error during runner.close(): %s", close_error, exc_info=True)
 
     async def _handle_request(
         self,
