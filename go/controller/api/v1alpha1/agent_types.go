@@ -109,7 +109,7 @@ type McpServerTool struct {
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
-	ToolNames []string `json:"toolNames,omitempty"`
+	ToolNames []string `json:"toolNames"`
 }
 
 type AnyType struct {

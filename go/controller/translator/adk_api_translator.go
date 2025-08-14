@@ -356,6 +356,9 @@ func (a *adkApiTranslator) translateDeclarativeAgent(ctx context.Context, agent 
 		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.McpServer != nil:
+			if len(tool.McpServer.ToolNames) == 0 {
+				toolsByServer[tool.McpServer.ToolServer] = []string{}
+			}
 			for _, toolName := range tool.McpServer.ToolNames {
 				toolsByServer[tool.McpServer.ToolServer] = append(toolsByServer[tool.McpServer.ToolServer], toolName)
 			}
@@ -700,7 +703,11 @@ func (a *adkApiTranslator) translateToolServerTool(ctx context.Context, agent *a
 	if err != nil {
 		return err
 	}
-
+	if len(toolNames) == 0 {
+		for _, v := range toolServerObj.Status.DiscoveredTools {
+			toolNames = append(toolNames, v.Name)
+		}
+	}
 	switch {
 	case toolServerObj.Spec.Config.Sse != nil:
 		tool, err := a.translateSseHttpTool(ctx, toolServerObj.Spec.Config.Sse, defaultNamespace)

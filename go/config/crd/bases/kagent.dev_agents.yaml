@@ -2098,6 +2098,8 @@ spec:
                             to the name of an ToolServer in a different namespace
                             in the form <namespace>/<name>
                           type: string
+                      required:
+                      - toolNames
                       type: object
                     type:
                       allOf:
