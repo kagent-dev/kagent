@@ -87,7 +87,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     name: "",
     namespace: "default",
     description: "",
-    agentType: "Inline",
+    agentType: "Declarative",
     systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
     selectedModel: null,
     selectedTools: [],
@@ -122,20 +122,19 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           if (agent) {
             try {
               // Populate form with existing agent data
-              const agentTypeValue = (agent.spec?.type as "Inline" | "BYO") || "Inline";
               const baseUpdates: Partial<FormState> = {
                 name: agent.metadata.name || "",
                 namespace: agent.metadata.namespace || "",
                 description: agent.spec?.description || "",
-                agentType: agentTypeValue,
+                agentType: agent.spec.type,
               };
               // v1alpha2: read type and split specs
-              if (agentTypeValue === "Inline") {
+              if (agent.spec.type === "Declarative") {
                 setState(prev => ({
                   ...prev,
                   ...baseUpdates,
-                  systemPrompt: agent.spec?.inline?.systemMessage || "",
-                  selectedTools: (agent.spec?.inline?.tools && agentResponse.tools) ? agentResponse.tools : [],
+                  systemPrompt: agent.spec?.declarative?.systemMessage || "",
+                  selectedTools: (agent.spec?.declarative?.tools && agentResponse.tools) ? agentResponse.tools : [],
                   selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
                   byoImage: "",
                   byoCmd: "",
@@ -248,8 +247,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     try {
 
       setState(prev => ({ ...prev, isSubmitting: true }));
-      if (state.agentType === "Inline" && !state.selectedModel) {
-        throw new Error("Model is required to create Inline agent.");
+      if (state.agentType === "Declarative" && !state.selectedModel) {
+        throw new Error("Model is required to create a declarative agent.");
       }
 
       const agentData = {
@@ -353,7 +352,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <div>
                   <Label className="text-base mb-2 block font-bold">Agent Type</Label>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    Choose Inline (uses a model) or BYO (bring your own containerized agent).
+                    Choose declarative (uses a model) or BYO (bring your own containerized agent).
                   </p>
                   <Select
                     value={state.agentType}
@@ -367,7 +366,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       <SelectValue placeholder="Select agent type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Inline">Inline</SelectItem>
+                      <SelectItem value="Declarative">Declarative</SelectItem>
                       <SelectItem value="BYO">BYO</SelectItem>
                     </SelectContent>
                   </Select>
@@ -389,7 +388,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   {state.errors.description && <p className="text-red-500 text-sm mt-1">{state.errors.description}</p>}
                 </div>
 
-                {state.agentType === "Inline" && (
+                {state.agentType === "Declarative" && (
                   <>
                     <SystemPromptSection 
                       value={state.systemPrompt} 
@@ -525,7 +524,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 )}
               </CardContent>
             </Card>
-            {state.agentType === "Inline" && (
+            {state.agentType === "Declarative" && (
               <>
                 <Card>
                   <CardHeader>

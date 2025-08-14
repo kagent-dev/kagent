@@ -240,15 +240,15 @@ export interface McpServerTool extends TypedLocalReference {
   toolNames: string[];
 }
 
-export type AgentType = "Inline" | "BYO";
+export type AgentType = "Declarative" | "BYO";
 export interface AgentSpec {
   type: AgentType;
-  inline?: InlineAgentSpec;
+  declarative?: DeclarativeAgentSpec;
   byo?: BYOAgentSpec;
   description: string;
 }
 
-export interface InlineAgentSpec {
+export interface DeclarativeAgentSpec {
   systemMessage: string;
   tools: Tool[];
   // Name of the model config resource

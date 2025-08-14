@@ -24,7 +24,7 @@ export interface AgentFormData {
   namespace: string;
   description: string;
   type?: AgentType;
-  // Inline fields
+  // Declarative fields
   systemPrompt?: string;
   modelName?: string;
   tools: Tool[];
@@ -152,8 +152,8 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.description = "Description is required";
     }
 
-    const type = data.type || "Inline";
-    if (type === "Inline") {
+    const type = data.type || "Declarative";
+    if (type === "Declarative") {
       if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
         errors.systemPrompt = "Agent instructions are required";
       }

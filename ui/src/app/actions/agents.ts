@@ -52,7 +52,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     ? agentFormData.modelName.split("/").pop() || ""
     : agentFormData.modelName;
 
-  const type = agentFormData.type || "Inline";
+  const type = agentFormData.type || "Declarative";
 
   const convertTools = (tools: Tool[]) =>
     tools.map((tool) => {
@@ -111,8 +111,8 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     } as AgentSpec,
   };
 
-  if (type === "Inline") {
-    base.spec!.inline = {
+  if (type === "Declarative") {
+    base.spec!.declarative = {
       systemMessage: agentFormData.systemPrompt || "",
       modelConfig: modelConfigName || "",
       stream: agentFormData.stream ?? true,
