@@ -24,9 +24,10 @@ type Client interface {
 	// Delete methods
 	DeleteSession(sessionName string, userID string) error
 	DeleteAgent(agentID string) error
-	DeleteToolServer(serverName string) error
+	DeleteToolServer(serverName string, groupKind string) error
 	DeleteTask(taskID string) error
 	DeletePushNotification(taskID string) error
+	DeleteToolsForServer(serverName string, groupKind string) error
 
 	// Get methods
 	GetSession(name string, userID string) (*Session, error)
@@ -123,8 +124,16 @@ func (c *clientImpl) DeleteAgent(agentID string) error {
 }
 
 // DeleteToolServer deletes a tool server by name and user ID
-func (c *clientImpl) DeleteToolServer(serverName string) error {
-	return delete[ToolServer](c.db, Clause{Key: "name", Value: serverName})
+func (c *clientImpl) DeleteToolServer(serverName string, groupKind string) error {
+	return delete[ToolServer](c.db,
+		Clause{Key: "name", Value: serverName},
+		Clause{Key: "group_kind", Value: groupKind})
+}
+
+func (c *clientImpl) DeleteToolsForServer(serverName string, groupKind string) error {
+	return delete[Tool](c.db,
+		Clause{Key: "server_name", Value: serverName},
+		Clause{Key: "group_kind", Value: groupKind})
 }
 
 // GetTaskMessages retrieves messages for a specific task

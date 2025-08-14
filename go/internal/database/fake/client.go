@@ -215,11 +215,21 @@ func (c *InMemmoryFakeClient) DeleteAgent(agentName string) error {
 }
 
 // DeleteToolServer deletes a tool server by name
-func (c *InMemmoryFakeClient) DeleteToolServer(serverName string) error {
+func (c *InMemmoryFakeClient) DeleteToolServer(serverName string, groupKind string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	delete(c.toolServers, serverName)
+	return nil
+}
+
+// DeleteToolsForServer deletes tools for a tool server by name
+
+func (c *InMemmoryFakeClient) DeleteToolsForServer(serverName string, groupKind string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.tools, serverName)
 	return nil
 }
 

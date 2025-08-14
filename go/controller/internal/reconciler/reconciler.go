@@ -98,19 +98,6 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 }
 
 func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
-	// TODO(sbx0r): handle deletion of agents with multiple teams assignment
-
-	// agents, err := a.findTeamsUsingAgent(ctx, req)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to find teams for agent %s/%s: %v", req.Namespace, req.Name, err)
-	// }
-	// if len(agents) > 1 {
-	// 	reconcileLog.Info("agent with multiple dependencies was deleted",
-	// 	"namespace", req.Namespace,
-	// 	"name", req.Name,
-	// 	"agents", agents)
-	// }
-
 	// remove a2a handler if it exists
 	a.a2aReconciler.ReconcileAgentDeletion(req.NamespacedName.String())
 
@@ -221,6 +208,21 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error {
 	service := &corev1.Service{}
 	if err := a.kube.Get(ctx, req.NamespacedName, service); err != nil {
+		if k8s_errors.IsNotFound(err) {
+			// Delete from DB if the service is deleted
+			dbService := &database.ToolServer{
+				Name:      utils.GetObjectRef(service),
+				GroupKind: schema.GroupKind{Group: "", Kind: "Service"}.String(),
+			}
+			if err := a.dbClient.DeleteToolServer(dbService.Name, dbService.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tool server for mcp service", "service", utils.GetObjectRef(service))
+			}
+			reconcileLog.Info("mcp service was deleted", "service", utils.GetObjectRef(service))
+			if err := a.dbClient.DeleteToolsForServer(dbService.Name, dbService.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tools for mcp service", "service", utils.GetObjectRef(service))
+			}
+			return nil
+		}
 		return fmt.Errorf("failed to get service %s: %v", req.Name, err)
 	}
 
@@ -341,6 +343,21 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {
 	mcpServer := &v1alpha1.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
+		if k8s_errors.IsNotFound(err) {
+			// Delete from DB if the mcp server is deleted
+			dbServer := &database.ToolServer{
+				Name:      utils.GetObjectRef(mcpServer),
+				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
+			}
+			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tool server for mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+			}
+			reconcileLog.Info("mcp server was deleted", "mcpServer", utils.GetObjectRef(mcpServer))
+			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tools for mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+			}
+			return nil
+		}
 		return fmt.Errorf("failed to get mcp server %s: %v", req.Name, err)
 	}
 
@@ -405,6 +422,18 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	if err := a.kube.Get(ctx, req.NamespacedName, toolServer); err != nil {
 		// if the tool server is not found, we can ignore it
 		if k8s_errors.IsNotFound(err) {
+			// Delete from DB if the remote mcp server is deleted
+			dbServer := &database.ToolServer{
+				Name:      utils.GetObjectRef(toolServer),
+				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String(),
+			}
+			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tool server for remote mcp server", "remoteMCPServer", utils.GetObjectRef(toolServer))
+			}
+			reconcileLog.Info("remote mcp server was deleted", "remoteMCPServer", utils.GetObjectRef(toolServer))
+			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tools for remote mcp server", "remoteMCPServer", utils.GetObjectRef(toolServer))
+			}
 			return nil
 		}
 		return fmt.Errorf("failed to get tool server %s: %v", req.Name, err)
