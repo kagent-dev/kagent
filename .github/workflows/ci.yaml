@@ -119,6 +119,8 @@ jobs:
           go test -skip 'TestInvokeInlineAgent|TestInvokeExternalAgent|TestE2E|TestAutogenClient' -v ./...
 
   helm-unit-tests:
+    env:
+      VERSION: v0.0.1-test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
