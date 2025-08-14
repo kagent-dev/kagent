@@ -46,7 +46,6 @@ var (
 
 // AgentController reconciles a Agent object
 type AgentController struct {
-	// client.Client
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
