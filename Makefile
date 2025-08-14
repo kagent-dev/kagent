@@ -63,15 +63,8 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 
-# KMCP chart version: latest GitHub release (no 'v' prefix)
-KMCP_REPO ?= kagent-dev/kmcp
-KMCP_FALLBACK_VERSION ?= 0.1.3
-KMCP_VERSION ?= $(shell \
-	URL=https://api.github.com/repos/$(KMCP_REPO)/releases/latest; \
-	RESP=$$(curl -fsSL $$URL 2>/dev/null || true); \
-	VALUE=$$(printf '%s' "$$RESP" | sed -nE 's/.*"tag_name":\s*"v?([^"]+)".*/\1/p'); \
-	if [ -n "$$VALUE" ]; then echo "$$VALUE"; else echo "$(KMCP_FALLBACK_VERSION)"; fi \
-)
+# kmcp version extraction from go.mod
+KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod)
 
 HELM_ACTION=upgrade --install
 
