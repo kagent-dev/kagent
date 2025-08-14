@@ -112,7 +112,7 @@ func (a *adkApiTranslator) TranslateAgent(
 ) (*AgentOutputs, error) {
 
 	switch agent.Spec.Type {
-	case v1alpha2.AgentType_Inline:
+	case v1alpha2.AgentType_Declarative:
 		cfg, card, mdd, err := a.translateInlineAgent(ctx, agent, &tState{})
 		if err != nil {
 			return nil, err
@@ -344,14 +344,14 @@ func (a *adkApiTranslator) buildManifest(
 
 func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, error) {
 
-	model, mdd, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Inline.ModelConfig)
+	model, mdd, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Declarative.ModelConfig)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	cfg := &adk.AgentConfig{
 		Description: agent.Spec.Description,
-		Instruction: agent.Spec.Inline.SystemMessage,
+		Instruction: agent.Spec.Declarative.SystemMessage,
 		Model:       model,
 	}
 	agentCard := &server.AgentCard{
@@ -369,14 +369,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		DefaultOutputModes: []string{"text"},
 	}
 
-	if agent.Spec.Inline.A2AConfig != nil {
-		agentCard.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Inline.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
+	if agent.Spec.Declarative.A2AConfig != nil {
+		agentCard.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Declarative.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
 			return server.AgentSkill(skill)
 		}))
 	}
 
 	toolsByServer := make(map[v1alpha2.TypedLocalReference][]string)
-	for _, tool := range agent.Spec.Inline.Tools {
+	for _, tool := range agent.Spec.Declarative.Tools {
 		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.McpServer != nil:
@@ -411,7 +411,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 
 			var toolAgentCfg *adk.AgentConfig
 			switch toolAgent.Spec.Type {
-			case v1alpha2.AgentType_Inline:
+			case v1alpha2.AgentType_Declarative:
 				toolAgentCfg, _, _, err = a.translateInlineAgent(ctx, toolAgent, state.with(agent))
 				if err != nil {
 					return nil, nil, nil, err
@@ -990,9 +990,9 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	}
 
 	// Start with spec deployment spec
-	spec := v1alpha2.InlineDeploymentSpec{}
-	if agent.Spec.Inline.Deployment != nil {
-		spec = *agent.Spec.Inline.Deployment
+	spec := v1alpha2.DeclarativeDeploymentSpec{}
+	if agent.Spec.Declarative.Deployment != nil {
+		spec = *agent.Spec.Declarative.Deployment
 	}
 	registry := DefaultImageConfig.Registry
 	if spec.ImageRegistry != "" {

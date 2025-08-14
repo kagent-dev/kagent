@@ -7,8 +7,8 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: The Helm Expert AI Agent specializing in using Helm for Kubernetes cluster management and operations. This agent is equipped with a range of tools to manage Helm releases and troubleshoot Helm-related issues.
-  type: Inline
-  inline:
+  type: Declarative
+  declarative:
     systemMessage: |-
       # Helm AI Agent System Prompt
 

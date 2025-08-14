@@ -44,8 +44,8 @@ func createTestAgent(name string, modelConfig *v1alpha2.ModelConfig) *v1alpha2.A
 			Namespace: "default",
 		},
 		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Inline,
-			Inline: &v1alpha2.InlineAgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
 				ModelConfig: modelConfig.Name,
 			},
 		},
@@ -267,8 +267,8 @@ func TestHandleUpdateAgent(t *testing.T) {
 		existingAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_Inline,
-				Inline: &v1alpha2.InlineAgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
 					ModelConfig: "old-model-config",
 				},
 			},
@@ -279,8 +279,8 @@ func TestHandleUpdateAgent(t *testing.T) {
 		updatedAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_Inline,
-				Inline: &v1alpha2.InlineAgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
 					ModelConfig: "new-model-config",
 				},
 			},
@@ -299,7 +299,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 		var response api.StandardResponse[v1alpha2.Agent]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Equal(t, "new-model-config", response.Data.Spec.Inline.ModelConfig)
+		require.Equal(t, "new-model-config", response.Data.Spec.Declarative.ModelConfig)
 	})
 
 	t.Run("returns 404 for non-existent team", func(t *testing.T) {
@@ -337,9 +337,9 @@ func TestHandleCreateAgent(t *testing.T) {
 		agent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
-				Type:        v1alpha2.AgentType_Inline,
+				Type:        v1alpha2.AgentType_Declarative,
 				Description: "Test team description",
-				Inline: &v1alpha2.InlineAgentSpec{
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
 					ModelConfig:   modelConfig.Name,
 					SystemMessage: "You are an imagenary agent",
 				},
@@ -360,8 +360,8 @@ func TestHandleCreateAgent(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "test-team", response.Data.Name)
 		require.Equal(t, "default", response.Data.Namespace)
-		require.Equal(t, "You are an imagenary agent", response.Data.Spec.Inline.SystemMessage)
-		require.Equal(t, "test-model-config", response.Data.Spec.Inline.ModelConfig)
+		require.Equal(t, "You are an imagenary agent", response.Data.Spec.Declarative.SystemMessage)
+		require.Equal(t, "test-model-config", response.Data.Spec.Declarative.ModelConfig)
 	})
 }
 

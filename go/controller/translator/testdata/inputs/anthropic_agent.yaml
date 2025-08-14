@@ -31,8 +31,8 @@ objects:
       name: anthropic-agent
       namespace: test
     spec:
-      type: Inline
-      inline:
+      type: Declarative
+      declarative:
         description: An agent using Anthropic Claude
         systemMessage: You are Claude, an AI assistant created by Anthropic.
         modelConfig: anthropic-model

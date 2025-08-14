@@ -29,8 +29,8 @@ objects:
       name: basic-agent
       namespace: test
     spec:
-      type: Inline
-      inline:
+      type: Declarative
+      declarative:
         description: A basic test agent
         systemMessage: You are a helpful assistant.
         modelConfig: basic-model

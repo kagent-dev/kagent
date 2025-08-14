@@ -173,11 +173,11 @@ func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl clien
 			continue
 		}
 
-		if agent.Spec.Type != v1alpha2.AgentType_Inline {
+		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
 			continue
 		}
 
-		for _, tool := range agent.Spec.Inline.Tools {
+		for _, tool := range agent.Spec.Declarative.Tools {
 			if tool.McpServer == nil {
 				continue
 			}
@@ -209,11 +209,11 @@ func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 	}
 
 	appendAgentIfUsesRemoteMCPServer := func(agent *v1alpha2.Agent) {
-		if agent.Spec.Type != v1alpha2.AgentType_Inline {
+		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
 			return
 		}
 
-		for _, tool := range agent.Spec.Inline.Tools {
+		for _, tool := range agent.Spec.Declarative.Tools {
 			if tool.McpServer == nil {
 				return
 			}
@@ -254,11 +254,11 @@ func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl clie
 			continue
 		}
 
-		if agent.Spec.Type != v1alpha2.AgentType_Inline {
+		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
 			continue
 		}
 
-		for _, tool := range agent.Spec.Inline.Tools {
+		for _, tool := range agent.Spec.Declarative.Tools {
 			if tool.McpServer == nil {
 				continue
 			}
@@ -295,11 +295,11 @@ func (r *AgentController) findAgentsUsingModelConfig(ctx context.Context, cl cli
 			continue
 		}
 
-		if agent.Spec.Type != v1alpha2.AgentType_Inline {
+		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
 			continue
 		}
 
-		if agent.Spec.Inline.ModelConfig == obj.Name {
+		if agent.Spec.Declarative.ModelConfig == obj.Name {
 			agents = append(agents, agent)
 		}
 

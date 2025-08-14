@@ -25,8 +25,8 @@ objects:
       name: specialist-agent
       namespace: test
     spec:
-      type: Inline
-      inline:
+      type: Declarative
+      declarative:
         description: A specialist agent for math problems
         systemMessage: You are a math specialist. Focus on solving mathematical problems step by step.
         modelConfig: nested-model
@@ -37,8 +37,8 @@ objects:
       name: parent-agent
       namespace: test
     spec:
-      type: Inline
-      inline:
+      type: Declarative
+      declarative:
         description: A parent agent that can delegate to specialists
         systemMessage: You are a coordinating agent that can delegate tasks to specialists.
         modelConfig: nested-model

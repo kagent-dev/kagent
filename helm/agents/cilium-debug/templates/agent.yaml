@@ -7,8 +7,8 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: Cilium debug agent can help with debugging, troubleshooting, and advanced diagnostics of Cilium installations in Kubernetes clusters.
-  type: Inline
-  inline:
+  type: Declarative
+  declarative:
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     systemMessage: |
       You are the Cilium Debug Agent, a specialized assistant for debugging, troubleshooting, 

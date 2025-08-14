@@ -25,33 +25,33 @@ import (
 )
 
 // AgentType represents the agent type
-// +kubebuilder:validation:Enum=Inline;BYO
+// +kubebuilder:validation:Enum=Declarative;BYO
 type AgentType string
 
 const (
-	AgentType_Inline AgentType = "Inline"
-	AgentType_BYO    AgentType = "BYO"
+	AgentType_Declarative AgentType = "Declarative"
+	AgentType_BYO         AgentType = "BYO"
 )
 
 // AgentSpec defines the desired state of Agent.
 // +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
-// +kubebuilder:validation:XValidation:message="type must be either Inline or BYO",rule="self.type == 'Inline' || self.type == 'BYO'"
-// +kubebuilder:validation:XValidation:message="inline must be specified if type is Inline, or byo must be specified if type is BYO",rule="(self.type == 'Inline' && has(self.inline)) || (self.type == 'BYO' && has(self.byo))"
+// +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
+// +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, or byo must be specified if type is BYO",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo))"
 type AgentSpec struct {
-	// +kubebuilder:validation:Enum=Inline;BYO
-	// +kubebuilder:default=Inline
+	// +kubebuilder:validation:Enum=Declarative;BYO
+	// +kubebuilder:default=Declarative
 	Type AgentType `json:"type"`
 
 	// +optional
 	BYO *BYOAgentSpec `json:"byo,omitempty"`
 	// +optional
-	Inline *InlineAgentSpec `json:"inline,omitempty"`
+	Declarative *DeclarativeAgentSpec `json:"declarative,omitempty"`
 
 	// +optional
 	Description string `json:"description,omitempty"`
 }
 
-type InlineAgentSpec struct {
+type DeclarativeAgentSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// The name of the model config to use.
@@ -75,10 +75,10 @@ type InlineAgentSpec struct {
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
 
 	// +optional
-	Deployment *InlineDeploymentSpec `json:"deployment,omitempty"`
+	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
 }
 
-type InlineDeploymentSpec struct {
+type DeclarativeDeploymentSpec struct {
 	// +optional
 	ImageRegistry string `json:"imageRegistry,omitempty"`
 

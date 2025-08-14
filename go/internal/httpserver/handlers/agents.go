@@ -74,12 +74,12 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		DeploymentReady: deploymentReady,
 	}
 
-	if agent.Spec.Type == v1alpha2.AgentType_Inline {
+	if agent.Spec.Type == v1alpha2.AgentType_Declarative {
 		// Get the ModelConfig for the team
 		modelConfig := &v1alpha2.ModelConfig{}
 		objKey := client.ObjectKey{
 			Namespace: agent.Namespace,
-			Name:      agent.Spec.Inline.ModelConfig,
+			Name:      agent.Spec.Declarative.ModelConfig,
 		}
 		if err := h.KubeClient.Get(
 			ctx,
@@ -96,7 +96,7 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		response.ModelProvider = modelConfig.Spec.Provider
 		response.Model = modelConfig.Spec.Model
 		response.ModelConfigRef = common.GetObjectRef(modelConfig)
-		response.Tools = agent.Spec.Inline.Tools
+		response.Tools = agent.Spec.Declarative.Tools
 	}
 
 	return response, nil

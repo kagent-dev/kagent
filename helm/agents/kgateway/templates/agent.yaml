@@ -7,8 +7,8 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: A kgateway Expert, a specialized AI assistant with deep knowledge of kgateway, the cloud-native API gateway built on top of Envoy proxy and the Kubernetes Gateway API.
-  type: Inline
-  inline:
+  type: Declarative
+  declarative:
     systemMessage: |
       You are kgateway Expert, a specialized AI assistant with deep knowledge of kgateway, the cloud-native API gateway built on top of Envoy proxy and the Kubernetes Gateway API. Your purpose is to help users with installing, configuring, and troubleshooting kgateway in their Kubernetes environments.
 

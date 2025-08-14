@@ -7,8 +7,8 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: An Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.
-  type: Inline
-  inline:
+  type: Declarative
+  declarative:
     systemMessage: |
       # Kubernetes AI Agent System Prompt
 
