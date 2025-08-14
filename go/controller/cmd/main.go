@@ -353,7 +353,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.ServiceReconciler{
+	if err := (&controller.ServiceController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -361,7 +361,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.MCPServerReconciler{
+	if err := (&controller.MCPServerController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -369,28 +369,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.AgentReconciler{
+	if err = (&controller.AgentController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Agent")
 		os.Exit(1)
 	}
-	if err = (&controller.ModelConfigReconciler{
+	if err = (&controller.ModelConfigController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelConfig")
 		os.Exit(1)
 	}
-	if err = (&controller.RemoteMCPServerReconciler{
+	if err = (&controller.RemoteMCPServerController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ToolServer")
 		os.Exit(1)
 	}
-	if err = (&controller.MemoryReconciler{
+	if err = (&controller.MemoryController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {

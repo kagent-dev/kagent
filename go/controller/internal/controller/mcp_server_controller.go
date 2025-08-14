@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// MCPServerReconciler reconciles a MCPServer object
-type MCPServerReconciler struct {
+// MCPServerController reconciles a MCPServer object
+type MCPServerController struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
@@ -42,7 +42,7 @@ type MCPServerReconciler struct {
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers,verbs=get;list;watch
 
-func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *MCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	return ctrl.Result{
@@ -52,7 +52,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *MCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),

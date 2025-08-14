@@ -41,11 +41,11 @@ import (
 )
 
 var (
-	agentReconcileLog = ctrl.Log.WithName("agent-controller")
+	agentControllerLog = ctrl.Log.WithName("agent-controller")
 )
 
-// AgentReconciler reconciles a Agent object
-type AgentReconciler struct {
+// AgentController reconciles a Agent object
+type AgentController struct {
 	// client.Client
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
@@ -55,13 +55,13 @@ type AgentReconciler struct {
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents/finalizers,verbs=update
 
-func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *AgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 	return ctrl.Result{}, r.Reconciler.ReconcileKagentAgent(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
@@ -158,13 +158,13 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *AgentReconciler) findAgentsUsingMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
 	var agentsList v1alpha2.AgentList
 	if err := cl.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		agentReconcileLog.Error(err, "failed to list agents in order to reconcile MCPServer update")
+		agentControllerLog.Error(err, "failed to list agents in order to reconcile MCPServer update")
 		return nil
 	}
 
@@ -197,7 +197,7 @@ func (r *AgentReconciler) findAgentsUsingMCPServer(ctx context.Context, cl clien
 	return agents
 }
 
-func (r *AgentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
 	var agents []*v1alpha2.Agent
 
 	var agentsList v1alpha2.AgentList
@@ -205,7 +205,7 @@ func (r *AgentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 		ctx,
 		&agentsList,
 	); err != nil {
-		agentReconcileLog.Error(err, "failed to list Agents in order to reconcile ToolServer update")
+		agentControllerLog.Error(err, "failed to list Agents in order to reconcile ToolServer update")
 		return agents
 	}
 
@@ -238,14 +238,14 @@ func (r *AgentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 	return agents
 }
 
-func (r *AgentReconciler) findAgentsUsingMCPService(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
 
 	var agentsList v1alpha2.AgentList
 	if err := cl.List(
 		ctx,
 		&agentsList,
 	); err != nil {
-		agentReconcileLog.Error(err, "failed to list agents in order to reconcile MCPService update")
+		agentControllerLog.Error(err, "failed to list agents in order to reconcile MCPService update")
 		return nil
 	}
 
@@ -277,7 +277,7 @@ func (r *AgentReconciler) findAgentsUsingMCPService(ctx context.Context, cl clie
 	return agents
 }
 
-func (r *AgentReconciler) findAgentsUsingModelConfig(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+func (r *AgentController) findAgentsUsingModelConfig(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
 	var agents []*v1alpha2.Agent
 
 	var agentsList v1alpha2.AgentList
@@ -285,7 +285,7 @@ func (r *AgentReconciler) findAgentsUsingModelConfig(ctx context.Context, cl cli
 		ctx,
 		&agentsList,
 	); err != nil {
-		agentReconcileLog.Error(err, "failed to list Agents in order to reconcile ModelConfig update")
+		agentControllerLog.Error(err, "failed to list Agents in order to reconcile ModelConfig update")
 		return agents
 	}
 

@@ -38,11 +38,11 @@ import (
 )
 
 var (
-	modelConfigReconcileLog = ctrl.Log.WithName("modelconfig-controller")
+	modelConfigControllerLog = ctrl.Log.WithName("modelconfig-controller")
 )
 
-// ModelConfigReconciler reconciles a ModelConfig object
-type ModelConfigReconciler struct {
+// ModelConfigController reconciles a ModelConfig object
+type ModelConfigController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
@@ -51,13 +51,13 @@ type ModelConfigReconciler struct {
 // +kubebuilder:rbac:groups=kagent.dev,resources=modelconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=modelconfigs/finalizers,verbs=update
 
-func (r *ModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ModelConfigController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 	return ctrl.Result{}, r.Reconciler.ReconcileKagentModelConfig(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ModelConfigController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
@@ -88,7 +88,7 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *ModelConfigReconciler) findModelsUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.ModelConfig {
+func (r *ModelConfigController) findModelsUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.ModelConfig {
 	var models []*v1alpha2.ModelConfig
 
 	var modelsList v1alpha2.ModelConfigList
@@ -96,7 +96,7 @@ func (r *ModelConfigReconciler) findModelsUsingSecret(ctx context.Context, cl cl
 		ctx,
 		&modelsList,
 	); err != nil {
-		modelConfigReconcileLog.Error(err, "failed to list ModelConfigs in order to reconcile Secret update")
+		modelConfigControllerLog.Error(err, "failed to list ModelConfigs in order to reconcile Secret update")
 		return models
 	}
 
