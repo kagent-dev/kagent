@@ -18,6 +18,8 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
     agent.metadata.name || '');
+  const isBYO = agent.spec?.type === "BYO";
+  const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -61,9 +63,11 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
       <CardContent className="flex flex-col justify-between h-32">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">{agent.spec.description}</p>
         <div className="mt-4 flex items-center text-xs text-muted-foreground">
-          <span>
-            {modelProvider} ({model})
-          </span>
+          {isBYO ? (
+            <span title={byoImage}>Image: {byoImage}</span>
+          ) : (
+            <span>{modelProvider} ({model})</span>
+          )}
         </div>
       </CardContent>
     </Card>

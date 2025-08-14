@@ -125,7 +125,13 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         cmd: agentFormData.byoCmd,
         args: agentFormData.byoArgs,
         replicas: agentFormData.replicas,
-        // TODO: add other fields.
+        imagePullSecrets: agentFormData.imagePullSecrets,
+        volumes: agentFormData.volumes,
+        volumeMounts: agentFormData.volumeMounts,
+        labels: agentFormData.labels,
+        annotations: agentFormData.annotations,
+        env: agentFormData.env,
+        imagePullPolicy: agentFormData.imagePullPolicy,
       },
     };
   }

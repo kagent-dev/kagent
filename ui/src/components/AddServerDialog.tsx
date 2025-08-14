@@ -4,8 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Terminal, Globe, Loader2, ChevronDown, ChevronUp, PlusCircle, Trash2, Code, InfoIcon, AlertCircle } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Terminal, Globe, Loader2, PlusCircle, Trash2, Code, InfoIcon, AlertCircle } from "lucide-react";
 import type { RemoteMCPServer, MCPServer, ToolServerCreateRequest } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -32,8 +31,6 @@ interface EnvPair {
 export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
   const [activeTab, setActiveTab] = useState<"command" | "url">("command");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showAdvancedCommand, setShowAdvancedCommand] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverName, setServerName] = useState("");
   const [userEditedName, setUserEditedName] = useState(false);
@@ -46,14 +43,15 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const [argPairs, setArgPairs] = useState<ArgPair[]>([{ value: "" }]);
   const [envPairs, setEnvPairs] = useState<EnvPair[]>([{ key: "", value: "" }]);
   const [commandPreview, setCommandPreview] = useState("");
-  const [stderr, setStderr] = useState("");
-  const [cwd, setCwd] = useState("");
+  
 
   // SseServer parameters
   const [url, setUrl] = useState("");
   const [headers, setHeaders] = useState("");
   const [timeout, setTimeout] = useState("5s");
   const [sseReadTimeout, setSseReadTimeout] = useState("300s");
+  const [terminateOnClose, setTerminateOnClose] = useState(true);
+  
 
   // Clean up package name for server name
   const cleanPackageName = (pkgName: string): string => {
@@ -381,10 +379,11 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
             url: url.trim(),
             headersFrom: parsedHeaders ? Object.entries(parsedHeaders).map(([key, value]) => ({
               name: key,
-              value: value
+              value: value as string,
             })) : [],
             timeout: timeoutValue,
             sseReadTimeout: sseReadTimeoutValue,
+            terminateOnClose: terminateOnClose,
           },
         };
 
@@ -415,15 +414,14 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     setEnvPairs([{ key: "", value: "" }]);
     setServerName("");
     setUserEditedName(false);
-    setStderr("");
-    setCwd("");
+    
     setUrl("");
     setHeaders("");
     setTimeout("5s");
     setSseReadTimeout("300s");
+    setTerminateOnClose(true);
     setError(null);
-    setShowAdvanced(false);
-    setShowAdvancedCommand(false);
+    
     setCommandPreview("");
   };
 
@@ -571,21 +569,12 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                 <div className="space-y-2">
                   <div className="flex items-center justify-between mb-1">
                     <Label htmlFor="package-name">Package Name</Label>
-                    <Button variant="ghost" size="sm" onClick={() => setShowAdvancedCommand(!showAdvancedCommand)} className="h-8 px-2 text-xs">
-                      {showAdvancedCommand ? "Hide Advanced" : "Show Advanced"}
-                    </Button>
                   </div>
                   <Input id="package-name" placeholder="E.g. mcp-package" value={packageName} onChange={(e) => setPackageName(e.target.value)} />
                   <p className="text-xs text-muted-foreground">The name of the package to execute</p>
                 </div>
 
-                {showAdvancedCommand && (
-                  <div className="space-y-2 border-l-2 pl-4 ml-2 border-blue-100">
-                    <Label htmlFor="command-prefix">Command Prefix (Optional)</Label>
-                    <Input id="command-prefix" placeholder="E.g., --from git+https://github.com/user/repo" value={commandPrefix} onChange={(e) => setCommandPrefix(e.target.value)} />
-                    <p className="text-xs text-muted-foreground">Additional parameters that go between the executor and package name</p>
-                  </div>
-                )}
+                
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
@@ -630,23 +619,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   </div>
                 </div>
 
-                <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced} className="border rounded-md p-2">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between p-2">
-                    <span className="font-medium">Advanced Settings</span>
-                    {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-4 pt-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="stderr">Stderr Handling</Label>
-                      <Input id="stderr" placeholder="e.g., pipe" value={stderr} onChange={(e) => setStderr(e.target.value)} />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="cwd">Working Directory</Label>
-                      <Input id="cwd" placeholder="e.g., /path/to/working/dir" value={cwd} onChange={(e) => setCwd(e.target.value)} />
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                
               </TabsContent>
 
               <TabsContent value="url" className="pt-4 space-y-4">
@@ -664,28 +637,30 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   <p className="text-xs text-muted-foreground">Use Streamable HTTP to connect to the MCP server, instead of SSE</p>
                 </div>
 
-                <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced} className="border rounded-md p-2">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between p-2">
-                    <span className="font-medium">Advanced Settings</span>
-                    {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-4 pt-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="headers">Headers (JSON)</Label>
-                      <Input id="headers" placeholder='e.g., {"Authorization": "Bearer token"}' value={headers} onChange={(e) => setHeaders(e.target.value)} />
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="headers">Headers (JSON)</Label>
+                  <Input id="headers" placeholder='e.g., {"Authorization": "Bearer token"}' value={headers} onChange={(e) => setHeaders(e.target.value)} />
+                </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="timeout">Connection Timeout (seconds)</Label>
-                      <Input id="timeout" type="string" value={timeout} onChange={(e) => setTimeout(e.target.value)} />
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="timeout">Connection Timeout (e.g., 30s)</Label>
+                  <Input id="timeout" type="string" value={timeout} onChange={(e) => setTimeout(e.target.value)} />
+                </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="sse-read-timeout">SSE Read Timeout (seconds)</Label>
-                      <Input id="sse-read-timeout" type="string" value={sseReadTimeout} onChange={(e) => setSseReadTimeout(e.target.value)} />
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                {!useStreamableHttp && (
+                  <div className="space-y-2">
+                    <Label htmlFor="sse-read-timeout">SSE Read Timeout (e.g., 60s)</Label>
+                    <Input id="sse-read-timeout" type="string" value={sseReadTimeout} onChange={(e) => setSseReadTimeout(e.target.value)} />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox id="terminate-on-close" checked={terminateOnClose} onCheckedChange={(checked) => setTerminateOnClose(Boolean(checked))} />
+                    <Label htmlFor="terminate-on-close">Terminate Connection On Close</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">When enabled, the server will terminate connection when the client disconnects</p>
+                </div>
               </TabsContent>
             </Tabs>
           </div>

@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Settings2 } from "lucide-react";
+import { Loader2, Settings2, PlusCircle, Trash2 } from "lucide-react";
 import { ModelConfig, MemoryResponse, AgentType } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
@@ -74,6 +74,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     byoImage: string;
     byoCmd: string;
     byoArgs: string;
+    replicas: string;
+    imagePullPolicy: string;
+    imagePullSecrets: string[];
+    envPairs: { key: string; value: string }[];
     isSubmitting: boolean;
     isLoading: boolean;
     errors: ValidationErrors;
@@ -92,6 +96,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
+    replicas: "",
+    imagePullPolicy: "",
+    imagePullSecrets: [""],
+    envPairs: [{ key: "", value: "" }],
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
@@ -143,6 +151,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   byoImage: agent.spec?.byo?.deployment?.image || "",
                   byoCmd: agent.spec?.byo?.deployment?.cmd || "",
                   byoArgs: (agent.spec?.byo?.deployment?.args || []).join(" "),
+                  replicas: agent.spec?.byo?.deployment?.replicas !== undefined ? String(agent.spec?.byo?.deployment?.replicas) : "",
+                  imagePullPolicy: agent.spec?.byo?.deployment?.imagePullPolicy || "",
+                  imagePullSecrets: (agent.spec?.byo?.deployment?.imagePullSecrets || []).map((s: { name: string }) => s.name).concat((agent.spec?.byo?.deployment?.imagePullSecrets || []).length === 0 ? [""] : []),
+                  envPairs: (agent.spec?.byo?.deployment?.env || []).map((e: { name: string; value?: string }) => ({ key: e.name, value: e.value || "" })).concat((agent.spec?.byo?.deployment?.env || []).length === 0 ? [{ key: "", value: "" }] : []),
                 }));
               }
 
@@ -234,6 +246,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     }
 
     try {
+
       setState(prev => ({ ...prev, isSubmitting: true }));
       if (state.agentType === "Inline" && !state.selectedModel) {
         throw new Error("Model is required to create Inline agent.");
@@ -253,6 +266,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
         byoArgs: state.byoArgs ? state.byoArgs.split(/\s+/).filter(Boolean) : undefined,
+        replicas: state.replicas ? parseInt(state.replicas, 10) : undefined,
+        imagePullPolicy: state.imagePullPolicy || undefined,
+        imagePullSecrets: (state.imagePullSecrets || []).filter(n => n.trim()).map(n => ({ name: n.trim() })),
+        env: (state.envPairs || []).filter(ev => ev.key.trim()).map(ev => ({ name: ev.key.trim(), value: ev.value })),
       };
 
       let result;
@@ -428,6 +445,82 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                         />
                       </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm mb-2 block">Replicas</Label>
+                        <Input
+                          type="number"
+                          value={state.replicas}
+                          onChange={(e) => setState(prev => ({ ...prev, replicas: e.target.value }))}
+                          placeholder="e.g. 1"
+                          disabled={state.isSubmitting || state.isLoading}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm mb-2 block">Image Pull Policy</Label>
+                        <Select
+                          value={state.imagePullPolicy}
+                          onValueChange={(val) => setState(prev => ({ ...prev, imagePullPolicy: val }))}
+                          disabled={state.isSubmitting || state.isLoading}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select policy" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Always">Always</SelectItem>
+                            <SelectItem value="IfNotPresent">IfNotPresent</SelectItem>
+                            <SelectItem value="Never">Never</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm">Image Pull Secrets</Label>
+                      {(state.imagePullSecrets || []).map((name, idx) => (
+                        <div key={idx} className="flex gap-2 items-center">
+                          <Input
+                            placeholder="Secret name"
+                            value={name}
+                            onChange={(e) => {
+                              const copy = [...state.imagePullSecrets];
+                              copy[idx] = e.target.value;
+                              setState(prev => ({ ...prev, imagePullSecrets: copy }));
+                            }}
+                            disabled={state.isSubmitting || state.isLoading}
+                          />
+                          <Button variant="outline" onClick={() => setState(prev => ({ ...prev, imagePullSecrets: [...prev.imagePullSecrets, ""] }))}>Add</Button>
+                          <Button variant="ghost" onClick={() => setState(prev => ({ ...prev, imagePullSecrets: prev.imagePullSecrets.filter((_, i) => i !== idx) }))} disabled={(state.imagePullSecrets || []).length <= 1}>Remove</Button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm">Environment Variables</Label>
+                      {(state.envPairs || []).map((pair, index) => (
+                        <div key={index} className="flex gap-2 items-center">
+                          <Input placeholder="Key (e.g., NODE_ENV)" value={pair.key} onChange={(e) => {
+                            const updated = [...state.envPairs];
+                            updated[index] = { ...updated[index], key: e.target.value };
+                            setState(prev => ({ ...prev, envPairs: updated }));
+                          }} className="flex-1" disabled={state.isSubmitting || state.isLoading} />
+                          <Input placeholder="Value (e.g., production)" value={pair.value} onChange={(e) => {
+                            const updated = [...state.envPairs];
+                            updated[index] = { ...updated[index], value: e.target.value };
+                            setState(prev => ({ ...prev, envPairs: updated }));
+                          }} className="flex-1" disabled={state.isSubmitting || state.isLoading} />
+                          <Button variant="ghost" size="sm" onClick={() => setState(prev => ({ ...prev, envPairs: prev.envPairs.filter((_, i) => i !== index) }))} disabled={(state.envPairs || []).length === 1} className="p-1">
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button variant="outline" size="sm" onClick={() => setState(prev => ({ ...prev, envPairs: [...prev.envPairs, { key: "", value: "" }] }))} className="mt-2 w-full">
+                        <PlusCircle className="h-4 w-4 mr-2" />
+                        Add Environment Variable
+                      </Button>
+                    </div>
+
+                    
                   </div>
                 )}
               </CardContent>
