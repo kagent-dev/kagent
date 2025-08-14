@@ -40,9 +40,13 @@ import (
 	v1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
+var (
+	agentReconcileLog = ctrl.Log.WithName("agent-controller")
+)
+
 // AgentReconciler reconciles a Agent object
 type AgentReconciler struct {
-	client.Client
+	// client.Client
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
@@ -72,7 +76,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
-				for _, agent := range r.Reconciler.FindAgentsUsingModelConfig(ctx, types.NamespacedName{
+				for _, agent := range r.findAgentsUsingModelConfig(ctx, mgr.GetClient(), types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
 				}) {
@@ -93,7 +97,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
-				for _, agent := range r.Reconciler.FindAgentsUsingRemoteMCPServer(ctx, types.NamespacedName{
+				for _, agent := range r.findAgentsUsingRemoteMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
 				}) {
@@ -113,7 +117,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
-				for _, agent := range r.Reconciler.FindAgentsUsingMCPServer(ctx, types.NamespacedName{
+				for _, agent := range r.findAgentsUsingMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
 				}) {
@@ -134,7 +138,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
-				for _, agent := range r.Reconciler.FindAgentsUsingMCPService(ctx, types.NamespacedName{
+				for _, agent := range r.findAgentsUsingMCPService(ctx, mgr.GetClient(), types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
 				}) {
@@ -152,6 +156,157 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Named("agent").
 		Complete(r)
+}
+
+func (r *AgentReconciler) findAgentsUsingMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+	var agentsList v1alpha2.AgentList
+	if err := cl.List(
+		ctx,
+		&agentsList,
+	); err != nil {
+		agentReconcileLog.Error(err, "failed to list agents in order to reconcile MCPServer update")
+		return nil
+	}
+
+	var agents []*v1alpha2.Agent
+	for _, agent := range agentsList.Items {
+		if agent.Namespace != obj.Namespace {
+			continue
+		}
+
+		if agent.Spec.Type != v1alpha2.AgentType_Inline {
+			continue
+		}
+
+		for _, tool := range agent.Spec.Inline.Tools {
+			if tool.McpServer == nil {
+				continue
+			}
+
+			if tool.McpServer.ApiGroup != "kagent.dev" || tool.McpServer.Kind != "MCPServer" {
+				continue
+			}
+
+			if tool.McpServer.Name == obj.Name {
+				agents = append(agents, &agent)
+			}
+		}
+
+	}
+
+	return agents
+}
+
+func (r *AgentReconciler) findAgentsUsingRemoteMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+	var agents []*v1alpha2.Agent
+
+	var agentsList v1alpha2.AgentList
+	if err := cl.List(
+		ctx,
+		&agentsList,
+	); err != nil {
+		agentReconcileLog.Error(err, "failed to list Agents in order to reconcile ToolServer update")
+		return agents
+	}
+
+	appendAgentIfUsesRemoteMCPServer := func(agent *v1alpha2.Agent) {
+		if agent.Spec.Type != v1alpha2.AgentType_Inline {
+			return
+		}
+
+		for _, tool := range agent.Spec.Inline.Tools {
+			if tool.McpServer == nil {
+				return
+			}
+
+			if agent.Namespace != obj.Namespace {
+				continue
+			}
+
+			if tool.McpServer.Name == obj.Name {
+				agents = append(agents, agent)
+				return
+			}
+		}
+	}
+
+	for _, agent := range agentsList.Items {
+		agent := agent
+		appendAgentIfUsesRemoteMCPServer(&agent)
+	}
+
+	return agents
+}
+
+func (r *AgentReconciler) findAgentsUsingMCPService(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+
+	var agentsList v1alpha2.AgentList
+	if err := cl.List(
+		ctx,
+		&agentsList,
+	); err != nil {
+		agentReconcileLog.Error(err, "failed to list agents in order to reconcile MCPService update")
+		return nil
+	}
+
+	var agents []*v1alpha2.Agent
+	for _, agent := range agentsList.Items {
+		if agent.Namespace != obj.Namespace {
+			continue
+		}
+
+		if agent.Spec.Type != v1alpha2.AgentType_Inline {
+			continue
+		}
+
+		for _, tool := range agent.Spec.Inline.Tools {
+			if tool.McpServer == nil {
+				continue
+			}
+
+			if tool.McpServer.ApiGroup != "" || tool.McpServer.Kind != "Service" {
+				continue
+			}
+
+			if tool.McpServer.Name == obj.Name {
+				agents = append(agents, &agent)
+			}
+		}
+	}
+
+	return agents
+}
+
+func (r *AgentReconciler) findAgentsUsingModelConfig(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+	var agents []*v1alpha2.Agent
+
+	var agentsList v1alpha2.AgentList
+	if err := cl.List(
+		ctx,
+		&agentsList,
+	); err != nil {
+		agentReconcileLog.Error(err, "failed to list Agents in order to reconcile ModelConfig update")
+		return agents
+	}
+
+	for i := range agentsList.Items {
+		agent := &agentsList.Items[i]
+		// Must be in the same namespace as the model config
+		if agent.Namespace != obj.Namespace {
+			continue
+		}
+
+		if agent.Spec.Type != v1alpha2.AgentType_Inline {
+			continue
+		}
+
+		if agent.Spec.Inline.ModelConfig == obj.Name {
+			agents = append(agents, agent)
+		}
+
+	}
+
+	return agents
 }
 
 type ownedObjectPredicate = typedOwnedObjectPredicate[client.Object]

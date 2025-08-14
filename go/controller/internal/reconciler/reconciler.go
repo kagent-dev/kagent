@@ -45,12 +45,6 @@ type KagentReconciler interface {
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
-
-	FindAgentsUsingModelConfig(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent
-	FindAgentsUsingMCPServer(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent
-	FindAgentsUsingMCPService(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent
-	FindAgentsUsingRemoteMCPServer(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent
-	FindModelsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha2.ModelConfig
 }
 
 type kagentReconciler struct {
@@ -242,45 +236,6 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 	return nil
 }
 
-func (a *kagentReconciler) FindAgentsUsingMCPService(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent {
-
-	var agentsList v1alpha2.AgentList
-	if err := a.kube.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		reconcileLog.Error(err, "failed to list agents in order to reconcile MCPService update")
-		return nil
-	}
-
-	var agents []*v1alpha2.Agent
-	for _, agent := range agentsList.Items {
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-
-		if agent.Spec.Type != v1alpha2.AgentType_Inline {
-			continue
-		}
-
-		for _, tool := range agent.Spec.Inline.Tools {
-			if tool.McpServer == nil {
-				continue
-			}
-
-			if tool.McpServer.ApiGroup != "" || tool.McpServer.Kind != "Service" {
-				continue
-			}
-
-			if tool.McpServer.Name == obj.Name {
-				agents = append(agents, &agent)
-			}
-		}
-	}
-
-	return agents
-}
-
 func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha2.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
@@ -375,45 +330,6 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 	}
 
 	return nil
-}
-
-func (a *kagentReconciler) FindAgentsUsingMCPServer(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent {
-	var agentsList v1alpha2.AgentList
-	if err := a.kube.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		reconcileLog.Error(err, "failed to list agents in order to reconcile MCPServer update")
-		return nil
-	}
-
-	var agents []*v1alpha2.Agent
-	for _, agent := range agentsList.Items {
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-
-		if agent.Spec.Type != v1alpha2.AgentType_Inline {
-			continue
-		}
-
-		for _, tool := range agent.Spec.Inline.Tools {
-			if tool.McpServer == nil {
-				continue
-			}
-
-			if tool.McpServer.ApiGroup != "kagent.dev" || tool.McpServer.Kind != "MCPServer" {
-				continue
-			}
-
-			if tool.McpServer.Name == obj.Name {
-				agents = append(agents, &agent)
-			}
-		}
-
-	}
-
-	return agents
 }
 
 func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {
@@ -637,110 +553,6 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 	}
 
 	return tools, nil
-}
-
-func (a *kagentReconciler) FindAgentsUsingModelConfig(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent {
-	var agents []*v1alpha2.Agent
-
-	var agentsList v1alpha2.AgentList
-	if err := a.kube.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		reconcileLog.Error(err, "failed to list Agents in order to reconcile ModelConfig update")
-		return agents
-	}
-
-	for i := range agentsList.Items {
-		agent := &agentsList.Items[i]
-		// Must be in the same namespace as the model config
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-
-		if agent.Spec.Type != v1alpha2.AgentType_Inline {
-			continue
-		}
-
-		if agent.Spec.Inline.ModelConfig == obj.Name {
-			agents = append(agents, agent)
-		}
-
-	}
-
-	return agents
-}
-
-func (a *kagentReconciler) FindModelsUsingSecret(ctx context.Context, obj types.NamespacedName) []*v1alpha2.ModelConfig {
-	var models []*v1alpha2.ModelConfig
-
-	var modelsList v1alpha2.ModelConfigList
-	if err := a.kube.List(
-		ctx,
-		&modelsList,
-	); err != nil {
-		reconcileLog.Error(err, "failed to list ModelConfigs in order to reconcile Secret update")
-		return models
-	}
-
-	for i := range modelsList.Items {
-		model := &modelsList.Items[i]
-
-		if model.Namespace != obj.Namespace {
-			continue
-		}
-
-		if model.Spec.APIKeySecret == "" {
-			continue
-		}
-		if model.Spec.APIKeySecret == obj.Name {
-			models = append(models, model)
-		}
-	}
-
-	return models
-}
-
-func (a *kagentReconciler) FindAgentsUsingRemoteMCPServer(ctx context.Context, obj types.NamespacedName) []*v1alpha2.Agent {
-	var agents []*v1alpha2.Agent
-
-	var agentsList v1alpha2.AgentList
-	if err := a.kube.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		reconcileLog.Error(err, "failed to list Agents in order to reconcile ToolServer update")
-		return agents
-	}
-
-	appendAgentIfUsesRemoteMCPServer := func(agent *v1alpha2.Agent) {
-		if agent.Spec.Type != v1alpha2.AgentType_Inline {
-			return
-		}
-
-		for _, tool := range agent.Spec.Inline.Tools {
-			if tool.McpServer == nil {
-				return
-			}
-
-			if agent.Namespace != obj.Namespace {
-				continue
-			}
-
-			if tool.McpServer.Name == obj.Name {
-				agents = append(agents, agent)
-				return
-			}
-		}
-	}
-
-	for _, agent := range agentsList.Items {
-		agent := agent
-		appendAgentIfUsesRemoteMCPServer(&agent)
-	}
-
-	return agents
-
 }
 
 func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef string) ([]*v1alpha2.MCPTool, error) {

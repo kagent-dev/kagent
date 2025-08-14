@@ -33,7 +33,6 @@ import (
 
 // ServiceReconciler reconciles a Service object
 type ServiceReconciler struct {
-	client.Client
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }

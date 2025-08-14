@@ -323,10 +323,8 @@ func main() {
 
 	dbClient := database.NewClient(dbManager)
 
-	kubeClient := mgr.GetClient()
-
 	apiTranslator := translator.NewAdkApiTranslator(
-		kubeClient,
+		mgr.GetClient(),
 		cfg.DefaultModelConfig,
 	)
 
@@ -341,14 +339,14 @@ func main() {
 
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
-		kubeClient,
+		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
 		a2aReconciler,
 	)
 
 	if err = (&kmcpcontroller.MCPServerReconciler{
-		Client: kubeClient,
+		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
@@ -356,7 +354,6 @@ func main() {
 	}
 
 	if err := (&controller.ServiceReconciler{
-		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -365,7 +362,6 @@ func main() {
 	}
 
 	if err := (&controller.MCPServerReconciler{
-		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -374,7 +370,6 @@ func main() {
 	}
 
 	if err = (&controller.AgentReconciler{
-		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -382,7 +377,6 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.ModelConfigReconciler{
-		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -390,7 +384,6 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.RemoteMCPServerReconciler{
-		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -398,7 +391,6 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.MemoryReconciler{
-		Client:     kubeClient,
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -438,7 +430,7 @@ func main() {
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		BindAddr:          cfg.HttpServerAddr,
-		KubeClient:        kubeClient,
+		KubeClient:        mgr.GetClient(),
 		A2AHandler:        a2aHandler,
 		WatchedNamespaces: watchNamespacesList,
 		DbClient:          dbClient,

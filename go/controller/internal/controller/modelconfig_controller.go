@@ -37,9 +37,12 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 )
 
+var (
+	modelConfigReconcileLog = ctrl.Log.WithName("modelconfig-controller")
+)
+
 // ModelConfigReconciler reconciles a ModelConfig object
 type ModelConfigReconciler struct {
-	client.Client
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
@@ -65,7 +68,7 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
-				for _, model := range r.Reconciler.FindModelsUsingSecret(ctx, types.NamespacedName{
+				for _, model := range r.findModelsUsingSecret(ctx, mgr.GetClient(), types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
 				}) {
@@ -83,4 +86,34 @@ func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Named("modelconfig").
 		Complete(r)
+}
+
+func (r *ModelConfigReconciler) findModelsUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.ModelConfig {
+	var models []*v1alpha2.ModelConfig
+
+	var modelsList v1alpha2.ModelConfigList
+	if err := cl.List(
+		ctx,
+		&modelsList,
+	); err != nil {
+		modelConfigReconcileLog.Error(err, "failed to list ModelConfigs in order to reconcile Secret update")
+		return models
+	}
+
+	for i := range modelsList.Items {
+		model := &modelsList.Items[i]
+
+		if model.Namespace != obj.Namespace {
+			continue
+		}
+
+		if model.Spec.APIKeySecret == "" {
+			continue
+		}
+		if model.Spec.APIKeySecret == obj.Name {
+			models = append(models, model)
+		}
+	}
+
+	return models
 }
