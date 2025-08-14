@@ -54,7 +54,7 @@ Recreate the buildx builder with host networking, such as with the following exa
 ```shell
 docker buildx rm kagent-builder-v0.23.0
 
-ocker buildx create --name kagent-builder-v0.23.0 --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host
+docker buildx create --name kagent-builder-v0.23.0 --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host
 ```
 
 Then run the `make helm-install` command again.
