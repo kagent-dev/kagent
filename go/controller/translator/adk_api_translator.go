@@ -70,6 +70,7 @@ type AdkApiTranslator interface {
 		ctx context.Context,
 		agent *v1alpha2.Agent,
 	) (*AgentOutputs, error)
+	ResolveValueRefs(ctx context.Context, vrs []v1alpha2.ValueRef, namespace string) (map[string]string, error)
 }
 
 func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName) AdkApiTranslator {
@@ -660,17 +661,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 }
 
 func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.StreamableHTTPConnectionParams, error) {
-	headers := make(map[string]string)
-	for _, header := range tool.HeadersFrom {
-		if header.Value != "" {
-			headers[header.Name] = header.Value
-		} else if header.ValueFrom != nil {
-			value, err := resolveValueSource(ctx, a.kube, header.ValueFrom, namespace)
-			if err != nil {
-				return nil, err
-			}
-			headers[header.Name] = value
-		}
+	headers, err := a.ResolveValueRefs(ctx, tool.HeadersFrom, namespace)
+	if err != nil {
+		return nil, err
 	}
 
 	params := &adk.StreamableHTTPConnectionParams{
@@ -690,18 +683,11 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 }
 
 func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.SseConnectionParams, error) {
-	headers := make(map[string]string)
-	for _, header := range tool.HeadersFrom {
-		if header.Value != "" {
-			headers[header.Name] = header.Value
-		} else if header.ValueFrom != nil {
-			value, err := resolveValueSource(ctx, a.kube, header.ValueFrom, namespace)
-			if err != nil {
-				return nil, err
-			}
-			headers[header.Name] = value
-		}
+	headers, err := a.ResolveValueRefs(ctx, tool.HeadersFrom, namespace)
+	if err != nil {
+		return nil, err
 	}
+
 	params := &adk.SseConnectionParams{
 		Url:     tool.URL,
 		Headers: headers,
@@ -713,6 +699,24 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 		params.SseReadTimeout = ptr.To(tool.SseReadTimeout.Seconds())
 	}
 	return params, nil
+}
+
+func (a *adkApiTranslator) ResolveValueRefs(ctx context.Context, vrs []v1alpha2.ValueRef, namespace string) (map[string]string, error) {
+	result := make(map[string]string)
+
+	for _, vr := range vrs {
+		if vr.Value != "" {
+			result[vr.Name] = vr.Value
+		} else if vr.ValueFrom != nil {
+			value, err := resolveValueSource(ctx, a.kube, vr.ValueFrom, namespace)
+			if err != nil {
+				return nil, err
+			}
+			result[vr.Name] = value
+		}
+	}
+
+	return result, nil
 }
 
 func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, toolServerRef v1alpha2.TypedLocalReference, toolNames []string, agentNamespace string) error {

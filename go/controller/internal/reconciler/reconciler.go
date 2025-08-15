@@ -229,7 +229,7 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 	if remoteService, err := translator.ConvertServiceToRemoteMCPServer(service); err != nil {
 		reconcileLog.Error(err, "failed to convert service to remote mcp service", "service", utils.GetObjectRef(service))
 	} else {
-		if err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService); err != nil {
+		if err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService, service.Namespace); err != nil {
 			reconcileLog.Error(err, "failed to upsert tool server for mcp service", "service", utils.GetObjectRef(service))
 		}
 	}
@@ -324,7 +324,7 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 	if remoteSpec, err := translator.ConvertMCPServerToRemoteMCPServer(mcpServer); err != nil {
 		reconcileLog.Error(err, "failed to convert mcp server to remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
 	} else {
-		if err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec); err != nil {
+		if err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec, mcpServer.Namespace); err != nil {
 			reconcileLog.Error(err, "failed to upsert tool server for remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
 		}
 	}
@@ -360,7 +360,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		Description: toolServer.Spec.Description,
 		GroupKind:   schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String(),
 	}
-	reconcileErr := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, &toolServer.Spec)
+	reconcileErr := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, &toolServer.Spec, toolServer.Namespace)
 
 	// update the tool server status as the agents depend on it
 	if err := a.reconcileRemoteMCPServerStatus(
@@ -481,7 +481,7 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	return nil
 }
 
-func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServerSpec) error {
+func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, namespace string) error {
 	// lock to prevent races
 	a.upsertLock.Lock()
 	defer a.upsertLock.Unlock()
@@ -490,26 +490,14 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 		return fmt.Errorf("failed to store toolServer %s: %v", toolServer.Name, err)
 	}
 
-	var tools []*v1alpha2.MCPTool
-	switch {
-	case remoteMcpServer.Protocol == v1alpha2.RemoteMCPServerProtocolSse:
-		sseHttpClient, err := transport.NewSSE(remoteMcpServer.URL)
-		if err != nil {
-			return fmt.Errorf("failed to create sse client for toolServer %s: %v", toolServer.Name, err)
-		}
-		tools, err = a.listTools(ctx, sseHttpClient, toolServer)
-		if err != nil {
-			return fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
-		}
-	default:
-		streamableHttpClient, err := transport.NewStreamableHTTP(remoteMcpServer.URL)
-		if err != nil {
-			return fmt.Errorf("failed to create streamable http client for toolServer %s: %v", toolServer.Name, err)
-		}
-		tools, err = a.listTools(ctx, streamableHttpClient, toolServer)
-		if err != nil {
-			return fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
-		}
+	tsp, err := a.createMcpTransport(ctx, remoteMcpServer.URL, remoteMcpServer.Protocol, remoteMcpServer.HeadersFrom, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to create client for toolServer %s: %v", toolServer.Name, err)
+	}
+
+	tools, err := a.listTools(ctx, tsp, toolServer)
+	if err != nil {
+		return fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
 	}
 
 	if err := a.dbClient.RefreshToolsForServer(toolServer.Name, tools...); err != nil {
@@ -517,6 +505,20 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 	}
 
 	return nil
+}
+
+func (a *kagentReconciler) createMcpTransport(ctx context.Context, url string, p v1alpha2.RemoteMCPServerProtocol, headersFrom []v1alpha2.ValueRef, namespace string) (transport.Interface, error) {
+	headers, err := a.adkTranslator.ResolveValueRefs(ctx, headersFrom, namespace)
+	if err == nil {
+		return nil, err
+	}
+
+	switch {
+	case p == v1alpha2.RemoteMCPServerProtocolSse:
+		return transport.NewSSE(url, transport.WithHeaders(headers))
+	default:
+		return transport.NewStreamableHTTP(url, transport.WithHTTPHeaders(headers))
+	}
 }
 
 func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interface, toolServer *database.ToolServer) ([]*v1alpha2.MCPTool, error) {
