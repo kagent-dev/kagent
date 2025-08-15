@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-import { BaseResponse, ModelConfig, CreateModelConfigPayload, UpdateModelConfigPayload } from "@/types";
+import { BaseResponse, ModelConfig, CreateModelConfigRequest, UpdateModelConfigPayload } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
 /**
@@ -55,7 +55,7 @@ export async function getModelConfig(configRef: string): Promise<BaseResponse<Mo
  * @param config The model configuration to create
  * @returns A promise with the created model
  */
-export async function createModelConfig(config: CreateModelConfigPayload): Promise<BaseResponse<ModelConfig>> {
+export async function createModelConfig(config: CreateModelConfigRequest): Promise<BaseResponse<ModelConfig>> {
   try {
     const response = await fetchApi<BaseResponse<ModelConfig>>("/modelconfigs", {
       method: "POST",
