@@ -44,7 +44,7 @@ func NewPortForward(ctx context.Context, cfg *config.Config) *portForward {
 		}
 	}()
 
-	client := client.New(cfg.APIURL)
+	client := client.New(cfg.KAgentURL)
 	// Try to connect 5 times
 	for i := 0; i < 5; i++ {
 		if err := CheckServerConnection(client); err == nil {

@@ -20,7 +20,7 @@ func VersionCmd(cfg *config.Config) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	client := client.New(cfg.APIURL)
+	client := client.New(cfg.KAgentURL)
 	version, err := client.Version.GetVersion(ctx)
 	if err != nil {
 		versionInfo["backend_version"] = "unknown"
