@@ -63,6 +63,9 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 
+# kmcp version extraction from go.mod
+KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod)
+
 HELM_ACTION=upgrade --install
 
 # Helm chart variables
@@ -76,6 +79,7 @@ print-tools-versions:
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
+	@echo "KMCP Version : $(KMCP_VERSION)"
 
 # Check if OPENAI_API_KEY is set
 check-openai-key:
@@ -99,8 +103,8 @@ build-all: buildx-create
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
-	sh ./scripts/kind/setup-kind.sh
-	sh ./scripts/kind/setup-metallb.sh
+	bash ./scripts/kind/setup-kind.sh
+	bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
 use-kind-cluster:
@@ -243,7 +247,7 @@ helm-install-provider: helm-version check-openai-key
 		--history-max 2    \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--version 0.1.2 \
+		--version $(KMCP_VERSION) \
 		--wait
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \

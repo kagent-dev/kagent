@@ -1,6 +1,7 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 
 set -o errexit
+set -o pipefail
 set -o nounset
 
 METALLB_VERSION=${METALLB_VERSION:-v0.13.7}
