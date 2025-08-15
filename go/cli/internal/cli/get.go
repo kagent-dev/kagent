@@ -16,9 +16,12 @@ import (
 )
 
 func GetAgentCmd(cfg *config.Config, resourceName string) {
-	client := client.New(cfg.APIURL)
+	// Here we set the client with the API URL, which includes the /api prefix.
+	client := client.New(cfg.KAgentURL)
 
 	if resourceName == "" {
+		// The list agents endpoint, has its own `client.Get(ctx, "/api/agents", userID)`
+		// meaning the overall endpoint becomes `{client}/api/agents` -> `{client}/api/api/agents`, which is the issue.
 		agentList, err := client.Agent.ListAgents(context.Background(), cfg.UserID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to get agents: %v\n", err)
@@ -46,7 +49,7 @@ func GetAgentCmd(cfg *config.Config, resourceName string) {
 }
 
 func GetSessionCmd(cfg *config.Config, resourceName string) {
-	client := client.New(cfg.APIURL)
+	client := client.New(cfg.KAgentURL)
 	if resourceName == "" {
 		sessionList, err := client.Session.ListSessions(context.Background(), cfg.UserID)
 		if err != nil {
@@ -75,7 +78,7 @@ func GetSessionCmd(cfg *config.Config, resourceName string) {
 }
 
 func GetToolCmd(cfg *config.Config) {
-	client := client.New(cfg.APIURL)
+	client := client.New(cfg.KAgentURL)
 	toolList, err := client.Tool.ListTools(context.Background(), cfg.UserID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get tools: %v\n", err)

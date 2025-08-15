@@ -119,7 +119,7 @@ func ChatCmd(c *ishell.Context) {
 	agentRef := utils.ConvertToKubernetesIdentifier(agentResp.ID)
 
 	// Setup A2A client
-	a2aURL := fmt.Sprintf("%s/a2a/%s", cfg.APIURL, agentRef)
+	a2aURL := fmt.Sprintf("%s/api/a2a/%s", cfg.KAgentURL, agentRef)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
 	if err != nil {
 		c.Printf("Failed to create A2A client: %v\n", err)

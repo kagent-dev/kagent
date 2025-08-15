@@ -29,7 +29,7 @@ func main() {
 
 	cfg := &config.Config{}
 
-	rootCmd.PersistentFlags().StringVar(&cfg.APIURL, "api-url", "http://localhost:8083/api", "API URL")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", "http://localhost:8083", "KAgent URL")
 	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", "admin@kagent.dev", "User ID")
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
@@ -63,6 +63,7 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			cli.InvokeCmd(cmd.Context(), invokeCfg)
 		},
+		Example: `kagent invoke --agent "k8s-agent" --task "Get all the pods in the kagent namespace"`,
 	}
 
 	invokeCmd.Flags().StringVarP(&invokeCfg.Task, "task", "t", "", "Task")
@@ -78,7 +79,7 @@ func main() {
 		Short: "Generate a bug report",
 		Long:  `Generate a bug report`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := client.New(cfg.APIURL)
+			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -92,7 +93,7 @@ func main() {
 		Short: "Print the kagent version",
 		Long:  `Print the kagent version`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := client.New(cfg.APIURL)
+			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -126,7 +127,7 @@ func main() {
 		Short: "Get a session or list all sessions",
 		Long:  `Get a session by ID or list all sessions`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := client.New(cfg.APIURL)
+			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -144,7 +145,7 @@ func main() {
 		Short: "Get an agent or list all agents",
 		Long:  `Get an agent by name or list all agents`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := client.New(cfg.APIURL)
+			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -162,7 +163,7 @@ func main() {
 		Short: "Get tools",
 		Long:  `List all available tools`,
 		Run: func(cmd *cobra.Command, args []string) {
-			client := client.New(cfg.APIURL)
+			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf := cli.NewPortForward(ctx, cfg)
 				defer pf.Stop()
@@ -194,7 +195,7 @@ func runInteractive() {
 		os.Exit(1)
 	}
 
-	client := client.New(cfg.APIURL)
+	client := client.New(cfg.KAgentURL)
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
 	// Error connecting to server, port-forward the server
