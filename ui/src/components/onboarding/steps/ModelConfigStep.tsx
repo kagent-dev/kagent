@@ -376,8 +376,8 @@ export function ModelConfigStep({
                                                                 const newTag = e.target.value.trim();
 
                                                                 const newAutoName = generateConfigName(
-                                                                    watchedProvider,
-                                                                    currentModelName,
+                                                                    watchedProvider || "",
+                                                                    currentModelName || "",
                                                                     newTag
                                                                 );
 
