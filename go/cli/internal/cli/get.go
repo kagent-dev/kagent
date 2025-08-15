@@ -16,12 +16,9 @@ import (
 )
 
 func GetAgentCmd(cfg *config.Config, resourceName string) {
-	// Here we set the client with the API URL, which includes the /api prefix.
 	client := client.New(cfg.KAgentURL)
 
 	if resourceName == "" {
-		// The list agents endpoint, has its own `client.Get(ctx, "/api/agents", userID)`
-		// meaning the overall endpoint becomes `{client}/api/agents` -> `{client}/api/api/agents`, which is the issue.
 		agentList, err := client.Agent.ListAgents(context.Background(), cfg.UserID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to get agents: %v\n", err)
