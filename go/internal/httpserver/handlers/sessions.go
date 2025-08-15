@@ -337,7 +337,12 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := GetUserID(r)
+	principle, err := GetPrincipal(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	userID, err := getUserID(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -354,12 +359,16 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	}
 
 	// Get session to verify it exists
-	_, err = h.DatabaseService.GetSession(sessionID, userID)
+	session, err := h.DatabaseService.GetSession(sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
 	}
 
+	if session.AgentID != nil && *session.AgentID != principle.Agent {
+		w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
+		return
+	}
 	event := &database.Event{
 		ID:        eventData.ID,
 		SessionID: sessionID,
@@ -374,4 +383,17 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	log.Info("Successfully added event to session")
 	data := api.NewResponse(event, "Event added to session successfully", false)
 	RespondWithJSON(w, http.StatusCreated, data)
+}
+
+func getUserID(r *http.Request) (string, error) {
+	log := ctrllog.Log.WithName("http-helpers")
+
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		log.Info("Missing user_id parameter in request")
+		return "", fmt.Errorf("user_id is required")
+	}
+
+	log.V(2).Info("Retrieved user_id from request", "userID", userID)
+	return userID, nil
 }
