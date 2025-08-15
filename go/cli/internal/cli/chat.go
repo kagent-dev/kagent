@@ -47,10 +47,10 @@ func ChatCmd(c *ishell.Context) {
 		}
 		agentResp = agtResp.Data
 	}
-	// If team is not found or not passed as an argument, prompt the user to select from available teams
+	// If agent is not found or not passed as an argument, prompt the user to select from available agents
 	if agentResp == nil {
-		c.Printf("Please select from available teams.\n")
-		// Get the teams based on the input + userID
+		c.Printf("Please select from available agents.\n")
+		// Get the agents based on the input + userID
 		agentListResp, err := clientSet.Agent.ListAgents(context.Background(), cfg.UserID)
 		if err != nil {
 			c.Println(err)
@@ -58,7 +58,7 @@ func ChatCmd(c *ishell.Context) {
 		}
 
 		if len(agentListResp.Data) == 0 {
-			c.Println("No teams found, please create one via the web UI or CRD before chatting.")
+			c.Println("No agents found, please create one via the web UI or CRD before chatting.")
 			return
 		}
 
@@ -67,8 +67,8 @@ func ChatCmd(c *ishell.Context) {
 			agentNames[i] = utils.ConvertToKubernetesIdentifier(agent.ID)
 		}
 
-		selectedTeamIdx := c.MultiChoice(agentNames, "Select an agent:")
-		agentResp = &agentListResp.Data[selectedTeamIdx]
+		selectedAgentIdx := c.MultiChoice(agentNames, "Select an agent:")
+		agentResp = &agentListResp.Data[selectedAgentIdx]
 	}
 
 	sessions, err := clientSet.Session.ListSessions(context.Background(), cfg.UserID)

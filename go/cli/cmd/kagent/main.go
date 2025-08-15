@@ -246,7 +246,7 @@ The available run types are:
 - chat: Start a chat with a kagent agent.
 
 Examples:
-- run chat [team_name] -s [session_name]
+- run chat [agent_name] -s [session_name]
 - run chat
   `,
 	}
@@ -257,12 +257,12 @@ Examples:
 		Help:    "Start a chat with a kagent agent.",
 		LongHelp: `Start a chat with a kagent agent.
 
-If no team name is provided, then a list of available teams will be provided to select from.
+If no agent name is provided, then a list of available agents will be provided to select from.
 If no session name is provided, then a new session will be created and the chat will be associated with it.
 
 Examples:
-- chat [team_name] -s [session_name]
-- chat [team_name]
+- chat [agent_name] -s [session_name]
+- chat [agent_name]
 - chat
 `,
 		Func: func(c *ishell.Context) {

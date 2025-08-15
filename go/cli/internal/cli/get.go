@@ -103,19 +103,19 @@ func printTools(tools []database.Tool) error {
 	return printOutput(tools, headers, rows)
 }
 
-func printAgents(teams []api.AgentResponse) error {
+func printAgents(agents []api.AgentResponse) error {
 	// Prepare table data
 	headers := []string{"#", "NAME", "CREATED"}
-	rows := make([][]string, len(teams))
-	for i, team := range teams {
+	rows := make([][]string, len(agents))
+	for i, agent := range agents {
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
-			utils.GetObjectRef(team.Agent),
-			team.Agent.CreationTimestamp.Format(time.RFC3339),
+			utils.GetObjectRef(agent.Agent),
+			agent.Agent.CreationTimestamp.Format(time.RFC3339),
 		}
 	}
 
-	return printOutput(teams, headers, rows)
+	return printOutput(agents, headers, rows)
 }
 
 func printSessions(sessions []*database.Session) error {
