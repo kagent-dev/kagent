@@ -25,7 +25,7 @@ type InvokeCfg struct {
 
 func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 
-	clientSet := client.New(cfg.Config.APIURL)
+	clientSet := client.New(cfg.Config.KAgentURL)
 
 	var pf *portForward
 	if err := CheckServerConnection(clientSet); err != nil {
@@ -76,7 +76,7 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 			return
 		}
 
-		a2aURL := fmt.Sprintf("%s/a2a/%s/%s", cfg.Config.APIURL, cfg.Config.Namespace, cfg.Agent)
+		a2aURL := fmt.Sprintf("%s/api/a2a/%s/%s", cfg.Config.KAgentURL, cfg.Config.Namespace, cfg.Agent)
 		a2aClient, err = a2aclient.NewA2AClient(a2aURL)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)

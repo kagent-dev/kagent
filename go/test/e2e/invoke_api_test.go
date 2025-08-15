@@ -15,9 +15,9 @@ import (
 
 func TestInvokeInlineAgent(t *testing.T) {
 	// Setup
-	a2aBaseURL := os.Getenv("KAGENT_API_URL")
+	a2aBaseURL := os.Getenv("KAGENT_URL")
 	if a2aBaseURL == "" {
-		a2aBaseURL = "http://localhost:8083/api"
+		a2aBaseURL = "http://localhost:8083"
 	}
 
 	// A2A URL format: <base_url>/<namespace>/<agent_name>
@@ -83,9 +83,9 @@ func TestInvokeInlineAgent(t *testing.T) {
 
 func TestInvokeExternalAgent(t *testing.T) {
 	// Setup
-	a2aBaseURL := os.Getenv("KAGENT_API_URL")
+	a2aBaseURL := os.Getenv("KAGENT_URL")
 	if a2aBaseURL == "" {
-		a2aBaseURL = "http://localhost:8083/api"
+		a2aBaseURL = "http://localhost:8083"
 	}
 
 	// A2A URL format: <base_url>/<namespace>/<agent_name>

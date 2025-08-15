@@ -34,6 +34,8 @@ func (c *agentClient) ListAgents(ctx context.Context, userID string) (*api.Stand
 		return nil, fmt.Errorf("userID is required")
 	}
 
+	// TODO: Why does this return a 404? Similar issues may exist for sessions and tools.
+	// There was some API changes recently, but unsure where.
 	resp, err := c.client.Get(ctx, "/api/agents", userID)
 	if err != nil {
 		return nil, err
