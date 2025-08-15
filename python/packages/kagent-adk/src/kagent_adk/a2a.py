@@ -25,6 +25,7 @@ from google.genai import types
 from ._agent_executor import A2aAgentExecutor
 from ._session_service import KAgentSessionService
 from ._task_store import KAgentTaskStore
+from ._token import KAgentTokenService
 
 # --- Constants ---
 USER_ID = "admin@kagent.dev"
@@ -101,7 +102,8 @@ class KAgentApp:
         self.agent_card = agent_card
 
     def build(self) -> FastAPI:
-        http_client = httpx.AsyncClient(base_url=kagent_url_override or self.kagent_url)
+        token_service = KAgentTokenService(self.app_name)
+        http_client = httpx.AsyncClient(base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks())
         session_service = KAgentSessionService(http_client)
 
         def create_runner() -> Runner:
@@ -130,7 +132,7 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-        app = FastAPI()
+        app = FastAPI(lifespan=token_service.lifespan())
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)

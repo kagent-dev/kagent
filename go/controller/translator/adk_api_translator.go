@@ -241,6 +241,28 @@ func (a *adkApiTranslator) buildManifest(
 	// Build Deployment
 	volumes := append(configVol, dep.Volumes...)
 	volumeMounts := append(configMounts, dep.VolumeMounts...)
+
+	// Token volume
+	volumes = append(volumes, corev1.Volume{
+		Name: "kagent-token",
+		VolumeSource: corev1.VolumeSource{
+			Projected: &corev1.ProjectedVolumeSource{
+				Sources: []corev1.VolumeProjection{
+					{
+						ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+							Audience:          "kagent",
+							ExpirationSeconds: ptr.To(int64(3600)),
+							Path:              "kagent-token",
+						},
+					},
+				},
+			},
+		},
+	})
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		Name:      "kagent-token",
+		MountPath: "/var/run/secrets/tokens",
+	})
 	env := append(dep.Env, sharedEnv...)
 
 	podTemplateLabels := maps.Clone(podLabels)

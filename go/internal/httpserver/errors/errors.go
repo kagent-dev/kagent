@@ -81,3 +81,11 @@ func NewNotImplementedError(message string, err error) *APIError {
 		Err:     err,
 	}
 }
+
+func NewForbiddenError(message string, err error) *APIError {
+	return &APIError{
+		Code:    http.StatusForbidden,
+		Message: message,
+		Err:     err,
+	}
+}
