@@ -1,0 +1,14 @@
+## Official MCP Server for k8sgpt
+## https://github.com/k8sgpt-ai/k8sgpt
+## This file defines a ToolServer for k8sgpt using the MCP protocol.
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: kagent
+spec:
+  config:
+    streamableHttp:
+      url: http://k8sgpt-mcp-server:8089/mcp
+  description: |
+    k8sgpt is an AI-powered code completion tool

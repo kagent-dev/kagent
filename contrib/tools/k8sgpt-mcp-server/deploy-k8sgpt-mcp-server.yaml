@@ -1,0 +1,142 @@
+---
+# Source: k8sgpt/templates/sa.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+  labels:
+    helm.sh/chart: k8sgpt-1.0.0
+    app.kubernetes.io/name: k8sgpt
+    app.kubernetes.io/instance: k8sgpt-mcp-server
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: v0.4.23
+---
+# Source: k8sgpt/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+  labels:
+    helm.sh/chart: k8sgpt-1.0.0
+    app.kubernetes.io/name: k8sgpt
+    app.kubernetes.io/instance: k8sgpt-mcp-server
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: v0.4.23
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: k8sgpt/templates/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+  labels:
+    helm.sh/chart: k8sgpt-1.0.0
+    app.kubernetes.io/name: k8sgpt
+    app.kubernetes.io/instance: k8sgpt-mcp-server
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: v0.4.23
+subjects:
+- kind: ServiceAccount
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+roleRef:
+  kind: ClusterRole
+  name: k8sgpt-mcp-server
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: k8sgpt/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+  labels:
+    helm.sh/chart: k8sgpt-1.0.0
+    app.kubernetes.io/name: k8sgpt
+    app.kubernetes.io/instance: k8sgpt-mcp-server
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: v0.4.23
+spec:
+  selector:
+    app.kubernetes.io/name: k8sgpt
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 8081
+      targetPort: 8081
+    - name: mcp
+      port: 8089
+      targetPort: 8089
+  type: ClusterIP
+---
+# Source: k8sgpt/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+  labels:
+    helm.sh/chart: k8sgpt-1.0.0
+    app.kubernetes.io/name: k8sgpt
+    app.kubernetes.io/instance: k8sgpt-mcp-server
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: v0.4.23
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8sgpt
+      app.kubernetes.io/instance: k8sgpt-mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k8sgpt
+        app.kubernetes.io/instance: k8sgpt-mcp-server
+    spec:
+      serviceAccountName: k8sgpt-mcp-server
+      containers:
+      - name: k8sgpt-container
+        imagePullPolicy: Always
+        # TODO: change to the correct image once 
+        # this PR is released (already merged) : https://github.com/k8sgpt-ai/k8sgpt/pull/1557
+        # and this PR is merged : https://github.com/k8sgpt-ai/k8sgpt/pull/1568 
+        image: ukaul/k8sgpt:debug 
+        - containerPort: 8080
+        - containerPort: 8089
+        args: ["serve", "--mcp", "-v","--mcp-http", "--mcp-port", "8089"
+        ]
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: "0.2"
+            memory: 156Mi
+        env:
+        - name: K8SGPT_MODEL
+          value: gpt-3.5-turbo
+        - name: K8SGPT_BACKEND
+          value: openai
+        - name: XDG_CONFIG_HOME
+          value: /k8sgpt-config/
+        - name: XDG_CACHE_HOME
+          value: /k8sgpt-config/
+        volumeMounts:
+        - mountPath: /k8sgpt-config
+          name: config
+      volumes:
+      - emptyDir: {}
+        name: config
