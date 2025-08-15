@@ -227,32 +227,75 @@ export type ToolProviderType = "McpServer" | "Agent"
 export interface Tool {
   type: ToolProviderType;
   mcpServer?: McpServerTool;
-  agent?: AgentTool;
+  agent?: TypedLocalReference;
 }
 
-export interface AgentTool {
-  ref: string;
-}
-
-export interface McpServerTool {
+export interface TypedLocalReference {
+  kind?: string;
+  apiGroup?: string;
   name: string;
-  apiGroup: string;
-  kind: string
+}
+
+export interface McpServerTool extends TypedLocalReference {
   toolNames: string[];
 }
 
-export interface AgentResourceSpec {
+export type AgentType = "Declarative" | "BYO";
+export interface AgentSpec {
+  type: AgentType;
+  declarative?: DeclarativeAgentSpec;
+  byo?: BYOAgentSpec;
   description: string;
+}
+
+export interface DeclarativeAgentSpec {
   systemMessage: string;
   tools: Tool[];
   // Name of the model config resource
   modelConfig: string;
   memory?: string[];
   stream?: boolean;
+  a2aConfig?: A2AConfig;
 }
+
+export interface BYOAgentSpec {
+  deployment: BYODeploymentSpec;
+}
+
+export interface BYODeploymentSpec {
+  image: string;
+  cmd?: string;
+  args?: string[];
+
+  // Items from the SharedDeploymentSpec
+  replicas?: number;
+  imagePullSecrets?: Array<{ name: string }>;
+  volumes?: unknown[];
+  volumeMounts?: unknown[];
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  env?: Array<{ name: string; value?: string }>;
+  imagePullPolicy?: string;
+}
+
+export interface A2AConfig {
+  skills: AgentSkill[];
+}
+
+export interface AgentSkill {
+  id: string
+  name: string;
+  description?: string;
+  tags: string[];
+  examples: string[];
+  inputModes: string[];
+  outputModes: string[];
+}
+
+
 export interface Agent {
   metadata: ResourceMetadata;
-  spec: AgentResourceSpec;
+  spec: AgentSpec;
 }
 
 export interface AgentResponse {

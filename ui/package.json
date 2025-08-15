@@ -40,7 +40,7 @@
     "next-themes": "^0.4.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-hook-form": "^7.58.1",
+    "react-hook-form": "^7.61.0",
     "react-markdown": "^9.1.0",
     "rehype-external-links": "^3.0.0",
     "remark-gfm": "^4.0.1",
@@ -48,7 +48,7 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^11.1.0",
-    "zod": "^3.25.67",
+    "zod": "^3.25.76",
     "zustand": "^5.0.6"
   },
   "devDependencies": {

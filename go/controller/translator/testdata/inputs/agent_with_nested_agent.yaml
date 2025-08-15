@@ -25,19 +25,23 @@ objects:
       name: specialist-agent
       namespace: test
     spec:
-      description: A specialist agent for math problems
-      systemMessage: You are a math specialist. Focus on solving mathematical problems step by step.
-      modelConfig: nested-model
-      tools: []
+      type: Declarative
+      declarative:
+        description: A specialist agent for math problems
+        systemMessage: You are a math specialist. Focus on solving mathematical problems step by step.
+        modelConfig: nested-model
+        tools: []
   - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
       name: parent-agent
       namespace: test
     spec:
-      description: A parent agent that can delegate to specialists
-      systemMessage: You are a coordinating agent that can delegate tasks to specialists.
-      modelConfig: nested-model
-      tools:
-        - agent:
-            name: specialist-agent
+      type: Declarative
+      declarative:
+        description: A parent agent that can delegate to specialists
+        systemMessage: You are a coordinating agent that can delegate tasks to specialists.
+        modelConfig: nested-model
+        tools:
+          - agent:
+              name: specialist-agent

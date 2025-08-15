@@ -1,69 +1,34 @@
 {
-  "config": {
-    "agent_card": {
-      "capabilities": {
-        "pushNotifications": false,
-        "stateTransitionHistory": true,
-        "streaming": true
-      },
-      "defaultInputModes": [
-        "text"
-      ],
-      "defaultOutputModes": [
-        "text"
-      ],
-      "description": "An agent using Ollama local model",
-      "name": "ollama-agent",
-      "skills": null,
-      "url": "http://ollama-agent.test.svc:8080",
-      "version": ""
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
     },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "ollama_agent",
+    "skills": null,
+    "url": "http://ollama-agent.test:8080",
+    "version": ""
+  },
+  "config": {
     "agents": null,
-    "description": "An agent using Ollama local model",
+    "description": "",
     "http_tools": null,
     "instruction": "You are a helpful AI assistant running locally via Ollama.",
-    "kagent_url": "http://kagent-controller.kagent.svc:8083",
     "model": {
       "model": "llama3.2:latest",
       "type": "ollama"
     },
-    "name": "test__NS__ollama_agent",
+    "remote_agents": null,
     "sse_tools": null
   },
-  "configHash": [
-    164,
-    206,
-    137,
-    228,
-    245,
-    61,
-    185,
-    17,
-    170,
-    21,
-    165,
-    191,
-    37,
-    190,
-    161,
-    96,
-    246,
-    216,
-    55,
-    224,
-    120,
-    190,
-    83,
-    30,
-    82,
-    176,
-    134,
-    59,
-    53,
-    106,
-    201,
-    97
-  ],
   "manifest": [
     {
       "apiVersion": "v1",
@@ -91,7 +56,8 @@
     {
       "apiVersion": "v1",
       "data": {
-        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"ollama-agent\",\"description\":\"An agent using Ollama local model\",\"url\":\"http://ollama-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__ollama_agent\",\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"An agent using Ollama local model\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -156,22 +122,24 @@
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "config.kagent.dev/hash": "11875580883882588433",
-              "kagent": "ollama-agent"
+              "kagent": "ollama-agent",
+              "kagent.dev/config-hash": "6003282004506696624"
             }
           },
           "spec": {
             "containers": [
               {
-                "command": [
-                  "kagent",
+                "args": [
                   "static",
                   "--host",
                   "0.0.0.0",
                   "--port",
                   "8080",
                   "--filepath",
-                  "/config/config.json"
+                  "/config"
+                ],
+                "command": [
+                  "kagent-adk"
                 ],
                 "env": [
                   {
@@ -185,6 +153,18 @@
                         "fieldPath": "metadata.namespace"
                       }
                     }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

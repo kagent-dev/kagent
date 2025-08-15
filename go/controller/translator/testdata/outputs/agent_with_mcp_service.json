@@ -1,25 +1,25 @@
 {
-  "config": {
-    "agent_card": {
-      "capabilities": {
-        "pushNotifications": false,
-        "stateTransitionHistory": true,
-        "streaming": true
-      },
-      "defaultInputModes": [
-        "text"
-      ],
-      "defaultOutputModes": [
-        "text"
-      ],
-      "description": "A toolserver for math problems",
-      "name": "agent",
-      "skills": null,
-      "url": "http://agent.test.svc:8080",
-      "version": ""
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
     },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "agent",
+    "skills": null,
+    "url": "http://agent.test:8080",
+    "version": ""
+  },
+  "config": {
     "agents": null,
-    "description": "A toolserver for math problems",
+    "description": "",
     "http_tools": [
       {
         "params": {
@@ -32,49 +32,14 @@
       }
     ],
     "instruction": "You are a math toolserver. Focus on solving mathematical problems step by step.",
-    "kagent_url": "http://kagent-controller.kagent.svc:8083",
     "model": {
       "base_url": "",
       "model": "gpt-4o",
       "type": "openai"
     },
-    "name": "test__NS__agent",
+    "remote_agents": null,
     "sse_tools": null
   },
-  "configHash": [
-    35,
-    62,
-    207,
-    195,
-    116,
-    103,
-    177,
-    170,
-    192,
-    24,
-    60,
-    73,
-    252,
-    188,
-    60,
-    44,
-    140,
-    58,
-    42,
-    98,
-    165,
-    154,
-    30,
-    162,
-    196,
-    113,
-    36,
-    196,
-    127,
-    76,
-    90,
-    169
-  ],
   "manifest": [
     {
       "apiVersion": "v1",
@@ -102,7 +67,8 @@
     {
       "apiVersion": "v1",
       "data": {
-        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"agent\",\"description\":\"A toolserver for math problems\",\"url\":\"http://agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A toolserver for math problems\",\"instruction\":\"You are a math toolserver. Focus on solving mathematical problems step by step.\",\"http_tools\":[{\"params\":{\"url\":\"http://toolserver.test:8084/mcp\",\"headers\":{}},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"agents\":null}"
+        "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a math toolserver. Focus on solving mathematical problems step by step.\",\"http_tools\":[{\"params\":{\"url\":\"http://toolserver.test:8084/mcp\",\"headers\":{}},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -167,22 +133,24 @@
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "config.kagent.dev/hash": "2539695678262063530",
-              "kagent": "agent"
+              "kagent": "agent",
+              "kagent.dev/config-hash": "7494707790198553000"
             }
           },
           "spec": {
             "containers": [
               {
-                "command": [
-                  "kagent",
+                "args": [
                   "static",
                   "--host",
                   "0.0.0.0",
                   "--port",
                   "8080",
                   "--filepath",
-                  "/config/config.json"
+                  "/config"
+                ],
+                "command": [
+                  "kagent-adk"
                 ],
                 "env": [
                   {
@@ -201,6 +169,18 @@
                         "fieldPath": "metadata.namespace"
                       }
                     }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

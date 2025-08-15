@@ -51,44 +51,54 @@ jobs:
           version: ${{ env.BUILDX_VERSION }}
           platforms: linux/amd64,linux/arm64
           use: 'true'
+          driver-opts: network=host
 
       - name: Set up Helm
         uses: azure/setup-helm@v4.2.0
         with:
           version: v3.17.0
 
-      - name: Create k8s Kind Cluster
-        uses: helm/kind-action@v1
+      - name: Install Kind
+        id: kind
+        uses: helm/kind-action@b72c923563e6e80ea66e8e8c810798cc73e97e5e
         with:
-          cluster_name: kagent
-
-      # This allows us to not rely on port-forwarding which is flaky
-      - name: Setup Metallb
-        run: |
-          bash scripts/kind/setup-metallb.sh
+          install_only: true
 
       - name: Install Kagent
+        id: install-kagent
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
             --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
             --platform=linux/amd64
-            --load
+            --push
         run: |
+          make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
+        if: success()
         working-directory: go
         run: |
           export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083/api"
           echo $KAGENT_API_URL
 
-          go test -v -run ^TestInvokeAPI$ github.com/kagent-dev/kagent/go/test/e2e
+          go test -v -run ^TestInvokeInlineAgent$ github.com/kagent-dev/kagent/go/test/e2e
+      - name: fail print info
+        if: failure()
+        run: |
+          echo "::error::Failed to run e2e tests"
+          echo "::error::Kubectl get pods -n kagent"
+          kubectl describe pods -n kagent
+          echo "::error::Kubectl get events -n kagent"
+          kubectl get events -n kagent
+          echo "::error::Kubectl get agents -n kagent"
 
   go-unit-tests:
     runs-on: ubuntu-latest
@@ -106,9 +116,11 @@ jobs:
       - name: Run cmd/main.go tests
         working-directory: go
         run: |
-          go test -skip 'TestInvokeAPI|TestE2E|TestAutogenClient' -v ./...
+          go test -skip 'TestInvokeInlineAgent|TestInvokeExternalAgent|TestE2E|TestAutogenClient' -v ./...
 
   helm-unit-tests:
+    env:
+      VERSION: v0.0.1-test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -165,6 +177,11 @@ jobs:
           - app
           - cli
     runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5001:5000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -179,6 +196,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           version: ${{ env.BUILDX_VERSION }}
           use: 'true'
+          driver-opts: network=host
       - name: Run make build
         env:
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
@@ -187,7 +205,7 @@ jobs:
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}
             --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
             --platform=linux/amd64,linux/arm64
-            --output=type=tar,dest=/dev/null
+            --push
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx"
         run: make build-${{ matrix.image }}

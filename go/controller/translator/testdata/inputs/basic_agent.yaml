@@ -29,7 +29,9 @@ objects:
       name: basic-agent
       namespace: test
     spec:
-      description: A basic test agent
-      systemMessage: You are a helpful assistant.
-      modelConfig: basic-model
-      tools: [] 
+      type: Declarative
+      declarative:
+        description: A basic test agent
+        systemMessage: You are a helpful assistant.
+        modelConfig: basic-model
+        tools: [] 

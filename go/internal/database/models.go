@@ -16,7 +16,11 @@ type Agent struct {
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	Config *adk.AgentConfig `gorm:"type:json;not null" json:"config"`
+	Type   string           `gorm:"not null" json:"type"`
+	// Config is optional and may be nil for some agent types.
+	// For agent types that require configuration, this field should be populated.
+	// For agent types that do not require configuration, this field should be nil.
+	Config *adk.AgentConfig `gorm:"type:json" json:"config"`
 }
 
 type Event struct {

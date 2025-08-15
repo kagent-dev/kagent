@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -24,14 +25,12 @@ from google.adk.a2a.converters.request_converter import convert_a2a_request_to_a
 from google.adk.a2a.converters.utils import _get_adk_metadata_key
 from google.adk.a2a.executor.task_result_aggregator import TaskResultAggregator
 from google.adk.runners import Runner
-from google.adk.utils.feature_decorator import experimental
 from pydantic import BaseModel
 from typing_extensions import override
 
 logger = logging.getLogger("google_adk." + __name__)
 
 
-@experimental
 class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the A2aAgentExecutor."""
 
@@ -42,7 +41,6 @@ class A2aAgentExecutorConfig(BaseModel):
 # with the following changes:
 # - The runner is ALWAYS a callable that returns a Runner instance
 # - The runner is cleaned up at the end of the execution
-@experimental
 class A2aAgentExecutor(AgentExecutor):
     """An AgentExecutor that runs an ADK Agent against an A2A request and
     publishes updates to an event queue.
@@ -145,7 +143,16 @@ class A2aAgentExecutor(AgentExecutor):
             except Exception as enqueue_error:
                 logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
         finally:
-            await runner.close()
+            # Shield cleanup from external cancellation so toolsets (e.g., MCP) can
+            # gracefully close their sessions without being torn down mid-flight.
+            try:
+                await asyncio.wait_for(asyncio.shield(runner.close()), timeout=15.0)
+            except asyncio.CancelledError:
+                # Suppress cancellation during cleanup to avoid noisy tracebacks
+                # from libraries that assume non-cancelled close semantics.
+                logger.warning("Runner.close() was cancelled; suppressing during cleanup")
+            except Exception as close_error:
+                logger.error("Error during runner.close(): %s", close_error, exc_info=True)
 
     async def _handle_request(
         self,

@@ -27,22 +27,20 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// MCPServerReconciler reconciles a MCPServer object
-type MCPServerReconciler struct {
-	client.Client
+// MCPServerController reconciles a MCPServer object
+type MCPServerController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers,verbs=get;list;watch
 
-func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *MCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	return ctrl.Result{
@@ -52,7 +50,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *MCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),

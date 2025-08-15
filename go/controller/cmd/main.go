@@ -157,6 +157,11 @@ func main() {
 	flag.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
 	flag.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
 
+	flag.StringVar(&translator.DefaultImageConfig.Registry, "image-registry", translator.DefaultImageConfig.Registry, "The registry to use for the image.")
+	flag.StringVar(&translator.DefaultImageConfig.Tag, "image-tag", translator.DefaultImageConfig.Tag, "The tag to use for the image.")
+	flag.StringVar(&translator.DefaultImageConfig.PullPolicy, "image-pull-policy", translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
+	flag.StringVar(&translator.DefaultImageConfig.Repository, "image-repository", translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -318,10 +323,8 @@ func main() {
 
 	dbClient := database.NewClient(dbManager)
 
-	kubeClient := mgr.GetClient()
-
 	apiTranslator := translator.NewAdkApiTranslator(
-		kubeClient,
+		mgr.GetClient(),
 		cfg.DefaultModelConfig,
 	)
 
@@ -336,22 +339,21 @@ func main() {
 
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
-		kubeClient,
+		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
 		a2aReconciler,
 	)
 
 	if err = (&kmcpcontroller.MCPServerReconciler{
-		Client: kubeClient,
+		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
 		os.Exit(1)
 	}
 
-	if err := (&controller.ServiceReconciler{
-		Client:     kubeClient,
+	if err := (&controller.ServiceController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -359,8 +361,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.MCPServerReconciler{
-		Client:     kubeClient,
+	if err := (&controller.MCPServerController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -368,32 +369,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.AgentReconciler{
-		Client:     kubeClient,
+	if err = (&controller.AgentController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Agent")
 		os.Exit(1)
 	}
-	if err = (&controller.ModelConfigReconciler{
-		Client:     kubeClient,
+	if err = (&controller.ModelConfigController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelConfig")
 		os.Exit(1)
 	}
-	if err = (&controller.RemoteMCPServerReconciler{
-		Client:     mgr.GetClient(),
+	if err = (&controller.RemoteMCPServerController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ToolServer")
 		os.Exit(1)
 	}
-	if err = (&controller.MemoryReconciler{
-		Client:     kubeClient,
+	if err = (&controller.MemoryController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -433,7 +430,7 @@ func main() {
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		BindAddr:          cfg.HttpServerAddr,
-		KubeClient:        kubeClient,
+		KubeClient:        mgr.GetClient(),
 		A2AHandler:        a2aHandler,
 		WatchedNamespaces: watchNamespacesList,
 		DbClient:          dbClient,

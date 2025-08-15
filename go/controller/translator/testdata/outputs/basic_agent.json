@@ -1,70 +1,35 @@
 {
-  "config": {
-    "agent_card": {
-      "capabilities": {
-        "pushNotifications": false,
-        "stateTransitionHistory": true,
-        "streaming": true
-      },
-      "defaultInputModes": [
-        "text"
-      ],
-      "defaultOutputModes": [
-        "text"
-      ],
-      "description": "A basic test agent",
-      "name": "basic-agent",
-      "skills": null,
-      "url": "http://basic-agent.test.svc:8080",
-      "version": ""
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
     },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "basic_agent",
+    "skills": null,
+    "url": "http://basic-agent.test:8080",
+    "version": ""
+  },
+  "config": {
     "agents": null,
-    "description": "A basic test agent",
+    "description": "",
     "http_tools": null,
     "instruction": "You are a helpful assistant.",
-    "kagent_url": "http://kagent-controller.kagent.svc:8083",
     "model": {
       "base_url": "",
       "model": "gpt-4o",
       "type": "openai"
     },
-    "name": "test__NS__basic_agent",
+    "remote_agents": null,
     "sse_tools": null
   },
-  "configHash": [
-    75,
-    2,
-    13,
-    216,
-    20,
-    231,
-    151,
-    239,
-    90,
-    162,
-    251,
-    175,
-    84,
-    6,
-    246,
-    88,
-    252,
-    177,
-    153,
-    220,
-    201,
-    6,
-    232,
-    166,
-    178,
-    167,
-    5,
-    169,
-    230,
-    220,
-    206,
-    78
-  ],
   "manifest": [
     {
       "apiVersion": "v1",
@@ -92,7 +57,8 @@
     {
       "apiVersion": "v1",
       "data": {
-        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"basic-agent\",\"description\":\"A basic test agent\",\"url\":\"http://basic-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__basic_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A basic test agent\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+        "agent-card.json": "{\"name\":\"basic_agent\",\"description\":\"\",\"url\":\"http://basic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -157,22 +123,24 @@
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "config.kagent.dev/hash": "5404897724512835567",
-              "kagent": "basic-agent"
+              "kagent": "basic-agent",
+              "kagent.dev/config-hash": "12137819271482250959"
             }
           },
           "spec": {
             "containers": [
               {
-                "command": [
-                  "kagent",
+                "args": [
                   "static",
                   "--host",
                   "0.0.0.0",
                   "--port",
                   "8080",
                   "--filepath",
-                  "/config/config.json"
+                  "/config"
+                ],
+                "command": [
+                  "kagent-adk"
                 ],
                 "env": [
                   {
@@ -191,6 +159,18 @@
                         "fieldPath": "metadata.namespace"
                       }
                     }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

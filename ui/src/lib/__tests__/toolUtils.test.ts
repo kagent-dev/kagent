@@ -62,7 +62,7 @@ describe('Tool Utility Functions', () => {
       const validAgentTool: Tool = {
         type: "Agent",
         agent: {
-          ref: "test-agent",
+          name: "test-agent",
         }
       };
       expect(isAgentTool(validAgentTool)).toBe(true);
@@ -217,7 +217,7 @@ describe('Tool Utility Functions', () => {
       const agentTool: Tool = {
         type: "Agent",
         agent: {
-          ref: "test-agent",
+          name: "test-agent",
         }
       };
       const mcpTool: Tool = {
@@ -322,7 +322,7 @@ describe('Tool Utility Functions', () => {
         {
           type: "Agent",
           agent: {
-            ref: "test-agent",
+            name: "test-agent",
           }
         }
       ];
@@ -396,10 +396,10 @@ describe('Tool Utility Functions', () => {
       const agentTool: Tool = {
         type: "Agent",
         agent: {
-          ref: "default/test-agent"
+          name: "test-agent"
         }
       };
-      expect(getToolIdentifier(agentTool)).toBe("agent-default/test-agent");
+      expect(getToolIdentifier(agentTool)).toBe("agent-test-agent");
     });
 
     it('should return correct identifier for MCP tools', () => {
@@ -438,7 +438,7 @@ describe('Tool Utility Functions', () => {
       const agentTool: Tool = {
         type: "Agent",
         agent: {
-          ref: ""
+          name: ""
         }
       };
       expect(getToolIdentifier(agentTool)).toBe("agent-");
@@ -450,10 +450,10 @@ describe('Tool Utility Functions', () => {
       const agentTool: Tool = {
         type: "Agent",
         agent: {
-          ref: "default/test-agent"
+          name: "test-agent"
         }
       };
-      expect(getToolDisplayName(agentTool)).toBe("default/test-agent");
+      expect(getToolDisplayName(agentTool)).toBe("test-agent");
     });
 
     it('should return server name for MCP tools', () => {
@@ -493,7 +493,7 @@ describe('Tool Utility Functions', () => {
       const agentTool: Tool = {
         type: "Agent",
         agent: {
-          ref: "default/test-agent"
+          name: "test-agent"
         }
       };
       expect(getToolDescription(agentTool, [])).toBe("Agent Tool");

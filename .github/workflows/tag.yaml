@@ -48,6 +48,7 @@ jobs:
       env:
         DOCKER_BUILD_ARGS: "--push --platform linux/amd64,linux/arm64"
         DOCKER_BUILDER: "docker buildx"
+        DOCKER_REGISTRY: "ghcr.io" # prod for releases, local for dev
       run: |
         # if workflow_dispatch is used, use the version input
         if [ -n "${{ github.event.inputs.version }}" ]; then

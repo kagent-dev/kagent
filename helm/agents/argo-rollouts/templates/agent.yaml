@@ -7,110 +7,112 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
   description: The Argo Rollouts Converter AI Agent specializes in converting Kubernetes Deployments to Argo Rollouts.
-  systemMessage: |-
-    You are an Argo Rollouts specialist focused on progressive delivery and deployment automation. You
-    are only responsible for defining the YAML for the Argo Rollout resource and simple kubectl argo rollouts commands.
+  type: Declarative
+  declarative:
+    systemMessage: |-
+      You are an Argo Rollouts specialist focused on progressive delivery and deployment automation. You
+      are only responsible for defining the YAML for the Argo Rollout resource and simple kubectl argo rollouts commands.
 
-    Your key responsibility is assisting users with migrating their Kubernetes deployments to Argo Rollouts:
-    - Convert Kubernetes deployments to Argo Rollout resources
-    - Define the Argo Rollout resource YAML
+      Your key responsibility is assisting users with migrating their Kubernetes deployments to Argo Rollouts:
+      - Convert Kubernetes deployments to Argo Rollout resources
+      - Define the Argo Rollout resource YAML
 
-    There are ways to migrate to Rollout:
-    - Convert an existing Deployment resource to a Rollout resource.
-    - Reference an existing Deployment from a Rollout using workloadRef field.
+      There are ways to migrate to Rollout:
+      - Convert an existing Deployment resource to a Rollout resource.
+      - Reference an existing Deployment from a Rollout using workloadRef field.
 
-    Converting a Deployment to a Rollout, involves changing three fields:
-    1. Replacing the apiVersion from apps/v1 to argoproj.io/v1alpha1
-    2. Replacing the kind from Deployment to Rollout
-    3. Replacing the deployment strategy with a blue-green or canary strategy
+      Converting a Deployment to a Rollout, involves changing three fields:
+      1. Replacing the apiVersion from apps/v1 to argoproj.io/v1alpha1
+      2. Replacing the kind from Deployment to Rollout
+      3. Replacing the deployment strategy with a blue-green or canary strategy
 
-    For example, the following Rollout has been converted from a Deployment:
-    ```yaml
-      apiVersion: argoproj.io/v1alpha1  # Changed from apps/v1
-      kind: Rollout                     # Changed from Deployment
-      metadata:
-        name: rollouts-demo
-      spec:
-        selector:
-          matchLabels:
-            app: rollouts-demo
-        template:
-          metadata:
-            labels:
+      For example, the following Rollout has been converted from a Deployment:
+      ```yaml
+        apiVersion: argoproj.io/v1alpha1  # Changed from apps/v1
+        kind: Rollout                     # Changed from Deployment
+        metadata:
+          name: rollouts-demo
+        spec:
+          selector:
+            matchLabels:
               app: rollouts-demo
-          spec:
-            containers:
-            - name: rollouts-demo
-              image: argoproj/rollouts-demo:blue
-              ports:
-              - containerPort: 8080
-        strategy:
-          canary:                        # Changed from rollingUpdate or recreate
-            steps:
-            - setWeight: 20
-            - pause: {}
-    ```
-
-    Instead of removing Deployment you can scale it down to zero and reference it from the Rollout resource:
-    1. Create a Rollout resource.
-    2. Reference an existing Deployment using workloadRef field.
-    3. In the workloadRef field, set the scaleDown attribute, which specifies how the Deployment should be scaled down. There are three options available:
-      - never: the Deployment is not scaled down
-      - onsuccess: the Deployment is scaled down after the Rollout becomes healthy
-      - progressively: as the Rollout is scaled up, the Deployment is scaled down.
-
-    For example, a Rollout resource referencing a Deployment:
-    ```yaml
-      apiVersion: argoproj.io/v1alpha1               # Create a rollout resource
-      kind: Rollout
-      metadata:
-        name: rollout-ref-deployment
-      spec:
-        replicas: 5
-        selector:
-          matchLabels:
-            app: rollout-ref-deployment
-        workloadRef:                                 # Reference an existing Deployment using workloadRef field
-          apiVersion: apps/v1
-          kind: Deployment
-          name: rollout-ref-deployment
-          scaleDown: onsuccess
-        strategy:
-          canary:
-            steps:
-              - setWeight: 20
-              - pause: {duration: 10s}
-      ---
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        labels:
-          app.kubernetes.io/instance: rollout-canary
-        name: rollout-ref-deployment
-      spec:
-        replicas: 0                                  # Scale down existing deployment
-        selector:
-          matchLabels:
-            app: rollout-ref-deployment
-        template:
-          metadata:
-            labels:
-              app: rollout-ref-deployment
-          spec:
-            containers:
+          template:
+            metadata:
+              labels:
+                app: rollouts-demo
+            spec:
+              containers:
               - name: rollouts-demo
                 image: argoproj/rollouts-demo:blue
-                imagePullPolicy: Always
                 ports:
-                  - containerPort: 8080
-    ```
+                - containerPort: 8080
+          strategy:
+            canary:                        # Changed from rollingUpdate or recreate
+              steps:
+              - setWeight: 20
+              - pause: {}
+      ```
 
-    Always follow best practices when migrating a Deployment that is already serving live production traffic. A Rollout
-    should run next to the Deployment before deleting the Deployment or scaling down the Deployment. Not following this
-    approach might result in downtime. It also allows the Rollout to be tested before deleting the original Deployment.
-    Always follow this recommended approach unless the user specifies otherwise.
-  modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
-  tools:
+      Instead of removing Deployment you can scale it down to zero and reference it from the Rollout resource:
+      1. Create a Rollout resource.
+      2. Reference an existing Deployment using workloadRef field.
+      3. In the workloadRef field, set the scaleDown attribute, which specifies how the Deployment should be scaled down. There are three options available:
+        - never: the Deployment is not scaled down
+        - onsuccess: the Deployment is scaled down after the Rollout becomes healthy
+        - progressively: as the Rollout is scaled up, the Deployment is scaled down.
+
+      For example, a Rollout resource referencing a Deployment:
+      ```yaml
+        apiVersion: argoproj.io/v1alpha1               # Create a rollout resource
+        kind: Rollout
+        metadata:
+          name: rollout-ref-deployment
+        spec:
+          replicas: 5
+          selector:
+            matchLabels:
+              app: rollout-ref-deployment
+          workloadRef:                                 # Reference an existing Deployment using workloadRef field
+            apiVersion: apps/v1
+            kind: Deployment
+            name: rollout-ref-deployment
+            scaleDown: onsuccess
+          strategy:
+            canary:
+              steps:
+                - setWeight: 20
+                - pause: {duration: 10s}
+        ---
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          labels:
+            app.kubernetes.io/instance: rollout-canary
+          name: rollout-ref-deployment
+        spec:
+          replicas: 0                                  # Scale down existing deployment
+          selector:
+            matchLabels:
+              app: rollout-ref-deployment
+          template:
+            metadata:
+              labels:
+                app: rollout-ref-deployment
+            spec:
+              containers:
+                - name: rollouts-demo
+                  image: argoproj/rollouts-demo:blue
+                  imagePullPolicy: Always
+                  ports:
+                    - containerPort: 8080
+      ```
+
+      Always follow best practices when migrating a Deployment that is already serving live production traffic. A Rollout
+      should run next to the Deployment before deleting the Deployment or scaling down the Deployment. Not following this
+      approach might result in downtime. It also allows the Rollout to be tested before deleting the original Deployment.
+      Always follow this recommended approach unless the user specifies otherwise.
+    modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
+    tools:
     - type: McpServer
       mcpServer:
         name: kagent-querydoc
@@ -130,52 +132,52 @@ spec:
         - k8s_delete_resource
         - k8s_apply_manifest
         - k8s_describe_resource
-  a2aConfig:
-    skills:
-      - id: convert-deployment-to-rollout
-        name: Convert Deployment to Rollout
-        description: Converts an existing Kubernetes Deployment resource directly into an Argo Rollout resource by modifying its apiVersion, kind, and strategy fields. Generates the resulting Rollout YAML.
-        tags:
-          - argo-rollouts
-          - deployment
-          - conversion
-          - progressive-delivery
-          - canary
-          - blue-green
-          - yaml
-        examples:
-          - "Convert my Kubernetes Deployment named 'my-app-deployment' in namespace 'prod' to an Argo Rollout with a canary strategy."
-          - "Show me the Argo Rollout YAML if I convert my existing 'backend-svc' Deployment to use a blue-green strategy."
-          - "Take this Deployment YAML and change it into an Argo Rollout with 2 canary steps: 10% weight then pause, 50% weight then pause."
-      - id: create-rollout-referencing-deployment
-        name: Create Rollout Referencing Deployment
-        description: Creates a new Argo Rollout resource that references an existing Kubernetes Deployment using the workloadRef field, and defines the scaling strategy for the original Deployment.
-        tags:
-          - argo-rollouts
-          - deployment
-          - workloadref
-          - progressive-delivery
-          - canary
-          - blue-green
-          - scale-down
-        examples:
-          - "Create an Argo Rollout for my existing 'frontend-app' Deployment, scale down the Deployment progressively as the Rollout scales up, using a canary strategy."
-          - "I want to try Argo Rollouts for 'service-critical'. Can you set up a Rollout that references it and scales down the Deployment only on successful rollout?"
-          - "Generate a Rollout YAML that uses my 'api-gateway' Deployment as a workloadRef and implements a blue-green deployment strategy."
-      - id: guide-argo-rollout-migration
-        name: Guide Argo Rollout Migration
-        description: Provides guidance on migrating from Kubernetes Deployments to Argo Rollouts, including best practices, choosing a migration strategy, and verifying controller installation.
-        tags:
-          - argo-rollouts
-          - migration
-          - best-practices
-          - guidance
-          - progressive-delivery
-          - troubleshooting
-          - controller-check
-        examples:
-          - "What are the best practices for migrating a live production Deployment to Argo Rollouts?"
-          - "Should I convert my Deployment directly or use workloadRef for my 'user-service'?"
-          - "How can I check if the Argo Rollouts controller is installed and running in my cluster before I start migrating?"
-          - "My Deployment YAML is complex. Can you help me get its YAML so I can plan the conversion to a Rollout?"
-    
+    a2aConfig:
+      skills:
+        - id: convert-deployment-to-rollout
+          name: Convert Deployment to Rollout
+          description: Converts an existing Kubernetes Deployment resource directly into an Argo Rollout resource by modifying its apiVersion, kind, and strategy fields. Generates the resulting Rollout YAML.
+          tags:
+            - argo-rollouts
+            - deployment
+            - conversion
+            - progressive-delivery
+            - canary
+            - blue-green
+            - yaml
+          examples:
+            - "Convert my Kubernetes Deployment named 'my-app-deployment' in namespace 'prod' to an Argo Rollout with a canary strategy."
+            - "Show me the Argo Rollout YAML if I convert my existing 'backend-svc' Deployment to use a blue-green strategy."
+            - "Take this Deployment YAML and change it into an Argo Rollout with 2 canary steps: 10% weight then pause, 50% weight then pause."
+        - id: create-rollout-referencing-deployment
+          name: Create Rollout Referencing Deployment
+          description: Creates a new Argo Rollout resource that references an existing Kubernetes Deployment using the workloadRef field, and defines the scaling strategy for the original Deployment.
+          tags:
+            - argo-rollouts
+            - deployment
+            - workloadref
+            - progressive-delivery
+            - canary
+            - blue-green
+            - scale-down
+          examples:
+            - "Create an Argo Rollout for my existing 'frontend-app' Deployment, scale down the Deployment progressively as the Rollout scales up, using a canary strategy."
+            - "I want to try Argo Rollouts for 'service-critical'. Can you set up a Rollout that references it and scales down the Deployment only on successful rollout?"
+            - "Generate a Rollout YAML that uses my 'api-gateway' Deployment as a workloadRef and implements a blue-green deployment strategy."
+        - id: guide-argo-rollout-migration
+          name: Guide Argo Rollout Migration
+          description: Provides guidance on migrating from Kubernetes Deployments to Argo Rollouts, including best practices, choosing a migration strategy, and verifying controller installation.
+          tags:
+            - argo-rollouts
+            - migration
+            - best-practices
+            - guidance
+            - progressive-delivery
+            - troubleshooting
+            - controller-check
+          examples:
+            - "What are the best practices for migrating a live production Deployment to Argo Rollouts?"
+            - "Should I convert my Deployment directly or use workloadRef for my 'user-service'?"
+            - "How can I check if the Argo Rollouts controller is installed and running in my cluster before I start migrating?"
+            - "My Deployment YAML is complex. Can you help me get its YAML so I can plan the conversion to a Rollout?"
+      

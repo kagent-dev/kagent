@@ -5,6 +5,7 @@
 # ==============================================================================
 
 tag: ""
+registry: "cr.kagent.dev"
 
 
 imagePullSecrets: []
@@ -58,6 +59,11 @@ database:
 controller:
   replicas: 1
   loglevel: "info"
+  agentImage:
+    registry: ""
+    repository: kagent-dev/kagent/app
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: ""
   streaming: # Streaming buffer size for A2A communication
     maxBufSize: 1Mi # 1024 * 1024
     initialBufSize: 4Ki # 4 * 1024
@@ -76,10 +82,10 @@ controller:
   nodeSelector: {}
 
   image:
-    registry: cr.kagent.dev
+    registry: ""
     repository: kagent-dev/kagent/controller
     tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
+    pullPolicy: ""
   resources:
     requests:
       cpu: 100m
@@ -101,10 +107,10 @@ controller:
 ui:
   replicas: 1
   image:
-    registry: cr.kagent.dev
+    registry: ""
     repository: kagent-dev/kagent/ui
     tag: ""
-    pullPolicy: IfNotPresent
+    pullPolicy: ""
   resources:
     requests:
       cpu: 100m

@@ -26,14 +26,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// RemoteMCPServerReconciler reconciles a RemoteMCPServer object
-type RemoteMCPServerReconciler struct {
-	client.Client
+// RemoteMCPServerController reconciles a RemoteMCPServer object
+type RemoteMCPServerController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
@@ -42,7 +40,7 @@ type RemoteMCPServerReconciler struct {
 // +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers/finalizers,verbs=update
 
-func (r *RemoteMCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *RemoteMCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	return ctrl.Result{
@@ -52,7 +50,7 @@ func (r *RemoteMCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *RemoteMCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *RemoteMCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),

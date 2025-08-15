@@ -1,5 +1,5 @@
 # Image configuration
-DOCKER_REGISTRY ?= ghcr.io
+DOCKER_REGISTRY ?= localhost:5001
 BASE_IMAGE_REGISTRY ?= cgr.dev
 DOCKER_REPO ?= kagent-dev/kagent
 HELM_REPO ?= oci://ghcr.io/kagent-dev
@@ -18,26 +18,23 @@ BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
 DOCKER_BUILDER ?= docker buildx
-DOCKER_BUILD_ARGS ?= --builder $(BUILDX_BUILDER_NAME) --pull --load --platform linux/$(LOCALARCH)
+DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
 KIND_CLUSTER_NAME ?= kagent
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
+KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
+KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-
-# Retagged image variables for kind loading; the Helm chart uses these
-RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
-RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
-RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
-RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -102,8 +99,7 @@ build-all: buildx-create
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
-	docker pull kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) || true
-	kind create cluster --name $(KIND_CLUSTER_NAME) --image kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) --config ./scripts/kind/kind-config.yaml
+	sh ./scripts/kind/setup-kind.sh
 	sh ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
@@ -142,6 +138,7 @@ build: buildx-create build-controller build-ui build-app
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
+	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Tools Image: $(TOOLS_IMG)"
 
 .PHONY: build-monitor
@@ -162,9 +159,10 @@ build-img-versions:
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
 	@echo app=$(APP_IMG)
+	@echo kagent-adk=$(KAGENT_ADK_IMG)
 
 .PHONY: push
-push: push-controller push-ui push-app
+push: push-controller push-ui push-app push-kagent-adk
 
 .PHONY: controller-manifests
 controller-manifests:
@@ -179,24 +177,13 @@ build-controller: buildx-create controller-manifests
 build-ui: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 
+.PHONY: build-kagent-adk
+build-kagent-adk: buildx-create
+		$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
+
 .PHONY: build-app
-build-app: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
-
-.PHONY: kind-load-docker-images
-kind-load-docker-images: retag-docker-images use-kind-cluster
-	docker images | grep $(VERSION) | grep $(DOCKER_REGISTRY) || true
-	echo "Loading docker images into kind cluster $(KIND_CLUSTER_NAME)..."
-	kind get clusters || true
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
-
-.PHONY: retag-docker-images
-retag-docker-images: build
-	docker tag $(CONTROLLER_IMG) $(RETAGGED_CONTROLLER_IMG)
-	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
-	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
+build-app: buildx-create build-kagent-adk
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
 
 .PHONY: helm-cleanup
 helm-cleanup:
@@ -273,13 +260,12 @@ helm-install-provider: helm-version check-openai-key
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
 		--set ui.service.type=LoadBalancer \
-		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set ui.image.tag=$(UI_IMAGE_TAG) \
-		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
+		--set registry=$(DOCKER_REGISTRY) \
+		--set imagePullPolicy=Always \
+		--set tag=$(VERSION) \
+		--set controller.image.pullPolicy=Always \
+		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
-		--set engine.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set engine.image.tag=$(APP_IMAGE_TAG) \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
@@ -288,7 +274,7 @@ helm-install-provider: helm-version check-openai-key
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
-helm-install: kind-load-docker-images
+helm-install: build
 helm-install: helm-install-provider
 
 .PHONY: helm-test-install
@@ -318,15 +304,9 @@ helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 .PHONY: kagent-cli-install
-kagent-cli-install: use-kind-cluster build-cli-local kind-load-docker-images helm-version
+kagent-cli-install: use-kind-cluster build-cli-local helm-version
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local install
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local dashboard
-
-.PHONY: docker/push
-docker/push: retag-docker-images
-	docker push $(RETAGGED_UI_IMG)
-	docker push $(RETAGGED_APP_IMG)
-	docker push $(RETAGGED_CONTROLLER_IMG)
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster

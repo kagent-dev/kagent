@@ -38,7 +38,7 @@ spec:
         - name: ui
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.ui.image.registry }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.tag .Values.ui.image.tag .Chart.Version }}"
+          image: "{{ .Values.ui.image.registry | default .Values.registry  }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.tag .Values.ui.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.ui.image.pullPolicy | default .Values.imagePullPolicy }}
           env:
             - name: NEXT_PUBLIC_BACKEND_URL

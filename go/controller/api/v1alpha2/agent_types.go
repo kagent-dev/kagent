@@ -24,13 +24,39 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
+// AgentType represents the agent type
+// +kubebuilder:validation:Enum=Declarative;BYO
+type AgentType string
+
+const (
+	AgentType_Declarative AgentType = "Declarative"
+	AgentType_BYO         AgentType = "BYO"
+)
+
 // AgentSpec defines the desired state of Agent.
+// +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
+// +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
+// +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, or byo must be specified if type is BYO",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo))"
 type AgentSpec struct {
+	// +kubebuilder:validation:Enum=Declarative;BYO
+	// +kubebuilder:default=Declarative
+	Type AgentType `json:"type"`
+
+	// +optional
+	BYO *BYOAgentSpec `json:"byo,omitempty"`
+	// +optional
+	Declarative *DeclarativeAgentSpec `json:"declarative,omitempty"`
+
 	// +optional
 	Description string `json:"description,omitempty"`
+}
+
+type DeclarativeAgentSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	SystemMessage string `json:"systemMessage,omitempty"`
-	// Can either be a reference to the name of a ModelConfig in the same namespace as the referencing Agent, or a reference to the name of a ModelConfig in a different namespace in the form <namespace>/<name>
+	// The name of the model config to use.
+	// If not specified, the default value is "default-model-config".
+	// Must be in the same namespace as the Agent.
 	// +optional
 	ModelConfig string `json:"modelConfig,omitempty"`
 	// Whether to stream the response from the model.
@@ -47,25 +73,55 @@ type AgentSpec struct {
 	// Read more about the A2A protocol here: https://github.com/google/A2A
 	// +optional
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
+
 	// +optional
-	Deployment *DeploymentSpec `json:"deployment,omitempty"`
+	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
 }
 
-type DeploymentSpec struct {
+type DeclarativeDeploymentSpec struct {
+	// +optional
+	ImageRegistry string `json:"imageRegistry,omitempty"`
+
+	SharedDeploymentSpec `json:",inline"`
+}
+
+type BYOAgentSpec struct {
+	// Trust relationship to the agent.
+	// +optional
+	Deployment *ByoDeploymentSpec `json:"deployment,omitempty"`
+}
+
+type ByoDeploymentSpec struct {
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image,omitempty"`
+	// +optional
+	Cmd *string `json:"cmd,omitempty"`
+	// +optional
+	Args []string `json:"args,omitempty"`
+
+	SharedDeploymentSpec `json:",inline"`
+}
+
+type SharedDeploymentSpec struct {
 	// If not specified, the default value is 1.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
 	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
 	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// +optional
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type
@@ -140,7 +196,7 @@ type AgentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="ModelConfig",type="string",JSONPath=".spec.modelConfig",description="The ModelConfig resource referenced by this agent."
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
 // +kubebuilder:storageversion

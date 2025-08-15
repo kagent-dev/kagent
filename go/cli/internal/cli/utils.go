@@ -35,7 +35,7 @@ type portForward struct {
 
 func NewPortForward(ctx context.Context, cfg *config.Config) *portForward {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent", "8081:8081")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
 	// Error connecting to server, port-forward the server
 	go func() {
 		if err := cmd.Start(); err != nil {

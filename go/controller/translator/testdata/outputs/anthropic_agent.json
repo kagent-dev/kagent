@@ -1,70 +1,35 @@
 {
-  "config": {
-    "agent_card": {
-      "capabilities": {
-        "pushNotifications": false,
-        "stateTransitionHistory": true,
-        "streaming": true
-      },
-      "defaultInputModes": [
-        "text"
-      ],
-      "defaultOutputModes": [
-        "text"
-      ],
-      "description": "An agent using Anthropic Claude",
-      "name": "anthropic-agent",
-      "skills": null,
-      "url": "http://anthropic-agent.test.svc:8080",
-      "version": ""
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
     },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "anthropic_agent",
+    "skills": null,
+    "url": "http://anthropic-agent.test:8080",
+    "version": ""
+  },
+  "config": {
     "agents": null,
-    "description": "An agent using Anthropic Claude",
+    "description": "",
     "http_tools": null,
     "instruction": "You are Claude, an AI assistant created by Anthropic.",
-    "kagent_url": "http://kagent-controller.kagent.svc:8083",
     "model": {
       "base_url": "",
       "model": "claude-3-sonnet-20240229",
       "type": "anthropic"
     },
-    "name": "test__NS__anthropic_agent",
+    "remote_agents": null,
     "sse_tools": null
   },
-  "configHash": [
-    159,
-    0,
-    241,
-    144,
-    103,
-    111,
-    33,
-    26,
-    44,
-    233,
-    206,
-    65,
-    166,
-    160,
-    83,
-    89,
-    183,
-    61,
-    93,
-    120,
-    243,
-    129,
-    60,
-    14,
-    129,
-    21,
-    241,
-    177,
-    64,
-    15,
-    0,
-    112
-  ],
   "manifest": [
     {
       "apiVersion": "v1",
@@ -92,7 +57,8 @@
     {
       "apiVersion": "v1",
       "data": {
-        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"anthropic-agent\",\"description\":\"An agent using Anthropic Claude\",\"url\":\"http://anthropic-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__anthropic_agent\",\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"An agent using Anthropic Claude\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}"
+        "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -157,22 +123,24 @@
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "config.kagent.dev/hash": "11457423054543462682",
-              "kagent": "anthropic-agent"
+              "kagent": "anthropic-agent",
+              "kagent.dev/config-hash": "10123344046460149015"
             }
           },
           "spec": {
             "containers": [
               {
-                "command": [
-                  "kagent",
+                "args": [
                   "static",
                   "--host",
                   "0.0.0.0",
                   "--port",
                   "8080",
                   "--filepath",
-                  "/config/config.json"
+                  "/config"
+                ],
+                "command": [
+                  "kagent-adk"
                 ],
                 "env": [
                   {
@@ -191,6 +159,18 @@
                         "fieldPath": "metadata.namespace"
                       }
                     }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

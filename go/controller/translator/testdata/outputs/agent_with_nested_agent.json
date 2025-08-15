@@ -1,103 +1,49 @@
 {
-  "config": {
-    "agent_card": {
-      "capabilities": {
-        "pushNotifications": false,
-        "stateTransitionHistory": true,
-        "streaming": true
-      },
-      "defaultInputModes": [
-        "text"
-      ],
-      "defaultOutputModes": [
-        "text"
-      ],
-      "description": "A parent agent that can delegate to specialists",
-      "name": "parent-agent",
-      "skills": null,
-      "url": "http://parent-agent.test.svc:8080",
-      "version": ""
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
     },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "parent_agent",
+    "skills": null,
+    "url": "http://parent-agent.test:8080",
+    "version": ""
+  },
+  "config": {
     "agents": [
       {
-        "agent_card": {
-          "capabilities": {
-            "pushNotifications": false,
-            "stateTransitionHistory": true,
-            "streaming": true
-          },
-          "defaultInputModes": [
-            "text"
-          ],
-          "defaultOutputModes": [
-            "text"
-          ],
-          "description": "A specialist agent for math problems",
-          "name": "specialist-agent",
-          "skills": null,
-          "url": "http://specialist-agent.test.svc:8080",
-          "version": ""
-        },
         "agents": null,
-        "description": "A specialist agent for math problems",
+        "description": "",
         "http_tools": null,
         "instruction": "You are a math specialist. Focus on solving mathematical problems step by step.",
-        "kagent_url": "http://kagent-controller.kagent.svc:8083",
         "model": {
           "base_url": "",
           "model": "gpt-4o",
           "type": "openai"
         },
-        "name": "test__NS__specialist_agent",
+        "remote_agents": null,
         "sse_tools": null
       }
     ],
-    "description": "A parent agent that can delegate to specialists",
+    "description": "",
     "http_tools": null,
     "instruction": "You are a coordinating agent that can delegate tasks to specialists.",
-    "kagent_url": "http://kagent-controller.kagent.svc:8083",
     "model": {
       "base_url": "",
       "model": "gpt-4o",
       "type": "openai"
     },
-    "name": "test__NS__parent_agent",
+    "remote_agents": null,
     "sse_tools": null
   },
-  "configHash": [
-    236,
-    109,
-    229,
-    167,
-    149,
-    103,
-    141,
-    88,
-    194,
-    54,
-    177,
-    126,
-    246,
-    21,
-    203,
-    199,
-    156,
-    133,
-    133,
-    118,
-    251,
-    222,
-    153,
-    180,
-    131,
-    188,
-    152,
-    122,
-    223,
-    12,
-    146,
-    74
-  ],
   "manifest": [
     {
       "apiVersion": "v1",
@@ -125,7 +71,8 @@
     {
       "apiVersion": "v1",
       "data": {
-        "config.json": "{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"parent-agent\",\"description\":\"A parent agent that can delegate to specialists\",\"url\":\"http://parent-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__parent_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A parent agent that can delegate to specialists\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":[{\"kagent_url\":\"http://kagent-controller.kagent.svc:8083\",\"agent_card\":{\"name\":\"specialist-agent\",\"description\":\"A specialist agent for math problems\",\"url\":\"http://specialist-agent.test.svc:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]},\"name\":\"test__NS__specialist_agent\",\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"A specialist agent for math problems\",\"instruction\":\"You are a math specialist. Focus on solving mathematical problems step by step.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null}]}"
+        "agent-card.json": "{\"name\":\"parent_agent\",\"description\":\"\",\"url\":\"http://parent-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":[{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a math specialist. Focus on solving mathematical problems step by step.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}],\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -190,22 +137,24 @@
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "config.kagent.dev/hash": "17036525473341345112",
-              "kagent": "parent-agent"
+              "kagent": "parent-agent",
+              "kagent.dev/config-hash": "17956464138537191240"
             }
           },
           "spec": {
             "containers": [
               {
-                "command": [
-                  "kagent",
+                "args": [
                   "static",
                   "--host",
                   "0.0.0.0",
                   "--port",
                   "8080",
                   "--filepath",
-                  "/config/config.json"
+                  "/config"
+                ],
+                "command": [
+                  "kagent-adk"
                 ],
                 "env": [
                   {
@@ -224,6 +173,18 @@
                         "fieldPath": "metadata.namespace"
                       }
                     }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

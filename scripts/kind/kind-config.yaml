@@ -4,7 +4,10 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: kagent
-
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
 # network configuration
 networking:
   # WARNING: It is _strongly_ recommended that you keep this the default

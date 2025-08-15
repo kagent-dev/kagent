@@ -5,8 +5,6 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
-
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 type StreamableHTTPConnectionParams struct {
@@ -217,36 +215,35 @@ func ParseModel(bytes []byte) (Model, error) {
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
 
+type RemoteAgentConfig struct {
+	Name        string `json:"name"`
+	Url         string `json:"url"`
+	Description string `json:"description,omitempty"`
+}
+
 type AgentConfig struct {
-	KagentUrl   string                `json:"kagent_url"`
-	AgentCard   server.AgentCard      `json:"agent_card"`
-	Name        string                `json:"name"`
-	Model       Model                 `json:"model"`
-	Description string                `json:"description"`
-	Instruction string                `json:"instruction"`
-	HttpTools   []HttpMcpServerConfig `json:"http_tools"`
-	SseTools    []SseMcpServerConfig  `json:"sse_tools"`
-	Agents      []AgentConfig         `json:"agents"`
+	Model        Model                 `json:"model"`
+	Description  string                `json:"description"`
+	Instruction  string                `json:"instruction"`
+	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
+	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
+	Agents       []AgentConfig         `json:"agents"`
+	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		KagentUrl   string                `json:"kagent_url"`
-		AgentCard   server.AgentCard      `json:"agent_card"`
-		Name        string                `json:"name"`
-		Model       json.RawMessage       `json:"model"`
-		Description string                `json:"description"`
-		Instruction string                `json:"instruction"`
-		HttpTools   []HttpMcpServerConfig `json:"http_tools"`
-		SseTools    []SseMcpServerConfig  `json:"sse_tools"`
-		Agents      []AgentConfig         `json:"agents"`
+		Model        json.RawMessage       `json:"model"`
+		Description  string                `json:"description"`
+		Instruction  string                `json:"instruction"`
+		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
+		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
+		Agents       []AgentConfig         `json:"agents"`
+		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
-	a.KagentUrl = tmp.KagentUrl
-	a.AgentCard = tmp.AgentCard
-	a.Name = tmp.Name
 	model, err := ParseModel(tmp.Model)
 	if err != nil {
 		return err
@@ -257,6 +254,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.Agents = tmp.Agents
+	a.RemoteAgents = tmp.RemoteAgents
 	return nil
 }
 

@@ -31,22 +31,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// ServiceReconciler reconciles a Service object
-type ServiceReconciler struct {
-	client.Client
+// ServiceController reconciles a Service object
+type ServiceController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
 
-func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ServiceController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 	return ctrl.Result{}, r.Reconciler.ReconcileKagentMCPService(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ServiceController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),

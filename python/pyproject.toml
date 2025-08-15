@@ -3,14 +3,12 @@ members = ["packages/*"]
 
 [dependency-groups]
 dev = [
-  "protobuf>=6.31.1",
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
   "ruff>=0.11.5",
 ]
 
 [tool.uv.sources]
-kagent = { workspace = true }
 kagent-adk = { workspace = true }
 
 [tool.ruff]

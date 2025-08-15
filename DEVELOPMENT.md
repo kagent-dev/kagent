@@ -39,3 +39,22 @@ kubectl port-forward svc/kagent-ui 8001:80
 
 Then open your browser and go to `http://localhost:8001`.
 
+### Troubleshooting
+
+### buildx localhost access
+
+The `make helm-install` command might time out with an error similar to the following:
+
+> ERROR: failed to solve: DeadlineExceeded: failed to push localhost:5001/kagent-dev/kagent/controller
+
+As part of the build process, the `buildx` container tries to build and push the kagent images to the local Docker registry. The `buildx` command requires access to your host machine's Docker daemon.
+
+Recreate the buildx builder with host networking, such as with the following example commands. Update the version and platform accordingly.
+
+```shell
+docker buildx rm kagent-builder-v0.23.0
+
+docker buildx create --name kagent-builder-v0.23.0 --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host
+```
+
+Then run the `make helm-install` command again.

@@ -25,7 +25,6 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -33,9 +32,8 @@ import (
 	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
-// MemoryReconciler reconciles a Memory object
-type MemoryReconciler struct {
-	client.Client
+// MemoryController reconciles a Memory object
+type MemoryController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
@@ -44,14 +42,14 @@ type MemoryReconciler struct {
 // +kubebuilder:rbac:groups=kagent.dev,resources=memories/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=memories/finalizers,verbs=update
 
-func (r *MemoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *MemoryController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 	// TODO: Re-implement memory controller
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *MemoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *MemoryController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),

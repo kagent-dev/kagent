@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
-import type { Agent, Tool, AgentResponse, RemoteMCPServerResponse, BaseResponse, ModelConfig, ToolsResponse } from "@/types";
+import type { Agent, Tool, AgentResponse, RemoteMCPServerResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ interface ValidationErrors {
   name?: string;
   namespace?: string;
   description?: string;
+  type?: string;
   systemPrompt?: string;
   model?: string;
   knowledgeSources?: string;
@@ -22,9 +23,24 @@ export interface AgentFormData {
   name: string;
   namespace: string;
   description: string;
-  systemPrompt: string;
-  modelName: string;
+  type?: AgentType;
+  // Declarative fields
+  systemPrompt?: string;
+  modelName?: string;
   tools: Tool[];
+  stream?: boolean;
+  byoImage?: string;
+  byoCmd?: string;
+  byoArgs?: string[];
+  // Shared deployment optional fields
+  replicas?: number;
+  imagePullSecrets?: Array<{ name: string }>;
+  volumes?: unknown[];
+  volumeMounts?: unknown[];
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  env?: Array<{ name: string; value?: string }>;
+  imagePullPolicy?: string;
   memory?: string[];
 }
 
@@ -136,12 +152,18 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.description = "Description is required";
     }
 
-    if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
-      errors.systemPrompt = "Agent instructions are required";
-    }
-
-    if (!data.modelName || data.modelName.trim() === "") {
-      errors.model = "Please select a model";
+    const type = data.type || "Declarative";
+    if (type === "Declarative") {
+      if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
+        errors.systemPrompt = "Agent instructions are required";
+      }
+      if (!data.modelName || data.modelName.trim() === "") {
+        errors.model = "Please select a model";
+      }
+    } else if (type === "BYO") {
+      if (!data.byoImage || data.byoImage.trim() === "") {
+        errors.model = "Container image is required";
+      }
     }
 
     return errors;

@@ -17,10 +17,6 @@ objects:
           temperature: "0.8"
           top_p: "0.9"
           num_ctx: "2048"
-      modelInfo:
-        functionCalling: false
-        jsonOutput: false
-        family: "llama"
       defaultHeaders:
         User-Agent: "kagent/1.0"
   - apiVersion: kagent.dev/v1alpha2
@@ -29,7 +25,9 @@ objects:
       name: ollama-agent
       namespace: test
     spec:
-      description: An agent using Ollama local model
-      systemMessage: You are a helpful AI assistant running locally via Ollama.
-      modelConfig: ollama-model
-      tools: [] 
+      type: Declarative
+      declarative:
+        description: An agent using Ollama local model
+        systemMessage: You are a helpful AI assistant running locally via Ollama.
+        modelConfig: ollama-model
+        tools: [] 

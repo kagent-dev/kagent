@@ -189,7 +189,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             });
           } else {
             const toolIdentifier = baseToolIdentifier;
-            const provider = isAgentTool(tool) ? (tool.agent?.ref || "unknown") : (tool.mcpServer?.name || "unknown");
+            const provider = isAgentTool(tool) ? (tool.agent?.name || "unknown") : (tool.mcpServer?.name || "unknown");
             const displayName = getToolDisplayName(tool);
             const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
             const isExpanded = expandedTools[toolIdentifier] || false;

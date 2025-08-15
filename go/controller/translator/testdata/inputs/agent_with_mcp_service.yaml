@@ -32,16 +32,18 @@ objects:
       name: agent
       namespace: test
     spec:
-      description: A toolserver for math problems
-      systemMessage: You are a math toolserver. Focus on solving mathematical problems step by step.
-      modelConfig: nested-model
-      tools:
-        - type: MCPServer
-          mcpServer:
-            name: toolserver
-            kind: Service
-            toolNames:
-              - k8s_get_resources
+      type: Declarative
+      declarative:
+        description: A toolserver for math problems
+        systemMessage: You are a math toolserver. Focus on solving mathematical problems step by step.
+        modelConfig: nested-model
+        tools:
+          - type: MCPServer
+            mcpServer:
+              name: toolserver
+              kind: Service
+              toolNames:
+                - k8s_get_resources
   - apiVersion: v1
     kind: Service
     metadata:
