@@ -56,6 +56,6 @@ func (r *MCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 			NeedLeaderElection: ptr.To(true),
 		}).
 		For(&v1alpha1.MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Named("toolserver").
+		Named("mcpserver").
 		Complete(r)
 }
