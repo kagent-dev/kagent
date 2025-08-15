@@ -1,0 +1,8 @@
+[project]
+name = "kebab"
+version = "0.1"
+description = "Kebab agent"
+readme = "README.md"
+dependencies = [
+  "google-adk>=1.8.0",
+]
