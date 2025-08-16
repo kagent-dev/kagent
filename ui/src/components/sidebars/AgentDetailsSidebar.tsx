@@ -243,47 +243,6 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
               {selectedTeam && renderAgentTools(selectedTeam.tools)}
             </SidebarGroup>
-            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-              <SidebarGroupLabel>Memory</SidebarGroupLabel>
-              <SidebarMenu>
-                {selectedTeam?.memoryRefs && selectedTeam.memoryRefs.length > 0 ? (
-                  selectedTeam.memoryRefs.map((memoryRef) => (
-                    <SidebarMenuItem key={memoryRef}>
-                      <div className="flex justify-between items-center w-full">
-                        <SidebarMenuButton className="justify-start" disabled>
-                          <span className="truncate max-w-[180px]">{memoryRef}</span>
-                        </SidebarMenuButton>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 ml-1"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            router.push(`/memories/new?edit=${encodeURIComponent(memoryRef)}`);
-                          }}
-                          aria-label={`Edit memory ${memoryRef}`}
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </SidebarMenuItem>
-                  ))
-                ) : (
-                  <div className="flex items-center justify-between px-2">
-                    <span className="text-sm italic text-muted-foreground">No memory configured</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => router.push('/memories/new')}
-                      aria-label="Add new memory"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                )}
-              </SidebarMenu>
-            </SidebarGroup>
           </ScrollArea>
         </SidebarContent>
       </Sidebar>
