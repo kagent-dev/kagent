@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import type { Agent, Tool, AgentResponse, RemoteMCPServerResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType } from "@/types";
@@ -78,7 +78,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const [tools, setTools] = useState<ToolsResponse[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
 
-  const fetchAgents = async () => {
+  const fetchAgents = useCallback(async () => {
     try {
       setLoading(true);
       const agentsResult = await getAgents();
@@ -94,11 +94,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     try {
-      setLoading(true);
       const response = await getModelConfigs();
       if (!response.data || response.error) {
         throw new Error(response.error || "Failed to fetch models");
@@ -107,29 +106,29 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       setModels(response.data);
       setError("");
     } catch (err) {
-      console.error("Error fetching models:", error);
+      console.error("Error fetching models:", err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchTools = async () => {
+  const fetchTools = useCallback(async () => {
     try {
       setLoading(true);
       const response = await getTools();
       setTools(response);
       setError("");
     } catch (err) {
-      console.error("Error fetching tools:", error);
+      console.error("Error fetching tools:", err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Validation logic moved from the component
-  const validateAgentData = (data: Partial<AgentFormData>): ValidationErrors => {
+  const validateAgentData = useCallback((data: Partial<AgentFormData>): ValidationErrors => {
     const errors: ValidationErrors = {};
 
     if (data.name !== undefined) {
@@ -167,10 +166,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     }
 
     return errors;
-  };
+  }, []);
 
   // Get agent by ID function
-  const getAgent = async (name: string, namespace: string): Promise<AgentResponse | null> => {
+  const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
     try {
       // Fetch all agents
       const agentResult = await getAgentAction(name, namespace);
@@ -192,10 +191,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       setError(error instanceof Error ? error.message : "Failed to get agent");
       return null;
     }
-  };
+  }, []);
 
   // Agent creation logic moved from the component
-  const createNewAgent = async (agentData: AgentFormData) => {
+  const createNewAgent = useCallback(async (agentData: AgentFormData) => {
     try {
       const errors = validateAgentData(agentData);
       if (Object.keys(errors).length > 0) {
@@ -217,10 +216,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to create agent",
       };
     }
-  };
+  }, [fetchAgents, validateAgentData]);
 
   // Update existing agent
-  const updateAgent = async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
+  const updateAgent = useCallback(async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
     try {
       const errors = validateAgentData(agentData);
 
@@ -245,14 +244,14 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to update agent",
       };
     }
-  };
+  }, [fetchAgents, validateAgentData]);
 
   // Initial fetches
   useEffect(() => {
     fetchAgents();
     fetchTools();
     fetchModels();
-  }, []);
+  }, [fetchAgents, fetchTools, fetchModels]);
 
   const value = {
     agents,

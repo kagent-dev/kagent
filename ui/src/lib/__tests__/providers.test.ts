@@ -1,6 +1,5 @@
 import {
     isValidProviderInfoKey,
-    getApiKeyForProviderFormKey,
     getProviderDisplayName,
     getProviderFormKey,
     PROVIDERS_INFO,
@@ -10,31 +9,19 @@ import {
 
 describe('isValidProviderInfoKey', () => {
     it('should return true for valid provider keys', () => {
-        expect(isValidProviderInfoKey('openai')).toBe(true);
-        expect(isValidProviderInfoKey('azure-openai')).toBe(true);
-        expect(isValidProviderInfoKey('anthropic')).toBe(true);
-        expect(isValidProviderInfoKey('ollama')).toBe(true);
+        expect(isValidProviderInfoKey('OpenAI')).toBe(true);
+        expect(isValidProviderInfoKey('AzureOpenAI')).toBe(true);
+        expect(isValidProviderInfoKey('Anthropic')).toBe(true);
+        expect(isValidProviderInfoKey('Ollama')).toBe(true);
+        expect(isValidProviderInfoKey('Gemini')).toBe(true);
+        expect(isValidProviderInfoKey('GeminiVertexAI')).toBe(true);
+        expect(isValidProviderInfoKey('AnthropicVertexAI')).toBe(true);
     });
 
     it('should return false for invalid provider keys', () => {
         expect(isValidProviderInfoKey('google')).toBe(false);
         expect(isValidProviderInfoKey('')).toBe(false);
-        expect(isValidProviderInfoKey('OpenAI')).toBe(false); // Case sensitive
-    });
-});
-
-describe('getApiKeyForProviderFormKey', () => {
-    it('should return the correct API key string for each provider form key', () => {
-        expect(getApiKeyForProviderFormKey('openai')).toBe('openAI');
-        expect(getApiKeyForProviderFormKey('azure-openai')).toBe('azureOpenAI');
-        expect(getApiKeyForProviderFormKey('anthropic')).toBe('anthropic');
-        expect(getApiKeyForProviderFormKey('ollama')).toBe('ollama');
-    });
-
-    // Although the type system should prevent invalid keys, we test the default case
-    it('should return the input key if it does not match known keys', () => {
-        // @ts-expect-error - Testing invalid input
-        expect(getApiKeyForProviderFormKey('unknown-provider')).toBe('unknown-provider');
+        expect(isValidProviderInfoKey('openai')).toBe(false); // Case sensitive
     });
 });
 
@@ -53,10 +40,13 @@ describe('getProviderDisplayName', () => {
 
 describe('getProviderFormKey', () => {
     it('should return the correct form key for each backend provider type', () => {
-        expect(getProviderFormKey('OpenAI')).toBe('openai');
-        expect(getProviderFormKey('AzureOpenAI')).toBe('azure-openai');
-        expect(getProviderFormKey('Anthropic')).toBe('anthropic');
-        expect(getProviderFormKey('Ollama')).toBe('ollama');
+        expect(getProviderFormKey('OpenAI')).toBe('OpenAI');
+        expect(getProviderFormKey('AzureOpenAI')).toBe('AzureOpenAI');
+        expect(getProviderFormKey('Anthropic')).toBe('Anthropic');
+        expect(getProviderFormKey('Ollama')).toBe('Ollama');
+        expect(getProviderFormKey('Gemini')).toBe('Gemini');
+        expect(getProviderFormKey('GeminiVertexAI')).toBe('GeminiVertexAI');
+        expect(getProviderFormKey('AnthropicVertexAI')).toBe('AnthropicVertexAI');
     });
 
     it('should return undefined if no matching provider type is found', () => {

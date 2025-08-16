@@ -177,7 +177,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       }
     };
 
-    fetchAgentData();
+    void fetchAgentData();
   }, [isEditMode, agentName, agentNamespace, getAgent]);
 
   useEffect(() => {

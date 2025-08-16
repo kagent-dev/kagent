@@ -107,7 +107,7 @@ export interface AnthropicVertexAIConfigPayload {
   topK?: number;
 }
 
-export interface CreateModelConfigPayload {
+export interface CreateModelConfigRequest {
   ref: string;
   provider: Pick<Provider, "name" | "type">;
   model: string;

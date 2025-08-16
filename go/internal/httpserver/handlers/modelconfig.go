@@ -276,6 +276,28 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No Ollama params provided in create.")
 		}
+
+	case v1alpha2.ModelProviderGemini:
+		if req.GeminiParams != nil {
+			modelConfig.Spec.Gemini = req.GeminiParams
+			log.V(1).Info("Assigned Gemini params to spec")
+		} else {
+			log.V(1).Info("No Gemini params provided in create.")
+		}
+	case v1alpha2.ModelProviderGeminiVertexAI:
+		if req.GeminiVertexAIParams != nil {
+			modelConfig.Spec.GeminiVertexAI = req.GeminiVertexAIParams
+			log.V(1).Info("Assigned GeminiVertexAI params to spec")
+		} else {
+			log.V(1).Info("No GeminiVertexAI params provided in create.")
+		}
+	case v1alpha2.ModelProviderAnthropicVertexAI:
+		if req.AnthropicVertexAIParams != nil {
+			modelConfig.Spec.AnthropicVertexAI = req.AnthropicVertexAIParams
+			log.V(1).Info("Assigned AnthropicVertexAI params to spec")
+		} else {
+			log.V(1).Info("No AnthropicVertexAI params provided in create.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
 	}
@@ -381,14 +403,17 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	modelConfig.Spec = v1alpha2.ModelConfigSpec{
-		Model:           req.Model,
-		Provider:        v1alpha2.ModelProvider(req.Provider.Type),
-		APIKeySecret:    modelConfig.Spec.APIKeySecret,
-		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
-		OpenAI:          nil,
-		Anthropic:       nil,
-		AzureOpenAI:     nil,
-		Ollama:          nil,
+		Model:             req.Model,
+		Provider:          v1alpha2.ModelProvider(req.Provider.Type),
+		APIKeySecret:      modelConfig.Spec.APIKeySecret,
+		APIKeySecretKey:   modelConfig.Spec.APIKeySecretKey,
+		OpenAI:            nil,
+		Anthropic:         nil,
+		AzureOpenAI:       nil,
+		Ollama:            nil,
+		Gemini:            nil,
+		GeminiVertexAI:    nil,
+		AnthropicVertexAI: nil,
 	}
 
 	// --- Update Secret if API Key is provided (and not Ollama) ---
@@ -446,6 +471,27 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 			log.V(1).Info("Assigned updated Ollama params to spec")
 		} else {
 			log.V(1).Info("No Ollama params provided in update.")
+		}
+	case v1alpha2.ModelProviderGemini:
+		if req.GeminiParams != nil {
+			modelConfig.Spec.Gemini = req.GeminiParams
+			log.V(1).Info("Assigned updated Gemini params to spec")
+		} else {
+			log.V(1).Info("No Gemini params provided in update.")
+		}
+	case v1alpha2.ModelProviderGeminiVertexAI:
+		if req.GeminiVertexAIParams != nil {
+			modelConfig.Spec.GeminiVertexAI = req.GeminiVertexAIParams
+			log.V(1).Info("Assigned updated GeminiVertexAI params to spec")
+		} else {
+			log.V(1).Info("No GeminiVertexAI params provided in update.")
+		}
+	case v1alpha2.ModelProviderAnthropicVertexAI:
+		if req.AnthropicVertexAIParams != nil {
+			modelConfig.Spec.AnthropicVertexAI = req.AnthropicVertexAIParams
+			log.V(1).Info("Assigned updated AnthropicVertexAI params to spec")
+		} else {
+			log.V(1).Info("No AnthropicVertexAI params provided in update.")
 		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)

@@ -3,17 +3,18 @@ package client
 import (
 	"context"
 
+	v1alpha2 "github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
 
 // ModelInfo represents information about a model
 type ModelInfo struct {
-	Name           string `json:"name"`
+	Name            string `json:"name"`
 	FunctionCalling bool   `json:"function_calling"`
 }
 
 // ProviderModels represents a map of provider names to their supported models
-type ProviderModels map[string][]ModelInfo
+type ProviderModels map[v1alpha2.ModelProvider][]ModelInfo
 
 // Model defines the model operations
 type Model interface {

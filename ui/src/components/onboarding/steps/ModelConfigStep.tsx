@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import type { CreateModelConfigPayload, ModelConfig, Provider, ProviderModelsResponse } from '@/types';
+import type { CreateModelConfigRequest, ModelConfig, Provider, ProviderModelsResponse } from '@/types';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -20,13 +20,12 @@ import { getSupportedModelProviders } from '@/app/actions/providers';
 import { cn, isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { createModelConfig } from '@/app/actions/modelConfigs';
 import { ModelProviderCombobox } from '@/components/ModelProviderCombobox';
-import { PROVIDERS_INFO, isValidProviderInfoKey } from '@/lib/providers';
+import { PROVIDERS_INFO, isValidProviderInfoKey, modelProviders } from '@/lib/providers';
 import { OLLAMA_DEFAULT_TAG, OLLAMA_DEFAULT_HOST } from '@/lib/constants';
 import { k8sRefUtils } from '@/lib/k8sUtils';
 import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
-const modelProviders = ["openai", "azure-openai", "anthropic", "ollama", "gemini", "gemini-vertex-ai", "anthropic-vertex-ai"] as const;
 const modelConfigSchema = z.object({
     providerName: z.enum(modelProviders, { required_error: "Please select a provider." }),
     configName: z.string().min(1, "Configuration name is required."),
@@ -37,13 +36,13 @@ const modelConfigSchema = z.object({
     azureApiVersion: z.string().optional(),
     modelTag: z.string().optional(),
     ollamaBaseUrl: z.string().optional(),
-}).refine(data => data.providerName === 'ollama' || (data.apiKey && data.apiKey.length > 0), {
+}).refine(data => data.providerName === 'Ollama' || (data.apiKey && data.apiKey.length > 0), {
     message: "API Key is required for this provider.",
     path: ["apiKey"],
-}).refine(data => data.providerName !== 'azure-openai' || (data.azureEndpoint && data.azureEndpoint.length > 0), {
+}).refine(data => data.providerName !== 'AzureOpenAI' || (data.azureEndpoint && data.azureEndpoint.length > 0), {
     message: "Azure Endpoint is required for Azure OpenAI.",
     path: ["azureEndpoint"],
-}).refine(data => data.providerName !== 'azure-openai' || (data.azureApiVersion && data.azureApiVersion.length > 0), {
+}).refine(data => data.providerName !== 'AzureOpenAI' || (data.azureApiVersion && data.azureApiVersion.length > 0), {
     message: "Azure API Version is required for Azure OpenAI.",
     path: ["azureApiVersion"],
 });
@@ -144,8 +143,8 @@ export function ModelConfigStep({
     });
 
     const watchedProvider = formStep1Create.watch("providerName");
-    const needsApiKey = watchedProvider && watchedProvider !== 'ollama';
-    const isAzure = watchedProvider === 'azure-openai';
+    const needsApiKey = watchedProvider && watchedProvider !== 'Ollama';
+    const isAzure = watchedProvider === 'AzureOpenAI';
     const currentProviderName = formStep1Create.watch("providerName");
     const currentModelName = formStep1Create.watch("modelName");
     const currentCombinedValue = currentProviderName && currentModelName ? `${currentProviderName}::${currentModelName}` : "";
@@ -168,7 +167,7 @@ export function ModelConfigStep({
     };
 
     useEffect(() => {
-        setIsOllama(watchedProvider === 'ollama');
+        setIsOllama(watchedProvider === 'Ollama');
     }, [watchedProvider]);
 
     async function onSubmitStep1Create(values: ModelConfigFormData) {
@@ -179,21 +178,21 @@ export function ModelConfigStep({
             return;
         }
         const providerInfo = PROVIDERS_INFO[values.providerName];
-        const payload: CreateModelConfigPayload = {
+        const payload: CreateModelConfigRequest = {
             ref: k8sRefUtils.toRef(values.configNamespace || "", values.configName),
             provider: { name: providerInfo.name, type: providerInfo.type },
             model: values.modelName,
             apiKey: values.apiKey || "",
         };
         switch (values.providerName) {
-            case 'azure-openai':
+            case 'AzureOpenAI':
                 payload.azureOpenAI = { azureEndpoint: values.azureEndpoint || "", apiVersion: values.azureApiVersion || "" }; break;
-            case 'openai': payload.openAI = {}; break;
-            case 'anthropic': payload.anthropic = {}; break;
-            case 'gemini': payload.gemini = {}; break;
-            case 'gemini-vertex-ai': payload.geminiVertexAI = {}; break;
-            case 'anthropic-vertex-ai': payload.anthropicVertexAI = {}; break;
-            case 'ollama':
+            case 'OpenAI': payload.openAI = {}; break;
+            case 'Anthropic': payload.anthropic = {}; break;
+            case 'Gemini': payload.gemini = {}; break;
+            case 'GeminiVertexAI': payload.geminiVertexAI = {}; break;
+            case 'AnthropicVertexAI': payload.anthropicVertexAI = {}; break;
+            case 'Ollama':
                 const modelTag = values.modelTag?.trim() || "";
                 if (modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
                     payload.model = `${values.modelName}:${modelTag}`;
@@ -321,7 +320,7 @@ export function ModelConfigStep({
                                             onChange={(_, providerKey, modelName) => {
                                                 formStep1Create.setValue('providerName', providerKey, { shouldValidate: true });
                                                 formStep1Create.setValue('modelName', modelName, { shouldValidate: true });
-                                                if (providerKey !== 'azure-openai') {
+                                                if (providerKey !== 'AzureOpenAI') {
                                                     formStep1Create.setValue('azureEndpoint', '');
                                                     formStep1Create.setValue('azureApiVersion', '');
                                                 }
@@ -371,7 +370,7 @@ export function ModelConfigStep({
                                                         onChange={e => {
                                                             field.onChange(e);
 
-                                                            if (watchedProvider === 'ollama') {
+                                                            if (watchedProvider === 'Ollama') {
                                                                 const currentName = formStep1Create.getValues("configName");
                                                                 const newTag = e.target.value.trim();
 
@@ -473,8 +472,8 @@ export function ModelConfigStep({
                                             </FormControl>
                                             <FormDescription>
                                             Your Azure OpenAI resource endpoint URL.
-                                            {PROVIDERS_INFO['azure-openai']?.apiKeyLink && (
-                                                <> (<a href={PROVIDERS_INFO['azure-openai'].apiKeyLink} target="_blank" rel="noopener noreferrer" className="underline">Find it here</a>)</>
+                                            {PROVIDERS_INFO['AzureOpenAI']?.apiKeyLink && (
+                                                <> (<a href={PROVIDERS_INFO['AzureOpenAI'].apiKeyLink} target="_blank" rel="noopener noreferrer" className="underline">Find it here</a>)</>
                                             )}
                                             </FormDescription>
                                             <FormMessage />
@@ -519,8 +518,8 @@ export function ModelConfigStep({
                                 />
                             )}
 
-                            {!needsApiKey && watchedProvider === 'ollama' && isValidProviderInfoKey('ollama') && (
-                                <p className="text-sm text-muted-foreground">{PROVIDERS_INFO['ollama']?.help}</p>
+                            {!needsApiKey && watchedProvider === 'Ollama' && isValidProviderInfoKey('Ollama') && (
+                                <p className="text-sm text-muted-foreground">{PROVIDERS_INFO['Ollama']?.help}</p>
                             )}
 
                             <Button type="submit" disabled={isLoading} className="w-full">
