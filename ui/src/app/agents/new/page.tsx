@@ -16,7 +16,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { Tool } from "@/types";
+import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { listMemories } from "@/app/actions/memories";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
@@ -274,7 +274,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         imagePullPolicy: state.imagePullPolicy || undefined,
         imagePullSecrets: (state.imagePullSecrets || []).filter(n => n.trim()).map(n => ({ name: n.trim() })),
         env: (state.envPairs || [])
-          .map(ev => {
+          .map<EnvVar | null>(ev => {
             const name = (ev.name || "").trim();
             if (!name) return null;
             if (ev.isSecret) {
@@ -290,11 +290,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     optional: ev.optional,
                   },
                 },
-              } as any;
+              } as EnvVar;
             }
-            return { name, value: ev.value ?? "" } as any;
+            return { name, value: ev.value ?? "" } as EnvVar;
           })
-          .filter(Boolean),
+          .filter((e): e is EnvVar => e !== null),
       };
 
       let result;
