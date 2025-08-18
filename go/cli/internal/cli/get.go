@@ -119,16 +119,21 @@ func printAgents(agents []api.AgentResponse) error {
 }
 
 func printSessions(sessions []*database.Session) error {
-	headers := []string{"#", "NAME", "AGENT", "CREATED"}
+	headers := []string{"#", "ID", "NAME", "AGENT", "CREATED"}
 	rows := make([][]string, len(sessions))
 	for i, session := range sessions {
 		agentID := ""
 		if session.AgentID != nil {
 			agentID = *session.AgentID
 		}
+		sessionName := ""
+		if session.Name != nil {
+			sessionName = *session.Name
+		}
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
 			session.ID,
+			sessionName,
 			agentID,
 			session.CreatedAt.Format(time.RFC3339),
 		}
