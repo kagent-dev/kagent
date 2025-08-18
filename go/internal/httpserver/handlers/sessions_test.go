@@ -28,7 +28,7 @@ func TestSessionsHandler(t *testing.T) {
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 
-	setupHandler := func() (*handlers.SessionsHandler, *database_fake.InMemmoryFakeClient, *mockErrorResponseWriter) {
+	setupHandler := func() (*handlers.SessionsHandler, *database_fake.InMemoryFakeClient, *mockErrorResponseWriter) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 		dbClient := database_fake.NewClient()
 
@@ -39,7 +39,7 @@ func TestSessionsHandler(t *testing.T) {
 		}
 		handler := handlers.NewSessionsHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
-		return handler, dbClient.(*database_fake.InMemmoryFakeClient), responseRecorder
+		return handler, dbClient.(*database_fake.InMemoryFakeClient), responseRecorder
 	}
 
 	createTestAgent := func(dbClient database.Client, agentRef string) *database.Agent {
