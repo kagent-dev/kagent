@@ -70,7 +70,6 @@ type AdkApiTranslator interface {
 		ctx context.Context,
 		agent *v1alpha2.Agent,
 	) (*AgentOutputs, error)
-	ResolveValueRefs(ctx context.Context, vrs []v1alpha2.ValueRef, namespace string) (map[string]string, error)
 }
 
 func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName) AdkApiTranslator {
@@ -661,7 +660,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 }
 
 func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.StreamableHTTPConnectionParams, error) {
-	headers, err := a.ResolveValueRefs(ctx, tool.HeadersFrom, namespace)
+	headers, err := tool.ResolveHeaders(ctx, a.kube, namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -683,7 +682,7 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 }
 
 func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.SseConnectionParams, error) {
-	headers, err := a.ResolveValueRefs(ctx, tool.HeadersFrom, namespace)
+	headers, err := tool.ResolveHeaders(ctx, a.kube, namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -699,24 +698,6 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 		params.SseReadTimeout = ptr.To(tool.SseReadTimeout.Seconds())
 	}
 	return params, nil
-}
-
-func (a *adkApiTranslator) ResolveValueRefs(ctx context.Context, vrs []v1alpha2.ValueRef, namespace string) (map[string]string, error) {
-	result := make(map[string]string)
-
-	for _, vr := range vrs {
-		if vr.Value != "" {
-			result[vr.Name] = vr.Value
-		} else if vr.ValueFrom != nil {
-			value, err := resolveValueSource(ctx, a.kube, vr.ValueFrom, namespace)
-			if err != nil {
-				return nil, err
-			}
-			result[vr.Name] = value
-		}
-	}
-
-	return result, nil
 }
 
 func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, toolServerRef v1alpha2.TypedLocalReference, toolNames []string, agentNamespace string) error {
@@ -866,62 +847,6 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 		})
 	}
 	return nil
-}
-
-// resolveValueSource resolves a value from a ValueSource
-func resolveValueSource(ctx context.Context, kube client.Client, source *v1alpha2.ValueSource, namespace string) (string, error) {
-	if source == nil {
-		return "", fmt.Errorf("source cannot be nil")
-	}
-
-	switch source.Type {
-	case v1alpha2.ConfigMapValueSource:
-		return getConfigMapValue(ctx, kube, source, namespace)
-	case v1alpha2.SecretValueSource:
-		return getSecretValue(ctx, kube, source, namespace)
-	default:
-		return "", fmt.Errorf("unknown value source type: %s", source.Type)
-	}
-}
-
-// getConfigMapValue fetches a value from a ConfigMap
-func getConfigMapValue(ctx context.Context, kube client.Client, source *v1alpha2.ValueSource, namespace string) (string, error) {
-	if source == nil {
-		return "", fmt.Errorf("source cannot be nil")
-	}
-
-	configMap := &corev1.ConfigMap{}
-	ref := types.NamespacedName{Namespace: namespace, Name: source.Name}
-	err := kube.Get(ctx, ref, configMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to find ConfigMap for %s: %v", source.Name, err)
-	}
-
-	value, exists := configMap.Data[source.Key]
-	if !exists {
-		return "", fmt.Errorf("key %s not found in ConfigMap %s/%s", source.Key, configMap.Namespace, configMap.Name)
-	}
-	return value, nil
-}
-
-// getSecretValue fetches a value from a Secret
-func getSecretValue(ctx context.Context, kube client.Client, source *v1alpha2.ValueSource, namespace string) (string, error) {
-	if source == nil {
-		return "", fmt.Errorf("source cannot be nil")
-	}
-
-	secret := &corev1.Secret{}
-	ref := types.NamespacedName{Namespace: namespace, Name: source.Name}
-	err := kube.Get(ctx, ref, secret)
-	if err != nil {
-		return "", fmt.Errorf("failed to find Secret for %s: %v", source.Name, err)
-	}
-
-	value, exists := secret.Data[source.Key]
-	if !exists {
-		return "", fmt.Errorf("key %s not found in Secret %s/%s", source.Key, secret.Namespace, secret.Name)
-	}
-	return string(value), nil
 }
 
 // Helper functions

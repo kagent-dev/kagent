@@ -17,11 +17,16 @@ limitations under the License.
 package v1alpha2
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 
+	"github.com/kagent-dev/kagent/go/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // +kubebuilder:validation:Enum=SSE;STREAMABLE_HTTP
@@ -61,6 +66,21 @@ func (t *RemoteMCPServerSpec) Scan(src any) error {
 	return nil
 }
 
+func (s *RemoteMCPServerSpec) ResolveHeaders(ctx context.Context, client client.Client, namespace string) (map[string]string, error) {
+	result := map[string]string{}
+
+	for _, h := range s.HeadersFrom {
+		k, v, err := h.Resolve(ctx, client, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve header: %v", err)
+		}
+
+		result[k] = v
+	}
+
+	return result, nil
+}
+
 var _ driver.Valuer = (*RemoteMCPServerSpec)(nil)
 
 func (t RemoteMCPServerSpec) Value() (driver.Value, error) {
@@ -84,6 +104,21 @@ type ValueSource struct {
 	Key string `json:"key"`
 }
 
+func (s *ValueSource) Resolve(ctx context.Context, client client.Client, namespace string) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("ValueSource cannot be nil")
+	}
+
+	switch s.Type {
+	case ConfigMapValueSource:
+		return utils.GetConfigMapValue(ctx, client, types.NamespacedName{Namespace: namespace, Name: s.Name}, s.Key)
+	case SecretValueSource:
+		return utils.GetSecretValue(ctx, client, types.NamespacedName{Namespace: namespace, Name: s.Name}, s.Key)
+	default:
+		return "", fmt.Errorf("unknown value source type: %s", s.Type)
+	}
+}
+
 // ValueRef represents a configuration value
 // +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
 type ValueRef struct {
@@ -92,6 +127,26 @@ type ValueRef struct {
 	Value string `json:"value,omitempty"`
 	// +optional
 	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
+}
+
+func (r *ValueRef) Resolve(ctx context.Context, client client.Client, namespace string) (string, string, error) {
+	if r == nil {
+		return "", "", fmt.Errorf("ValueRef cannot be nil")
+	}
+
+	switch {
+	case r.Value != "":
+		return r.Name, r.Value, nil
+	case r.ValueFrom != nil:
+		value, err := r.ValueFrom.Resolve(ctx, client, namespace)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to resolve value for ref %s: %v", r.Name, err)
+		}
+
+		return r.Name, value, nil
+	default:
+		return r.Name, "", nil
+	}
 }
 
 // RemoteMCPServerStatus defines the observed state of RemoteMCPServer.

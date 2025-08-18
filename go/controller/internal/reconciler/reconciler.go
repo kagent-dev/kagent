@@ -490,7 +490,7 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 		return fmt.Errorf("failed to store toolServer %s: %v", toolServer.Name, err)
 	}
 
-	tsp, err := a.createMcpTransport(ctx, remoteMcpServer.URL, remoteMcpServer.Protocol, remoteMcpServer.HeadersFrom, namespace)
+	tsp, err := a.createMcpTransport(ctx, remoteMcpServer, namespace)
 	if err != nil {
 		return fmt.Errorf("failed to create client for toolServer %s: %v", toolServer.Name, err)
 	}
@@ -507,17 +507,17 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 	return nil
 }
 
-func (a *kagentReconciler) createMcpTransport(ctx context.Context, url string, p v1alpha2.RemoteMCPServerProtocol, headersFrom []v1alpha2.ValueRef, namespace string) (transport.Interface, error) {
-	headers, err := a.adkTranslator.ResolveValueRefs(ctx, headersFrom, namespace)
+func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.RemoteMCPServerSpec, namespace string) (transport.Interface, error) {
+	headers, err := s.ResolveHeaders(ctx, a.kube, namespace)
 	if err != nil {
 		return nil, err
 	}
 
 	switch {
-	case p == v1alpha2.RemoteMCPServerProtocolSse:
-		return transport.NewSSE(url, transport.WithHeaders(headers))
+	case s.Protocol == v1alpha2.RemoteMCPServerProtocolSse:
+		return transport.NewSSE(s.URL, transport.WithHeaders(headers))
 	default:
-		return transport.NewStreamableHTTP(url, transport.WithHTTPHeaders(headers))
+		return transport.NewStreamableHTTP(s.URL, transport.WithHTTPHeaders(headers))
 	}
 }
 
