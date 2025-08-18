@@ -23,7 +23,7 @@ func CheckServerConnection(client *client.ClientSet) error {
 	defer cancel()
 	_, err := client.Version.GetVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
+		return fmt.Errorf("Error connecting to server. Please run 'install' command first. %v", err)
 	}
 	return nil
 }

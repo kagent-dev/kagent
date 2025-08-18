@@ -79,7 +79,15 @@ func ChatCmd(c *ishell.Context) {
 
 	existingSessions := slices.Collect(utils.Filter(slices.Values(sessions.Data), func(session *api.Session) bool { return true }))
 
+	// filter by selected agentRef
+	existingSessions = slices.Collect(utils.Filter(slices.Values(existingSessions), func(session *api.Session) bool {
+		return session.AgentID != nil && *session.AgentID == agentResp.ID
+	}))
+
 	existingSessionNames := slices.Collect(utils.Map(slices.Values(existingSessions), func(session *api.Session) string {
+		if session.Name != nil {
+			return fmt.Sprintf("%s (ID: %s)", *session.Name, session.ID)
+		}
 		return session.ID
 	}))
 
@@ -91,6 +99,8 @@ func ChatCmd(c *ishell.Context) {
 	} else {
 		selectedSessionIdx = c.MultiChoice(existingSessionNames, "Select a session:")
 	}
+
+	agentRef := utils.ConvertToKubernetesIdentifier(agentResp.ID)
 
 	var session *api.Session
 	if selectedSessionIdx == 0 {
@@ -104,8 +114,9 @@ func ChatCmd(c *ishell.Context) {
 		}
 		c.ShowPrompt(true)
 		sessionResp, err := clientSet.Session.CreateSession(context.Background(), &api.SessionRequest{
-			UserID: cfg.UserID,
-			Name:   ptr.To(sessionName),
+			UserID:   cfg.UserID,
+			Name:     ptr.To(sessionName),
+			AgentRef: ptr.To(agentRef),
 		})
 		if err != nil {
 			c.Printf("Failed to create session: %v\n", err)
@@ -114,9 +125,9 @@ func ChatCmd(c *ishell.Context) {
 		session = sessionResp.Data
 	} else {
 		session = existingSessions[selectedSessionIdx-1]
+		// Adding this print as a sort of a hacky solution to an issue where the prompt is not shown after the session is chosen unless we print something.
+		c.Print("")
 	}
-
-	agentRef := utils.ConvertToKubernetesIdentifier(agentResp.ID)
 
 	// Setup A2A client
 	a2aURL := fmt.Sprintf("%s/api/a2a/%s", cfg.KAgentURL, agentRef)
@@ -130,7 +141,13 @@ func ChatCmd(c *ishell.Context) {
 	cancel := startPortForward(context.Background())
 	defer cancel()
 
-	promptStr := config.BoldGreen(fmt.Sprintf("%s--%s> ", agentRef, session.ID))
+	var sessionNameStr string
+	if session.Name != nil {
+		sessionNameStr = *session.Name
+	} else {
+		sessionNameStr = session.ID
+	}
+	promptStr := config.BoldGreen(fmt.Sprintf("%s (%s)> ", agentRef, sessionNameStr))
 	c.SetPrompt(promptStr)
 	c.ShowPrompt(true)
 
