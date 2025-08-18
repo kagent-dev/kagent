@@ -509,7 +509,7 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 
 func (a *kagentReconciler) createMcpTransport(ctx context.Context, url string, p v1alpha2.RemoteMCPServerProtocol, headersFrom []v1alpha2.ValueRef, namespace string) (transport.Interface, error) {
 	headers, err := a.adkTranslator.ResolveValueRefs(ctx, headersFrom, namespace)
-	if err == nil {
+	if err != nil {
 		return nil, err
 	}
 
