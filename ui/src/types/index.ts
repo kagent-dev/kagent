@@ -274,7 +274,7 @@ export interface BYODeploymentSpec {
   volumeMounts?: unknown[];
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
-  env?: Array<{ name: string; value?: string }>;
+  env?: EnvVar[];
   imagePullPolicy?: string;
 }
 
@@ -312,6 +312,22 @@ export interface AgentResponse {
 export interface RemoteMCPServer {
   metadata: ResourceMetadata;
   spec: RemoteMCPServerSpec;
+}
+
+export interface SecretKeySelector {
+  name: string;
+  key: string;
+  optional?: boolean;
+}
+
+export interface EnvVarSource {
+  secretKeyRef?: SecretKeySelector;
+}
+
+export interface EnvVar {
+  name: string;
+  value?: string;
+  valueFrom?: EnvVarSource;
 }
 
 export interface ValueSource {

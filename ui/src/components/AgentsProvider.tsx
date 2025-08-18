@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
-import type { Agent, Tool, AgentResponse, RemoteMCPServerResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType } from "@/types";
+import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -39,7 +39,7 @@ export interface AgentFormData {
   volumeMounts?: unknown[];
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
-  env?: Array<{ name: string; value?: string }>;
+  env?: EnvVar[];
   imagePullPolicy?: string;
   memory?: string[];
 }

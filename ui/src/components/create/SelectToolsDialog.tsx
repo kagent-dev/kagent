@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer } from "@/lib/toolUtils";
 import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
@@ -37,7 +37,7 @@ const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
   isAgent: boolean;
 } => {
 
-  if (isAgentTool(item)) {
+  if (isAgentResponse(item)) {
     const agentResp = item as AgentResponse;
     const displayName = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
     return {
@@ -55,7 +55,7 @@ const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
       displayName: getToolResponseDisplayName(tool),
       description: getToolResponseDescription(tool),
       identifier: getToolResponseIdentifier(tool),
-      providerText: tool.server_name,
+      providerText: getToolResponseCategory(tool),
       Icon: FunctionSquare,
       iconColor: "text-blue-400",
       isAgent: false
@@ -178,7 +178,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   const isItemSelected = (item: ToolsResponse | AgentResponse): boolean => {
     let identifier: string;
-    if ('agent' in item) {
+    if (isAgentResponse(item)) {
       const agentResp = item as AgentResponse;
       identifier = `agent-${k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name)}`;
     } else {
@@ -188,7 +188,8 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     
     return localSelectedTools.some(tool => {
       if (isAgentTool(tool)) {
-        return tool.agent?.name === identifier.replace('agent-', '');
+        const compare = identifier.replace('agent-', '');
+        return tool.agent?.name === compare || tool.agent?.name === compare.split('/').pop();
       } else if (isMcpTool(tool)) {
         const mcpTool = tool as Tool;
         return mcpTool.mcpServer?.name === identifier.split('-')[1];
@@ -200,12 +201,13 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   const handleAddItem = (item: ToolsResponse | AgentResponse) => {
     let toolToAdd: Tool;
 
-    if ('agent' in item) {
+    if (isAgentResponse(item)) {
       const agentResp = item as AgentResponse;
+      const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
       toolToAdd = {
         type: "Agent",
         agent: {
-          name: agentResp.agent.metadata.name,
+          name: agentRef,
           kind: "Agent",
           apiGroup: "kagent.dev",
         }
@@ -479,9 +481,19 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                         );
                       });
                     } else {
+                      const matchedAgent = isAgentTool(tool)
+                        ? availableAgents.find(a => {
+                            const ref = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name);
+                            return ref === tool.agent?.name || a.agent.metadata.name === tool.agent?.name;
+                          })
+                        : undefined;
+
+                      const matchedTool = !isAgentTool(tool)
+                        ? availableTools.find(s => s.server_name === tool.mcpServer?.name)
+                        : undefined;
+
                       const { displayName, description, Icon, iconColor } = getItemDisplayInfo(
-                        isAgentTool(tool) 
-                          ? availableAgents.find(a => k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name) === tool.agent?.name)!: availableTools.find(s => s.server_name === tool.mcpServer?.name)!
+                        (matchedAgent as AgentResponse) || (matchedTool as ToolsResponse)
                       );
                       
                       return [( 
