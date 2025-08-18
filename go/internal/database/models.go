@@ -16,7 +16,7 @@ type Agent struct {
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	Type   string           `gorm:"not null" json:"type"`
+	Type string `gorm:"not null" json:"type"`
 	// Config is optional and may be nil for some agent types.
 	// For agent types that require configuration, this field should be populated.
 	// For agent types that do not require configuration, this field should be nil.
@@ -129,6 +129,7 @@ type Feedback struct {
 type Tool struct {
 	ID          string         `gorm:"primaryKey;not null" json:"id"`
 	ServerName  string         `gorm:"primaryKey;not null" json:"server_name"`
+	GroupKind   string         `gorm:"primaryKey;not null" json:"group_kind"`
 	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at"`

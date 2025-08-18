@@ -224,12 +224,16 @@ func (c *InMemoryFakeClient) DeleteToolServer(serverName string, groupKind strin
 }
 
 // DeleteToolsForServer deletes tools for a tool server by name
-
-func (c *InMemoryFakeClient) DeleteToolsForServer(serverName string) error {
+func (c *InMemoryFakeClient) DeleteToolsForServer(serverName string, groupKind string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	delete(c.tools, serverName)
+	// Delete all tools that belong to the specified server
+	for toolID, tool := range c.tools {
+		if tool.ServerName == serverName {
+			delete(c.tools, toolID)
+		}
+	}
 	return nil
 }
 
@@ -390,8 +394,8 @@ func (c *InMemoryFakeClient) ListTools() ([]database.Tool, error) {
 	return result, nil
 }
 
-// ListToolsForServer lists all tools for a specific server
-func (c *InMemoryFakeClient) ListToolsForServer(serverName string) ([]database.Tool, error) {
+// ListToolsForServer lists all tools for a specific server and toolserver type
+func (c *InMemoryFakeClient) ListToolsForServer(serverName string, groupKind string) ([]database.Tool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -402,7 +406,7 @@ func (c *InMemoryFakeClient) ListToolsForServer(serverName string) ([]database.T
 		if !exists {
 			continue
 		}
-		if tool.ServerName == toolServer.Name {
+		if tool.ServerName == toolServer.Name && tool.GroupKind == groupKind {
 			result = append(result, *tool)
 		}
 	}
@@ -439,12 +443,27 @@ func (c *InMemoryFakeClient) ListEventsForSession(sessionID, userID string, opti
 }
 
 // RefreshToolsForServer refreshes a tool server
-func (c *InMemoryFakeClient) RefreshToolsForServer(serverName string, tools ...*v1alpha2.MCPTool) error {
+func (c *InMemoryFakeClient) RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// For now, just return nil - this would need a proper implementation
-	// based on the actual requirements
+	// Simple implementation: remove all existing tools for this server+groupKind and add new ones
+	for toolID, tool := range c.tools {
+		if tool.ServerName == serverName && tool.GroupKind == groupKind {
+			delete(c.tools, toolID)
+		}
+	}
+
+	// Add new tools
+	for _, tool := range tools {
+		c.tools[tool.Name] = &database.Tool{
+			ID:          tool.Name,
+			ServerName:  serverName,
+			GroupKind:   groupKind,
+			Description: tool.Description,
+		}
+	}
+
 	return nil
 }
 

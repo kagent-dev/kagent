@@ -60,7 +60,7 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 	toolServerWithTools := make([]api.ToolServerResponse, len(toolServers))
 	for i, toolServer := range toolServers {
 
-		tools, err := h.DatabaseService.ListToolsForServer(toolServer.Name)
+		tools, err := h.DatabaseService.ListToolsForServer(toolServer.Name, toolServer.GroupKind)
 		if err != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to list tools for ToolServer from database", err))
 			return
