@@ -197,7 +197,7 @@ func runInteractive() {
 
 	client := client.New(cfg.KAgentURL)
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8081:8081")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent-controller", "8083:8083")
 	// Error connecting to server, port-forward the server
 	go func() {
 		if err := cmd.Start(); err != nil {

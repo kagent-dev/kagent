@@ -3,11 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
-	"github.com/kagent-dev/kagent/go/internal/version"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/internal/version"
 
 	"github.com/briandowns/spinner"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
@@ -121,7 +122,7 @@ func InstallCmd(ctx context.Context, cfg *config.Config) {
 	// Create a new context for port-forward
 	pfCtx := context.Background()
 
-	portForwardCmd := exec.CommandContext(pfCtx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent", "8081:8081")
+	portForwardCmd := exec.CommandContext(pfCtx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
 	if err := portForwardCmd.Start(); err != nil {
 		s.Stop()
 		fmt.Fprintln(os.Stderr, "Error starting port-forward:", err)
