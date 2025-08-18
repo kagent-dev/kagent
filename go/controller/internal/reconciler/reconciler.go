@@ -205,15 +205,15 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the service is deleted
 			dbService := &database.ToolServer{
-				Name:      utils.GetObjectRef(service),
+				Name:      req.NamespacedName.String(),
 				GroupKind: schema.GroupKind{Group: "", Kind: "Service"}.String(),
 			}
 			if err := a.dbClient.DeleteToolServer(dbService.Name, dbService.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tool server for mcp service", "service", utils.GetObjectRef(service))
+				reconcileLog.Error(err, "failed to delete tool server for mcp service", "service", req.NamespacedName.String())
 			}
-			reconcileLog.Info("mcp service was deleted", "service", utils.GetObjectRef(service))
+			reconcileLog.Info("mcp service was deleted", "service", req.NamespacedName.String())
 			if err := a.dbClient.DeleteToolsForServer(dbService.Name, dbService.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tools for mcp service", "service", utils.GetObjectRef(service))
+				reconcileLog.Error(err, "failed to delete tools for mcp service", "service", req.NamespacedName.String())
 			}
 			return nil
 		}
@@ -301,15 +301,15 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the mcp server is deleted
 			dbServer := &database.ToolServer{
-				Name:      utils.GetObjectRef(mcpServer),
+				Name:      req.NamespacedName.String(),
 				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
 			}
 			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tool server for mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+				reconcileLog.Error(err, "failed to delete tool server for mcp server", "mcpServer", req.NamespacedName.String())
 			}
-			reconcileLog.Info("mcp server was deleted", "mcpServer", utils.GetObjectRef(mcpServer))
+			reconcileLog.Info("mcp server was deleted", "mcpServer", req.NamespacedName.String())
 			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tools for mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+				reconcileLog.Error(err, "failed to delete tools for mcp server", "mcpServer", req.NamespacedName.String())
 			}
 			return nil
 		}
@@ -340,15 +340,15 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the remote mcp server is deleted
 			dbServer := &database.ToolServer{
-				Name:      utils.GetObjectRef(toolServer),
+				Name:      req.NamespacedName.String(),
 				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String(),
 			}
 			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tool server for remote mcp server", "remoteMCPServer", utils.GetObjectRef(toolServer))
+				reconcileLog.Error(err, "failed to delete tool server for remote mcp server", "remoteMCPServer", req.NamespacedName.String())
 			}
-			reconcileLog.Info("remote mcp server was deleted", "remoteMCPServer", utils.GetObjectRef(toolServer))
+			reconcileLog.Info("remote mcp server was deleted", "remoteMCPServer", req.NamespacedName.String())
 			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tools for remote mcp server", "remoteMCPServer", utils.GetObjectRef(toolServer))
+				reconcileLog.Error(err, "failed to delete tools for remote mcp server", "remoteMCPServer", req.NamespacedName.String())
 			}
 			return nil
 		}
