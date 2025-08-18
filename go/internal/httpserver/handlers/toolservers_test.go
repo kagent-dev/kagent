@@ -78,6 +78,7 @@ func TestToolServersHandler(t *testing.T) {
 			tool1 := &database.Tool{
 				ID:          "test-tool",
 				ServerName:  "default/test-toolserver-1",
+				GroupKind:   "kagent.dev/RemoteMCPServer",
 				Description: "Test tool",
 			}
 			err = dbClient.CreateTool(tool1)
