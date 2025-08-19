@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"net/http"
+
+	"trpc.group/trpc-go/trpc-a2a-go/auth"
 )
 
 var (
@@ -26,6 +28,9 @@ const (
 
 func DefaultAuthnMiddleware() func(http.Handler) http.Handler {
 	return AuthnMiddleware(UnsecureAuthenticator)
+}
+func DefaultA2AAuthnProvider() auth.Provider {
+	return &A2AUnsecureAuthenticator{}
 }
 
 func AuthSessionFrom(ctx context.Context) (*Session, bool) {
@@ -56,7 +61,10 @@ func AuthnMiddleware(authn func(r *http.Request) *Session) func(http.Handler) ht
 func UnsecureAuthenticator(r *http.Request) *Session {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
-		return nil
+		userID = r.Header.Get("X-User-Id")
+	}
+	if userID == "" {
+		userID = "admin@kagent.dev"
 	}
 	agentId := r.Header.Get("X-Agent-Name")
 	return &Session{
@@ -65,4 +73,19 @@ func UnsecureAuthenticator(r *http.Request) *Session {
 			Agent: agentId,
 		},
 	}
+}
+
+type A2AUnsecureAuthenticator struct{}
+
+func (a *A2AUnsecureAuthenticator) Authenticate(r *http.Request) (*auth.User, error) {
+	session := UnsecureAuthenticator(r)
+	if session == nil {
+		return nil, nil
+	}
+	if session.Principal.User == "" {
+		return nil, nil
+	}
+	return &auth.User{
+		ID: session.Principal.User,
+	}, nil
 }
