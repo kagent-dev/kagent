@@ -198,7 +198,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleListFeedback)).Methods(http.MethodGet)
 
 	// A2A
-	s.router.PathPrefix(APIPathA2A).Handler(s.config.A2AHandler)
+	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 
 	// Use middleware for common functionality
 	s.router.Use(contentTypeMiddleware)
