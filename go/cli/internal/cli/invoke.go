@@ -27,9 +27,13 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 
 	clientSet := client.New(cfg.Config.KAgentURL)
 
-	var pf *portForward
 	if err := CheckServerConnection(clientSet); err != nil {
-		pf = NewPortForward(ctx, cfg.Config)
+		// If a connection does not exist, start a short-lived port-forward.
+		pf, err := NewPortForward(ctx, cfg.Config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+			return
+		}
 		defer pf.Stop()
 	}
 

@@ -45,11 +45,11 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func InstallCmd(ctx context.Context, cfg *config.Config) {
+func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
 
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
-		return
+		return nil
 	}
 
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
@@ -62,7 +62,7 @@ func InstallCmd(ctx context.Context, cfg *config.Config) {
 	if apiKeyName != "" && apiKeyValue == "" {
 		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
 		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
-		return
+		return nil
 	}
 
 	// Build Helm values
@@ -106,7 +106,7 @@ func InstallCmd(ctx context.Context, cfg *config.Config) {
 			s.Start()
 		} else {
 			fmt.Fprintln(os.Stderr, "Error installing kagent-crds:", output)
-			return
+			return nil
 		}
 	}
 
@@ -116,32 +116,19 @@ func InstallCmd(ctx context.Context, cfg *config.Config) {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 		fmt.Fprintln(os.Stderr, "Error installing kagent:", output)
-		return
-	}
-
-	// Create a new context for port-forward
-	pfCtx := context.Background()
-
-	portForwardCmd := exec.CommandContext(pfCtx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
-	if err := portForwardCmd.Start(); err != nil {
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Error starting port-forward:", err)
-		return
-	}
-
-	// Wait for port-forward to be ready
-	time.Sleep(2 * time.Second)
-
-	// Check if port-forward is running
-	if portForwardCmd.Process == nil {
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Port-forward failed to start")
-		return
+		return nil
 	}
 
 	// Stop the spinner completely before printing the success message
 	s.Stop()
 	fmt.Fprintln(os.Stdout, "kagent installed successfully")
+
+	pf, err := NewPortForward(ctx, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+		return nil
+	}
+	return pf
 }
 
 // deleteCRDs manually deletes Kubernetes CRDs for kagent

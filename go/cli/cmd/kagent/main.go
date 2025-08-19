@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/abiosoft/ishell/v2"
@@ -81,7 +80,11 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
-				pf := cli.NewPortForward(ctx, cfg)
+				pf, err := cli.NewPortForward(ctx, cfg)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+					return
+				}
 				defer pf.Stop()
 			}
 			cli.BugReportCmd(cfg)
@@ -95,7 +98,11 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
-				pf := cli.NewPortForward(ctx, cfg)
+				pf, err := cli.NewPortForward(ctx, cfg)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+					return
+				}
 				defer pf.Stop()
 			}
 			cli.VersionCmd(cfg)
@@ -129,7 +136,11 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
-				pf := cli.NewPortForward(ctx, cfg)
+				pf, err := cli.NewPortForward(ctx, cfg)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+					return
+				}
 				defer pf.Stop()
 			}
 			resourceName := ""
@@ -147,7 +158,11 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
-				pf := cli.NewPortForward(ctx, cfg)
+				pf, err := cli.NewPortForward(ctx, cfg)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+					return
+				}
 				defer pf.Stop()
 			}
 			resourceName := ""
@@ -165,7 +180,11 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			client := client.New(cfg.KAgentURL)
 			if err := cli.CheckServerConnection(client); err != nil {
-				pf := cli.NewPortForward(ctx, cfg)
+				pf, err := cli.NewPortForward(ctx, cfg)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+					return
+				}
 				defer pf.Stop()
 			}
 			cli.GetToolCmd(cfg)
@@ -188,6 +207,10 @@ func main() {
 
 }
 
+const (
+	portForwardKey = "[port-forward]"
+)
+
 func runInteractive() {
 	cfg, err := config.Get()
 	if err != nil {
@@ -197,25 +220,17 @@ func runInteractive() {
 
 	client := client.New(cfg.KAgentURL)
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent-controller", "8083:8083")
-	// Error connecting to server, port-forward the server
-	go func() {
-		if err := cmd.Start(); err != nil {
+	defer cancel()
+
+	// Start port forward and ensure it is healthy
+	var pf *cli.PortForward
+	if err := cli.CheckServerConnection(client); err != nil {
+		pf, err = cli.NewPortForward(ctx, cfg)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-			os.Exit(1)
+			// For interactive mode, we don't want to exit the program if the port-forward fails, because it's possible to open the interactive shell while kagent is not installed.
 		}
-	}()
-	// Ensure the context is cancelled when the shell is closed
-	defer func() {
-		cancel()
-		// cmd.Wait()
-		if err := cmd.Wait(); err != nil {
-			// These 2 errors are expected
-			if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "exec: not started") {
-				fmt.Fprintf(os.Stderr, "Error waiting for port-forward to exit: %v\n", err)
-			}
-		}
-	}()
+	}
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -226,6 +241,10 @@ func runInteractive() {
 	// create new shell.
 	// by default, new shell includes 'exit', 'help' and 'clear' commands.
 	shell := ishell.New()
+	if pf != nil {
+		shell.Set(portForwardKey, pf)
+	}
+
 	config.SetHistoryPath(homeDir, shell)
 	if err := shell.ClearScreen(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error clearing screen: %v\n", err)
@@ -395,6 +414,10 @@ Example:
 		Aliases: []string{"v"},
 		Help:    "Print the kagent version.",
 		Func: func(c *ishell.Context) {
+			if err := cli.CheckServerConnection(client); err != nil {
+				c.Println(err)
+				return
+			}
 			cli.VersionCmd(cfg)
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		},
@@ -406,7 +429,10 @@ Example:
 		Help:    "Install kagent.",
 		Func: func(c *ishell.Context) {
 			cfg := config.GetCfg(c)
-			cli.InstallCmd(ctx, cfg)
+			if pf := cli.InstallCmd(ctx, cfg); pf != nil {
+				// Set the port-forward to the shell.
+				shell.Set(portForwardKey, pf)
+			}
 		},
 	})
 
@@ -421,6 +447,11 @@ Example:
 			}
 			cfg := config.GetCfg(c)
 			cli.UninstallCmd(ctx, cfg)
+			// Safely stop the port-forward if it is running.
+			if pf := shell.Get(portForwardKey); pf != nil {
+				pf.(*cli.PortForward).Stop()
+				shell.Del(portForwardKey)
+			}
 		},
 	})
 
@@ -438,5 +469,11 @@ Example:
 		},
 	})
 
+	defer func() {
+		if pf := shell.Get(portForwardKey); pf != nil {
+			pf.(*cli.PortForward).Stop()
+			shell.Del(portForwardKey)
+		}
+	}()
 	shell.Run()
 }

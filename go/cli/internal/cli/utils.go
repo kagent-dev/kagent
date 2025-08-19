@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
@@ -23,20 +22,20 @@ func CheckServerConnection(client *client.ClientSet) error {
 	defer cancel()
 	_, err := client.Version.GetVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("Error connecting to server. Please run 'install' command first. %v", err)
+		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
 	}
 	return nil
 }
 
-type portForward struct {
+type PortForward struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
 }
 
-func NewPortForward(ctx context.Context, cfg *config.Config) *portForward {
+func NewPortForward(ctx context.Context, cfg *config.Config) (*PortForward, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
-	// Error connecting to server, port-forward the server
+
 	go func() {
 		if err := cmd.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
@@ -45,27 +44,48 @@ func NewPortForward(ctx context.Context, cfg *config.Config) *portForward {
 	}()
 
 	client := client.New(cfg.KAgentURL)
-	// Try to connect 5 times
-	for i := 0; i < 5; i++ {
-		if err := CheckServerConnection(client); err == nil {
+	success := false
+	maxRetries := 10 // 10 retries @ 100->500ms intervals, ~3s total
+	var err error
+	for i := 0; i < maxRetries; i++ {
+		if serverErr := CheckServerConnection(client); serverErr == nil {
+			// Connection successful, port-forward is working
+			err = nil
+			success = true
 			break
+		} else {
+			err = serverErr
 		}
-		time.Sleep(50 * time.Millisecond)
+
+		// Exponential backoff plateauing at 500ms
+		// 100ms, 150ms, 200ms, 250ms, 300ms, 350ms, 400ms, 450ms, 500ms...
+		sleepDuration := time.Duration(100+i*50) * time.Millisecond
+		if sleepDuration > 500*time.Millisecond {
+			sleepDuration = 500 * time.Millisecond
+		}
+		time.Sleep(sleepDuration)
 	}
 
-	return &portForward{
+	if !success {
+		cancel()
+		return nil, fmt.Errorf("failed to establish connection to kagent-controller. %v", err)
+	}
+
+	return &PortForward{
 		cmd:    cmd,
 		cancel: cancel,
-	}
+	}, nil
 }
 
-func (p *portForward) Stop() {
+func (p *PortForward) Stop() {
 	p.cancel()
-	if err := p.cmd.Wait(); err != nil {
-		if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "exit status 1") {
-			fmt.Fprintf(os.Stderr, "Error waiting for port-forward to exit: %v\n", err)
-		}
+	// This will terminate the kubectl process in case the cancel does not work.
+	if p.cmd.Process != nil {
+		p.cmd.Process.Kill()
 	}
+
+	// Don't wait for the process - just cancel the context and let it die
+	// The kubectl process will terminate when the context is canceled
 }
 
 func StreamA2AEvents(ch <-chan protocol.StreamingMessageEvent, verbose bool) {
@@ -87,27 +107,4 @@ func StreamA2AEvents(ch <-chan protocol.StreamingMessageEvent, verbose bool) {
 		}
 	}
 	fmt.Fprintln(os.Stdout) // Add a newline after streaming is complete
-}
-
-func startPortForward(ctx context.Context) func() {
-	ctx, cancel := context.WithCancel(ctx)
-	a2aPortFwdCmd := exec.CommandContext(ctx, "kubectl", "-n", "kagent", "port-forward", "service/kagent", "8083:8083")
-	// Error connecting to server, port-forward the server
-	go func() {
-		if err := a2aPortFwdCmd.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-			os.Exit(1)
-		}
-	}()
-
-	// Ensure the context is cancelled when the shell is closed
-	return func() {
-		cancel()
-		if err := a2aPortFwdCmd.Wait(); err != nil {
-			// These 2 errors are expected
-			if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "exec: not started") {
-				fmt.Fprintf(os.Stderr, "Error waiting for port-forward to exit: %v\n", err)
-			}
-		}
-	}
 }

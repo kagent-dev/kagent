@@ -137,9 +137,7 @@ func ChatCmd(c *ishell.Context) {
 		return
 	}
 
-	// Start port forwarding for A2A
-	cancel := startPortForward(context.Background())
-	defer cancel()
+	// Port forwarding is already handled by the interactive mode - no need to start another one
 
 	var sessionNameStr string
 	if session.Name != nil {
