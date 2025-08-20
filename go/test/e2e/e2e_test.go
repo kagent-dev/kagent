@@ -28,8 +28,8 @@ import (
 )
 
 const (
-	GlobalUserID = "admin@kagent.dev"
-	APIEndpoint  = "http://localhost:8081/api"
+	GlobalUserID   = "admin@kagent.dev"
+	KagentEndpoint = "http://localhost:8083"
 	// each individual test should finish within this time
 	// TODO: make this configurable per test
 	TestTimeout     = 5 * time.Minute
@@ -42,8 +42,8 @@ func TestE2E(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize agent client
-	agentClient := kagent_client.New(APIEndpoint)
-	a2aClient, err := a2a_client.NewA2AClient(APIEndpoint + "/a2a")
+	agentClient := kagent_client.New(KagentEndpoint)
+	a2aClient, err := a2a_client.NewA2AClient(KagentEndpoint + "/api/a2a")
 	require.NoError(t, err)
 
 	// Initialize controller-runtime client

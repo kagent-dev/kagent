@@ -16,7 +16,7 @@ import (
 )
 
 func GetAgentCmd(cfg *config.Config, resourceName string) {
-	client := client.New(cfg.APIURL)
+	client := client.New(cfg.KAgentURL)
 
 	if resourceName == "" {
 		agentList, err := client.Agent.ListAgents(context.Background(), cfg.UserID)
@@ -46,7 +46,7 @@ func GetAgentCmd(cfg *config.Config, resourceName string) {
 }
 
 func GetSessionCmd(cfg *config.Config, resourceName string) {
-	client := client.New(cfg.APIURL)
+	client := client.New(cfg.KAgentURL)
 	if resourceName == "" {
 		sessionList, err := client.Session.ListSessions(context.Background(), cfg.UserID)
 		if err != nil {
@@ -75,7 +75,7 @@ func GetSessionCmd(cfg *config.Config, resourceName string) {
 }
 
 func GetToolCmd(cfg *config.Config) {
-	client := client.New(cfg.APIURL)
+	client := client.New(cfg.KAgentURL)
 	toolList, err := client.Tool.ListTools(context.Background(), cfg.UserID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get tools: %v\n", err)
@@ -103,32 +103,37 @@ func printTools(tools []database.Tool) error {
 	return printOutput(tools, headers, rows)
 }
 
-func printAgents(teams []api.AgentResponse) error {
+func printAgents(agents []api.AgentResponse) error {
 	// Prepare table data
 	headers := []string{"#", "NAME", "CREATED"}
-	rows := make([][]string, len(teams))
-	for i, team := range teams {
+	rows := make([][]string, len(agents))
+	for i, agent := range agents {
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
-			utils.GetObjectRef(team.Agent),
-			team.Agent.CreationTimestamp.Format(time.RFC3339),
+			utils.GetObjectRef(agent.Agent),
+			agent.Agent.CreationTimestamp.Format(time.RFC3339),
 		}
 	}
 
-	return printOutput(teams, headers, rows)
+	return printOutput(agents, headers, rows)
 }
 
 func printSessions(sessions []*database.Session) error {
-	headers := []string{"#", "NAME", "AGENT", "CREATED"}
+	headers := []string{"#", "ID", "NAME", "AGENT", "CREATED"}
 	rows := make([][]string, len(sessions))
 	for i, session := range sessions {
 		agentID := ""
 		if session.AgentID != nil {
 			agentID = *session.AgentID
 		}
+		sessionName := ""
+		if session.Name != nil {
+			sessionName = *session.Name
+		}
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
 			session.ID,
+			sessionName,
 			agentID,
 			session.CreatedAt.Format(time.RFC3339),
 		}

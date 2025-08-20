@@ -15,16 +15,16 @@ import (
 
 func TestInvokeInlineAgent(t *testing.T) {
 	// Setup
-	a2aBaseURL := os.Getenv("KAGENT_API_URL")
-	if a2aBaseURL == "" {
-		a2aBaseURL = "http://localhost:8083/api"
+	kagentURL := os.Getenv("KAGENT_URL")
+	if kagentURL == "" {
+		kagentURL = "http://localhost:8083"
 	}
 
 	// A2A URL format: <base_url>/<namespace>/<agent_name>
 	agentNamespace := "kagent"
 
 	agentName := "k8s-agent"
-	a2aURL := a2aBaseURL + "/a2a/" + agentNamespace + "/" + agentName
+	a2aURL := kagentURL + "/api/a2a/" + agentNamespace + "/" + agentName
 
 	a2aClient, err := client.NewA2AClient(a2aURL)
 	require.NoError(t, err)
@@ -83,16 +83,16 @@ func TestInvokeInlineAgent(t *testing.T) {
 
 func TestInvokeExternalAgent(t *testing.T) {
 	// Setup
-	a2aBaseURL := os.Getenv("KAGENT_API_URL")
-	if a2aBaseURL == "" {
-		a2aBaseURL = "http://localhost:8083/api"
+	kagentURL := os.Getenv("KAGENT_URL")
+	if kagentURL == "" {
+		kagentURL = "http://localhost:8083"
 	}
 
 	// A2A URL format: <base_url>/<namespace>/<agent_name>
 	agentNamespace := "kagent"
 
 	agentName := "basic-agent"
-	a2aURL := a2aBaseURL + "/a2a/" + agentNamespace + "/" + agentName
+	a2aURL := kagentURL + "/api/a2a/" + agentNamespace + "/" + agentName
 
 	a2aClient, err := client.NewA2AClient(a2aURL)
 	require.NoError(t, err)

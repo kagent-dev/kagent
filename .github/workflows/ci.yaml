@@ -86,8 +86,8 @@ jobs:
         if: success()
         working-directory: go
         run: |
-          export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083/api"
-          echo $KAGENT_API_URL
+          export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
+          echo $KAGENT_URL
 
           go test -v -run ^TestInvokeInlineAgent$ github.com/kagent-dev/kagent/go/test/e2e
       - name: fail print info

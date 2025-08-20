@@ -315,7 +315,7 @@ kagent-cli-install: use-kind-cluster build-cli-local helm-version
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
-	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80 8084:8084
+	kubectl port-forward -n kagent service/kagent-controller 8083:8083
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster
