@@ -860,7 +860,7 @@ func computeConfigHash(config, card []byte) uint64 {
 }
 
 func collectOtelEnvFromProcess() []corev1.EnvVar {
-	return slices.Collect(utils.Map(
+	envVars := slices.Collect(utils.Map(
 		utils.Filter(
 			slices.Values(os.Environ()),
 			func(envVar string) bool {
@@ -875,6 +875,13 @@ func collectOtelEnvFromProcess() []corev1.EnvVar {
 			}
 		},
 	))
+
+	// Sort by environment variable name
+	slices.SortFunc(envVars, func(a, b corev1.EnvVar) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	return envVars
 }
 
 // Internal to translator - Data added to the deployment spec for an inline agent
