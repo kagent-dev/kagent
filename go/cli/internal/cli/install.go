@@ -90,8 +90,6 @@ func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
 	s.Suffix = " Installing kagent-crds from " + helmRegistry
 	defer s.Stop()
 	s.Start()
-	// TODO(infocus7): Look into code to see if we have a way to set this up locally. This is blocking validating the chat.
-	// failed(local): ghcr.io/kagent-dev/kagent/helm/kagent-crds:v0.5.5 , good(non-local): oci://ghcr.io/kagent-dev/kagent/helm/:0.5.5
 	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, s); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
