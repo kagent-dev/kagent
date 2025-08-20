@@ -7,8 +7,9 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional, Union
+from typing import Any, override
 
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
@@ -25,9 +26,8 @@ from a2a.types import (
 )
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph.state import CompiledStateGraph, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
-from typing_extensions import override
 
 logger = logging.getLogger(__name__)
 
@@ -45,36 +45,6 @@ class LangGraphAgentExecutorConfig(BaseModel):
     default_user_id: str = "admin@kagent.dev"
 
 
-class TaskResultAggregator:
-    """Aggregates task results from LangGraph events."""
-
-    def __init__(self):
-        self.task_state = TaskState.working
-        self.task_status_message: Optional[Message] = None
-        self.accumulated_content: list[str] = []
-
-    def process_event(self, event: Union[TaskArtifactUpdateEvent, TaskStatusUpdateEvent]):
-        """Process an A2A event and update internal state."""
-        if isinstance(event, TaskArtifactUpdateEvent):
-            # Extract text content from artifact parts
-            if event.artifact and event.artifact.parts:
-                for part in event.artifact.parts:
-                    if hasattr(part, "text") and part.text:
-                        self.accumulated_content.append(part.text)
-
-        elif isinstance(event, TaskStatusUpdateEvent):
-            self.task_state = event.status.state
-            if event.status.message:
-                self.task_status_message = event.status.message
-
-    def get_final_message(self) -> Optional[Message]:
-        """Get the final aggregated message."""
-        if self.accumulated_content:
-            content = "".join(self.accumulated_content)
-            return Message(message_id=str(uuid.uuid4()), role=Role.agent, parts=[TextPart(text=content)])
-        return self.task_status_message
-
-
 class LangGraphAgentExecutor(AgentExecutor):
     """An AgentExecutor that runs LangGraph workflows against A2A requests.
 
@@ -85,14 +55,14 @@ class LangGraphAgentExecutor(AgentExecutor):
     def __init__(
         self,
         *,
-        graph: Union[CompiledStateGraph, Callable[..., Union[CompiledStateGraph, Awaitable[CompiledStateGraph]]]],
+        graph: CompiledStateGraph,
         app_name: str,
-        config: Optional[LangGraphAgentExecutorConfig] = None,
+        config: LangGraphAgentExecutorConfig | None = None,
     ):
         """Initialize the executor.
 
         Args:
-            graph: Compiled LangGraph or factory function that returns one
+            graph: Compiled LangGraph
             app_name: Application name for session management
             config: Optional executor configuration
         """
@@ -102,19 +72,7 @@ class LangGraphAgentExecutor(AgentExecutor):
         self._config = config or LangGraphAgentExecutorConfig()
 
     async def _resolve_graph(self) -> CompiledStateGraph:
-        """Resolve the graph, handling cases where it's a callable."""
-        if callable(self._graph):
-            result = self._graph()
-            if asyncio.iscoroutine(result):
-                resolved_graph = await result
-            else:
-                resolved_graph = result
-
-            if not hasattr(resolved_graph, "ainvoke"):
-                raise TypeError(f"Graph factory must return a CompiledGraph, got {type(resolved_graph)}")
-
-            return resolved_graph
-
+        """Resolve the graph."""
         return self._graph
 
     def _convert_a2a_message_to_langchain(self, message: Message) -> BaseMessage:
@@ -299,17 +257,7 @@ class LangGraphAgentExecutor(AgentExecutor):
     async def cancel(self, context: RequestContext, event_queue: EventQueue):
         """Cancel the execution."""
         # TODO: Implement proper cancellation logic if needed
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                status=TaskStatus(
-                    state=TaskState.cancelled,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                ),
-                context_id=context.context_id,
-                final=True,
-            )
-        )
+        raise NotImplementedError("Cancellation is not implemented")
 
     @override
     async def execute(

@@ -14,7 +14,7 @@ from google.adk.agents import BaseAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from kagent import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.core import KAgentRequestContextBuilder, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor
 from ._session_service import KAgentSessionService

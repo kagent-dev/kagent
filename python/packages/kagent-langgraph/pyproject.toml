@@ -13,7 +13,7 @@ dependencies = [
   "typing-extensions>=4.0.0",
   "uvicorn>=0.20.0",
   "a2a-sdk>=0.2.16",
-  "kagent",
+  "kagent-core",
 ]
 
 [project.optional-dependencies]
@@ -25,14 +25,17 @@ dev = [
 ]
 
 [tool.uv.sources]
-kagent = {workspace = true}
+kagent-core = {workspace = true}
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-kagent-langgraph = "kagent_langgraph.cli:main"
+kagent-langgraph = "kagent.langgraph.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kagent"]
 
 [tool.black]
 line-length = 120

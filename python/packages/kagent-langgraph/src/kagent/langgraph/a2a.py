@@ -15,7 +15,7 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
-from kagent import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.core import KAgentRequestContextBuilder, KAgentTaskStore
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 
 from ._checkpointer import KAgentCheckpointer
@@ -53,10 +53,8 @@ class KAgentApp:
     def __init__(
         self,
         *,
-        graph: Union[CompiledStateGraph, Callable[..., Union[CompiledStateGraph, Awaitable[CompiledStateGraph]]]]
-        | None = None,
-        graph_builder: StateGraph | None = None,
-        agent_card: Dict[str, Any],
+        graph: CompiledStateGraph,
+        agent_card: AgentCard,
         kagent_url: str,
         app_name: str,
         user_id: str = DEFAULT_USER_ID,
@@ -65,24 +63,15 @@ class KAgentApp:
         """Initialize the KAgent application.
 
         Args:
-            graph: Pre-compiled LangGraph or factory function (optional)
-            graph_builder: StateGraph builder to compile with KAgent checkpointer (optional)
+            graph: Pre-compiled LangGraph
             agent_card: Agent card configuration for A2A protocol
             kagent_url: Base URL of the KAgent server
             app_name: Application name for session management
             user_id: Default user ID for requests
             executor_config: Optional executor configuration
 
-        Note:
-            Either `graph` or `graph_builder` must be provided, but not both.
         """
-        if graph is None and graph_builder is None:
-            raise ValueError("Either 'graph' or 'graph_builder' must be provided")
-        if graph is not None and graph_builder is not None:
-            raise ValueError("Only one of 'graph' or 'graph_builder' can be provided")
-
         self._graph = graph
-        self._graph_builder = graph_builder
         self.agent_card = AgentCard.model_validate(agent_card)
         self.kagent_url = kagent_url
         self.app_name = app_name
@@ -101,7 +90,7 @@ class KAgentApp:
         # Graph builder provided - compile with KAgent checkpointer
         def create_compiled_graph() -> CompiledStateGraph:
             checkpointer = KAgentCheckpointer(http_client, self.app_name)
-            return self._graph_builder.compile(checkpointer=checkpointer)
+            return self._graph.compile(checkpointer=checkpointer)
 
         return create_compiled_graph
 
