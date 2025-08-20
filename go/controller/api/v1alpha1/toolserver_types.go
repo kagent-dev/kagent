@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
+// +kubebuilder:skip
 package v1alpha1
 
 import (
@@ -30,6 +30,7 @@ type ToolServerSpec struct {
 	Config      ToolServerConfig `json:"config"`
 }
 
+// +kubebuilder:skipversion
 type ToolServerType string
 
 const (
