@@ -205,6 +205,10 @@
                   {
                     "mountPath": "/config",
                     "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
                   }
                 ]
               }
@@ -216,6 +220,20 @@
                   "name": "basic-agent"
                 },
                 "name": "config"
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
               }
             ]
           }

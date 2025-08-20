@@ -1,8 +1,9 @@
 import asyncio
-from typing import Optional
 from contextlib import asynccontextmanager
+from typing import Optional
 
 KAGENT_TOKEN_PATH = "/var/run/secrets/tokens/kagent-token"
+
 
 class KAgentTokenService:
     """Reads a k8s token from a file, and reloads it
@@ -16,18 +17,19 @@ class KAgentTokenService:
         self.app_name = app_name
 
     def lifespan(self):
-        """ Returns an async context manager to start the token update loop
-        """
+        """Returns an async context manager to start the token update loop"""
+
         @asynccontextmanager
         async def _lifespan(app: any):
             await self._update_token_loop()
             yield
             self._drain()
+
         return _lifespan
 
     def event_hooks(self):
-        """ Returns a dictionary of event hooks for the application
-            to use when creating the httpx.AsyncClient.
+        """Returns a dictionary of event hooks for the application
+        to use when creating the httpx.AsyncClient.
         """
         return {"request": [self._add_bearer_token]}
 
@@ -70,9 +72,9 @@ class KAgentTokenService:
 
 def read_token() -> str:
     try:
-        with open(KAGENT_TOKEN_PATH, 'r', encoding="utf-8") as f:
+        with open(KAGENT_TOKEN_PATH, "r", encoding="utf-8") as f:
             token = f.read()
             return token.strip()
-    except OSError as e:
+    except OSError:
         # TODO: figure out how to log - print(f"Error reading token from {KAGENT_TOKEN_PATH}: {e}")
         return None

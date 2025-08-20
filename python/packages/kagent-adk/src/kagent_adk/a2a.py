@@ -103,7 +103,9 @@ class KAgentApp:
 
     def build(self) -> FastAPI:
         token_service = KAgentTokenService(self.app_name)
-        http_client = httpx.AsyncClient(base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks())
+        http_client = httpx.AsyncClient(
+            base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks()
+        )
         session_service = KAgentSessionService(http_client)
 
         def create_runner() -> Runner:
