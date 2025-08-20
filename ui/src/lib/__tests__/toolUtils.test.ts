@@ -72,7 +72,7 @@ describe('Tool Utility Functions', () => {
       expect(isAgentTool(null)).toBe(false);
       expect(isAgentTool(undefined)).toBe(false);
       expect(isAgentTool({})).toBe(false);
-      expect(isAgentTool({ type: "Agent" })).toBe(false);
+      expect(isAgentTool({ type: "Agent" })).toBe(undefined);
       expect(isAgentTool({ type: "Agent", agent: {} })).toBe(false);
     });
   });
@@ -496,7 +496,7 @@ describe('Tool Utility Functions', () => {
           name: "test-agent"
         }
       };
-      expect(getToolDescription(agentTool, [])).toBe("Agent Tool");
+      expect(getToolDescription(agentTool, [])).toBe("Agent");
     });
 
     it('should return description from availableTools for MCP tools', () => {

@@ -45,12 +45,12 @@ type Client interface {
 	ListSessionsForAgent(agentID string, userID string) ([]Session, error)
 	ListAgents() ([]Agent, error)
 	ListToolServers() ([]ToolServer, error)
-	ListToolsForServer(serverName string) ([]Tool, error)
+	ListToolsForServer(serverName string, groupKind string) ([]Tool, error)
 	ListEventsForSession(sessionID, userID string, options QueryOptions) ([]*Event, error)
 	ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error)
 
 	// Helper methods
-	RefreshToolsForServer(serverName string, tools ...*v1alpha2.MCPTool) error
+	RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error
 }
 
 type clientImpl struct {
@@ -235,15 +235,17 @@ func (c *clientImpl) ListTools() ([]Tool, error) {
 	return list[Tool](c.db)
 }
 
-// ListToolsForServer lists all tools for a specific server
-func (c *clientImpl) ListToolsForServer(serverName string) ([]Tool, error) {
-	return list[Tool](c.db, Clause{Key: "server_name", Value: serverName})
+// ListToolsForServer lists all tools for a specific server and group kind
+func (c *clientImpl) ListToolsForServer(serverName string, groupKind string) ([]Tool, error) {
+	return list[Tool](c.db,
+		Clause{Key: "server_name", Value: serverName},
+		Clause{Key: "group_kind", Value: groupKind})
 }
 
 // RefreshToolsForServer refreshes a tool server
 // TODO: Use a transaction to ensure atomicity
-func (c *clientImpl) RefreshToolsForServer(serverName string, tools ...*v1alpha2.MCPTool) error {
-	existingTools, err := c.ListToolsForServer(serverName)
+func (c *clientImpl) RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error {
+	existingTools, err := c.ListToolsForServer(serverName, groupKind)
 	if err != nil {
 		return err
 	}
@@ -259,6 +261,7 @@ func (c *clientImpl) RefreshToolsForServer(serverName string, tools ...*v1alpha2
 		if existingToolIndex != -1 {
 			existingTool := existingTools[existingToolIndex]
 			existingTool.ServerName = serverName
+			existingTool.GroupKind = groupKind
 			existingTool.Description = tool.Description
 			err = save(c.db, &existingTool)
 			if err != nil {
@@ -268,6 +271,7 @@ func (c *clientImpl) RefreshToolsForServer(serverName string, tools ...*v1alpha2
 			err = save(c.db, &Tool{
 				ID:          tool.Name,
 				ServerName:  serverName,
+				GroupKind:   groupKind,
 				Description: tool.Description,
 			})
 			if err != nil {
@@ -281,7 +285,10 @@ func (c *clientImpl) RefreshToolsForServer(serverName string, tools ...*v1alpha2
 		if !slices.ContainsFunc(tools, func(t *v1alpha2.MCPTool) bool {
 			return t.Name == existingTool.ID
 		}) {
-			err = delete[Tool](c.db, Clause{Key: "name", Value: existingTool.ID})
+			err = delete[Tool](c.db,
+				Clause{Key: "id", Value: existingTool.ID},
+				Clause{Key: "server_name", Value: serverName},
+				Clause{Key: "group_kind", Value: groupKind})
 			if err != nil {
 				return fmt.Errorf("failed to delete tool %s: %v", existingTool.ID, err)
 			}

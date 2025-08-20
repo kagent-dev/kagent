@@ -660,17 +660,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 }
 
 func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.StreamableHTTPConnectionParams, error) {
-	headers := make(map[string]string)
-	for _, header := range tool.HeadersFrom {
-		if header.Value != "" {
-			headers[header.Name] = header.Value
-		} else if header.ValueFrom != nil {
-			value, err := resolveValueSource(ctx, a.kube, header.ValueFrom, namespace)
-			if err != nil {
-				return nil, err
-			}
-			headers[header.Name] = value
-		}
+	headers, err := tool.ResolveHeaders(ctx, a.kube, namespace)
+	if err != nil {
+		return nil, err
 	}
 
 	params := &adk.StreamableHTTPConnectionParams{
@@ -690,18 +682,11 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 }
 
 func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.SseConnectionParams, error) {
-	headers := make(map[string]string)
-	for _, header := range tool.HeadersFrom {
-		if header.Value != "" {
-			headers[header.Name] = header.Value
-		} else if header.ValueFrom != nil {
-			value, err := resolveValueSource(ctx, a.kube, header.ValueFrom, namespace)
-			if err != nil {
-				return nil, err
-			}
-			headers[header.Name] = value
-		}
+	headers, err := tool.ResolveHeaders(ctx, a.kube, namespace)
+	if err != nil {
+		return nil, err
 	}
+
 	params := &adk.SseConnectionParams{
 		Url:     tool.URL,
 		Headers: headers,
@@ -864,62 +849,6 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 	return nil
 }
 
-// resolveValueSource resolves a value from a ValueSource
-func resolveValueSource(ctx context.Context, kube client.Client, source *v1alpha2.ValueSource, namespace string) (string, error) {
-	if source == nil {
-		return "", fmt.Errorf("source cannot be nil")
-	}
-
-	switch source.Type {
-	case v1alpha2.ConfigMapValueSource:
-		return getConfigMapValue(ctx, kube, source, namespace)
-	case v1alpha2.SecretValueSource:
-		return getSecretValue(ctx, kube, source, namespace)
-	default:
-		return "", fmt.Errorf("unknown value source type: %s", source.Type)
-	}
-}
-
-// getConfigMapValue fetches a value from a ConfigMap
-func getConfigMapValue(ctx context.Context, kube client.Client, source *v1alpha2.ValueSource, namespace string) (string, error) {
-	if source == nil {
-		return "", fmt.Errorf("source cannot be nil")
-	}
-
-	configMap := &corev1.ConfigMap{}
-	ref := types.NamespacedName{Namespace: namespace, Name: source.Name}
-	err := kube.Get(ctx, ref, configMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to find ConfigMap for %s: %v", source.Name, err)
-	}
-
-	value, exists := configMap.Data[source.Key]
-	if !exists {
-		return "", fmt.Errorf("key %s not found in ConfigMap %s/%s", source.Key, configMap.Namespace, configMap.Name)
-	}
-	return value, nil
-}
-
-// getSecretValue fetches a value from a Secret
-func getSecretValue(ctx context.Context, kube client.Client, source *v1alpha2.ValueSource, namespace string) (string, error) {
-	if source == nil {
-		return "", fmt.Errorf("source cannot be nil")
-	}
-
-	secret := &corev1.Secret{}
-	ref := types.NamespacedName{Namespace: namespace, Name: source.Name}
-	err := kube.Get(ctx, ref, secret)
-	if err != nil {
-		return "", fmt.Errorf("failed to find Secret for %s: %v", source.Name, err)
-	}
-
-	value, exists := secret.Data[source.Key]
-	if !exists {
-		return "", fmt.Errorf("key %s not found in Secret %s/%s", source.Key, secret.Namespace, secret.Name)
-	}
-	return string(value), nil
-}
-
 // Helper functions
 
 func computeConfigHash(config, card []byte) uint64 {
@@ -931,7 +860,7 @@ func computeConfigHash(config, card []byte) uint64 {
 }
 
 func collectOtelEnvFromProcess() []corev1.EnvVar {
-	return slices.Collect(utils.Map(
+	envVars := slices.Collect(utils.Map(
 		utils.Filter(
 			slices.Values(os.Environ()),
 			func(envVar string) bool {
@@ -946,6 +875,13 @@ func collectOtelEnvFromProcess() []corev1.EnvVar {
 			}
 		},
 	))
+
+	// Sort by environment variable name
+	slices.SortFunc(envVars, func(a, b corev1.EnvVar) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	return envVars
 }
 
 // Internal to translator - Data added to the deployment spec for an inline agent

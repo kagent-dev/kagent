@@ -1,12 +1,18 @@
-import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference} from "@/types";
+import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
 
-export const isAgentTool = (tool: unknown): tool is { agent: TypedLocalReference  } => {
-  if (!tool || typeof tool !== "object") return false;
-
-  return "agent" in tool && typeof tool.agent === "object" && tool.agent !== null && Object.keys(tool.agent).length > 0;
+export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: TypedLocalReference } => {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as any;
+  return obj.type === "Agent" && obj.agent && typeof obj.agent === "object" && typeof obj.agent.name === "string";
 };
 
-export const isMcpTool = (tool: unknown): tool is { type: "MCPServer"; mcpServer: McpServerTool } => {
+export const isAgentResponse = (value: unknown): value is AgentResponse => {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as any;
+  return !!obj.agent && typeof obj.agent === "object" && !!obj.agent.metadata && typeof obj.agent.metadata?.name === "string";
+};
+
+export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer: McpServerTool } => {
   if (!tool || typeof tool !== "object") return false;
 
   const possibleTool = tool as Partial<Tool>;
@@ -79,7 +85,11 @@ export const getToolIdentifier = (tool: Tool): string => {
 
 export const getToolDisplayName = (tool: Tool): string => {
   if (isAgentTool(tool) && tool.agent) {
-    return tool.agent.name;
+    try {
+      return tool.agent.name;
+    } catch {
+      return "Agent";
+    }
   } else if (isMcpTool(tool)) {
     const mcpTool = tool as Tool;
     return mcpTool.mcpServer?.name || "No name";
@@ -89,7 +99,7 @@ export const getToolDisplayName = (tool: Tool): string => {
 
 export const getToolDescription = (tool: Tool, availableTools: ToolsResponse[]): string => {
   if (isAgentTool(tool) && tool.agent) {
-    return "Agent Tool";
+    return "Agent";
   } else if (isMcpTool(tool)) {
     // For MCP tools, look up description from availableTools
     const mcpTool = tool as Tool;
@@ -103,29 +113,33 @@ export const getToolDescription = (tool: Tool, availableTools: ToolsResponse[]):
 };
 
 // Utility functions for DiscoveredTool type
-export const getToolResponseDisplayName = (tool: ToolsResponse): string => {
-  return tool.id || "Unknown Tool";
+export const getToolResponseDisplayName = (tool: ToolsResponse | undefined | null): string => {
+  if (!tool || typeof tool !== "object") return "Unknown Tool";
+  return (tool as ToolsResponse).id || "Unknown Tool";
 };
 
-export const getToolResponseDescription = (tool: ToolsResponse): string => {
-  return tool.description || "No description available";
+export const getToolResponseDescription = (tool: ToolsResponse | undefined | null): string => {
+  if (!tool || typeof tool !== "object") return "No description available";
+  return (tool as ToolsResponse).description || "No description available";
 };
 
-export const getToolResponseCategory = (tool: ToolsResponse): string => {
+export const getToolResponseCategory = (tool: ToolsResponse | undefined | null): string => {
   // Extract category from server reference or tool name
-  if (tool.server_name === 'kagent/kagent-tool-server') {
-    const parts = tool.id.split("_");
+  if (!tool || typeof tool !== "object") return "Unknown";
+  if ((tool as ToolsResponse).server_name === 'kagent/kagent-tool-server') {
+    const parts = (tool as ToolsResponse).id.split("_");
     if (parts.length > 1) {
       return parts[0];
     } else {
-      return tool.id;
+      return (tool as ToolsResponse).id;
     } 
   }
-  return tool.server_name;
+  return (tool as ToolsResponse).server_name;
 };
 
-export const getToolResponseIdentifier = (tool: ToolsResponse): string => {
-  return `${tool.server_name}-${tool.id}`;
+export const getToolResponseIdentifier = (tool: ToolsResponse | undefined | null): string => {
+  if (!tool || typeof tool !== "object") return "unknown-unknown";
+  return `${(tool as ToolsResponse).server_name}-${(tool as ToolsResponse).id}`;
 };
 
 // Convert DiscoveredTool to Tool for agent creation

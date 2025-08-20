@@ -16,11 +16,12 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { Tool } from "@/types";
+import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { listMemories } from "@/app/actions/memories";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ValidationErrors {
@@ -77,7 +78,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     replicas: string;
     imagePullPolicy: string;
     imagePullSecrets: string[];
-    envPairs: { key: string; value: string }[];
+    envPairs: { name: string; value?: string; isSecret?: boolean; secretName?: string; secretKey?: string; optional?: boolean }[];
     isSubmitting: boolean;
     isLoading: boolean;
     errors: ValidationErrors;
@@ -99,7 +100,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     replicas: "",
     imagePullPolicy: "",
     imagePullSecrets: [""],
-    envPairs: [{ key: "", value: "" }],
+    envPairs: [{ name: "", value: "", isSecret: false }],
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
@@ -153,7 +154,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   replicas: agent.spec?.byo?.deployment?.replicas !== undefined ? String(agent.spec?.byo?.deployment?.replicas) : "",
                   imagePullPolicy: agent.spec?.byo?.deployment?.imagePullPolicy || "",
                   imagePullSecrets: (agent.spec?.byo?.deployment?.imagePullSecrets || []).map((s: { name: string }) => s.name).concat((agent.spec?.byo?.deployment?.imagePullSecrets || []).length === 0 ? [""] : []),
-                  envPairs: (agent.spec?.byo?.deployment?.env || []).map((e: { name: string; value?: string }) => ({ key: e.name, value: e.value || "" })).concat((agent.spec?.byo?.deployment?.env || []).length === 0 ? [{ key: "", value: "" }] : []),
+                  envPairs: (agent.spec?.byo?.deployment?.env || []).map((e: any) => (
+                    e?.valueFrom?.secretKeyRef
+                      ? { name: e.name || "", isSecret: true, secretName: e.valueFrom.secretKeyRef.name || "", secretKey: e.valueFrom.secretKeyRef.key || "", optional: e.valueFrom.secretKeyRef.optional }
+                      : { name: e.name || "", value: e.value || "", isSecret: false }
+                  )).concat((agent.spec?.byo?.deployment?.env || []).length === 0 ? [{ name: "", value: "", isSecret: false }] : []),
                 }));
               }
 
@@ -177,7 +182,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       }
     };
 
-    fetchAgentData();
+    void fetchAgentData();
   }, [isEditMode, agentName, agentNamespace, getAgent]);
 
   useEffect(() => {
@@ -268,7 +273,28 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         replicas: state.replicas ? parseInt(state.replicas, 10) : undefined,
         imagePullPolicy: state.imagePullPolicy || undefined,
         imagePullSecrets: (state.imagePullSecrets || []).filter(n => n.trim()).map(n => ({ name: n.trim() })),
-        env: (state.envPairs || []).filter(ev => ev.key.trim()).map(ev => ({ name: ev.key.trim(), value: ev.value })),
+        env: (state.envPairs || [])
+          .map<EnvVar | null>(ev => {
+            const name = (ev.name || "").trim();
+            if (!name) return null;
+            if (ev.isSecret) {
+              const secName = (ev.secretName || "").trim();
+              const secKey = (ev.secretKey || "").trim();
+              if (!secName || !secKey) return null;
+              return {
+                name,
+                valueFrom: {
+                  secretKeyRef: {
+                    name: secName,
+                    key: secKey,
+                    optional: ev.optional,
+                  },
+                },
+              } as EnvVar;
+            }
+            return { name, value: ev.value ?? "" } as EnvVar;
+          })
+          .filter((e): e is EnvVar => e !== null),
       };
 
       let result;
@@ -497,23 +523,56 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     <div className="space-y-2">
                       <Label className="text-sm">Environment Variables</Label>
                       {(state.envPairs || []).map((pair, index) => (
-                        <div key={index} className="flex gap-2 items-center">
-                          <Input placeholder="Key (e.g., NODE_ENV)" value={pair.key} onChange={(e) => {
-                            const updated = [...state.envPairs];
-                            updated[index] = { ...updated[index], key: e.target.value };
-                            setState(prev => ({ ...prev, envPairs: updated }));
-                          }} className="flex-1" disabled={state.isSubmitting || state.isLoading} />
-                          <Input placeholder="Value (e.g., production)" value={pair.value} onChange={(e) => {
-                            const updated = [...state.envPairs];
-                            updated[index] = { ...updated[index], value: e.target.value };
-                            setState(prev => ({ ...prev, envPairs: updated }));
-                          }} className="flex-1" disabled={state.isSubmitting || state.isLoading} />
-                          <Button variant="ghost" size="sm" onClick={() => setState(prev => ({ ...prev, envPairs: prev.envPairs.filter((_, i) => i !== index) }))} disabled={(state.envPairs || []).length === 1} className="p-1">
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
+                        <div key={index} className="flex flex-col gap-2 border rounded-md p-2">
+                          <div className="flex items-center gap-2">
+                            <Input placeholder="Name (e.g., GOOGLE_API_KEY)" value={pair.name} onChange={(e) => {
+                              const updated = [...state.envPairs];
+                              updated[index] = { ...updated[index], name: e.target.value };
+                              setState(prev => ({ ...prev, envPairs: updated }));
+                            }} className="flex-1" disabled={state.isSubmitting || state.isLoading} />
+                            <div className="flex items-center gap-2">
+                              <Checkbox id={`env-secret-${index}`} checked={!!pair.isSecret} onCheckedChange={(checked) => {
+                                const updated = [...state.envPairs];
+                                updated[index] = { ...updated[index], isSecret: !!checked };
+                                setState(prev => ({ ...prev, envPairs: updated }));
+                              }} />
+                              <Label htmlFor={`env-secret-${index}`} className="text-xs">From Secret</Label>
+                            </div>
+                            <Button variant="ghost" size="sm" onClick={() => setState(prev => ({ ...prev, envPairs: prev.envPairs.filter((_, i) => i !== index) }))} disabled={(state.envPairs || []).length === 1} className="p-1">
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </div>
+                          {!pair.isSecret ? (
+                            <Input placeholder="Value" value={pair.value ?? ""} onChange={(e) => {
+                              const updated = [...state.envPairs];
+                              updated[index] = { ...updated[index], value: e.target.value };
+                              setState(prev => ({ ...prev, envPairs: updated }));
+                            }} disabled={state.isSubmitting || state.isLoading} />
+                          ) : (
+                            <div className="grid grid-cols-3 gap-2">
+                              <Input placeholder="Secret name" value={pair.secretName ?? ""} onChange={(e) => {
+                                const updated = [...state.envPairs];
+                                updated[index] = { ...updated[index], secretName: e.target.value };
+                                setState(prev => ({ ...prev, envPairs: updated }));
+                              }} disabled={state.isSubmitting || state.isLoading} />
+                              <Input placeholder="Secret key" value={pair.secretKey ?? ""} onChange={(e) => {
+                                const updated = [...state.envPairs];
+                                updated[index] = { ...updated[index], secretKey: e.target.value };
+                                setState(prev => ({ ...prev, envPairs: updated }));
+                              }} disabled={state.isSubmitting || state.isLoading} />
+                              <div className="flex items-center gap-2">
+                                <Checkbox id={`env-optional-${index}`} checked={!!pair.optional} onCheckedChange={(checked) => {
+                                  const updated = [...state.envPairs];
+                                  updated[index] = { ...updated[index], optional: !!checked };
+                                  setState(prev => ({ ...prev, envPairs: updated }));
+                                }} />
+                                <Label htmlFor={`env-optional-${index}`} className="text-xs">Optional</Label>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
-                      <Button variant="outline" size="sm" onClick={() => setState(prev => ({ ...prev, envPairs: [...prev.envPairs, { key: "", value: "" }] }))} className="mt-2 w-full">
+                      <Button variant="outline" size="sm" onClick={() => setState(prev => ({ ...prev, envPairs: [...prev.envPairs, { name: "", value: "", isSecret: false }] }))} className="mt-2 w-full">
                         <PlusCircle className="h-4 w-4 mr-2" />
                         Add Environment Variable
                       </Button>

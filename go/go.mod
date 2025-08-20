@@ -12,7 +12,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jedib0t/go-pretty/v6 v6.6.8
-	github.com/kagent-dev/kmcp v0.1.1
+	github.com/kagent-dev/kmcp v0.1.4
 	github.com/mark3labs/mcp-go v0.34.0
 	github.com/prometheus/client_golang v1.23.0
 	github.com/spf13/cobra v1.9.1

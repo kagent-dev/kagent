@@ -5,7 +5,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Provider, ProviderModel, ProviderModelsResponse } from '@/types';
-import { PROVIDERS_INFO, isValidProviderInfoKey, getApiKeyForProviderFormKey, ModelProviderKey } from '@/lib/providers';
+import { PROVIDERS_INFO, isValidProviderInfoKey, ModelProviderKey } from '@/lib/providers';
 import { OpenAI } from './icons/OpenAI';
 import { Anthropic } from './icons/Anthropic';
 import { Ollama } from './icons/Ollama';
@@ -56,13 +56,13 @@ export function ModelProviderCombobox({
     const [comboboxOpen, setComboboxOpen] = useState(false);
 
     const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?: string }>> = {
-        'openai': OpenAI,
-        'anthropic': Anthropic,
-        'ollama': Ollama,
-        'azure-openai': Azure,
-        'gemini': Gemini,
-        'gemini-vertex-ai': Gemini,
-        'anthropic-vertex-ai': Anthropic,
+        'OpenAI': OpenAI,
+        'Anthropic': Anthropic,
+        'Ollama': Ollama,
+        'AzureOpenAI': Azure,
+        'Gemini': Gemini,
+        'GeminiVertexAI': Gemini,
+        'AnthropicVertexAI': Anthropic,
     };
 
     const getProviderIcon = (providerKey: ModelProviderKey | undefined): React.ReactNode | null => {
@@ -81,11 +81,8 @@ export function ModelProviderCombobox({
         const groups: { [groupName: string]: ComboboxOption[] } = {};
         providers.forEach(provider => {
             let providerFormKey: ModelProviderKey;
-            const providerNameLower = provider.name.toLowerCase();
-            if (providerNameLower === 'azureopenai') {
-                providerFormKey = 'azure-openai';
-            } else if (isValidProviderInfoKey(providerNameLower)) {
-                providerFormKey = providerNameLower;
+            if (isValidProviderInfoKey(provider.name)) {
+                providerFormKey = provider.name;
             } else {
                 console.warn(`Unsupported provider name found: ${provider.name}`);
                 return;
@@ -93,11 +90,10 @@ export function ModelProviderCombobox({
 
             if (!isValidProviderInfoKey(providerFormKey)) return;
 
-            const actualModelKey = getApiKeyForProviderFormKey(providerFormKey);
             let providerModels: ProviderModel[] = [];
 
-            if (actualModelKey && models[actualModelKey]) {
-                providerModels = models[actualModelKey]
+            if (models[providerFormKey]) {
+                providerModels = models[providerFormKey]
                     .filter(m => filterFunctionCalling ? m.function_calling === true : true);
             }
 
@@ -182,8 +178,7 @@ export function ModelProviderCombobox({
                                             const selectedOption = flatProviderModelOptions.find(opt => opt.value === currentValue);
                                             let modelDetail: ProviderModel | undefined = undefined;
                                             if (selectedOption && selectedOption.provider && models) {
-                                                const apiKey = getApiKeyForProviderFormKey(selectedOption.provider);
-                                                modelDetail = models[apiKey]?.find(m => m.name === selectedOption.modelName);
+                                                modelDetail = models[selectedOption.provider]?.find(m => m.name === selectedOption.modelName);
                                             }
 
                                             if (selectedOption) {

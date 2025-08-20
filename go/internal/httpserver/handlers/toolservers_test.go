@@ -39,7 +39,7 @@ func TestToolServersHandler(t *testing.T) {
 	err = kmcp.AddToScheme(scheme)
 	require.NoError(t, err)
 
-	setupHandler := func() (*handlers.ToolServersHandler, ctrl_client.Client, *database_fake.InMemmoryFakeClient, *mockErrorResponseWriter) {
+	setupHandler := func() (*handlers.ToolServersHandler, ctrl_client.Client, *database_fake.InMemoryFakeClient, *mockErrorResponseWriter) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 		dbClient := database_fake.NewClient()
 		base := &handlers.Base{
@@ -49,7 +49,7 @@ func TestToolServersHandler(t *testing.T) {
 		}
 		handler := handlers.NewToolServersHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
-		return handler, kubeClient, dbClient.(*database_fake.InMemmoryFakeClient), responseRecorder
+		return handler, kubeClient, dbClient.(*database_fake.InMemoryFakeClient), responseRecorder
 	}
 
 	t.Run("HandleListToolServers", func(t *testing.T) {
@@ -78,6 +78,7 @@ func TestToolServersHandler(t *testing.T) {
 			tool1 := &database.Tool{
 				ID:          "test-tool",
 				ServerName:  "default/test-toolserver-1",
+				GroupKind:   "kagent.dev/RemoteMCPServer",
 				Description: "Test tool",
 			}
 			err = dbClient.CreateTool(tool1)
