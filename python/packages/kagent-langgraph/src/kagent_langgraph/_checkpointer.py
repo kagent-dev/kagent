@@ -1,13 +1,12 @@
-"""KAgent Checkpointer for LangGraph.
+"""KAgent Remote Checkpointer for LangGraph.
 
-This module implements a custom checkpointer that persists LangGraph state
-to KAgent via REST API calls, storing checkpoints as session events.
+This module implements a remote checkpointer that calls the KAgent Go service
+for LangGraph checkpoint persistence via HTTP API.
 """
 
 import json
 import logging
-from typing import Any, Dict, AsyncIterator, Iterator, List, Optional, Tuple, override
-from uuid import uuid4
+from typing import Any, Dict, AsyncIterator, Iterator, Optional
 
 import httpx
 from langchain_core.runnables import RunnableConfig
@@ -17,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class KAgentCheckpointer(BaseCheckpointSaver):
-    """A checkpointer that stores LangGraph state in KAgent sessions via REST API.
+    """A remote checkpointer that stores LangGraph state in KAgent via the Go service.
 
-    This checkpointer integrates with the KAgent server to persist graph state
-    as session events, enabling distributed execution and session recovery.
+    This checkpointer calls the KAgent Go HTTP service to persist graph state,
+    enabling distributed execution and session recovery.
     """
 
     def __init__(self, client: httpx.AsyncClient, app_name: str):
@@ -28,20 +27,20 @@ class KAgentCheckpointer(BaseCheckpointSaver):
 
         Args:
             client: HTTP client configured with KAgent base URL
-            app_name: Application name for session creation
+            app_name: Application name (used for checkpoint namespace if not specified)
         """
         super().__init__()
         self.client = client
         self.app_name = app_name
 
-    def _extract_config_values(self, config: RunnableConfig) -> Tuple[str, str, str]:
+    def _extract_config_values(self, config: RunnableConfig) -> tuple[str, str, str]:
         """Extract required values from config.
 
         Args:
             config: LangGraph runnable config
 
         Returns:
-            Tuple of (thread_id, user_id, app_name)
+            Tuple of (thread_id, user_id, checkpoint_ns)
 
         Raises:
             ValueError: If required config values are missing
@@ -53,43 +52,9 @@ class KAgentCheckpointer(BaseCheckpointSaver):
             raise ValueError("thread_id is required in config.configurable")
 
         user_id = configurable.get("user_id", "admin@kagent.dev")
-        app_name = configurable.get("app_name", self.app_name)
+        checkpoint_ns = configurable.get("checkpoint_ns", "")
 
-        return thread_id, user_id, app_name
-
-    async def _ensure_session_exists(self, thread_id: str, user_id: str, app_name: str) -> None:
-        """Ensure a session exists in KAgent, creating it if necessary.
-
-        Args:
-            thread_id: Session ID (thread_id)
-            user_id: User identifier
-            app_name: Application name
-        """
-        try:
-            # Check if session exists
-            response = await self.client.get(
-                f"/api/sessions/{thread_id}?user_id={user_id}", headers={"X-User-ID": user_id}
-            )
-            if response.status_code == 200:
-                return  # Session exists
-        except httpx.HTTPStatusError:
-            pass  # Session doesn't exist, create it
-
-        # Create session
-        request_data = {
-            "id": thread_id,
-            "user_id": user_id,
-            "agent_ref": app_name,
-        }
-
-        response = await self.client.post(
-            "/api/sessions",
-            json=request_data,
-            headers={"X-User-ID": user_id},
-        )
-        response.raise_for_status()
-
-        logger.debug(f"Created session {thread_id} for user {user_id}")
+        return thread_id, user_id, checkpoint_ns
 
     async def aput(
         self,
@@ -98,53 +63,57 @@ class KAgentCheckpointer(BaseCheckpointSaver):
         metadata: CheckpointMetadata,
         new_versions: Optional[Dict[str, Any]] = None,
     ) -> RunnableConfig:
-        """Store a checkpoint in KAgent as a session event.
+        """Store a checkpoint via the KAgent Go service.
 
         Args:
             config: LangGraph runnable config
             checkpoint: The checkpoint to store
             metadata: Checkpoint metadata
-            new_versions: New version information
+            new_versions: New version information (stored in metadata)
 
         Returns:
             Updated config with checkpoint ID
         """
-        thread_id, user_id, app_name = self._extract_config_values(config)
+        thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
-        # Ensure session exists
-        await self._ensure_session_exists(thread_id, user_id, app_name)
-
-        # Create checkpoint event
-        checkpoint_id = checkpoint["id"]
-        event_data = {
-            "id": str(uuid4()),
-            "data": json.dumps(
-                {
-                    "type": "langgraph_checkpoint",
-                    "checkpoint_id": checkpoint_id,
-                    "checkpoint": checkpoint,
-                    "metadata": metadata,
-                    "new_versions": new_versions,
-                    "thread_id": thread_id,
-                    "user_id": user_id,
-                    "app_name": app_name,
-                }
-            ),
+        # Prepare request data
+        request_data = {
+            "thread_id": thread_id,
+            "checkpoint_ns": checkpoint_ns,
+            "checkpoint_id": checkpoint["id"],
+            "checkpoint": checkpoint,
+            "metadata": metadata,
+            "writes": [],  # LangGraph writes are typically embedded in checkpoint
+            "version": 1,
         }
 
-        # Store checkpoint as session event
+        # Add parent checkpoint ID if available
+        if "parent_config" in checkpoint:
+            parent_config = checkpoint["parent_config"]
+            if isinstance(parent_config, dict) and "configurable" in parent_config:
+                parent_checkpoint_id = parent_config["configurable"].get("checkpoint_id")
+                if parent_checkpoint_id:
+                    request_data["parent_checkpoint_id"] = parent_checkpoint_id
+
+        # Store new_versions in metadata if provided
+        if new_versions:
+            metadata = dict(metadata) if metadata else {}
+            metadata["new_versions"] = new_versions
+            request_data["metadata"] = metadata
+
+        # Call the Go service
         response = await self.client.post(
-            f"/api/sessions/{thread_id}/events?user_id={user_id}",
-            json=event_data,
+            "/api/langgraph/checkpoints",
+            json=request_data,
             headers={"X-User-ID": user_id},
         )
         response.raise_for_status()
 
-        logger.debug(f"Stored checkpoint {checkpoint_id} for session {thread_id}")
+        logger.debug(f"Stored checkpoint {checkpoint['id']} for thread {thread_id}")
 
         # Return updated config
         new_config = config.copy()
-        new_config.setdefault("configurable", {})["checkpoint_id"] = checkpoint_id
+        new_config.setdefault("configurable", {})["checkpoint_id"] = checkpoint["id"]
         return new_config
 
     async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
@@ -156,12 +125,17 @@ class KAgentCheckpointer(BaseCheckpointSaver):
         Returns:
             CheckpointTuple if found, None otherwise
         """
-        thread_id, user_id, app_name = self._extract_config_values(config)
+        thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
         try:
-            # Get session with all events
+            # Call the Go service for latest checkpoint
+            params = {
+                "thread_id": thread_id,
+                "checkpoint_ns": checkpoint_ns,
+            }
+
             response = await self.client.get(
-                f"/api/sessions/{thread_id}?user_id={user_id}&limit=-1", headers={"X-User-ID": user_id}
+                "/api/langgraph/checkpoints/latest", params=params, headers={"X-User-ID": user_id}
             )
 
             if response.status_code == 404:
@@ -170,32 +144,16 @@ class KAgentCheckpointer(BaseCheckpointSaver):
             response.raise_for_status()
             data = response.json()
 
-            if not data.get("data") or not data["data"].get("events"):
+            if not data.get("data"):
                 return None
 
-            # Find the latest checkpoint event
-            latest_checkpoint = None
-            for event_data in reversed(data["data"]["events"]):  # Most recent first
-                try:
-                    event_content = json.loads(event_data["data"])
-                    if event_content.get("type") == "langgraph_checkpoint":
-                        latest_checkpoint = event_content
-                        break
-                except (json.JSONDecodeError, KeyError):
-                    continue
-
-            if not latest_checkpoint:
-                return None
-
-            # Reconstruct checkpoint tuple
-            checkpoint = latest_checkpoint["checkpoint"]
-            metadata = latest_checkpoint["metadata"]
+            tuple_data = data["data"]
 
             return CheckpointTuple(
-                config=config,
-                checkpoint=checkpoint,
-                metadata=metadata,
-                parent_config=None,  # TODO: Implement parent tracking if needed
+                config=tuple_data["config"],
+                checkpoint=tuple_data["checkpoint"],
+                metadata=tuple_data["metadata"],
+                parent_config=tuple_data.get("parent_config"),
             )
 
         except httpx.HTTPStatusError as e:
@@ -205,7 +163,7 @@ class KAgentCheckpointer(BaseCheckpointSaver):
 
     async def alist(
         self,
-        config: RunnableConfig | None,
+        config: RunnableConfig,
         *,
         filter: Optional[Dict[str, Any]] = None,
         before: Optional[RunnableConfig] = None,
@@ -215,19 +173,33 @@ class KAgentCheckpointer(BaseCheckpointSaver):
 
         Args:
             config: LangGraph runnable config
-            filter: Optional filter criteria
+            filter: Optional filter criteria (not implemented)
             before: Return checkpoints before this config
             limit: Maximum number of checkpoints to return
 
         Yields:
             CheckpointTuple instances
         """
-        thread_id, user_id, app_name = self._extract_config_values(config)
+        thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
         try:
-            # Get session with all events
+            # Prepare query parameters
+            params = {
+                "thread_id": thread_id,
+                "checkpoint_ns": checkpoint_ns,
+            }
+
+            if before and "configurable" in before:
+                before_checkpoint_id = before["configurable"].get("checkpoint_id")
+                if before_checkpoint_id:
+                    params["before_checkpoint_id"] = before_checkpoint_id
+
+            if limit:
+                params["limit"] = str(limit)
+
+            # Call the Go service
             response = await self.client.get(
-                f"/api/sessions/{thread_id}?user_id={user_id}&limit=-1", headers={"X-User-ID": user_id}
+                "/api/langgraph/checkpoints", params=params, headers={"X-User-ID": user_id}
             )
 
             if response.status_code == 404:
@@ -236,44 +208,17 @@ class KAgentCheckpointer(BaseCheckpointSaver):
             response.raise_for_status()
             data = response.json()
 
-            if not data.get("data") or not data["data"].get("events"):
+            if not data.get("data"):
                 return
 
-            # Find all checkpoint events
-            checkpoints = []
-            for event_data in data["data"]["events"]:
-                try:
-                    event_content = json.loads(event_data["data"])
-                    if event_content.get("type") == "langgraph_checkpoint":
-                        checkpoints.append(event_content)
-                except (json.JSONDecodeError, KeyError):
-                    continue
-
-            # Sort by checkpoint ID (most recent first)
-            checkpoints.sort(key=lambda x: x["checkpoint"]["id"], reverse=True)
-
-            # Apply filters and limits
-            count = 0
-            for checkpoint_data in checkpoints:
-                if limit and count >= limit:
-                    break
-
-                # TODO: Implement before filter if needed
-                # TODO: Implement additional filters if needed
-
-                checkpoint = checkpoint_data["checkpoint"]
-                metadata = checkpoint_data["metadata"]
-
-                checkpoint_config = config.copy()
-                checkpoint_config.setdefault("configurable", {})["checkpoint_id"] = checkpoint["id"]
-
+            # Yield checkpoint tuples
+            for tuple_data in data["data"]:
                 yield CheckpointTuple(
-                    config=checkpoint_config,
-                    checkpoint=checkpoint,
-                    metadata=metadata,
-                    parent_config=None,  # TODO: Implement parent tracking if needed
+                    config=tuple_data["config"],
+                    checkpoint=tuple_data["checkpoint"],
+                    metadata=tuple_data["metadata"],
+                    parent_config=tuple_data.get("parent_config"),
                 )
-                count += 1
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -295,7 +240,6 @@ class KAgentCheckpointer(BaseCheckpointSaver):
         """Synchronous version of aget_tuple."""
         raise NotImplementedError("Use async version (aget_tuple) instead")
 
-    @override
     def list(
         self,
         config: RunnableConfig,

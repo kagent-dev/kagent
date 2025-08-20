@@ -34,6 +34,7 @@ const (
 	APIPathNamespaces  = "/api/namespaces"
 	APIPathA2A         = "/api/a2a"
 	APIPathFeedback    = "/api/feedback"
+	APIPathLangGraph   = "/api/langgraph"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -196,6 +197,13 @@ func (s *HTTPServer) setupRoutes() {
 	// Feedback - using database handlers
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleListFeedback)).Methods(http.MethodGet)
+
+	// LangGraph Checkpoints
+	s.router.HandleFunc(APIPathLangGraph+"/checkpoints", adaptHandler(s.handlers.Checkpoints.HandlePutCheckpoint)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/latest", adaptHandler(s.handlers.Checkpoints.HandleGetLatestCheckpoint)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathLangGraph+"/checkpoints", adaptHandler(s.handlers.Checkpoints.HandleListCheckpoints)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/{thread_id}/{checkpoint_ns}/{checkpoint_id}", adaptHandler(s.handlers.Checkpoints.HandleGetCheckpoint)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/{thread_id}/{checkpoint_ns}/{checkpoint_id}/writes", adaptHandler(s.handlers.Checkpoints.HandleListWrites)).Methods(http.MethodGet)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)

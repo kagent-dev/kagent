@@ -2,6 +2,7 @@ import random
 
 from google.adk import Agent
 from google.adk.tools.tool_context import ToolContext
+from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams, StreamableHTTPConnectionParams
 
 
 def roll_die(sides: int, tool_context: ToolContext) -> int:
@@ -65,5 +66,9 @@ root_agent = Agent(
     tools=[
         roll_die,
         check_prime,
+        MCPToolset(
+            connection_params=StreamableHTTPConnectionParams(url="http://localhost:8080/mcp"),
+            tools=[roll_die, check_prime],
+        ),
     ],
 )

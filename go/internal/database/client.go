@@ -51,6 +51,13 @@ type Client interface {
 
 	// Helper methods
 	RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error
+
+	// LangGraph Checkpoint methods
+	StoreCheckpoint(checkpoint *LangGraphCheckpoint, writes []*LangGraphCheckpointWrite) error
+	GetLatestCheckpoint(userID, threadID, checkpointNS string) (*LangGraphCheckpoint, []*LangGraphCheckpointWrite, error)
+	GetCheckpoint(userID, threadID, checkpointNS, checkpointID string) (*LangGraphCheckpoint, []*LangGraphCheckpointWrite, error)
+	ListCheckpoints(userID, threadID, checkpointNS string, beforeCheckpointID string, limit int) ([]*LangGraphCheckpoint, error)
+	ListWrites(userID, threadID, checkpointNS, checkpointID string, offset, limit int) ([]*LangGraphCheckpointWrite, error)
 }
 
 type clientImpl struct {
@@ -480,4 +487,166 @@ func (c *clientImpl) ListPushNotifications(taskID string) ([]*protocol.TaskPushN
 // DeletePushNotification deletes a push notification configuration from the database
 func (c *clientImpl) DeletePushNotification(taskID string) error {
 	return delete[PushNotification](c.db, Clause{Key: "task_id", Value: taskID})
+}
+
+// StoreCheckpoint stores a LangGraph checkpoint and its writes atomically
+func (c *clientImpl) StoreCheckpoint(checkpoint *LangGraphCheckpoint, writes []*LangGraphCheckpointWrite) error {
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		// Store the checkpoint
+		if err := tx.Create(checkpoint).Error; err != nil {
+			if err == gorm.ErrDuplicatedKey {
+				// Check if it's an idempotent retry by comparing existing data
+				existing := &LangGraphCheckpoint{}
+				if err := tx.Where(
+					"user_id = ? AND thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+					checkpoint.UserID, checkpoint.ThreadID, checkpoint.CheckpointNS, checkpoint.CheckpointID,
+				).First(existing).Error; err != nil {
+					return fmt.Errorf("failed to check existing checkpoint: %w", err)
+				}
+
+				// If metadata and checkpoint data match, this is idempotent
+				if existing.Metadata == checkpoint.Metadata && existing.Checkpoint == checkpoint.Checkpoint {
+					return nil // Idempotent success
+				}
+
+				return fmt.Errorf("checkpoint already exists with different data")
+			}
+			return fmt.Errorf("failed to store checkpoint: %w", err)
+		}
+
+		// Store the writes
+		for _, write := range writes {
+			if err := tx.Create(write).Error; err != nil {
+				return fmt.Errorf("failed to store checkpoint write: %w", err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// GetLatestCheckpoint retrieves the most recent checkpoint for a thread
+func (c *clientImpl) GetLatestCheckpoint(userID, threadID, checkpointNS string) (*LangGraphCheckpoint, []*LangGraphCheckpointWrite, error) {
+	var checkpoint LangGraphCheckpoint
+
+	err := c.db.Where(
+		"user_id = ? AND thread_id = ? AND checkpoint_ns = ?",
+		userID, threadID, checkpointNS,
+	).Order("created_at DESC, checkpoint_id DESC").First(&checkpoint).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("failed to get latest checkpoint: %w", err)
+	}
+
+	// Get writes for this checkpoint
+	writes, err := c.ListWrites(userID, threadID, checkpointNS, checkpoint.CheckpointID, 0, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get checkpoint writes: %w", err)
+	}
+
+	return &checkpoint, writes, nil
+}
+
+// GetCheckpoint retrieves a specific checkpoint by ID
+func (c *clientImpl) GetCheckpoint(userID, threadID, checkpointNS, checkpointID string) (*LangGraphCheckpoint, []*LangGraphCheckpointWrite, error) {
+	var checkpoint LangGraphCheckpoint
+
+	err := c.db.Where(
+		"user_id = ? AND thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+		userID, threadID, checkpointNS, checkpointID,
+	).First(&checkpoint).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("failed to get checkpoint: %w", err)
+	}
+
+	// Get writes for this checkpoint
+	writes, err := c.ListWrites(userID, threadID, checkpointNS, checkpointID, 0, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get checkpoint writes: %w", err)
+	}
+
+	return &checkpoint, writes, nil
+}
+
+// ListCheckpoints lists checkpoints for a thread, optionally filtered by beforeCheckpointID
+func (c *clientImpl) ListCheckpoints(userID, threadID, checkpointNS string, beforeCheckpointID string, limit int) ([]*LangGraphCheckpoint, error) {
+	query := c.db.Where(
+		"user_id = ? AND thread_id = ? AND checkpoint_ns = ?",
+		userID, threadID, checkpointNS,
+	)
+
+	// Apply before filter if specified
+	if beforeCheckpointID != "" {
+		var beforeCheckpoint LangGraphCheckpoint
+		if err := c.db.Where(
+			"user_id = ? AND thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+			userID, threadID, checkpointNS, beforeCheckpointID,
+		).First(&beforeCheckpoint).Error; err != nil {
+			return nil, fmt.Errorf("failed to find before checkpoint: %w", err)
+		}
+
+		query = query.Where("created_at < ?", beforeCheckpoint.CreatedAt)
+	}
+
+	// Apply limit
+	if limit <= 0 {
+		limit = 50 // Default limit
+	}
+	if limit > 200 {
+		limit = 200 // Max limit
+	}
+
+	var checkpoints []LangGraphCheckpoint
+	err := query.Order("created_at DESC, checkpoint_id DESC").Limit(limit).Find(&checkpoints).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list checkpoints: %w", err)
+	}
+
+	// Convert to pointers
+	result := make([]*LangGraphCheckpoint, len(checkpoints))
+	for i := range checkpoints {
+		result[i] = &checkpoints[i]
+	}
+
+	return result, nil
+}
+
+// ListWrites retrieves writes for a specific checkpoint
+func (c *clientImpl) ListWrites(userID, threadID, checkpointNS, checkpointID string, offset, limit int) ([]*LangGraphCheckpointWrite, error) {
+	query := c.db.Where(
+		"user_id = ? AND thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+		userID, threadID, checkpointNS, checkpointID,
+	)
+
+	// Apply pagination
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+	if limit > 0 {
+		if limit > 1000 {
+			limit = 1000 // Max limit
+		}
+		query = query.Limit(limit)
+	}
+
+	var writes []LangGraphCheckpointWrite
+	err := query.Order("write_index ASC").Find(&writes).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list checkpoint writes: %w", err)
+	}
+
+	// Convert to pointers
+	result := make([]*LangGraphCheckpointWrite, len(writes))
+	for i := range writes {
+		result[i] = &writes[i]
+	}
+
+	return result, nil
 }

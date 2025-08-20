@@ -100,6 +100,8 @@ func (m *Manager) Initialize() error {
 		&Feedback{},
 		&Tool{},
 		&ToolServer{},
+		&LangGraphCheckpoint{},
+		&LangGraphCheckpointWrite{},
 	)
 
 	if err != nil {
@@ -126,6 +128,8 @@ func (m *Manager) Reset(recreateTables bool) error {
 		&Feedback{},
 		&Tool{},
 		&ToolServer{},
+		&LangGraphCheckpoint{},
+		&LangGraphCheckpointWrite{},
 	)
 
 	if err != nil {
