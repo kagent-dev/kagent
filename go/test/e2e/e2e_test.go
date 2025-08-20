@@ -42,7 +42,7 @@ func TestE2E(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize agent client
-	agentClient := kagent_client.New(KagentEndpoint)
+	agentClient := kagent_client.New(KagentEndpoint, kagent_client.WithUserID(GlobalUserID))
 	a2aClient, err := a2a_client.NewA2AClient(KagentEndpoint + "/api/a2a")
 	require.NoError(t, err)
 
@@ -65,7 +65,7 @@ func TestE2E(t *testing.T) {
 		require.NoError(t, err)
 
 		// reuse existing sessions if available
-		existingSessions, err := agentClient.Session.ListSessions(ctx, GlobalUserID)
+		existingSessions, err := agentClient.Session.ListSessions(ctx)
 		require.NoError(t, err)
 		for _, session := range existingSessions.Data {
 			if session.UserID == GlobalUserID {
@@ -74,8 +74,7 @@ func TestE2E(t *testing.T) {
 		}
 
 		sess, err := agentClient.Session.CreateSession(ctx, &api.SessionRequest{
-			UserID: GlobalUserID,
-			Name:   ptr.To(fmt.Sprintf("e2e-test-%s-%s", agentName, testStartTime)),
+			Name: ptr.To(fmt.Sprintf("e2e-test-%s-%s", agentName, testStartTime)),
 		})
 		require.NoError(t, err)
 
