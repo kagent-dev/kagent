@@ -167,9 +167,8 @@ type MCPTool struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:shortName=rmcps,categories=kagent
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Protocol",type="string",JSONPath=".spec.config.protocol"
-// +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.config.url"
-// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Protocol",type="string",JSONPath=".spec.protocol"
+// +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.url"
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status"
 
 // RemoteMCPServer is the Schema for the RemoteMCPServers API.

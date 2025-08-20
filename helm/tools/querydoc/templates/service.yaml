@@ -3,8 +3,6 @@ kind: Service
 metadata:
   name: {{ include "querydoc.fullname" . }}
   namespace: {{ .Release.Namespace }}
-  annotations:
-    kagent.dev/mcp-service-protocol: "sse"
   labels:
     kagent.dev/mcp-service: "true"
     {{- include "querydoc.labels" . | nindent 4 }}
