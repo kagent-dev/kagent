@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
@@ -36,6 +37,12 @@ import (
 
 var (
 	reconcileLog = ctrl.Log.WithName("reconciler")
+)
+
+const (
+	AgentFinalizer           = "kagent.dev/agent-cleanup"
+	ModelConfigFinalizer     = "kagent.dev/modelconfig-cleanup"
+	RemoteMCPServerFinalizer = "kagent.dev/remotemcpserver-cleanup"
 )
 
 type KagentReconciler interface {
@@ -82,18 +89,166 @@ func NewKagentReconciler(
 }
 
 func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error {
-	// TODO(sbx0r): missing finalizer logic
-
 	agent := &v1alpha2.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
 		if k8s_errors.IsNotFound(err) {
-			return a.handleAgentDeletion(req)
+			return nil
 		}
 
 		return fmt.Errorf("failed to get agent %s/%s: %w", req.Namespace, req.Name, err)
 	}
 
+	if agent.DeletionTimestamp != nil {
+		return a.handleAgentDeletionWithFinalizer(ctx, agent, req)
+	}
+
+	if err := a.ensureAgentFinalizer(ctx, agent); err != nil {
+		return fmt.Errorf("failed to ensure finalizer on agent %s/%s: %w", agent.Namespace, agent.Name, err)
+	}
+
 	return a.handleExistingAgent(ctx, agent, req)
+}
+
+func (a *kagentReconciler) ensureAgentFinalizer(ctx context.Context, agent *v1alpha2.Agent) error {
+	if slices.ContainsFunc(agent.Finalizers, func(finalizer string) bool {
+		return finalizer == AgentFinalizer
+	}) {
+		return nil
+	}
+
+	agent.Finalizers = append(agent.Finalizers, AgentFinalizer)
+	if err := a.kube.Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to add finalizer to agent: %w", err)
+	}
+
+	reconcileLog.Info("Added finalizer to agent", "namespace", agent.Namespace, "name", agent.Name)
+	return nil
+}
+
+func (a *kagentReconciler) handleAgentDeletionWithFinalizer(ctx context.Context, agent *v1alpha2.Agent, req ctrl.Request) error {
+	if !slices.ContainsFunc(agent.Finalizers, func(finalizer string) bool {
+		return finalizer == AgentFinalizer
+	}) {
+		return nil
+	}
+
+	if err := a.handleAgentDeletion(req); err != nil {
+		return fmt.Errorf("failed to perform agent cleanup: %w", err)
+	}
+
+	agent.Finalizers = slices.DeleteFunc(agent.Finalizers, func(finalizer string) bool {
+		return finalizer == AgentFinalizer
+	})
+
+	if err := a.kube.Update(ctx, agent); err != nil {
+		return fmt.Errorf("failed to remove finalizer from agent: %w", err)
+	}
+
+	reconcileLog.Info("Removed finalizer from agent after cleanup", "namespace", agent.Namespace, "name", agent.Name)
+	return nil
+}
+
+func (a *kagentReconciler) ensureModelConfigFinalizer(ctx context.Context, modelConfig *v1alpha2.ModelConfig) error {
+	if slices.ContainsFunc(modelConfig.Finalizers, func(finalizer string) bool {
+		return finalizer == ModelConfigFinalizer
+	}) {
+		return nil
+	}
+
+	modelConfig.Finalizers = append(modelConfig.Finalizers, ModelConfigFinalizer)
+	if err := a.kube.Update(ctx, modelConfig); err != nil {
+		return fmt.Errorf("failed to add finalizer to ModelConfig: %w", err)
+	}
+
+	reconcileLog.Info("Added finalizer to ModelConfig", "namespace", modelConfig.Namespace, "name", modelConfig.Name)
+	return nil
+}
+
+func (a *kagentReconciler) handleModelConfigDeletionWithFinalizer(ctx context.Context, modelConfig *v1alpha2.ModelConfig, req ctrl.Request) error {
+	if !slices.ContainsFunc(modelConfig.Finalizers, func(finalizer string) bool {
+		return finalizer == ModelConfigFinalizer
+	}) {
+		return nil
+	}
+
+	// Check if any Agents are still using this ModelConfig
+	agentsUsingModelConfig := a.FindAgentsUsingModelConfig(ctx, req.NamespacedName)
+	if len(agentsUsingModelConfig) > 0 {
+		// Cannot delete ModelConfig while Agents are still using it
+		agentNames := make([]string, len(agentsUsingModelConfig))
+		for i, agent := range agentsUsingModelConfig {
+			agentNames[i] = fmt.Sprintf("%s/%s", agent.Namespace, agent.Name)
+		}
+		return fmt.Errorf("cannot delete ModelConfig %s/%s: still referenced by Agents: %v",
+			modelConfig.Namespace, modelConfig.Name, agentNames)
+	}
+
+	reconcileLog.Info("Performing ModelConfig cleanup", "namespace", modelConfig.Namespace, "name", modelConfig.Name)
+
+	modelConfig.Finalizers = slices.DeleteFunc(modelConfig.Finalizers, func(finalizer string) bool {
+		return finalizer == ModelConfigFinalizer
+	})
+
+	if err := a.kube.Update(ctx, modelConfig); err != nil {
+		return fmt.Errorf("failed to remove finalizer from ModelConfig: %w", err)
+	}
+
+	reconcileLog.Info("Removed finalizer from ModelConfig after cleanup", "namespace", modelConfig.Namespace, "name", modelConfig.Name)
+	return nil
+}
+
+func (a *kagentReconciler) ensureRemoteMCPServerFinalizer(ctx context.Context, toolServer *v1alpha2.RemoteMCPServer) error {
+	if slices.ContainsFunc(toolServer.Finalizers, func(finalizer string) bool {
+		return finalizer == RemoteMCPServerFinalizer
+	}) {
+		return nil
+	}
+
+	toolServer.Finalizers = append(toolServer.Finalizers, RemoteMCPServerFinalizer)
+	if err := a.kube.Update(ctx, toolServer); err != nil {
+		return fmt.Errorf("failed to add finalizer to RemoteMCPServer: %w", err)
+	}
+
+	reconcileLog.Info("Added finalizer to RemoteMCPServer", "namespace", toolServer.Namespace, "name", toolServer.Name)
+	return nil
+}
+
+func (a *kagentReconciler) handleRemoteMCPServerDeletionWithFinalizer(ctx context.Context, toolServer *v1alpha2.RemoteMCPServer, req ctrl.Request) error {
+	if !slices.ContainsFunc(toolServer.Finalizers, func(finalizer string) bool {
+		return finalizer == RemoteMCPServerFinalizer
+	}) {
+		return nil
+	}
+
+	// Check if any Agents are still using this RemoteMCPServer
+	agentsUsingServer := a.FindAgentsUsingRemoteMCPServer(ctx, req.NamespacedName)
+	if len(agentsUsingServer) > 0 {
+		// Cannot delete RemoteMCPServer while Agents are still using it
+		agentNames := make([]string, len(agentsUsingServer))
+		for i, agent := range agentsUsingServer {
+			agentNames[i] = fmt.Sprintf("%s/%s", agent.Namespace, agent.Name)
+		}
+		return fmt.Errorf("cannot delete RemoteMCPServer %s/%s: still referenced by Agents: %v",
+			toolServer.Namespace, toolServer.Name, agentNames)
+	}
+
+	reconcileLog.Info("Performing RemoteMCPServer cleanup", "namespace", toolServer.Namespace, "name", toolServer.Name)
+
+	// Clean up ToolServer and associated Tools from database
+	if err := a.handleRemoteMCPServerDeletion(req); err != nil {
+		return fmt.Errorf("failed to cleanup RemoteMCPServer database records: %w", err)
+	}
+
+	toolServer.Finalizers = slices.DeleteFunc(toolServer.Finalizers, func(finalizer string) bool {
+		return finalizer == RemoteMCPServerFinalizer
+	})
+
+	if err := a.kube.Update(ctx, toolServer); err != nil {
+		return fmt.Errorf("failed to remove finalizer from RemoteMCPServer: %w", err)
+	}
+
+	reconcileLog.Info("Removed finalizer from RemoteMCPServer after cleanup", "namespace", toolServer.Namespace, "name", toolServer.Name)
+	return nil
 }
 
 func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
@@ -119,6 +274,17 @@ func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
 	}
 
 	reconcileLog.Info("Agent was deleted", "namespace", req.Namespace, "name", req.Name)
+	return nil
+}
+
+func (a *kagentReconciler) handleRemoteMCPServerDeletion(req ctrl.Request) error {
+	// Delete the ToolServer and associated Tools from the database
+	serverName := req.NamespacedName.String()
+	if err := a.dbClient.DeleteToolServer(serverName); err != nil {
+		return fmt.Errorf("failed to delete tool server %s: %w", serverName, err)
+	}
+
+	reconcileLog.Info("RemoteMCPServer was deleted", "namespace", req.Namespace, "name", req.Name)
 	return nil
 }
 
@@ -284,6 +450,14 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
 	}
 
+	if modelConfig.DeletionTimestamp != nil {
+		return a.handleModelConfigDeletionWithFinalizer(ctx, modelConfig, req)
+	}
+
+	if err := a.ensureModelConfigFinalizer(ctx, modelConfig); err != nil {
+		return fmt.Errorf("failed to ensure finalizer on ModelConfig %s/%s: %w", modelConfig.Namespace, modelConfig.Name, err)
+	}
+
 	var err error
 	if modelConfig.Spec.APIKeySecret != "" {
 		secret := &v1.Secret{}
@@ -399,6 +573,14 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 			return nil
 		}
 		return fmt.Errorf("failed to get tool server %s: %v", req.Name, err)
+	}
+
+	if toolServer.DeletionTimestamp != nil {
+		return a.handleRemoteMCPServerDeletionWithFinalizer(ctx, toolServer, req)
+	}
+
+	if err := a.ensureRemoteMCPServerFinalizer(ctx, toolServer); err != nil {
+		return fmt.Errorf("failed to ensure finalizer on RemoteMCPServer %s/%s: %w", toolServer.Namespace, toolServer.Name, err)
 	}
 
 	dbServer := &database.ToolServer{
