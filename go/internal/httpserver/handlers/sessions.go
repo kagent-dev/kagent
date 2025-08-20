@@ -104,11 +104,13 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	if sessionRequest.UserID == "" {
-		w.RespondWithError(errors.NewBadRequestError("user_id is required", nil))
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
-	log = log.WithValues("userID", sessionRequest.UserID)
+
+	log = log.WithValues("userID", userID)
 
 	if sessionRequest.AgentRef == nil {
 		w.RespondWithError(errors.NewBadRequestError("agent_ref is required", nil))
@@ -132,7 +134,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	session := &database.Session{
 		ID:      id,
 		Name:    sessionRequest.Name,
-		UserID:  sessionRequest.UserID,
+		UserID:  userID,
 		AgentID: &agent.ID,
 	}
 
@@ -237,8 +239,13 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("agentRef", *sessionRequest.AgentRef)
 
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
 	// Get existing session
-	session, err := h.DatabaseService.GetSession(*sessionRequest.Name, sessionRequest.UserID)
+	session, err := h.DatabaseService.GetSession(*sessionRequest.Name, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return

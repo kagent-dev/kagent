@@ -11,7 +11,6 @@ import (
 
 type Config struct {
 	KAgentURL    string `mapstructure:"kagent_url"`
-	UserID       string `mapstructure:"user_id"`
 	Namespace    string `mapstructure:"namespace"`
 	OutputFormat string `mapstructure:"output_format"`
 	Verbose      bool   `mapstructure:"verbose"`
@@ -37,7 +36,6 @@ func Init() error {
 
 	// Set default values
 	viper.SetDefault("kagent_url", "http://localhost:8083")
-	viper.SetDefault("user_id", "admin@kagent.dev")
 	viper.SetDefault("output_format", "table")
 	viper.SetDefault("namespace", "kagent")
 

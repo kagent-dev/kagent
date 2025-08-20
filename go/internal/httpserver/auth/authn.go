@@ -120,7 +120,6 @@ func (h handler) Handle(ctx context.Context, client *http.Client, req *http.Requ
 
 func A2ARequestHandler(authProvider AuthProvider) handler {
 	return func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
-
 		var err error
 		var resp *http.Response
 		defer func() {

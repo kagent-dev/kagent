@@ -29,7 +29,6 @@ func main() {
 	cfg := &config.Config{}
 
 	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", "http://localhost:8083", "KAgent URL")
-	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", "admin@kagent.dev", "User ID")
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
@@ -217,7 +216,7 @@ func runInteractive() {
 		os.Exit(1)
 	}
 
-	client := client.New(cfg.KAgentURL)
+	client := client.New(cfg.KAgentURL, client.WithUserID("admin@kagent.dev"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

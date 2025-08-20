@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -72,21 +71,16 @@ func (c *BaseClient) buildURL(path string) string {
 	return c.BaseURL + path
 }
 
-func (c *BaseClient) addUserIDParam(urlStr string, userID string) (string, error) {
+func (c *BaseClient) addUserID(req *http.Request, userID string) {
 	if userID == "" {
-		return urlStr, nil
+		return
 	}
 
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return "", err
-	}
-
+	u := req.URL
 	q := u.Query()
 	q.Set("user_id", userID)
 	u.RawQuery = q.Encode()
-
-	return u.String(), nil
+	req.Header.Set("X-User-ID", userID)
 }
 
 func (c *BaseClient) doRequest(ctx context.Context, method, path string, body interface{}, userID string) (*http.Response, error) {
@@ -100,17 +94,12 @@ func (c *BaseClient) doRequest(ctx context.Context, method, path string, body in
 	}
 
 	urlStr := c.buildURL(path)
-	if userID != "" {
-		var err error
-		urlStr, err = c.addUserIDParam(urlStr, userID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, reqBody)
 	if err != nil {
 		return nil, err
+	}
+	if userID != "" {
+		c.addUserID(req, userID)
 	}
 
 	if body != nil {

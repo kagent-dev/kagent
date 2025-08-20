@@ -19,7 +19,7 @@ func GetAgentCmd(cfg *config.Config, resourceName string) {
 	client := client.New(cfg.KAgentURL)
 
 	if resourceName == "" {
-		agentList, err := client.Agent.ListAgents(context.Background(), cfg.UserID)
+		agentList, err := client.Agent.ListAgents(context.Background())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to get agents: %v\n", err)
 			return
@@ -48,7 +48,7 @@ func GetAgentCmd(cfg *config.Config, resourceName string) {
 func GetSessionCmd(cfg *config.Config, resourceName string) {
 	client := client.New(cfg.KAgentURL)
 	if resourceName == "" {
-		sessionList, err := client.Session.ListSessions(context.Background(), cfg.UserID)
+		sessionList, err := client.Session.ListSessions(context.Background())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to get sessions: %v\n", err)
 			return
@@ -64,7 +64,7 @@ func GetSessionCmd(cfg *config.Config, resourceName string) {
 			return
 		}
 	} else {
-		session, err := client.Session.GetSession(context.Background(), resourceName, cfg.UserID)
+		session, err := client.Session.GetSession(context.Background(), resourceName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to get session %s: %v\n", resourceName, err)
 			return
@@ -76,7 +76,7 @@ func GetSessionCmd(cfg *config.Config, resourceName string) {
 
 func GetToolCmd(cfg *config.Config) {
 	client := client.New(cfg.KAgentURL)
-	toolList, err := client.Tool.ListTools(context.Background(), cfg.UserID)
+	toolList, err := client.Tool.ListTools(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get tools: %v\n", err)
 		return

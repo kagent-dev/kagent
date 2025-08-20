@@ -32,13 +32,6 @@ func GetResourceNamespace() string {
 	return "kagent"
 }
 
-func GetGlobalUserID() string {
-	if val := os.Getenv("KAGENT_GLOBAL_USER_ID"); val != "" {
-		return val
-	}
-	return "admin@kagent.dev"
-}
-
 // ResourceRefString formats namespace and name as a string reference in "namespace/name" format.
 func ResourceRefString(namespace, name string) string {
 	return fmt.Sprintf("%s/%s", namespace, name)
