@@ -1,5 +1,7 @@
-#!/bin/env bash
+#!/usr/bin/env bash
+
 set -o errexit
+set -o pipefail
 
 KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-kagent}
 KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.33.2}
@@ -17,15 +19,19 @@ fi
 #
 # NOTE: the containerd config patch is not necessary with images from kind v0.27.0+
 # It may enable some older images to work similarly.
-# If you're only supporting newer relases, you can just use `kind create cluster` here.
+# If you're only supporting newer releases, you can just use `kind create cluster` here.
 #
 # See:
 # https://github.com/kubernetes-sigs/kind/issues/2875
 # https://github.com/containerd/containerd/blob/main/docs/cri/config.md#registry-configuration
 # See: https://github.com/containerd/containerd/blob/main/docs/hosts.md
-kind create cluster --name "${KIND_CLUSTER_NAME}" \
-  --config scripts/kind/kind-config.yaml \
-  --image="kindest/node:v${KIND_IMAGE_VERSION}"
+if kind get clusters | grep -qx "${KIND_CLUSTER_NAME}"; then
+  echo "Kind cluster '${KIND_CLUSTER_NAME}' already exists; skipping create."
+else
+  kind create cluster --name "${KIND_CLUSTER_NAME}" \
+    --config scripts/kind/kind-config.yaml \
+    --image="kindest/node:v${KIND_IMAGE_VERSION}"
+fi
 
 # 3. Add the registry config to the nodes
 #

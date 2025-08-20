@@ -230,7 +230,7 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 		reconcileLog.Error(err, "failed to convert service to remote mcp service", "service", utils.GetObjectRef(service))
 	} else {
 		if err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService, service.Namespace); err != nil {
-			reconcileLog.Error(err, "failed to upsert tool server for mcp service", "service", utils.GetObjectRef(service))
+			return fmt.Errorf("failed to upsert tool server for mcp service %s: %v", utils.GetObjectRef(service), err)
 		}
 	}
 	return nil
