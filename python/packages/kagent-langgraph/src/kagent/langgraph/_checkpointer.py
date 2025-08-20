@@ -38,6 +38,7 @@ class KAgentCheckpointPayload(BaseModel):
     checkpoint: bytes
     metadata: bytes
     type_: str
+    version: int
 
 
 class KagentCheckpointWrite(BaseModel):
@@ -149,6 +150,7 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
             checkpoint=serialized_checkpoint,
             metadata=serialized_metadata,
             type_=type_,
+            version=checkpoint["v"],
         )
 
         # TODO: Deal with new_versions
@@ -258,9 +260,13 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
         """
         thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
+        params = {"thread_id": thread_id, "checkpoint_ns": checkpoint_ns, "limit": "1"}
+        if checkpoint_id := get_checkpoint_id(config):
+            params["checkpoint_id"] = checkpoint_id
+
         response = await self.client.get(
             "/api/langgraph/checkpoints",
-            params={"thread_id": thread_id, "checkpoint_ns": checkpoint_ns, "limit": "1"},
+            params=params,
             headers={"X-User-ID": user_id},
         )
         if response.status_code == 404:
@@ -275,7 +281,7 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
 
         checkpoint_tuple = data.data[0]
 
-        if not get_checkpoint_id(config):
+        if not checkpoint_id:
             config = {
                 "configurable": {
                     "thread_id": thread_id,
