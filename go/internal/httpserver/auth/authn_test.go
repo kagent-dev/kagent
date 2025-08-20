@@ -12,13 +12,13 @@ import (
 func TestAuthnMiddleware(t *testing.T) {
 	testCases := []struct {
 		name         string
-		authn        func(r *http.Request) *auth.Session
+		authn        auth.AuthProvider
 		url          string
 		expectedUser string
 	}{
 		{
 			name:         "gets user from query param",
-			authn:        auth.UnsecureAuthenticator,
+			authn:        &auth.UnsecureAuthenticator{},
 			url:          "http://foo.com/index?user_id=foo",
 			expectedUser: "foo",
 		},

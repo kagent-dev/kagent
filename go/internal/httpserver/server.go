@@ -49,16 +49,19 @@ type ServerConfig struct {
 	A2AHandler        a2a.A2AHandlerMux
 	WatchedNamespaces []string
 	DbClient          database.Client
+	Authenticator     auth.AuthProvider
+	Authorizer        auth.Authorizer
 }
 
 // HTTPServer is the structure that manages the HTTP server
 type HTTPServer struct {
-	httpServer *http.Server
-	config     ServerConfig
-	router     *mux.Router
-	handlers   *handlers.Handlers
-	dbManager  *database.Manager
-	dbClient   database.Client
+	httpServer    *http.Server
+	config        ServerConfig
+	router        *mux.Router
+	handlers      *handlers.Handlers
+	dbManager     *database.Manager
+	dbClient      database.Client
+	authenticator auth.AuthProvider
 }
 
 // NewHTTPServer creates a new HTTP server instance
@@ -66,9 +69,10 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	// Initialize database
 
 	return &HTTPServer{
-		config:   config,
-		router:   mux.NewRouter(),
-		handlers: handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces),
+		config:        config,
+		router:        mux.NewRouter(),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer),
+		authenticator: config.Authenticator,
 	}, nil
 }
 
@@ -202,7 +206,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.PathPrefix(APIPathA2A).Handler(s.config.A2AHandler)
 
 	// Use middleware for common functionality
-	s.router.Use(auth.DefaultAuthnMiddleware())
+	s.router.Use(auth.AuthnMiddleware(s.authenticator))
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)

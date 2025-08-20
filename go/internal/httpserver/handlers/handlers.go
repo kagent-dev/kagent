@@ -33,12 +33,12 @@ type Base struct {
 }
 
 // NewHandlers creates a new Handlers instance with all handler components
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
 		DatabaseService:    dbService,
-		Authorizer:         auth.DefaultAuthorizer(),
+		Authorizer:         authorizer,
 	}
 
 	return &Handlers{

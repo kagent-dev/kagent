@@ -2,9 +2,8 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
-
-	"trpc.group/trpc-go/trpc-a2a-go/auth"
 )
 
 var (
@@ -26,11 +25,8 @@ const (
 	VerbDelete Verb = "delete"
 )
 
-func DefaultAuthnMiddleware() func(http.Handler) http.Handler {
-	return AuthnMiddleware(UnsecureAuthenticator)
-}
-func DefaultA2AAuthnProvider() auth.Provider {
-	return &A2AUnsecureAuthenticator{}
+func DefaultAuthn() AuthProvider {
+	return &UnsecureAuthenticator{}
 }
 
 func AuthSessionFrom(ctx context.Context) (*Session, bool) {
@@ -46,10 +42,26 @@ type Session struct {
 	Principal Principal
 }
 
-func AuthnMiddleware(authn func(r *http.Request) *Session) func(http.Handler) http.Handler {
+// Responsibilities:
+// - Authenticate:
+//   - a2a requests from ui/cli (human users)
+//   - api requests from users/agents
+//
+// - Forward auth credentials to upstream agents
+type AuthProvider interface {
+	Authenticate(r *http.Request) (*Session, error)
+	// add auth to upstream requests of a session
+	UpstreamAuth(r *http.Request, session *Session) error
+}
+
+func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			session := authn(r)
+			session, err := authn.Authenticate(r)
+			if err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 			if session != nil {
 				r = r.WithContext(context.WithValue(r.Context(), sessionKey, session))
 			}
@@ -58,7 +70,9 @@ func AuthnMiddleware(authn func(r *http.Request) *Session) func(http.Handler) ht
 	}
 }
 
-func UnsecureAuthenticator(r *http.Request) *Session {
+type UnsecureAuthenticator struct{}
+
+func (a *UnsecureAuthenticator) Authenticate(r *http.Request) (*Session, error) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		userID = r.Header.Get("X-User-Id")
@@ -72,20 +86,64 @@ func UnsecureAuthenticator(r *http.Request) *Session {
 			User:  userID,
 			Agent: agentId,
 		},
+	}, nil
+}
+
+func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session *Session) error {
+	// for unsecure, just forward user id in header
+	if session == nil || session.Principal.User == "" {
+		return nil
+	}
+	r.Header.Set("X-User-Id", session.Principal.User)
+	return nil
+}
+
+func NewA2AAuthenticator(provider AuthProvider) *A2AAuthenticator {
+	return &A2AAuthenticator{
+		provider: provider,
 	}
 }
 
-type A2AUnsecureAuthenticator struct{}
+type A2AAuthenticator struct {
+	provider AuthProvider
+}
 
-func (a *A2AUnsecureAuthenticator) Authenticate(r *http.Request) (*auth.User, error) {
-	session := UnsecureAuthenticator(r)
-	if session == nil {
-		return nil, nil
+func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
+	return AuthnMiddleware(p.provider)(next)
+}
+
+type handler func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error)
+
+func (h handler) Handle(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
+	return h(ctx, client, req)
+}
+
+func A2ARequestHandler(authProvider AuthProvider) handler {
+	return func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
+
+		var err error
+		var resp *http.Response
+		defer func() {
+			if err != nil && resp != nil {
+				resp.Body.Close()
+			}
+		}()
+
+		if client == nil {
+			return nil, fmt.Errorf("a2aClient.httpRequestHandler: http client is nil")
+		}
+
+		if session, ok := AuthSessionFrom(ctx); ok {
+			if err := authProvider.UpstreamAuth(req, session); err != nil {
+				return nil, fmt.Errorf("a2aClient.httpRequestHandler: upstream auth failed: %w", err)
+			}
+		}
+
+		resp, err = client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("a2aClient.httpRequestHandler: http request failed: %w", err)
+		}
+
+		return resp, nil
 	}
-	if session.Principal.User == "" {
-		return nil, nil
-	}
-	return &auth.User{
-		ID: session.Principal.User,
-	}, nil
 }
