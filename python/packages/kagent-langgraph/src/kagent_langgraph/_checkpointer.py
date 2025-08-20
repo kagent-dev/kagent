@@ -4,9 +4,9 @@ This module implements a remote checkpointer that calls the KAgent Go service
 for LangGraph checkpoint persistence via HTTP API.
 """
 
-import json
 import logging
-from typing import Any, Dict, AsyncIterator, Iterator, Optional
+from collections.abc import AsyncIterator, Iterator
+from typing import Any, override
 
 import httpx
 from langchain_core.runnables import RunnableConfig
@@ -56,12 +56,13 @@ class KAgentCheckpointer(BaseCheckpointSaver):
 
         return thread_id, user_id, checkpoint_ns
 
+    @override
     async def aput(
         self,
         config: RunnableConfig,
         checkpoint: Checkpoint,
         metadata: CheckpointMetadata,
-        new_versions: Optional[Dict[str, Any]] = None,
+        new_versions: dict[str, Any] | None = None,
     ) -> RunnableConfig:
         """Store a checkpoint via the KAgent Go service.
 
@@ -83,7 +84,6 @@ class KAgentCheckpointer(BaseCheckpointSaver):
             "checkpoint_id": checkpoint["id"],
             "checkpoint": checkpoint,
             "metadata": metadata,
-            "writes": [],  # LangGraph writes are typically embedded in checkpoint
             "version": 1,
         }
 
@@ -116,7 +116,8 @@ class KAgentCheckpointer(BaseCheckpointSaver):
         new_config.setdefault("configurable", {})["checkpoint_id"] = checkpoint["id"]
         return new_config
 
-    async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    @override
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Retrieve the latest checkpoint for a thread.
 
         Args:
@@ -161,13 +162,14 @@ class KAgentCheckpointer(BaseCheckpointSaver):
                 return None
             raise
 
+    @override
     async def alist(
         self,
-        config: RunnableConfig,
+        config: RunnableConfig | None = None,
         *,
-        filter: Optional[Dict[str, Any]] = None,
-        before: Optional[RunnableConfig] = None,
-        limit: Optional[int] = None,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
         """List checkpoints for a thread.
 
@@ -180,6 +182,9 @@ class KAgentCheckpointer(BaseCheckpointSaver):
         Yields:
             CheckpointTuple instances
         """
+        if not config:
+            raise ValueError("config is required")
+
         thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
         try:
@@ -226,27 +231,30 @@ class KAgentCheckpointer(BaseCheckpointSaver):
             raise
 
     # Synchronous methods (delegate to async versions)
+    @override
     def put(
         self,
         config: RunnableConfig,
         checkpoint: Checkpoint,
         metadata: CheckpointMetadata,
-        new_versions: Optional[Dict[str, Any]] = None,
+        new_versions: dict[str, Any] | None = None,
     ) -> RunnableConfig:
         """Synchronous version of aput."""
         raise NotImplementedError("Use async version (aput) instead")
 
-    def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    @override
+    def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Synchronous version of aget_tuple."""
         raise NotImplementedError("Use async version (aget_tuple) instead")
 
+    @override
     def list(
         self,
-        config: RunnableConfig,
+        config: RunnableConfig | None = None,
         *,
-        filter: Optional[Dict[str, Any]] = None,
-        before: Optional[RunnableConfig] = None,
-        limit: Optional[int] = None,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
     ) -> Iterator[CheckpointTuple]:
         """Synchronous version of alist."""
         raise NotImplementedError("Use async version (alist) instead")
