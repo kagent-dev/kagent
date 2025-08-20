@@ -13,6 +13,7 @@ dependencies = [
   "typing-extensions>=4.0.0",
   "uvicorn>=0.20.0",
   "a2a-sdk>=0.2.16",
+  "kagent",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,9 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
+
+[tool.uv.sources]
+kagent = {workspace = true}
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

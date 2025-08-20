@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 members = [
     "basic",
     "basic-langgraph",
+    "kagent",
     "kagent-adk",
     "kagent-langgraph",
 ]
@@ -1143,6 +1144,31 @@ wheels = [
 ]
 
 [[package]]
+name = "kagent"
+version = "0.1.0"
+source = { editable = "packages/kagent" }
+dependencies = [
+    { name = "a2a-sdk" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc" },
+    { name = "opentelemetry-instrumentation-anthropic" },
+    { name = "opentelemetry-instrumentation-httpx" },
+    { name = "opentelemetry-instrumentation-openai" },
+    { name = "opentelemetry-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "a2a-sdk", specifier = ">=0.2.16" },
+    { name = "opentelemetry-api", specifier = ">=1.36.0" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.36.0" },
+    { name = "opentelemetry-instrumentation-anthropic", specifier = ">=0.44.0" },
+    { name = "opentelemetry-instrumentation-httpx", specifier = ">=0.52.0" },
+    { name = "opentelemetry-instrumentation-openai", specifier = ">=0.44.3" },
+    { name = "opentelemetry-sdk", specifier = ">=1.36.0" },
+]
+
+[[package]]
 name = "kagent-adk"
 version = "0.3.0"
 source = { editable = "packages/kagent-adk" }
@@ -1157,15 +1183,10 @@ dependencies = [
     { name = "google-genai" },
     { name = "httpx" },
     { name = "jsonref" },
+    { name = "kagent" },
     { name = "litellm" },
     { name = "mcp" },
     { name = "openai" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-instrumentation-anthropic" },
-    { name = "opentelemetry-instrumentation-httpx" },
-    { name = "opentelemetry-instrumentation-openai" },
-    { name = "opentelemetry-sdk" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "typer" },
@@ -1194,15 +1215,10 @@ requires-dist = [
     { name = "google-genai", specifier = ">=1.21.1" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "jsonref", specifier = ">=1.1.0" },
+    { name = "kagent", editable = "packages/kagent" },
     { name = "litellm", specifier = ">=1.74.3" },
     { name = "mcp", specifier = ">=1.12.0" },
     { name = "openai", specifier = ">=1.72.0" },
-    { name = "opentelemetry-api", specifier = ">=1.36.0" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.36.0" },
-    { name = "opentelemetry-instrumentation-anthropic", specifier = ">=0.44.0" },
-    { name = "opentelemetry-instrumentation-httpx", specifier = ">=0.52.0" },
-    { name = "opentelemetry-instrumentation-openai", specifier = ">=0.44.3" },
-    { name = "opentelemetry-sdk", specifier = ">=1.36.0" },
     { name = "protobuf", specifier = ">=6" },
     { name = "psutil", marker = "extra == 'memory'", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
@@ -1222,6 +1238,7 @@ dependencies = [
     { name = "a2a-sdk" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "kagent" },
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "pydantic" },
@@ -1243,6 +1260,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "fastapi", specifier = ">=0.100.0" },
     { name = "httpx", specifier = ">=0.25.0" },
+    { name = "kagent", editable = "packages/kagent" },
     { name = "langchain-core", specifier = ">=0.3.0" },
     { name = "langgraph", specifier = ">=0.6.5" },
     { name = "pydantic", specifier = ">=2.0.0" },
