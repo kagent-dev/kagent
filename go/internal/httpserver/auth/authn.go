@@ -33,6 +33,9 @@ func AuthSessionFrom(ctx context.Context) (*Session, bool) {
 	v, ok := ctx.Value(sessionKey).(*Session)
 	return v, ok && v != nil
 }
+func AuthSessionTo(ctx context.Context, session *Session) context.Context {
+	return context.WithValue(ctx, sessionKey, session)
+}
 
 type Principal struct {
 	User  string
@@ -63,7 +66,7 @@ func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 				return
 			}
 			if session != nil {
-				r = r.WithContext(context.WithValue(r.Context(), sessionKey, session))
+				r = r.WithContext(AuthSessionTo(r.Context(), session))
 			}
 			next.ServeHTTP(w, r)
 		})
