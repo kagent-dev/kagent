@@ -160,7 +160,6 @@ func main() {
 			if err := cli.CheckServerConnection(client); err != nil {
 				pf, err := cli.NewPortForward(ctx, cfg)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
 					return
 				}
 				defer pf.Stop()
@@ -222,13 +221,17 @@ func runInteractive() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start port forward and ensure it is healthy
+	// Start port forward and ensure it is healthy.
 	var pf *cli.PortForward
+	hasPortForward := true
 	if err := cli.CheckServerConnection(client); err != nil {
 		pf, err = cli.NewPortForward(ctx, cfg)
 		if err != nil {
+			// For interactive mode, we don't want to exit the program if the port-forward fails.
+			// It is possible to open the interactive shell while kagent is not installed, which would mean that we can't port-forward.
+
 			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-			// For interactive mode, we don't want to exit the program if the port-forward fails, because it's possible to open the interactive shell while kagent is not installed.
+			hasPortForward = false
 		}
 	}
 
@@ -248,6 +251,10 @@ func runInteractive() {
 	config.SetHistoryPath(homeDir, shell)
 	if err := shell.ClearScreen(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error clearing screen: %v\n", err)
+	}
+
+	if !hasPortForward {
+		shell.Println(cli.ErrServerConnection)
 	}
 	shell.Println("Welcome to kagent CLI. Type 'help' to see available commands.", strings.Repeat(" ", 10))
 

@@ -12,17 +12,21 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
+var (
+	ErrServerConnection = fmt.Errorf("Error connecting to server. Please run 'install' command first.")
+)
+
 func CheckServerConnection(client *client.ClientSet) error {
 	// Only check if we have a valid client
 	if client == nil {
-		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
+		return ErrServerConnection
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	_, err := client.Version.GetVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("Error connecting to server. Please run 'install' command first.")
+		return ErrServerConnection
 	}
 	return nil
 }
@@ -44,37 +48,22 @@ func NewPortForward(ctx context.Context, cfg *config.Config) (*PortForward, erro
 	}()
 
 	client := client.New(cfg.KAgentURL)
-	success := false
-	maxRetries := 10 // 10 retries @ 100->500ms intervals, ~3s total
 	var err error
-	for i := 0; i < maxRetries; i++ {
-		if serverErr := CheckServerConnection(client); serverErr == nil {
+	for i := 0; i < 10; i++ {
+		err = CheckServerConnection(client)
+		if err == nil {
 			// Connection successful, port-forward is working
-			err = nil
-			success = true
-			break
-		} else {
-			err = serverErr
+			return &PortForward{
+				cmd:    cmd,
+				cancel: cancel,
+			}, nil
 		}
 
-		// Exponential backoff plateauing at 500ms
-		// 100ms, 150ms, 200ms, 250ms, 300ms, 350ms, 400ms, 450ms, 500ms...
-		sleepDuration := time.Duration(100+i*50) * time.Millisecond
-		if sleepDuration > 500*time.Millisecond {
-			sleepDuration = 500 * time.Millisecond
-		}
-		time.Sleep(sleepDuration)
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	if !success {
-		cancel()
-		return nil, fmt.Errorf("failed to establish connection to kagent-controller. %v", err)
-	}
-
-	return &PortForward{
-		cmd:    cmd,
-		cancel: cancel,
-	}, nil
+	cancel()
+	return nil, fmt.Errorf("failed to establish connection to kagent-controller. %w", err)
 }
 
 func (p *PortForward) Stop() {
