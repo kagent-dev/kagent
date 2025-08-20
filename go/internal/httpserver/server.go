@@ -200,10 +200,9 @@ func (s *HTTPServer) setupRoutes() {
 
 	// LangGraph Checkpoints
 	s.router.HandleFunc(APIPathLangGraph+"/checkpoints", adaptHandler(s.handlers.Checkpoints.HandlePutCheckpoint)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/latest", adaptHandler(s.handlers.Checkpoints.HandleGetLatestCheckpoint)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathLangGraph+"/checkpoints", adaptHandler(s.handlers.Checkpoints.HandleListCheckpoints)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/{thread_id}/{checkpoint_ns}/{checkpoint_id}", adaptHandler(s.handlers.Checkpoints.HandleGetCheckpoint)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/{thread_id}/{checkpoint_ns}/{checkpoint_id}/writes", adaptHandler(s.handlers.Checkpoints.HandleListWrites)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/writes", adaptHandler(s.handlers.Checkpoints.HandlePutWrites)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/{thread_id}", adaptHandler(s.handlers.Checkpoints.HandleDeleteThread)).Methods(http.MethodDelete)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
