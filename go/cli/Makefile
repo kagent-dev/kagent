@@ -2,9 +2,13 @@ VERSION ?= dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 
-LDFLAGS := -X github.com/kagent-dev/kagent/go/internal/version=$(VERSION)    \
-           -X github.com/kagent-dev/kagent/go/internal/version=$(GIT_COMMIT) \
-           -X github.com/kagent-dev/kagent/go/internal/version=$(BUILD_DATE)
+# get kmcp version from go.mod
+KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod)
+
+LDFLAGS := -X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)    \
+           -X github.com/kagent-dev/kagent/go/internal/version.GitCommit=$(GIT_COMMIT) \
+           -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE) \
+           -X github.com/kagent-dev/kagent/go/internal/version.KmcpVersion=$(KMCP_VERSION)
 
 .PHONY: build
 build:
