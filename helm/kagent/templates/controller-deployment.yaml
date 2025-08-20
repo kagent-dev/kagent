@@ -75,7 +75,7 @@ spec:
             - -image-pull-policy
             - {{ .Values.imagePullPolicy }}
             {{- end }}
-            - image-repository
+            - -image-repository
             - {{ .Values.controller.agentImage.repository }}
           securityContext:
             {{- toYaml .Values.controller.securityContext | nindent 12 }}
