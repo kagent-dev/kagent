@@ -100,6 +100,8 @@ jobs:
           echo "::error::Kubectl get events -n kagent"
           kubectl get events -n kagent
           echo "::error::Kubectl get agents -n kagent"
+          echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
+          kubectl logs -n kagent deployment/kagent-controller
 
   go-unit-tests:
     runs-on: ubuntu-latest
