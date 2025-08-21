@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	ErrServerConnection = fmt.Errorf("Error connecting to server. Please run 'install' command first.")
+	ErrServerConnection = fmt.Errorf("error connecting to server. Please run 'install' command first")
 )
 
 func CheckServerConnection(client *client.ClientSet) error {
@@ -70,7 +70,7 @@ func (p *PortForward) Stop() {
 	p.cancel()
 	// This will terminate the kubectl process in case the cancel does not work.
 	if p.cmd.Process != nil {
-		p.cmd.Process.Kill()
+		p.cmd.Process.Kill() //nolint:errcheck
 	}
 
 	// Don't wait for the process - just cancel the context and let it die
@@ -85,15 +85,15 @@ func StreamA2AEvents(ch <-chan protocol.StreamingMessageEvent, verbose bool) {
 				fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
 				continue
 			}
-			fmt.Fprintf(os.Stdout, "%+v\n", string(json))
+			fmt.Fprintf(os.Stdout, "%+v\n", string(json)) //nolint:errcheck
 		} else {
 			json, err := event.MarshalJSON()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
 				continue
 			}
-			fmt.Fprintf(os.Stdout, "%+v\n", string(json))
+			fmt.Fprintf(os.Stdout, "%+v\n", string(json)) //nolint:errcheck
 		}
 	}
-	fmt.Fprintln(os.Stdout) // Add a newline after streaming is complete
+	fmt.Fprintln(os.Stdout) //nolint:errcheck // Add a newline after streaming is complete
 }

@@ -88,7 +88,7 @@ func createAgent(client database.Client, agent *v1alpha2.Agent) {
 		Config: &adk.AgentConfig{},
 		ID:     common.GetObjectRef(agent),
 	}
-	client.StoreAgent(dbAgent)
+	client.StoreAgent(dbAgent) //nolint:errcheck
 }
 
 func TestHandleGetAgent(t *testing.T) {
@@ -97,7 +97,7 @@ func TestHandleGetAgent(t *testing.T) {
 		team := createTestAgent("test-team", modelConfig)
 
 		handler, _ := setupTestHandler(team, modelConfig)
-		createAgent(handler.Base.DatabaseService, team)
+		createAgent(handler.DatabaseService, team)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-team", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
@@ -135,7 +135,7 @@ func TestHandleGetAgent(t *testing.T) {
 		agent := createTestAgentWithStatus("test-agent-ready", modelConfig, conditions)
 
 		handler, _ := setupTestHandler(agent, modelConfig)
-		createAgent(handler.Base.DatabaseService, agent)
+		createAgent(handler.DatabaseService, agent)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-ready", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-ready"})
@@ -164,7 +164,7 @@ func TestHandleGetAgent(t *testing.T) {
 		agent := createTestAgentWithStatus("test-agent-not-ready", modelConfig, conditions)
 
 		handler, _ := setupTestHandler(agent, modelConfig)
-		createAgent(handler.Base.DatabaseService, agent)
+		createAgent(handler.DatabaseService, agent)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-not-ready", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-not-ready"})
@@ -193,7 +193,7 @@ func TestHandleGetAgent(t *testing.T) {
 		agent := createTestAgentWithStatus("test-agent-different-reason", modelConfig, conditions)
 
 		handler, _ := setupTestHandler(agent, modelConfig)
-		createAgent(handler.Base.DatabaseService, agent)
+		createAgent(handler.DatabaseService, agent)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-different-reason", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-different-reason"})
@@ -242,8 +242,8 @@ func TestHandleListAgents(t *testing.T) {
 		notReadyAgent := createTestAgent("not-ready-agent", modelConfig)
 
 		handler, _ := setupTestHandler(readyAgent, notReadyAgent, modelConfig)
-		createAgent(handler.Base.DatabaseService, readyAgent)
-		createAgent(handler.Base.DatabaseService, notReadyAgent)
+		createAgent(handler.DatabaseService, readyAgent)
+		createAgent(handler.DatabaseService, notReadyAgent)
 
 		req := httptest.NewRequest("GET", "/api/agents", nil)
 		req = setUser(req, "test-user")
@@ -384,7 +384,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 		}
 
 		handler, _ := setupTestHandler(team)
-		createAgent(handler.Base.DatabaseService, team)
+		createAgent(handler.DatabaseService, team)
 
 		req := httptest.NewRequest("DELETE", "/api/agents/default/test-team", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})

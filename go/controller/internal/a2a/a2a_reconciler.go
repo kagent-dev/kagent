@@ -8,13 +8,8 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
-	ctrl "sigs.k8s.io/controller-runtime"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
-)
-
-var (
-	reconcileLog = ctrl.Log.WithName("a2a_reconcile")
 )
 
 type A2AReconciler interface {

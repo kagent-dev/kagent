@@ -16,7 +16,7 @@ func StreamSseResponse(r io.ReadCloser) <-chan *Event {
 	ch := make(chan *Event, 10)
 	go func() {
 		defer close(ch)
-		defer r.Close()
+		defer r.Close() //nolint:errcheck
 		currentEvent := &Event{}
 		for scanner.Scan() {
 			line := scanner.Bytes()

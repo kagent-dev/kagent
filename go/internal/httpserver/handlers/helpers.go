@@ -36,7 +36,7 @@ func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	w.Write(response)
+	w.Write(response) //nolint:errcheck
 
 	log.V(2).Info("Sent JSON response", "statusCode", code, "responseSize", len(response))
 }
@@ -133,7 +133,7 @@ func DecodeJSONBody(r *http.Request, target interface{}) error {
 		log.Info("Failed to decode JSON request body", "error", err.Error())
 		return err
 	}
-	defer r.Body.Close()
+	defer r.Body.Close() //nolint:errcheck
 
 	log.V(2).Info("Successfully decoded JSON request body")
 	return nil

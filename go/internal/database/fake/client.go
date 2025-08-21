@@ -42,17 +42,6 @@ func NewClient() database.Client {
 		nextFeedbackID:    1,
 	}
 }
-func (c *InMemoryFakeClient) messageKey(message *protocol.Message) string {
-	taskId := "none"
-	if message.TaskID != nil {
-		taskId = *message.TaskID
-	}
-	contextId := "none"
-	if message.ContextID != nil {
-		contextId = *message.ContextID
-	}
-	return fmt.Sprintf("%s_%s", taskId, contextId)
-}
 
 func (c *InMemoryFakeClient) sessionKey(sessionID, userID string) string {
 	return fmt.Sprintf("%s_%s", sessionID, userID)

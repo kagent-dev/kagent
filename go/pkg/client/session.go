@@ -115,11 +115,10 @@ func (c *sessionClient) DeleteSession(ctx context.Context, sessionName string) e
 	}
 
 	path := fmt.Sprintf("/api/sessions/%s", sessionName)
-	resp, err := c.client.Delete(ctx, path, userID)
+	_, err := c.client.Delete(ctx, path, userID)
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
 	return nil
 }
 

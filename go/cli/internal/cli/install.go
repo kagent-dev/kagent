@@ -151,9 +151,7 @@ func setupHelmConfig(modelProvider v1alpha1.ModelProvider, apiKeyValue string) h
 
 	// split helmExtraArgs by "--set" to get additional values
 	extraValues := strings.Split(helmExtraArgs, "--set")
-	for _, hev := range extraValues {
-		values = append(values, hev)
-	}
+	values = append(values, extraValues...)
 
 	return helmConfig{
 		registry: helmRegistry,
@@ -212,7 +210,7 @@ func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, mod
 
 	// Stop the spinner completely before printing the success message
 	s.Stop()
-	fmt.Fprintln(os.Stdout, "kagent installed successfully")
+	fmt.Fprintln(os.Stdout, "kagent installed successfully") //nolint:errcheck
 
 	pf, err := NewPortForward(ctx, cfg)
 	if err != nil {
@@ -239,11 +237,11 @@ func deleteCRDs(ctx context.Context) error {
 		if out, err := deleteCmd.CombinedOutput(); err != nil {
 			if !strings.Contains(string(out), "not found") {
 				errMsg := fmt.Sprintf("Error deleting CRD %s: %s", crd, string(out))
-				fmt.Fprintln(os.Stderr, errMsg)
+				fmt.Fprintln(os.Stderr, errMsg) //nolint:errcheck
 				deleteErrors = append(deleteErrors, errMsg)
 			}
 		} else {
-			fmt.Fprintf(os.Stdout, "Successfully deleted CRD %s\n", crd)
+			fmt.Fprintf(os.Stdout, "Successfully deleted CRD %s\n", crd) //nolint:errcheck
 		}
 	}
 
@@ -309,5 +307,5 @@ func UninstallCmd(ctx context.Context, cfg *config.Config) {
 	}
 
 	s.Stop()
-	fmt.Fprintln(os.Stdout, "\nkagent uninstalled successfully")
+	fmt.Fprintln(os.Stdout, "\nkagent uninstalled successfully") //nolint:errcheck
 }

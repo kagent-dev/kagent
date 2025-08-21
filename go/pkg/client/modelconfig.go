@@ -92,10 +92,9 @@ func (c *ModelConfigClient) UpdateModelConfig(ctx context.Context, namespace, co
 // DeleteModelConfig deletes a model configuration
 func (c *ModelConfigClient) DeleteModelConfig(ctx context.Context, namespace, configName string) error {
 	path := fmt.Sprintf("/api/modelconfigs/%s/%s", namespace, configName)
-	resp, err := c.client.Delete(ctx, path, "")
+	_, err := c.client.Delete(ctx, path, "")
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
 	return nil
 }

@@ -105,10 +105,7 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 	existingMemory := &v1alpha1.Memory{}
 	err = h.KubeClient.Get(
 		r.Context(),
-		client.ObjectKey{
-			Namespace: memoryRef.Namespace,
-			Name:      memoryRef.Name,
-		},
+		memoryRef,
 		existingMemory,
 	)
 	if err == nil {

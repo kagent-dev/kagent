@@ -101,6 +101,6 @@ func (c *agentClient) DeleteAgent(ctx context.Context, agentRef string) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	resp.Body.Close() //nolint:errcheck
 	return nil
 }

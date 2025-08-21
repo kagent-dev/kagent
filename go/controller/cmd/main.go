@@ -442,6 +442,10 @@ func main() {
 		Authorizer:        authorizer,
 		Authenticator:     authenticator,
 	})
+	if err != nil {
+		setupLog.Error(err, "unable to create HTTP server")
+		os.Exit(1)
+	}
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")
 		os.Exit(1)

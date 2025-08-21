@@ -60,7 +60,6 @@ type HTTPServer struct {
 	router        *mux.Router
 	handlers      *handlers.Handlers
 	dbManager     *database.Manager
-	dbClient      database.Client
 	authenticator auth.AuthProvider
 }
 
