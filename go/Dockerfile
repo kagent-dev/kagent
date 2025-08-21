@@ -19,6 +19,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 
 # Copy the go source
 COPY api api
+COPY cmd cmd
 COPY pkg pkg
 COPY internal internal
 # Build
