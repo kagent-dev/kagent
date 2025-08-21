@@ -25,10 +25,6 @@ const (
 	VerbDelete Verb = "delete"
 )
 
-func DefaultAuthn() AuthProvider {
-	return &UnsecureAuthenticator{}
-}
-
 func AuthSessionFrom(ctx context.Context) (*Session, bool) {
 	v, ok := ctx.Value(sessionKey).(*Session)
 	return v, ok && v != nil

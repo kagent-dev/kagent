@@ -4,10 +4,6 @@ import (
 	"context"
 )
 
-func DefaultAuthorizer() Authorizer {
-	return &NothingAuthorizer{}
-}
-
 type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
 }

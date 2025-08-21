@@ -329,8 +329,8 @@ func main() {
 		cfg.DefaultModelConfig,
 	)
 
-	authorizer := auth.DefaultAuthorizer()
-	authenticator := auth.DefaultAuthn()
+	authorizer := &auth.NothingAuthorizer{}
+	authenticator := &auth.UnsecureAuthenticator{}
 
 	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, authenticator)
 
