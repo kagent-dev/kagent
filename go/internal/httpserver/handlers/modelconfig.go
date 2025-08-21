@@ -33,7 +33,7 @@ func NewModelConfigHandler(base *Base) *ModelConfigHandler {
 func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "list")
 	log.Info("Listing ModelConfigs")
-	if err := CheckList(h.Authorizer, r, "ModelConfig"); err != nil {
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig"}); err != nil {
 		w.RespondWithError(err)
 		return
 	}

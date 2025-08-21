@@ -34,7 +34,7 @@ func (h *MemoryHandler) HandleListMemories(w ErrorResponseWriter, r *http.Reques
 	log := ctrllog.FromContext(r.Context()).WithName("memory-handler").WithValues("operation", "list-memories")
 	log.Info("Listing Memories")
 
-	if err := CheckList(h.Authorizer, r, "Memory"); err != nil {
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory"}); err != nil {
 		w.RespondWithError(err)
 		return
 	}

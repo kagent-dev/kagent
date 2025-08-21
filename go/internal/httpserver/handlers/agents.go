@@ -32,7 +32,7 @@ func NewAgentsHandler(base *Base) *AgentsHandler {
 func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "list-db")
 
-	if err := CheckList(h.Authorizer, r, "Agent"); err != nil {
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent"}); err != nil {
 		w.RespondWithError(err)
 		return
 	}

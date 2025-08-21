@@ -79,26 +79,6 @@ func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *erro
 	return nil
 }
 
-func CheckList(authorizer auth.Authorizer, r *http.Request, resKind string) *errors.APIError {
-	principal, err := GetPrincipal(r)
-	if err != nil {
-		return errors.NewBadRequestError("Failed to get user ID", err)
-	}
-	var verb auth.Verb
-	switch r.Method {
-	case http.MethodGet:
-		verb = auth.VerbList
-	default:
-		return errors.NewBadRequestError("Unsupported HTTP method", fmt.Errorf("method %s not supported", r.Method))
-	}
-
-	err = authorizer.Check(r.Context(), principal, verb, auth.Resource{Type: resKind})
-	if err != nil {
-		return errors.NewForbiddenError("Not authorized", err)
-	}
-	return nil
-}
-
 func GetPrincipal(r *http.Request) (auth.Principal, error) {
 	log := ctrllog.Log.WithName("http-helpers")
 

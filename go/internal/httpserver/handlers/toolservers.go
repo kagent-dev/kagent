@@ -52,7 +52,7 @@ type ToolServerCreateRequest struct {
 func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "list")
 	log.Info("Received request to list ToolServers")
-	if err := CheckList(h.Authorizer, r, "ToolServer"); err != nil {
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer"}); err != nil {
 		w.RespondWithError(err)
 		return
 	}
