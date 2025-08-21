@@ -70,7 +70,7 @@ func main() {
 	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
 	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "File to read the task from")
 	invokeCmd.Flags().StringVarP(&invokeCfg.URLOverride, "url-override", "u", "", "URL override")
-	invokeCmd.Flags().MarkHidden("url-override")
+	invokeCmd.Flags().MarkHidden("url-override") //nolint:errcheck
 
 	bugReportCmd := &cobra.Command{
 		Use:   "bug-report",
@@ -123,7 +123,7 @@ func main() {
 		Long:  `Get a kagent resource`,
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Fprintf(os.Stderr, "No resource type provided\n\n")
-			cmd.Help()
+			cmd.Help() //nolint:errcheck
 			os.Exit(1)
 		},
 	}

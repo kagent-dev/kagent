@@ -58,10 +58,9 @@ func (c *ToolServerClient) CreateToolServer(ctx context.Context, toolServer *v1a
 // DeleteToolServer deletes a tool server
 func (c *ToolServerClient) DeleteToolServer(ctx context.Context, namespace, toolServerName string) error {
 	path := fmt.Sprintf("/api/toolservers/%s/%s", namespace, toolServerName)
-	resp, err := c.client.Delete(ctx, path, "")
+	_, err := c.client.Delete(ctx, path, "")
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
 	return nil
 }

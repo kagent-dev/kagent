@@ -28,5 +28,5 @@ func VersionCmd(cfg *config.Config) {
 		versionInfo["backend_version"] = version.KAgentVersion
 	}
 
-	json.NewEncoder(os.Stdout).Encode(versionInfo)
+	json.NewEncoder(os.Stdout).Encode(versionInfo) //nolint:errcheck
 }

@@ -84,7 +84,7 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Agent namespace not provided", http.StatusBadRequest)
 		return
 	}
-	agentName, remainingPath := popPath(remainingPath)
+	agentName, _ := popPath(remainingPath)
 	if agentName == "" {
 		http.Error(w, "Agent name not provided", http.StatusBadRequest)
 		return

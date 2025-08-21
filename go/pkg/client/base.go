@@ -113,7 +113,7 @@ func (c *BaseClient) doRequest(ctx context.Context, method, path string, body in
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 
 		var apiErr api.APIError
 		if json.Unmarshal(bodyBytes, &apiErr) == nil && apiErr.Error != "" {
@@ -151,7 +151,7 @@ func (c *BaseClient) Delete(ctx context.Context, path string, userID string) (*h
 }
 
 func DecodeResponse(resp *http.Response, target interface{}) error {
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 

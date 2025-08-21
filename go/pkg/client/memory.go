@@ -92,10 +92,9 @@ func (c *memoryClient) UpdateMemory(ctx context.Context, namespace, memoryName s
 // DeleteMemory deletes a memory
 func (c *memoryClient) DeleteMemory(ctx context.Context, namespace, memoryName string) error {
 	path := fmt.Sprintf("/api/memories/%s/%s", namespace, memoryName)
-	resp, err := c.client.Delete(ctx, path, "")
+	_, err := c.client.Delete(ctx, path, "")
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
 	return nil
 }

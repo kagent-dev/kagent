@@ -123,7 +123,7 @@ func A2ARequestHandler(authProvider AuthProvider) handler {
 		var resp *http.Response
 		defer func() {
 			if err != nil && resp != nil {
-				resp.Body.Close()
+				resp.Body.Close() //nolint:errcheck
 			}
 		}()
 

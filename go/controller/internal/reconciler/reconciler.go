@@ -11,7 +11,6 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -93,11 +92,11 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 
 func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
 	// remove a2a handler if it exists
-	a.a2aReconciler.ReconcileAgentDeletion(req.NamespacedName.String())
+	a.a2aReconciler.ReconcileAgentDeletion(req.String())
 
-	if err := a.dbClient.DeleteAgent(req.NamespacedName.String()); err != nil {
+	if err := a.dbClient.DeleteAgent(req.String()); err != nil {
 		return fmt.Errorf("failed to delete agent %s: %w",
-			req.NamespacedName.String(), err)
+			req.String(), err)
 	}
 
 	reconcileLog.Info("Agent was deleted", "namespace", req.Namespace, "name", req.Name)
@@ -180,7 +179,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		}
 	}
 
-	conditionChanged = meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
 
 	// Only update the config hash if the config hash has changed and there was no error
 	configHashChanged := len(configHash) > 0 && !bytes.Equal((agent.Status.ConfigHash)[:], configHash[:])
@@ -205,15 +204,15 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the service is deleted
 			dbService := &database.ToolServer{
-				Name:      req.NamespacedName.String(),
+				Name:      req.String(),
 				GroupKind: schema.GroupKind{Group: "", Kind: "Service"}.String(),
 			}
 			if err := a.dbClient.DeleteToolServer(dbService.Name, dbService.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tool server for mcp service", "service", req.NamespacedName.String())
+				reconcileLog.Error(err, "failed to delete tool server for mcp service", "service", req.String())
 			}
-			reconcileLog.Info("mcp service was deleted", "service", req.NamespacedName.String())
+			reconcileLog.Info("mcp service was deleted", "service", req.String())
 			if err := a.dbClient.DeleteToolsForServer(dbService.Name, dbService.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tools for mcp service", "service", req.NamespacedName.String())
+				reconcileLog.Error(err, "failed to delete tools for mcp service", "service", req.String())
 			}
 			return nil
 		}
@@ -248,8 +247,8 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 
 	var err error
 	if modelConfig.Spec.APIKeySecret != "" {
-		secret := &v1.Secret{}
-		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}, secret); err != nil {
+		secret := &corev1.Secret{}
+		if err = a.kube.Get(ctx, types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}, secret); err != nil {
 			err = fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, err)
 		}
 	}
@@ -301,15 +300,15 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the mcp server is deleted
 			dbServer := &database.ToolServer{
-				Name:      req.NamespacedName.String(),
+				Name:      req.String(),
 				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
 			}
 			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tool server for mcp server", "mcpServer", req.NamespacedName.String())
+				reconcileLog.Error(err, "failed to delete tool server for mcp server", "mcpServer", req.String())
 			}
-			reconcileLog.Info("mcp server was deleted", "mcpServer", req.NamespacedName.String())
+			reconcileLog.Info("mcp server was deleted", "mcpServer", req.String())
 			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tools for mcp server", "mcpServer", req.NamespacedName.String())
+				reconcileLog.Error(err, "failed to delete tools for mcp server", "mcpServer", req.String())
 			}
 			return nil
 		}
@@ -340,15 +339,15 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the remote mcp server is deleted
 			dbServer := &database.ToolServer{
-				Name:      req.NamespacedName.String(),
+				Name:      req.String(),
 				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String(),
 			}
 			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tool server for remote mcp server", "remoteMCPServer", req.NamespacedName.String())
+				reconcileLog.Error(err, "failed to delete tool server for remote mcp server", "remoteMCPServer", req.String())
 			}
-			reconcileLog.Info("remote mcp server was deleted", "remoteMCPServer", req.NamespacedName.String())
+			reconcileLog.Info("remote mcp server was deleted", "remoteMCPServer", req.String())
 			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
-				reconcileLog.Error(err, "failed to delete tools for remote mcp server", "remoteMCPServer", req.NamespacedName.String())
+				reconcileLog.Error(err, "failed to delete tools for remote mcp server", "remoteMCPServer", req.String())
 			}
 			return nil
 		}
@@ -513,8 +512,8 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 		return nil, err
 	}
 
-	switch {
-	case s.Protocol == v1alpha2.RemoteMCPServerProtocolSse:
+	switch s.Protocol {
+	case v1alpha2.RemoteMCPServerProtocolSse:
 		return transport.NewSSE(s.URL, transport.WithHeaders(headers))
 	default:
 		return transport.NewStreamableHTTP(s.URL, transport.WithHTTPHeaders(headers))
@@ -527,7 +526,7 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 	if err != nil {
 		return nil, fmt.Errorf("failed to start client for toolServer %s: %v", toolServer.Name, err)
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 	_, err = client.Initialize(ctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,

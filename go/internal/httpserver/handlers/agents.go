@@ -10,7 +10,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/utils"
-	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -45,7 +44,7 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 
 	agentsWithID := make([]api.AgentResponse, 0)
 	for _, agent := range agentList.Items {
-		agentRef := common.GetObjectRef(&agent)
+		agentRef := utils.GetObjectRef(&agent)
 		log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
 		agentResponse, err := h.getAgentResponse(r.Context(), log, &agent)
@@ -64,7 +63,7 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 
 func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, agent *v1alpha2.Agent) (api.AgentResponse, error) {
 
-	agentRef := common.GetObjectRef(agent)
+	agentRef := utils.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
 	deploymentReady := false
@@ -76,7 +75,7 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	}
 
 	response := api.AgentResponse{
-		ID:              common.ConvertToPythonIdentifier(agentRef),
+		ID:              utils.ConvertToPythonIdentifier(agentRef),
 		Agent:           agent,
 		DeploymentReady: deploymentReady,
 	}
@@ -102,7 +101,7 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		}
 		response.ModelProvider = modelConfig.Spec.Provider
 		response.Model = modelConfig.Spec.Model
-		response.ModelConfigRef = common.GetObjectRef(modelConfig)
+		response.ModelConfigRef = utils.GetObjectRef(modelConfig)
 		response.Tools = agent.Spec.Declarative.Tools
 	}
 
@@ -165,11 +164,11 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 		return
 	}
 	if agentReq.Namespace == "" {
-		agentReq.Namespace = common.GetResourceNamespace()
+		agentReq.Namespace = utils.GetResourceNamespace()
 		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
 			"namespace", agentReq.Namespace)
 	}
-	agentRef, err := common.ParseRefString(agentReq.Name, agentReq.Namespace)
+	agentRef, err := utils.ParseRefString(agentReq.Name, agentReq.Namespace)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid agent metadata", err))
 	}
@@ -185,7 +184,10 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 	}
 
 	kubeClientWrapper := utils.NewKubeClientWrapper(h.KubeClient)
-	kubeClientWrapper.AddInMemory(&agentReq)
+	if err := kubeClientWrapper.AddInMemory(&agentReq); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to add Agent to Kubernetes wrapper", err))
+		return
+	}
 
 	apiTranslator := translator.NewAdkApiTranslator(
 		kubeClientWrapper,
@@ -222,11 +224,11 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	}
 
 	if agentReq.Namespace == "" {
-		agentReq.Namespace = common.GetResourceNamespace()
+		agentReq.Namespace = utils.GetResourceNamespace()
 		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
 			"namespace", agentReq.Namespace)
 	}
-	agentRef, err := common.ParseRefString(agentReq.Name, agentReq.Namespace)
+	agentRef, err := utils.ParseRefString(agentReq.Name, agentReq.Namespace)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid Agent metadata", err))
 	}
@@ -245,10 +247,7 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	existingAgent := &v1alpha2.Agent{}
 	err = h.KubeClient.Get(
 		r.Context(),
-		client.ObjectKey{
-			Namespace: agentRef.Namespace,
-			Name:      agentRef.Name,
-		},
+		agentRef,
 		existingAgent,
 	)
 	if err != nil {

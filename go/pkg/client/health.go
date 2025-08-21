@@ -21,10 +21,9 @@ func NewHealthClient(client *BaseClient) Health {
 
 // Health checks if the server is healthy
 func (c *healthClient) Get(ctx context.Context) error {
-	resp, err := c.client.Get(ctx, "/health", "")
+	_, err := c.client.Get(ctx, "/health", "")
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
 	return nil
 }
