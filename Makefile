@@ -104,7 +104,7 @@ build-all: buildx-create
 .PHONY: push-test-agent
 push-test-agent: build-kagent-adk
 	$(DOCKER_BUILDER) build --push --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) --build-arg VERSION=$(VERSION) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
-	kubectl apply -f go/test/e2e/agents/kebab/agent.yaml
+	kubectl apply --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
