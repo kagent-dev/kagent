@@ -31,9 +31,6 @@ kagent-core = {workspace = true}
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[project.scripts]
-kagent-langgraph = "kagent.langgraph.cli:main"
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/kagent"]
 

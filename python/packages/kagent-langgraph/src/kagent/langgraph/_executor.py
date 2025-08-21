@@ -7,8 +7,7 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any, override
 
 from a2a.server.agent_execution import AgentExecutor
@@ -24,10 +23,17 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    InvalidToolCall,
+    ToolMessage,
+)
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
+
+from langgraph.graph.state import CompiledStateGraph
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +77,6 @@ class LangGraphAgentExecutor(AgentExecutor):
         self.app_name = app_name
         self._config = config or LangGraphAgentExecutorConfig()
 
-    async def _resolve_graph(self) -> CompiledStateGraph:
-        """Resolve the graph."""
-        return self._graph
-
     def _convert_a2a_message_to_langchain(self, message: Message) -> BaseMessage:
         """Convert A2A message to LangChain message format."""
         # Extract text content from message parts
@@ -110,7 +112,7 @@ class LangGraphAgentExecutor(AgentExecutor):
     async def _stream_graph_events(
         self,
         graph: CompiledStateGraph,
-        input_data: Dict[str, Any],
+        input_data: dict[str, Any],
         config: RunnableConfig,
         context: RequestContext,
         event_queue: EventQueue,
@@ -136,7 +138,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.failed,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.agent,
@@ -172,7 +174,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                 task_id=context.task_id,
                 status=TaskStatus(
                     state=TaskState.completed,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                 ),
                 context_id=context.context_id,
                 final=True,
@@ -180,8 +182,8 @@ class LangGraphAgentExecutor(AgentExecutor):
         )
 
     async def _convert_langgraph_event_to_a2a(
-        self, langgraph_event: Dict[str, Any], task_id: str, context_id: str
-    ) -> list[Union[TaskArtifactUpdateEvent, TaskStatusUpdateEvent]]:
+        self, langgraph_event: dict[str, Any], task_id: str, context_id: str
+    ) -> list[TaskArtifactUpdateEvent | TaskStatusUpdateEvent]:
         """Convert a LangGraph event to A2A events."""
         events = []
 
@@ -228,7 +230,7 @@ class LangGraphAgentExecutor(AgentExecutor):
 
         return events
 
-    def _extract_content_from_output(self, output: Dict[str, Any]) -> str:
+    def _extract_content_from_output(self, output: dict[str, Any]) -> str:
         """Extract meaningful text content from LangGraph output."""
         # Handle common output formats
         if "messages" in output:
@@ -277,7 +279,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                     status=TaskStatus(
                         state=TaskState.submitted,
                         message=context.message,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                     ),
                     context_id=context.context_id,
                     final=False,
@@ -290,7 +292,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                 task_id=context.task_id,
                 status=TaskStatus(
                     state=TaskState.working,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                 ),
                 context_id=context.context_id,
                 final=False,
@@ -304,7 +306,6 @@ class LangGraphAgentExecutor(AgentExecutor):
 
         try:
             # Resolve the graph
-            graph = await self._resolve_graph()
 
             # Convert A2A message to LangChain format
             langchain_message = self._convert_a2a_message_to_langchain(context.message)
@@ -318,18 +319,18 @@ class LangGraphAgentExecutor(AgentExecutor):
 
             # Stream graph execution
             await asyncio.wait_for(
-                self._stream_graph_events(graph, input_data, config, context, event_queue),
+                self._stream_graph_events(self._graph, input_data, config, context, event_queue),
                 timeout=self._config.execution_timeout,
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"Graph execution timed out after {self._config.execution_timeout} seconds")
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.failed,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()), role=Role.agent, parts=[TextPart(text="Execution timed out")]
                         ),
@@ -345,7 +346,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.failed,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                         message=Message(message_id=str(uuid.uuid4()), role=Role.agent, parts=[TextPart(text=str(e))]),
                     ),
                     context_id=context.context_id,
