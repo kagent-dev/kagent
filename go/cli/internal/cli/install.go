@@ -76,8 +76,6 @@ func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
 	helmRegistry := GetEnvVarWithDefault(KAGENT_HELM_REPO, DefaultHelmOciRegistry)
 	helmVersion := GetEnvVarWithDefault(KAGENT_HELM_VERSION, version.Version)
 	helmExtraArgs := GetEnvVarWithDefault(KAGENT_HELM_EXTRA_ARGS, "")
-	kmcpHelmRepo := GetEnvVarWithDefault(KMCP_HELM_REPO, DefaultKmcpHelmRepo)
-	kmcpHelmVersion := GetEnvVarWithDefault(KMCP_HELM_VERSION, version.KmcpVersion)
 
 	// split helmExtraArgs by "--set" to get additional values
 	extraValues := strings.Split(helmExtraArgs, "--set")
@@ -88,19 +86,10 @@ func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
-	// First, install kmcp-crds
-	s.Suffix = " Installing kmcp-crds from " + kmcpHelmRepo
+	// First install kagent-crds
+	s.Suffix = " Installing kagent-crds from " + helmRegistry
 	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kmcp-crds", cfg.Namespace, kmcpHelmRepo, kmcpHelmVersion, nil, s); err != nil {
-		// Stop the spinner before printing error messages
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Error installing kmcp-crds:", output)
-		return nil
-	}
-
-	// Second, install kagent-crds
-	s.Suffix = " Installing kagent-crds from " + helmRegistry
 	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, s); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
@@ -224,21 +213,6 @@ func UninstallCmd(ctx context.Context, cfg *config.Config) {
 			fmt.Fprintln(os.Stderr, "Error uninstalling kagent-crds:", output)
 			return
 		}
-	}
-
-	// Then uninstall kmcp-crds
-	s.Suffix = " Uninstalling kmcp-crds"
-	args = []string{
-		"uninstall",
-		"kmcp-crds",
-		"--namespace",
-		cfg.Namespace,
-	}
-	cmd = exec.CommandContext(ctx, "helm", args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Error uninstalling kmcp-crds:", string(out))
-		return
 	}
 
 	s.Stop()

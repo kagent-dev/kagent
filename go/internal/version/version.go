@@ -7,40 +7,37 @@ import (
 
 var (
 	// These variables should be set during build time using -ldflags
-	Version     = "dev"
-	GitCommit   = "none"
-	BuildDate   = "unknown"
-	KmcpVersion = "unknown"
+	Version   = "dev"
+	GitCommit = "none"
+	BuildDate = "unknown"
 )
 
 // Info contains version information
 type Info struct {
-	Version     string `json:"version"`
-	GitCommit   string `json:"gitCommit"`
-	BuildDate   string `json:"buildDate"`
-	KmcpVersion string `json:"kmcpVersion"`
-	GoVersion   string `json:"goVersion"`
-	Compiler    string `json:"compiler"`
-	Platform    string `json:"platform"`
+	Version   string `json:"version"`
+	GitCommit string `json:"gitCommit"`
+	BuildDate string `json:"buildDate"`
+	GoVersion string `json:"goVersion"`
+	Compiler  string `json:"compiler"`
+	Platform  string `json:"platform"`
 }
 
 // Get returns version information
 func Get() Info {
 	return Info{
-		Version:     Version,
-		GitCommit:   GitCommit,
-		BuildDate:   BuildDate,
-		KmcpVersion: KmcpVersion,
-		GoVersion:   runtime.Version(),
-		Compiler:    runtime.Compiler,
-		Platform:    fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		Version:   Version,
+		GitCommit: GitCommit,
+		BuildDate: BuildDate,
+		GoVersion: runtime.Version(),
+		Compiler:  runtime.Compiler,
+		Platform:  fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 	}
 }
 
 // String returns a human-readable version string
 func (i Info) String() string {
-	return fmt.Sprintf("Version: %s\nGit Commit: %s\nBuild Date: %s\nKmcp Version: %s\nGo Version: %s\nCompiler: %s\nPlatform: %s",
-		i.Version, i.GitCommit, i.BuildDate, i.KmcpVersion, i.GoVersion, i.Compiler, i.Platform)
+	return fmt.Sprintf("Version: %s\nGit Commit: %s\nBuild Date: %s\nGo Version: %s\nCompiler: %s\nPlatform: %s",
+		i.Version, i.GitCommit, i.BuildDate, i.GoVersion, i.Compiler, i.Platform)
 }
 
 // Short returns a short version string

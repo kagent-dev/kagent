@@ -11,7 +11,6 @@ const (
 	// Version is the current version of the kagent CLI
 	DefaultModelProvider   = v1alpha1.ModelProviderOpenAI
 	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
-	DefaultKmcpHelmRepo    = "oci://ghcr.io/kagent-dev/kmcp/helm/"
 
 	//Provider specific env variables
 	OPENAI_API_KEY      = "OPENAI_API_KEY"
@@ -23,8 +22,6 @@ const (
 	KAGENT_HELM_REPO              = "KAGENT_HELM_REPO"
 	KAGENT_HELM_VERSION           = "KAGENT_HELM_VERSION"
 	KAGENT_HELM_EXTRA_ARGS        = "KAGENT_HELM_EXTRA_ARGS"
-	KMCP_HELM_REPO                = "KMCP_HELM_REPO"
-	KMCP_HELM_VERSION             = "KMCP_HELM_VERSION"
 )
 
 // GetModelProvider returns the model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable
