@@ -18,10 +18,8 @@ package controller
 
 import (
 	"context"
-	"time"
 
-	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
-	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -30,32 +28,33 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	agentv1alpha1 "github.com/kagent-dev/kagent/go/api/v1alpha1"
 )
 
-// MCPServerController reconciles a MCPServer object
-type MCPServerController struct {
+// MemoryController reconciles a Memory object
+type MemoryController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
-// +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kagent.dev,resources=memories,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kagent.dev,resources=memories/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kagent.dev,resources=memories/finalizers,verbs=update
 
-func (r *MCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *MemoryController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-
-	return ctrl.Result{
-		// loop forever because we need to refresh tools server status
-		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileKagentMCPServer(ctx, req)
+	// TODO: Re-implement memory controller
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *MCPServerController) SetupWithManager(mgr ctrl.Manager) error {
+func (r *MemoryController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha1.MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Named("toolserver").
+		For(&agentv1alpha1.Memory{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Named("memory").
 		Complete(r)
 }

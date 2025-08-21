@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 )
 
 func TestGetModelProvider(t *testing.T) {

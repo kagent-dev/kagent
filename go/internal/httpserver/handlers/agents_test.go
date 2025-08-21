@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"

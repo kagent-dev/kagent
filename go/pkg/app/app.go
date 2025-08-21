@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package app
 
 import (
 	"context"
@@ -31,13 +31,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kagent-dev/kagent/go/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
+	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
-	a2a_reconciler "github.com/kagent-dev/kagent/go/controller/internal/a2a"
-	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
+	a2a_reconciler "github.com/kagent-dev/kagent/go/internal/controller/a2a"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 
@@ -59,11 +59,10 @@ import (
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/controller/internal/controller"
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/controller"
 	"github.com/kagent-dev/kagent/go/internal/goruntime"
 	kmcpv1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
 	kmcpcontroller "github.com/kagent-dev/kmcp/pkg/controller"
@@ -99,11 +98,6 @@ type Config struct {
 		CertName string
 		CertKey  string
 	}
-	Webhook struct {
-		CertPath string
-		CertName string
-		CertKey  string
-	}
 	Streaming struct {
 		MaxBufSize     resource.QuantityValue `default:"1Mi"`
 		InitialBufSize resource.QuantityValue `default:"4Ki"`
@@ -123,41 +117,41 @@ type Config struct {
 	}
 }
 
-// nolint:gocyclo
-func main() {
-	cfg := Config{}
-	var tlsOpts []func(*tls.Config)
-	flag.StringVar(&cfg.Metrics.Addr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
+func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
+	commandLine.StringVar(&cfg.Metrics.Addr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
-	flag.StringVar(&cfg.ProbeAddr, "health-probe-bind-address", ":8082", "The address the probe endpoint binds to.")
-	flag.BoolVar(&cfg.LeaderElection, "leader-elect", false,
+	commandLine.StringVar(&cfg.ProbeAddr, "health-probe-bind-address", ":8082", "The address the probe endpoint binds to.")
+	commandLine.BoolVar(&cfg.LeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&cfg.SecureMetrics, "metrics-secure", true,
+	commandLine.BoolVar(&cfg.SecureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&cfg.Webhook.CertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&cfg.Webhook.CertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&cfg.Webhook.CertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
-	flag.StringVar(&cfg.Metrics.CertPath, "metrics-cert-path", "",
+	commandLine.StringVar(&cfg.Metrics.CertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
-	flag.StringVar(&cfg.Metrics.CertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
-	flag.StringVar(&cfg.Metrics.CertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
-	flag.BoolVar(&cfg.EnableHTTP2, "enable-http2", false,
+	commandLine.StringVar(&cfg.Metrics.CertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
+	commandLine.StringVar(&cfg.Metrics.CertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+	commandLine.BoolVar(&cfg.EnableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 
-	flag.StringVar(&cfg.DefaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
-	flag.StringVar(&cfg.DefaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
-	flag.StringVar(&cfg.HttpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
-	flag.StringVar(&cfg.A2ABaseUrl, "a2a-base-url", "http://127.0.0.1:8083", "The base URL of the A2A Server endpoint, as advertised to clients.")
-	flag.StringVar(&cfg.Database.Type, "database-type", "sqlite", "The type of the database to use. Supported values: sqlite, postgres.")
-	flag.StringVar(&cfg.Database.Path, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
-	flag.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
+	commandLine.StringVar(&cfg.DefaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
+	commandLine.StringVar(&cfg.DefaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
+	commandLine.StringVar(&cfg.HttpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
+	commandLine.StringVar(&cfg.A2ABaseUrl, "a2a-base-url", "http://127.0.0.1:8083", "The base URL of the A2A Server endpoint, as advertised to clients.")
+	commandLine.StringVar(&cfg.Database.Type, "database-type", "sqlite", "The type of the database to use. Supported values: sqlite, postgres.")
+	commandLine.StringVar(&cfg.Database.Path, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
+	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
 
-	flag.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
+	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
-	flag.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
-	flag.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
+	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
+	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
+}
 
+func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
+	var tlsOpts []func(*tls.Config)
+	var cfg Config
+
+	cfg.SetFlags(flag.CommandLine)
 	flag.StringVar(&translator.DefaultImageConfig.Registry, "image-registry", translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	flag.StringVar(&translator.DefaultImageConfig.Tag, "image-tag", translator.DefaultImageConfig.Tag, "The tag to use for the image.")
 	flag.StringVar(&translator.DefaultImageConfig.PullPolicy, "image-pull-policy", translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
@@ -197,32 +191,6 @@ func main() {
 
 	// Create watchers for metrics and webhooks certificates
 	var metricsCertWatcher, webhookCertWatcher *certwatcher.CertWatcher
-
-	// Initial webhook TLS options
-	webhookTLSOpts := tlsOpts
-
-	if len(cfg.Webhook.CertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", cfg.Webhook.CertPath, "webhook-cert-name", cfg.Webhook.CertName, "webhook-cert-key", cfg.Webhook.CertKey)
-
-		var err error
-		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(cfg.Webhook.CertPath, cfg.Webhook.CertName),
-			filepath.Join(cfg.Webhook.CertPath, cfg.Webhook.CertKey),
-		)
-		if err != nil {
-			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
-			os.Exit(1)
-		}
-
-		webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
-			config.GetCertificate = webhookCertWatcher.GetCertificate
-		})
-	}
-
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	})
 
 	ctrlmetrics.Registry.MustRegister(versionmetrics.NewBuildInfoCollector())
 
@@ -277,7 +245,6 @@ func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: cfg.ProbeAddr,
 		LeaderElection:         cfg.LeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
@@ -328,9 +295,6 @@ func main() {
 		mgr.GetClient(),
 		cfg.DefaultModelConfig,
 	)
-
-	authorizer := &auth.NoopAuthorizer{}
-	authenticator := &auth.UnsecureAuthenticator{}
 
 	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, authenticator)
 

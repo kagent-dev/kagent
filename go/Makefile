@@ -16,12 +16,12 @@ endif
 ##@ Development
 
 .PHONY: manifests
-manifests: controller-gen generate ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDefinition objects.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="controller/hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="internal/controller/hack/boilerplate.go.txt" paths="./..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -94,7 +94,7 @@ build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-da
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./controller/cmd/main.go
+	go run ./cmd/controller/main.go
 
 .PHONY: test
 test:
