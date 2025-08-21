@@ -77,7 +77,7 @@ func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string
 			Namespace: "default",
 		},
 		DatabaseService: dbClient,
-		Authorizer:      &auth.NothingAuthorizer{},
+		Authorizer:      &auth.NoopAuthorizer{},
 	}
 
 	return handlers.NewAgentsHandler(base), userID

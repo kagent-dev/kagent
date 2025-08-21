@@ -329,7 +329,7 @@ func main() {
 		cfg.DefaultModelConfig,
 	)
 
-	authorizer := &auth.NothingAuthorizer{}
+	authorizer := &auth.NoopAuthorizer{}
 	authenticator := &auth.UnsecureAuthenticator{}
 
 	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, authenticator)

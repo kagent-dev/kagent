@@ -19,7 +19,6 @@ type Resource struct {
 
 const (
 	VerbGet    Verb = "get"
-	VerbList   Verb = "list"
 	VerbCreate Verb = "create"
 	VerbUpdate Verb = "update"
 	VerbDelete Verb = "delete"
@@ -29,6 +28,7 @@ func AuthSessionFrom(ctx context.Context) (*Session, bool) {
 	v, ok := ctx.Value(sessionKey).(*Session)
 	return v, ok && v != nil
 }
+
 func AuthSessionTo(ctx context.Context, session *Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
 }

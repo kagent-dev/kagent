@@ -8,8 +8,8 @@ type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
 }
 
-type NothingAuthorizer struct{}
+type NoopAuthorizer struct{}
 
-func (a *NothingAuthorizer) Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error {
+func (a *NoopAuthorizer) Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error {
 	return nil
 }

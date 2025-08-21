@@ -37,7 +37,7 @@ func TestModelConfigHandler(t *testing.T) {
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
-			Authorizer:         &auth.NothingAuthorizer{},
+			Authorizer:         &auth.NoopAuthorizer{},
 		}
 		handler := handlers.NewModelConfigHandler(base)
 		responseRecorder := newMockErrorResponseWriter()

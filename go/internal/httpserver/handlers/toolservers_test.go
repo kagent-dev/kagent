@@ -47,7 +47,7 @@ func TestToolServersHandler(t *testing.T) {
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
 			DatabaseService:    dbClient,
-			Authorizer:         &auth.NothingAuthorizer{},
+			Authorizer:         &auth.NoopAuthorizer{},
 		}
 		handler := handlers.NewToolServersHandler(base)
 		responseRecorder := newMockErrorResponseWriter()

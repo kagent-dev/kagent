@@ -39,7 +39,7 @@ func TestMemoryHandler(t *testing.T) {
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
 			DatabaseService:    database_fake.NewClient(),
-			Authorizer:         &auth.NothingAuthorizer{},
+			Authorizer:         &auth.NoopAuthorizer{},
 		}
 		handler := handlers.NewMemoryHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
