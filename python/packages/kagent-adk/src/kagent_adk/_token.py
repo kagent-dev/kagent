@@ -1,8 +1,10 @@
+import logging  # noqa: I001
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional
 
 KAGENT_TOKEN_PATH = "/var/run/secrets/tokens/kagent-token"
+logger = logging.getLogger(__name__)
 
 
 class KAgentTokenService:
@@ -58,7 +60,6 @@ class KAgentTokenService:
             token = await self._read_kagent_token()
             if token is not None and token != self.token:
                 async with self.update_lock:
-                    # python is not multi threaded, so this might not even need a lock.
                     self.token = token
 
     async def _add_bearer_token(self, request):
@@ -75,6 +76,6 @@ def read_token() -> str:
         with open(KAGENT_TOKEN_PATH, "r", encoding="utf-8") as f:
             token = f.read()
             return token.strip()
-    except OSError:
-        # TODO: figure out how to log - print(f"Error reading token from {KAGENT_TOKEN_PATH}: {e}")
-        return None
+    except OSError as e:
+        logger.error(f"Error reading token from {KAGENT_TOKEN_PATH}: {e}")
+        return ""

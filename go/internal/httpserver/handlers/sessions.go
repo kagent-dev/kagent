@@ -344,7 +344,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	principle, err := GetPrincipal(r)
+	principal, err := GetPrincipal(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -372,7 +372,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 		return
 	}
 
-	if session.AgentID != nil && *session.AgentID != principle.Agent {
+	if session.AgentID != nil && *session.AgentID != principal.Agent {
 		w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
 		return
 	}

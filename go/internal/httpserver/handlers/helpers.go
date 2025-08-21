@@ -54,7 +54,7 @@ func GetUserID(r *http.Request) (string, error) {
 }
 
 func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *errors.APIError {
-	principle, err := GetPrincipal(r)
+	principal, err := GetPrincipal(r)
 	if err != nil {
 		return errors.NewBadRequestError("Failed to get user ID", err)
 	}
@@ -72,7 +72,7 @@ func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *erro
 		return errors.NewBadRequestError("Unsupported HTTP method", fmt.Errorf("method %s not supported", r.Method))
 	}
 
-	err = authorizer.Check(r.Context(), principle, verb, res)
+	err = authorizer.Check(r.Context(), principal, verb, res)
 	if err != nil {
 		return errors.NewForbiddenError("Not authorized", err)
 	}
@@ -80,7 +80,7 @@ func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *erro
 }
 
 func CheckList(authorizer auth.Authorizer, r *http.Request, resKind string) *errors.APIError {
-	principle, err := GetPrincipal(r)
+	principal, err := GetPrincipal(r)
 	if err != nil {
 		return errors.NewBadRequestError("Failed to get user ID", err)
 	}
@@ -92,7 +92,7 @@ func CheckList(authorizer auth.Authorizer, r *http.Request, resKind string) *err
 		return errors.NewBadRequestError("Unsupported HTTP method", fmt.Errorf("method %s not supported", r.Method))
 	}
 
-	err = authorizer.Check(r.Context(), principle, verb, auth.Resource{Type: resKind})
+	err = authorizer.Check(r.Context(), principal, verb, auth.Resource{Type: resKind})
 	if err != nil {
 		return errors.NewForbiddenError("Not authorized", err)
 	}

@@ -534,7 +534,6 @@ func TestModelConfigHandler(t *testing.T) {
 
 			req := httptest.NewRequest("DELETE", "/api/modelconfigs/default/test-config", nil)
 			req = setUser(req, "test-user")
-			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -550,7 +549,6 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("DELETE", "/api/modelconfigs/default/nonexistent", nil)
-			req = setUser(req, "test-user")
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
