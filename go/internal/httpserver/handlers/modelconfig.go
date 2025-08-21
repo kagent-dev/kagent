@@ -8,11 +8,13 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -31,6 +33,10 @@ func NewModelConfigHandler(base *Base) *ModelConfigHandler {
 func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "list")
 	log.Info("Listing ModelConfigs")
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig"}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	modelConfigs := &v1alpha2.ModelConfigList{}
 	if err := h.KubeClient.List(r.Context(), modelConfigs); err != nil {
@@ -94,6 +100,11 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		"configNamespace", namespace,
 		"configName", configName,
 	)
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig", Name: types.NamespacedName{Namespace: namespace, Name: configName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Checking if ModelConfig exists")
 	modelConfig := &v1alpha2.ModelConfig{}
@@ -197,6 +208,10 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		"provider", req.Provider.Type,
 		"model", req.Model,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig", Name: modelConfigRef.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Checking if ModelConfig already exists")
 	existingConfig := &v1alpha2.ModelConfig{}
@@ -380,6 +395,10 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		"provider", req.Provider.Type,
 		"model", req.Model,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig", Name: types.NamespacedName{Namespace: namespace, Name: configName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Getting existing ModelConfig")
 	modelConfig := &v1alpha2.ModelConfig{}
@@ -557,6 +576,10 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 		"configNamespace", namespace,
 		"configName", configName,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig", Name: types.NamespacedName{Namespace: namespace, Name: configName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Checking if ModelConfig exists")
 	existingConfig := &v1alpha2.ModelConfig{}

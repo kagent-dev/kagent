@@ -10,7 +10,7 @@ import (
 
 // Agent defines the agent operations
 type Agent interface {
-	ListAgents(ctx context.Context, userID string) (*api.StandardResponse[[]api.AgentResponse], error)
+	ListAgents(ctx context.Context) (*api.StandardResponse[[]api.AgentResponse], error)
 	CreateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error)
 	GetAgent(ctx context.Context, agentRef string) (*api.StandardResponse[*api.AgentResponse], error)
 	UpdateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error)
@@ -28,8 +28,8 @@ func NewAgentClient(client *BaseClient) Agent {
 }
 
 // ListAgents lists all agents for a user
-func (c *agentClient) ListAgents(ctx context.Context, userID string) (*api.StandardResponse[[]api.AgentResponse], error) {
-	userID = c.client.GetUserIDOrDefault(userID)
+func (c *agentClient) ListAgents(ctx context.Context) (*api.StandardResponse[[]api.AgentResponse], error) {
+	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,16 +49,46 @@ func RespondWithError(w http.ResponseWriter, code int, message string) {
 }
 
 func GetUserID(r *http.Request) (string, error) {
-	log := ctrllog.Log.WithName("http-helpers")
+	p, err := GetPrincipal(r)
+	return p.User, err
+}
 
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		log.Info("Missing user_id parameter in request")
-		return "", fmt.Errorf("user_id is required")
+func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *errors.APIError {
+	principal, err := GetPrincipal(r)
+	if err != nil {
+		return errors.NewBadRequestError("Failed to get user ID", err)
+	}
+	var verb auth.Verb
+	switch r.Method {
+	case http.MethodGet:
+		verb = auth.VerbGet
+	case http.MethodPost:
+		verb = auth.VerbCreate
+	case http.MethodPut:
+		verb = auth.VerbUpdate
+	case http.MethodDelete:
+		verb = auth.VerbDelete
+	default:
+		return errors.NewBadRequestError("Unsupported HTTP method", fmt.Errorf("method %s not supported", r.Method))
 	}
 
-	log.V(2).Info("Retrieved user_id from request", "userID", userID)
-	return userID, nil
+	err = authorizer.Check(r.Context(), principal, verb, res)
+	if err != nil {
+		return errors.NewForbiddenError("Not authorized", err)
+	}
+	return nil
+}
+
+func GetPrincipal(r *http.Request) (auth.Principal, error) {
+	log := ctrllog.Log.WithName("http-helpers")
+
+	s, ok := auth.AuthSessionFrom(r.Context())
+	if !ok || s == nil {
+		log.Info("No session found in request context")
+		return auth.Principal{}, fmt.Errorf("no session found")
+	}
+	log.V(2).Info("Retrieved session from request", "userID", s.Principal.User)
+	return s.Principal, nil
 }
 
 // GetPathParam gets a path parameter from the request

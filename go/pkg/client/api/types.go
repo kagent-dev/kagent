@@ -100,7 +100,6 @@ type AgentResponse struct {
 type SessionRequest struct {
 	AgentRef *string `json:"agent_ref,omitempty"`
 	Name     *string `json:"name,omitempty"`
-	UserID   string  `json:"user_id"`
 	ID       *string `json:"id,omitempty"`
 }
 

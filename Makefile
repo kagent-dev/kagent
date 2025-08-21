@@ -92,7 +92,7 @@ check-openai-key:
 .PHONY: buildx-create
 buildx-create:
 	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
-	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use || true
+	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
@@ -100,6 +100,11 @@ build-all: buildx-create
 	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
 	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
+
+.PHONY: push-test-agent
+push-test-agent: build-kagent-adk
+	$(DOCKER_BUILDER) build --push --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) --build-arg VERSION=$(VERSION) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
+	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
@@ -233,22 +238,15 @@ helm-tools:
 
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents helm-tools
-	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
+	helm dependency update helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent
 
 .PHONY: helm-install-provider
 helm-install-provider: helm-version check-openai-key
-	helm $(HELM_ACTION) kmcp-crds oci://ghcr.io/kagent-dev/kmcp/helm/kmcp-crds \
-		--namespace kagent \
-		--create-namespace \
-		--history-max 2    \
-		--timeout 5m 			\
-		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--version $(KMCP_VERSION) \
-		--wait
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
@@ -291,7 +289,6 @@ helm-test-install: helm-install-provider
 helm-uninstall:
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
-	helm uninstall kmcp-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
 .PHONY: helm-publish
 helm-publish: helm-version

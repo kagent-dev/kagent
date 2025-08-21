@@ -1,0 +1,10 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: kebab-agent
+spec:
+  description: This agent is a kebab.
+  type: BYO
+  byo:
+    deployment:
+      image: localhost:5001/kebab:latest

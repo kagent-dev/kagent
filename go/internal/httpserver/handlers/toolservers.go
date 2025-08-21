@@ -6,12 +6,14 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -50,6 +52,10 @@ type ToolServerCreateRequest struct {
 func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "list")
 	log.Info("Received request to list ToolServers")
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer"}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	toolServers, err := h.DatabaseService.ListToolServers()
 	if err != nil {
@@ -165,6 +171,10 @@ func (h *ToolServersHandler) handleCreateMCPServer(w ErrorResponseWriter, r *htt
 		"toolServerName", toolRef.Name,
 		"toolServerNamespace", toolRef.Namespace,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer", Name: toolRef.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	if err := h.KubeClient.Create(r.Context(), toolServerRequest); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create MCPServer in Kubernetes", err))
@@ -198,6 +208,10 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 		"toolServerNamespace", namespace,
 		"toolServerName", toolServerName,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer", Name: types.NamespacedName{Namespace: namespace, Name: toolServerName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	// Find the tool server in the database to get its groupKind
 	ref := fmt.Sprintf("%s/%s", namespace, toolServerName)

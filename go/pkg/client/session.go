@@ -9,12 +9,12 @@ import (
 
 // Session defines the session operations
 type Session interface {
-	ListSessions(ctx context.Context, userID string) (*api.StandardResponse[[]*api.Session], error)
+	ListSessions(ctx context.Context) (*api.StandardResponse[[]*api.Session], error)
 	CreateSession(ctx context.Context, request *api.SessionRequest) (*api.StandardResponse[*api.Session], error)
-	GetSession(ctx context.Context, sessionName, userID string) (*api.StandardResponse[*api.Session], error)
+	GetSession(ctx context.Context, sessionName string) (*api.StandardResponse[*api.Session], error)
 	UpdateSession(ctx context.Context, request *api.SessionRequest) (*api.StandardResponse[*api.Session], error)
-	DeleteSession(ctx context.Context, sessionName, userID string) error
-	ListSessionRuns(ctx context.Context, sessionName, userID string) (*api.StandardResponse[interface{}], error)
+	DeleteSession(ctx context.Context, sessionName string) error
+	ListSessionRuns(ctx context.Context, sessionName string) (*api.StandardResponse[interface{}], error)
 }
 
 // sessionClient handles session-related requests
@@ -28,8 +28,8 @@ func NewSessionClient(client *BaseClient) Session {
 }
 
 // ListSessions lists all sessions for a user
-func (c *sessionClient) ListSessions(ctx context.Context, userID string) (*api.StandardResponse[[]*api.Session], error) {
-	userID = c.client.GetUserIDOrDefault(userID)
+func (c *sessionClient) ListSessions(ctx context.Context) (*api.StandardResponse[[]*api.Session], error) {
+	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}
@@ -49,13 +49,11 @@ func (c *sessionClient) ListSessions(ctx context.Context, userID string) (*api.S
 
 // CreateSession creates a new session
 func (c *sessionClient) CreateSession(ctx context.Context, request *api.SessionRequest) (*api.StandardResponse[*api.Session], error) {
-	userID := c.client.GetUserIDOrDefault(request.UserID)
+	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}
-	request.UserID = userID
-
-	resp, err := c.client.Post(ctx, "/api/sessions", request, "")
+	resp, err := c.client.Post(ctx, "/api/sessions", request, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +67,8 @@ func (c *sessionClient) CreateSession(ctx context.Context, request *api.SessionR
 }
 
 // GetSession retrieves a specific session
-func (c *sessionClient) GetSession(ctx context.Context, sessionName, userID string) (*api.StandardResponse[*api.Session], error) {
-	userID = c.client.GetUserIDOrDefault(userID)
+func (c *sessionClient) GetSession(ctx context.Context, sessionName string) (*api.StandardResponse[*api.Session], error) {
+	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}
@@ -91,13 +89,12 @@ func (c *sessionClient) GetSession(ctx context.Context, sessionName, userID stri
 
 // UpdateSession updates an existing session
 func (c *sessionClient) UpdateSession(ctx context.Context, request *api.SessionRequest) (*api.StandardResponse[*api.Session], error) {
-	userID := c.client.GetUserIDOrDefault(request.UserID)
+	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}
-	request.UserID = userID
 
-	resp, err := c.client.Put(ctx, "/api/sessions", request, "")
+	resp, err := c.client.Put(ctx, "/api/sessions", request, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +108,8 @@ func (c *sessionClient) UpdateSession(ctx context.Context, request *api.SessionR
 }
 
 // DeleteSession deletes a session
-func (c *sessionClient) DeleteSession(ctx context.Context, sessionName, userID string) error {
-	userID = c.client.GetUserIDOrDefault(userID)
+func (c *sessionClient) DeleteSession(ctx context.Context, sessionName string) error {
+	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return fmt.Errorf("userID is required")
 	}
@@ -127,8 +124,8 @@ func (c *sessionClient) DeleteSession(ctx context.Context, sessionName, userID s
 }
 
 // ListSessionRuns lists all runs for a specific session
-func (c *sessionClient) ListSessionRuns(ctx context.Context, sessionName, userID string) (*api.StandardResponse[interface{}], error) {
-	userID = c.client.GetUserIDOrDefault(userID)
+func (c *sessionClient) ListSessionRuns(ctx context.Context, sessionName string) (*api.StandardResponse[interface{}], error) {
+	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}

@@ -7,11 +7,13 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/controller/translator"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -29,6 +31,11 @@ func NewAgentsHandler(base *Base) *AgentsHandler {
 // HandleListAgents handles GET /api/agents requests using database
 func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "list-db")
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent"}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	agentList := &v1alpha2.AgentList{}
 	if err := h.KubeClient.List(r.Context(), agentList); err != nil {
@@ -120,6 +127,10 @@ func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 	}
 	log = log.WithValues("agentNamespace", agentNamespace)
 
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 	agent := &v1alpha2.Agent{}
 	if err := h.KubeClient.Get(
 		r.Context(),
@@ -167,6 +178,11 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 		"agentNamespace", agentRef.Namespace,
 		"agentName", agentRef.Name,
 	)
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: agentRef.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	kubeClientWrapper := utils.NewKubeClientWrapper(h.KubeClient)
 	kubeClientWrapper.AddInMemory(&agentReq)
@@ -220,6 +236,11 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 		"agentName", agentRef.Name,
 	)
 
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: agentRef.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
 	log.V(1).Info("Getting existing Agent")
 	existingAgent := &v1alpha2.Agent{}
 	err = h.KubeClient.Get(
@@ -271,6 +292,12 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
 		return
 	}
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
 	log = log.WithValues("agentNamespace", agentNamespace)
 
 	log.V(1).Info("Getting Agent from Kubernetes")

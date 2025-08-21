@@ -8,10 +8,12 @@ import (
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
@@ -32,6 +34,10 @@ func (h *MemoryHandler) HandleListMemories(w ErrorResponseWriter, r *http.Reques
 	log := ctrllog.FromContext(r.Context()).WithName("memory-handler").WithValues("operation", "list-memories")
 	log.Info("Listing Memories")
 
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory"}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 	memoryList := &v1alpha1.MemoryList{}
 	if err := h.KubeClient.List(r.Context(), memoryList); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to list Memories", err))
@@ -90,6 +96,10 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		"memoryName", memoryRef.Name,
 		"provider", req.Provider.Type,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory", Name: memoryRef.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Checking if Memory already exists")
 	existingMemory := &v1alpha1.Memory{}
@@ -177,6 +187,10 @@ func (h *MemoryHandler) HandleDeleteMemory(w ErrorResponseWriter, r *http.Reques
 		"memoryNamespace", namespace,
 		"memoryName", memoryName,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory", Name: types.NamespacedName{Namespace: namespace, Name: memoryName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Checking if Memory exists")
 	existingMemory := &v1alpha1.Memory{}
@@ -234,6 +248,10 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 		"memoryNamespace", namespace,
 		"memoryName", memoryName,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory", Name: types.NamespacedName{Namespace: namespace, Name: memoryName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Checking if Memory already exists")
 	memory := &v1alpha1.Memory{}
@@ -304,6 +322,10 @@ func (h *MemoryHandler) HandleUpdateMemory(w ErrorResponseWriter, r *http.Reques
 		"memoryNamespace", namespace,
 		"memoryName", memoryName,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory", Name: types.NamespacedName{Namespace: namespace, Name: memoryName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	var req api.UpdateMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

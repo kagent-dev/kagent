@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
@@ -36,6 +37,7 @@ func TestModelConfigHandler(t *testing.T) {
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
+			Authorizer:         &auth.NoopAuthorizer{},
 		}
 		handler := handlers.NewModelConfigHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
@@ -69,6 +71,7 @@ func TestModelConfigHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("GET", "/api/modelconfigs/", nil)
+			req = setUser(req, "test-user")
 			handler.HandleListModelConfigs(responseRecorder, req)
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
@@ -91,6 +94,7 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("GET", "/api/modelconfigs/", nil)
+			req = setUser(req, "test-user")
 			handler.HandleListModelConfigs(responseRecorder, req)
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
@@ -120,6 +124,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -152,6 +157,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -181,6 +187,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -210,6 +217,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -226,6 +234,7 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBufferString("invalid json"))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -246,6 +255,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -280,6 +290,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -303,6 +314,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -323,6 +335,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateModelConfig(responseRecorder, req)
@@ -358,6 +371,7 @@ func TestModelConfigHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("GET", "/api/modelconfigs/default/test-config", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -383,6 +397,7 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("GET", "/api/modelconfigs/default/nonexistent", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -433,6 +448,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("PUT", "/api/modelconfigs/default/test-config", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			router := mux.NewRouter()
@@ -455,6 +471,7 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("PUT", "/api/modelconfigs/default/test-config", bytes.NewBufferString("invalid json"))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			router := mux.NewRouter()
@@ -481,6 +498,7 @@ func TestModelConfigHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("PUT", "/api/modelconfigs/default/nonexistent", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			router := mux.NewRouter()
@@ -515,6 +533,7 @@ func TestModelConfigHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("DELETE", "/api/modelconfigs/default/test-config", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -530,6 +549,7 @@ func TestModelConfigHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("DELETE", "/api/modelconfigs/default/nonexistent", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {

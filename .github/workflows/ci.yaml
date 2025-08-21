@@ -80,6 +80,7 @@ jobs:
           make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
+          make push-test-agent
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
@@ -89,7 +90,7 @@ jobs:
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
           echo $KAGENT_URL
 
-          go test -v -run ^TestInvokeInlineAgent$ github.com/kagent-dev/kagent/go/test/e2e
+          go test -v github.com/kagent-dev/kagent/go/test/e2e
       - name: fail print info
         if: failure()
         run: |
@@ -99,6 +100,8 @@ jobs:
           echo "::error::Kubectl get events -n kagent"
           kubectl get events -n kagent
           echo "::error::Kubectl get agents -n kagent"
+          echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
+          kubectl logs -n kagent deployment/kagent-controller
 
   go-unit-tests:
     runs-on: ubuntu-latest

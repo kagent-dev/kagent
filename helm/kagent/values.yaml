@@ -124,7 +124,7 @@ ui:
       port: 80
       targetPort: 8080
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
-  
+
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
@@ -143,7 +143,7 @@ providers:
     model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
-    apiKey: ""
+    # apiKey: ""
   ollama:
     provider: Ollama
     model: "llama3.2"
@@ -154,13 +154,13 @@ providers:
     model: "claude-3-sonnet-20240229"
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
-    apiKey: ""
+    # apiKey: ""
   azureOpenAI:
     provider: AzureOpenAI
     model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-azure-openai
     apiKeySecretKey: AZUREOPENAI_API_KEY
-    apiKey: ""
+    # apiKey: ""
     config:
       apiVersion: "2023-05-15"
       azureAdToken: ""

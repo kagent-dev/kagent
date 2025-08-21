@@ -2,14 +2,9 @@ BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-$(GIT_COMMIT)")
 
-# get kmcp version from go.mod
-AWK ?= $(shell command -v gawk || command -v awk)
-KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go.mod)
-
 LDFLAGS := -X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)    \
            -X github.com/kagent-dev/kagent/go/internal/version.GitCommit=$(GIT_COMMIT) \
-           -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE) \
-           -X github.com/kagent-dev/kagent/go/internal/version.KmcpVersion=$(KMCP_VERSION)
+           -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))

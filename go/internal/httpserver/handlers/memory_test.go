@@ -20,6 +20,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
@@ -38,6 +39,7 @@ func TestMemoryHandler(t *testing.T) {
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
 			DatabaseService:    database_fake.NewClient(),
+			Authorizer:         &auth.NoopAuthorizer{},
 		}
 		handler := handlers.NewMemoryHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
@@ -72,6 +74,7 @@ func TestMemoryHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("GET", "/api/memories/", nil)
+			req = setUser(req, "test-user")
 			handler.HandleListMemories(responseRecorder, req)
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
@@ -93,6 +96,7 @@ func TestMemoryHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("GET", "/api/memories/", nil)
+			req = setUser(req, "test-user")
 			handler.HandleListMemories(responseRecorder, req)
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
@@ -123,6 +127,7 @@ func TestMemoryHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/memories/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateMemory(responseRecorder, req)
@@ -141,6 +146,7 @@ func TestMemoryHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("POST", "/api/memories/", bytes.NewBufferString("invalid json"))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateMemory(responseRecorder, req)
@@ -160,6 +166,7 @@ func TestMemoryHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/memories/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateMemory(responseRecorder, req)
@@ -192,6 +199,7 @@ func TestMemoryHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/memories/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			handler.HandleCreateMemory(responseRecorder, req)
@@ -226,6 +234,7 @@ func TestMemoryHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("GET", "/api/memories/default/test-memory", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -247,6 +256,7 @@ func TestMemoryHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("GET", "/api/memories/default/nonexistent", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +301,7 @@ func TestMemoryHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("PUT", "/api/memories/default/test-memory", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			router := mux.NewRouter()
@@ -313,6 +324,7 @@ func TestMemoryHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("PUT", "/api/memories/default/test-memory", bytes.NewBufferString("invalid json"))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			router := mux.NewRouter()
@@ -337,6 +349,7 @@ func TestMemoryHandler(t *testing.T) {
 
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("PUT", "/api/memories/default/nonexistent", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
 			router := mux.NewRouter()
@@ -370,6 +383,7 @@ func TestMemoryHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("DELETE", "/api/memories/default/test-memory", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -390,6 +404,7 @@ func TestMemoryHandler(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("DELETE", "/api/memories/default/nonexistent", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {

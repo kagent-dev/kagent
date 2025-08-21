@@ -104,11 +104,13 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	if sessionRequest.UserID == "" {
-		w.RespondWithError(errors.NewBadRequestError("user_id is required", nil))
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
-	log = log.WithValues("userID", sessionRequest.UserID)
+
+	log = log.WithValues("userID", userID)
 
 	if sessionRequest.AgentRef == nil {
 		w.RespondWithError(errors.NewBadRequestError("agent_ref is required", nil))
@@ -132,7 +134,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	session := &database.Session{
 		ID:      id,
 		Name:    sessionRequest.Name,
-		UserID:  sessionRequest.UserID,
+		UserID:  userID,
 		AgentID: &agent.ID,
 	}
 
@@ -237,8 +239,13 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("agentRef", *sessionRequest.AgentRef)
 
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
 	// Get existing session
-	session, err := h.DatabaseService.GetSession(*sessionRequest.Name, sessionRequest.UserID)
+	session, err := h.DatabaseService.GetSession(*sessionRequest.Name, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
@@ -337,7 +344,12 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := GetUserID(r)
+	principal, err := GetPrincipal(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	userID, err := getUserID(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -354,12 +366,16 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	}
 
 	// Get session to verify it exists
-	_, err = h.DatabaseService.GetSession(sessionID, userID)
+	session, err := h.DatabaseService.GetSession(sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
 	}
 
+	if session.AgentID != nil && *session.AgentID != principal.Agent {
+		w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
+		return
+	}
 	event := &database.Event{
 		ID:        eventData.ID,
 		SessionID: sessionID,
@@ -374,4 +390,17 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	log.Info("Successfully added event to session")
 	data := api.NewResponse(event, "Event added to session successfully", false)
 	RespondWithJSON(w, http.StatusCreated, data)
+}
+
+func getUserID(r *http.Request) (string, error) {
+	log := ctrllog.Log.WithName("http-helpers")
+
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		log.Info("Missing user_id parameter in request")
+		return "", fmt.Errorf("user_id is required")
+	}
+
+	log.V(2).Info("Retrieved user_id from request", "userID", userID)
+	return userID, nil
 }

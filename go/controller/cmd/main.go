@@ -45,6 +45,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -328,13 +329,17 @@ func main() {
 		cfg.DefaultModelConfig,
 	)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A)
+	authorizer := &auth.NoopAuthorizer{}
+	authenticator := &auth.UnsecureAuthenticator{}
+
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, authenticator)
 
 	a2aReconciler := a2a_reconciler.NewReconciler(
 		a2aHandler,
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		int(cfg.Streaming.MaxBufSize.Value()),
 		int(cfg.Streaming.InitialBufSize.Value()),
+		authenticator,
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
@@ -434,6 +439,8 @@ func main() {
 		A2AHandler:        a2aHandler,
 		WatchedNamespaces: watchNamespacesList,
 		DbClient:          dbClient,
+		Authorizer:        authorizer,
+		Authenticator:     authenticator,
 	})
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")

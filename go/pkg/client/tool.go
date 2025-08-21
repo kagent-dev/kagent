@@ -9,7 +9,7 @@ import (
 
 // Tool defines the tool operations
 type Tool interface {
-	ListTools(ctx context.Context, userID string) ([]api.Tool, error)
+	ListTools(ctx context.Context) ([]api.Tool, error)
 }
 
 // toolClient handles tool-related requests
@@ -23,8 +23,8 @@ func NewToolClient(client *BaseClient) Tool {
 }
 
 // ListTools lists all tools for a user
-func (c *toolClient) ListTools(ctx context.Context, userID string) ([]api.Tool, error) {
-	userID = c.client.GetUserIDOrDefault(userID)
+func (c *toolClient) ListTools(ctx context.Context) ([]api.Tool, error) {
+	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}

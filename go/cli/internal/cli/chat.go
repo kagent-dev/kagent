@@ -51,7 +51,7 @@ func ChatCmd(c *ishell.Context) {
 	if agentResp == nil {
 		c.Printf("Please select from available agents.\n")
 		// Get the agents based on the input + userID
-		agentListResp, err := clientSet.Agent.ListAgents(context.Background(), cfg.UserID)
+		agentListResp, err := clientSet.Agent.ListAgents(context.Background())
 		if err != nil {
 			c.Println(err)
 			return
@@ -71,7 +71,7 @@ func ChatCmd(c *ishell.Context) {
 		agentResp = &agentListResp.Data[selectedAgentIdx]
 	}
 
-	sessions, err := clientSet.Session.ListSessions(context.Background(), cfg.UserID)
+	sessions, err := clientSet.Session.ListSessions(context.Background())
 	if err != nil {
 		c.Println(err)
 		return
@@ -114,7 +114,6 @@ func ChatCmd(c *ishell.Context) {
 		}
 		c.ShowPrompt(true)
 		sessionResp, err := clientSet.Session.CreateSession(context.Background(), &api.SessionRequest{
-			UserID:   cfg.UserID,
 			Name:     ptr.To(sessionName),
 			AgentRef: ptr.To(agentRef),
 		})

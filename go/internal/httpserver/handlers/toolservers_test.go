@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
@@ -46,6 +47,7 @@ func TestToolServersHandler(t *testing.T) {
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
 			DatabaseService:    dbClient,
+			Authorizer:         &auth.NoopAuthorizer{},
 		}
 		handler := handlers.NewToolServersHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
@@ -85,6 +87,7 @@ func TestToolServersHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("GET", "/api/toolservers/", nil)
+			req = setUser(req, "test-user")
 			handler.HandleListToolServers(responseRecorder, req)
 
 			require.Equal(t, http.StatusOK, responseRecorder.Code)
@@ -109,6 +112,7 @@ func TestToolServersHandler(t *testing.T) {
 			handler, _, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("GET", "/api/toolservers/", nil)
+			req = setUser(req, "test-user")
 			handler.HandleListToolServers(responseRecorder, req)
 
 			require.Equal(t, http.StatusOK, responseRecorder.Code)
@@ -150,6 +154,7 @@ func TestToolServersHandler(t *testing.T) {
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -199,6 +204,7 @@ func TestToolServersHandler(t *testing.T) {
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -242,6 +248,7 @@ func TestToolServersHandler(t *testing.T) {
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -277,6 +284,7 @@ func TestToolServersHandler(t *testing.T) {
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -299,6 +307,7 @@ func TestToolServersHandler(t *testing.T) {
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -317,6 +326,7 @@ func TestToolServersHandler(t *testing.T) {
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -335,6 +345,7 @@ func TestToolServersHandler(t *testing.T) {
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -347,6 +358,7 @@ func TestToolServersHandler(t *testing.T) {
 
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBufferString("invalid json"))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -388,6 +400,7 @@ func TestToolServersHandler(t *testing.T) {
 			jsonBody, _ := json.Marshal(reqBody)
 			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
 
 			handler.HandleCreateToolServer(responseRecorder, req)
 
@@ -422,6 +435,7 @@ func TestToolServersHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("DELETE", "/api/toolservers/default/test-toolserver", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -437,6 +451,7 @@ func TestToolServersHandler(t *testing.T) {
 			handler, _, _, responseRecorder := setupHandler()
 
 			req := httptest.NewRequest("DELETE", "/api/toolservers/default/nonexistent", nil)
+			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -454,6 +469,7 @@ func TestToolServersHandler(t *testing.T) {
 
 			// Request without namespace param should fail
 			req := httptest.NewRequest("DELETE", "/api/toolservers/", nil)
+			req = setUser(req, "test-user")
 			handler.HandleDeleteToolServer(responseRecorder, req)
 
 			require.Equal(t, http.StatusBadRequest, responseRecorder.Code)
@@ -468,6 +484,7 @@ func TestToolServersHandler(t *testing.T) {
 				"namespace":      "default",
 				"toolServerName": "",
 			})
+			req = setUser(req, "test-user")
 
 			// Call handler directly
 			handler.HandleDeleteToolServer(responseRecorder, req)

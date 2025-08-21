@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/mux"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
@@ -28,14 +29,16 @@ type handlerMux struct {
 	handlers       map[string]http.Handler
 	lock           sync.RWMutex
 	basePathPrefix string
+	authenticator  auth.AuthProvider
 }
 
 var _ A2AHandlerMux = &handlerMux{}
 
-func NewA2AHttpMux(pathPrefix string) *handlerMux {
+func NewA2AHttpMux(pathPrefix string, authenticator auth.AuthProvider) *handlerMux {
 	return &handlerMux{
 		handlers:       make(map[string]http.Handler),
 		basePathPrefix: pathPrefix,
+		authenticator:  authenticator,
 	}
 }
 
@@ -44,7 +47,7 @@ func (a *handlerMux) SetAgentHandler(
 	client *client.A2AClient,
 	card server.AgentCard,
 ) error {
-	srv, err := server.NewA2AServer(card, NewPassthroughManager(client))
+	srv, err := server.NewA2AServer(card, NewPassthroughManager(client), server.WithMiddleWare(auth.NewA2AAuthenticator(a.authenticator)))
 	if err != nil {
 		return fmt.Errorf("failed to create A2A server: %w", err)
 	}
