@@ -84,7 +84,7 @@ func TestInvokeInlineAgent(t *testing.T) {
 
 func TestInvokeExternalAgent(t *testing.T) {
 	// Setup
-	a2aURL := a2aUrl("default", "kebab-agent")
+	a2aURL := a2aUrl("kagent", "kebab-agent")
 
 	a2aClient, err := client.NewA2AClient(a2aURL)
 	require.NoError(t, err)
