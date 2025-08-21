@@ -94,7 +94,7 @@ build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-da
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./controller/cmd/main.go
+	go run ./cmd/controller/main.go
 
 .PHONY: test
 test:
