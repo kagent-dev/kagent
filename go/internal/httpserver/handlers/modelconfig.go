@@ -217,10 +217,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	existingConfig := &v1alpha2.ModelConfig{}
 	err = h.KubeClient.Get(
 		r.Context(),
-		client.ObjectKey{
-			Namespace: modelConfigRef.Namespace,
-			Name:      modelConfigRef.Name,
-		},
+		modelConfigRef,
 		existingConfig,
 	)
 	if err == nil {

@@ -15,7 +15,6 @@ import (
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/utils"
-	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -28,7 +27,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
@@ -63,8 +61,6 @@ type AgentOutputs struct {
 	AgentCard server.AgentCard `json:"agentCard"`
 }
 
-var adkLog = ctrllog.Log.WithName("adk")
-
 type AdkApiTranslator interface {
 	TranslateAgent(
 		ctx context.Context,
@@ -82,7 +78,6 @@ func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.Namespaced
 type adkApiTranslator struct {
 	kube               client.Client
 	defaultModelConfig types.NamespacedName
-	imageConfig        ImageConfig
 }
 
 const MAX_DEPTH = 10
@@ -98,7 +93,7 @@ type tState struct {
 
 func (s *tState) with(agent *v1alpha2.Agent) *tState {
 	s.depth++
-	s.visitedAgents = append(s.visitedAgents, common.GetObjectRef(agent))
+	s.visitedAgents = append(s.visitedAgents, utils.GetObjectRef(agent))
 	return s
 }
 
@@ -199,7 +194,7 @@ func (a *adkApiTranslator) buildManifest(
 		},
 		corev1.EnvVar{
 			Name:  "KAGENT_URL",
-			Value: fmt.Sprintf("http://kagent-controller.%s:8083", common.GetResourceNamespace()),
+			Value: fmt.Sprintf("http://kagent-controller.%s:8083", utils.GetResourceNamespace()),
 		},
 	)
 
@@ -402,9 +397,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.McpServer != nil:
-			for _, toolName := range tool.McpServer.ToolNames {
-				toolsByServer[tool.McpServer.TypedLocalReference] = append(toolsByServer[tool.McpServer.TypedLocalReference], toolName)
-			}
+			toolsByServer[tool.McpServer.TypedLocalReference] = append(toolsByServer[tool.McpServer.TypedLocalReference], tool.McpServer.ToolNames...)
 		case tool.Agent != nil:
 
 			agentRef := types.NamespacedName{
@@ -647,7 +640,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		return anthropic, modelDeploymentData, nil
 	case v1alpha2.ModelProviderOllama:
 		if model.Spec.Ollama == nil {
-			return nil, nil, fmt.Errorf("Ollama model config is required")
+			return nil, nil, fmt.Errorf("ollama model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "OLLAMA_API_BASE",
@@ -839,7 +832,7 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 
 func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2.RemoteMCPServerSpec, error) {
 	if mcpServer.Spec.Deployment.Port == 0 {
-		return nil, fmt.Errorf("Cannot determine port for MCP server %s", mcpServer.Name)
+		return nil, fmt.Errorf("cannot determine port for MCP server %s", mcpServer.Name)
 	}
 
 	return &v1alpha2.RemoteMCPServerSpec{
@@ -848,8 +841,8 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 	}, nil
 }
 func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string, agentNamespace string) error {
-	switch {
-	case remoteMcpServer.Protocol == v1alpha2.RemoteMCPServerProtocolSse:
+	switch remoteMcpServer.Protocol {
+	case v1alpha2.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentNamespace)
 		if err != nil {
 			return err

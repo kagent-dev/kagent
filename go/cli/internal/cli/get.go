@@ -41,7 +41,7 @@ func GetAgentCmd(cfg *config.Config, resourceName string) {
 			return
 		}
 		byt, _ := json.MarshalIndent(agent, "", "  ")
-		fmt.Fprintln(os.Stdout, string(byt))
+		fmt.Fprintln(os.Stdout, string(byt)) //nolint:errcheck
 	}
 }
 
@@ -70,7 +70,7 @@ func GetSessionCmd(cfg *config.Config, resourceName string) {
 			return
 		}
 		byt, _ := json.MarshalIndent(session, "", "  ")
-		fmt.Fprintln(os.Stdout, string(byt))
+		fmt.Fprintln(os.Stdout, string(byt)) //nolint:errcheck
 	}
 }
 

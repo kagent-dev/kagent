@@ -28,11 +28,10 @@ func (c *feedbackClient) CreateFeedback(ctx context.Context, feedback *api.Feedb
 	userID = c.client.GetUserIDOrDefault(userID)
 	feedback.UserID = userID
 
-	resp, err := c.client.Post(ctx, "/api/feedback", feedback, "")
+	_, err := c.client.Post(ctx, "/api/feedback", feedback, "")
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
 	return nil
 }
 

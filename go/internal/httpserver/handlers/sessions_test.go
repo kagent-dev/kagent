@@ -56,7 +56,7 @@ func TestSessionsHandler(t *testing.T) {
 		agent := &database.Agent{
 			ID: agentRef,
 		}
-		dbClient.StoreAgent(agent)
+		dbClient.StoreAgent(agent) //nolint:errcheck
 		// The fake client should assign an ID, but we'll use a default for testing
 		agent.ID = "1" // Simulate the ID that would be assigned by GORM
 		return agent
@@ -69,7 +69,7 @@ func TestSessionsHandler(t *testing.T) {
 			UserID:  userID,
 			AgentID: &agentID,
 		}
-		dbClient.StoreSession(session)
+		dbClient.StoreSession(session) //nolint:errcheck
 		return session
 	}
 

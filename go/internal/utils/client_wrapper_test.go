@@ -372,7 +372,7 @@ type mockObject struct {
 func (m *mockObject) DeepCopyObject() runtime.Object {
 	return &mockObject{
 		TypeMeta:   m.TypeMeta,
-		ObjectMeta: *m.ObjectMeta.DeepCopy(),
+		ObjectMeta: *m.DeepCopy(),
 		Data:       m.Data,
 	}
 }

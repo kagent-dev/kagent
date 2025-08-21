@@ -134,6 +134,6 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 			return
 		}
 
-		fmt.Fprintf(os.Stdout, "%+v\n", string(jsn))
+		fmt.Fprintf(os.Stdout, "%+v\n", string(jsn)) //nolint:errcheck
 	}
 }
