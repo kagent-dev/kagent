@@ -18,46 +18,44 @@ package controller
 
 import (
 	"context"
+	"time"
 
-	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
-	v1 "k8s.io/api/core/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// ServiceController reconciles a Service object
-type ServiceController struct {
+// RemoteMCPServerController reconciles a RemoteMCPServer object
+type RemoteMCPServerController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
-// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers/finalizers,verbs=update
 
-func (r *ServiceController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *RemoteMCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileKagentMCPService(ctx, req)
+
+	return ctrl.Result{
+		// loop forever because we need to refresh tools server status
+		RequeueAfter: 60 * time.Second,
+	}, r.Reconciler.ReconcileKagentRemoteMCPServer(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ServiceController) SetupWithManager(mgr ctrl.Manager) error {
+func (r *RemoteMCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		WithEventFilter(predicate.NewPredicateFuncs(func(obj client.Object) bool {
-			labels := obj.GetLabels()
-			if labels == nil {
-				return false
-			}
-			return labels["kagent.dev/mcp-service"] == "true"
-		})).
-		For(&v1.Service{}).
-		Named("service").
+		For(&v1alpha2.RemoteMCPServer{}).
+		Named("remotemcpserver").
 		Complete(r)
 }

@@ -20,42 +20,42 @@ import (
 	"context"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// RemoteMCPServerController reconciles a RemoteMCPServer object
-type RemoteMCPServerController struct {
+// MCPServerController reconciles a MCPServer object
+type MCPServerController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
-// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers,verbs=get;list;watch
 
-func (r *RemoteMCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *MCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	return ctrl.Result{
 		// loop forever because we need to refresh tools server status
 		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileKagentRemoteMCPServer(ctx, req)
+	}, r.Reconciler.ReconcileKagentMCPServer(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *RemoteMCPServerController) SetupWithManager(mgr ctrl.Manager) error {
+func (r *MCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha2.RemoteMCPServer{}).
-		Named("remotemcpserver").
+		For(&v1alpha1.MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Named("toolserver").
 		Complete(r)
 }
