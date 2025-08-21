@@ -1,7 +1,7 @@
 import logging  # noqa: I001
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any, Optional
 
 KAGENT_TOKEN_PATH = "/var/run/secrets/tokens/kagent-token"
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class KAgentTokenService:
         """Returns an async context manager to start the token update loop"""
 
         @asynccontextmanager
-        async def _lifespan(app: any):
+        async def _lifespan(app: Any):
             await self._update_token_loop()
             yield
             self._drain()
@@ -35,7 +35,7 @@ class KAgentTokenService:
         """
         return {"request": [self._add_bearer_token]}
 
-    async def _update_token_loop(self) -> str:
+    async def _update_token_loop(self) -> None:
         self.token = await self._read_kagent_token()
         # keep it updated - launch a background task to refresh it periodically
         self.update_task = asyncio.create_task(self._refresh_token())
@@ -44,15 +44,12 @@ class KAgentTokenService:
         if self.update_task:
             self.update_task.cancel()
 
-    async def _get_token(self) -> str:
+    async def _get_token(self) -> str | None:
         async with self.update_lock:
             return self.token
 
-    async def _read_kagent_token(self) -> Optional[str]:
-        token = await asyncio.to_thread(read_token)
-        if not token:
-            return None
-        return token
+    async def _read_kagent_token(self) -> str | None:
+        return await asyncio.to_thread(read_token)
 
     async def _refresh_token(self):
         while True:
@@ -71,11 +68,11 @@ class KAgentTokenService:
         request.headers.update(headers)
 
 
-def read_token() -> str:
+def read_token() -> str | None:
     try:
         with open(KAGENT_TOKEN_PATH, "r", encoding="utf-8") as f:
             token = f.read()
             return token.strip()
     except OSError as e:
         logger.error(f"Error reading token from {KAGENT_TOKEN_PATH}: {e}")
-        return ""
+        return None
