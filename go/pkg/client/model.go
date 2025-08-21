@@ -3,7 +3,7 @@ package client
 import (
 	"context"
 
-	v1alpha2 "github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
+	v1alpha2 "github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
 

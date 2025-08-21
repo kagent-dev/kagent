@@ -19,7 +19,7 @@ package controller
 import (
 	"context"
 
-	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
 var (

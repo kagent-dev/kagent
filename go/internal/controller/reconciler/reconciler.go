@@ -18,9 +18,9 @@ import (
 	"k8s.io/utils/ptr"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/controller/internal/a2a"
-	"github.com/kagent-dev/kagent/go/controller/translator"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
+	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"

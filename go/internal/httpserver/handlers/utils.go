@@ -10,8 +10,8 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
 // createSecretWithOwnerReference creates a Kubernetes secret with owner reference.

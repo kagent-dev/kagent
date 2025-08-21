@@ -19,42 +19,45 @@ package controller
 import (
 	"context"
 
-	"github.com/kagent-dev/kagent/go/controller/internal/reconciler"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
+	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-
-	agentv1alpha1 "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
 )
 
-// MemoryController reconciles a Memory object
-type MemoryController struct {
+// ServiceController reconciles a Service object
+type ServiceController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
-// +kubebuilder:rbac:groups=kagent.dev,resources=memories,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kagent.dev,resources=memories/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kagent.dev,resources=memories/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
 
-func (r *MemoryController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ServiceController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	// TODO: Re-implement memory controller
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.Reconciler.ReconcileKagentMCPService(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *MemoryController) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ServiceController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&agentv1alpha1.Memory{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Named("memory").
+		WithEventFilter(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+			labels := obj.GetLabels()
+			if labels == nil {
+				return false
+			}
+			return labels["kagent.dev/mcp-service"] == "true"
+		})).
+		For(&v1.Service{}).
+		Named("service").
 		Complete(r)
 }
