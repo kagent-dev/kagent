@@ -12,6 +12,36 @@ dependencies:
     version: ${VERSION}
     repository: file://../tools/querydoc
     condition: external-mcp.querydoc.enabled
+# ISSUE: Charts aren't templated, so we can't use custom logic (i.e. _helpers.tpl) to define multiple profiles and have a helper function called here.
+# POSSIBLE SOLUTIONS:
+# 1. Use tags for these subcharts (i.e. k8s-agent would have tags: ['demo', 'k8s'...]). On installation, UX would be `helm install kagent --set tags.demo=true`.
+#   Pros:
+#   - We don't need to reinvent anything here, so no breaking changes.
+#   - We can use the similar logic in the CLI (toggling the tag based on the "profile")
+#   Cons:
+#   - It may be confusing having both `condition` and `tags`. I'm unsure of which Helm prioritizes.
+#   - Not completely straight-forward to use `--set tags.<profile>` (but can be documented)
+# 2. Create small value files for each profile (i.e. minimal.yaml, demo.yaml, etc.), then set profile agent enablement per profile values. On installation, UX would be `helm install kagent --values https://raw.githubusercontent.com/kagent-dev/kagent/main/helm/kagent/values-demo.yaml`.
+#   Pros:
+#   - Makes sense with our current setup in which the values define which agents are enabled.
+#   Cons:
+#   - Non-ideal UX since they'd need to know the paths.
+# 3. Do not support "profiles" on Helm installation, and only in CLI which would simply toggle the agents conditions.
+#   Pros:
+#   - Simplest path forward, and quick to implement.
+#   Cons:
+#   - Could be annoying to power/helm users that want a quick way to demo (or deploy to prod)
+# 4. Move away from using subcharts and defining in kagent chart -- although I'm not sure of the reasoning for the subcharts and consequences of directly using their files in kagent (so we don't have to deal with the subchart enablement limitation, and we could implement profiles easier).
+#   Pros:
+#   - We could create template functions to define the `profile` values as we initially planned.
+#   Cons:
+#   - Unsure, but we must have set up agents as separate subcharts for a reason.
+# 5. [MAYBE WILD] Instead of all these subcharts, create an `agents` wrapper chart (or just chart in general) that would define the agents we own, and this `agents`` subchart has the profile value exposed. That agents subchart would _not_ have each as a dependency - to avoid the same issue we hit here - but would define inline/in-chart.
+#   Pros:
+#   - We could create template functions to define the `profile` values as we initially planned. (although it may be agents.profile=<>, as it would be under the new agents subchart)
+#   Cons:
+#   - Unsure, but we must have set up agents as separate subcharts for a reason. (This is essentially the same as (4), but through a separate chart to not bloat the kagent one.
+# 6. (Other Ideas?)
   - name: k8s-agent
     version: ${VERSION}
     repository: file://../agents/k8s
