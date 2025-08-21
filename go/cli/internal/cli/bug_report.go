@@ -23,7 +23,7 @@ func BugReportCmd(cfg *config.Config) {
 	fmt.Println("Gathering bug report information...")
 
 	// Get Agent, ModelConfig, and ToolServers YAMLs
-	resources := []string{"agent", "modelconfig", "toolserver"}
+	resources := []string{"agent", "modelconfig", "toolserver", "mcpserver", "remotemcpserver"}
 	for _, resource := range resources {
 		cmd := exec.Command("kubectl", "get", resource, "-n", cfg.Namespace, "-o", "yaml")
 		output, err := cmd.CombinedOutput()

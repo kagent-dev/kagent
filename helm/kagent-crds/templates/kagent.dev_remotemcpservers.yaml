@@ -19,14 +19,11 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.config.protocol
+    - jsonPath: .spec.protocol
       name: Protocol
       type: string
-    - jsonPath: .spec.config.url
+    - jsonPath: .spec.url
       name: URL
-      type: string
-    - jsonPath: .status.conditions[?(@.type=='Ready')].status
-      name: Ready
       type: string
     - jsonPath: .status.conditions[?(@.type=='Accepted')].status
       name: Accepted
