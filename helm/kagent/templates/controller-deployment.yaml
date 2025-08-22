@@ -54,6 +54,8 @@ spec:
             - {{ .Values.controller.streaming.maxBufSize | quote }}
             - -streaming-initial-buf-size
             - {{ .Values.controller.streaming.initialBufSize | quote }}
+            - -streaming-timeout
+            - {{ .Values.controller.streaming.timeout | quote }}
             - -database-type
             - {{ .Values.database.type }}
             {{- if eq .Values.database.type "sqlite" }}
