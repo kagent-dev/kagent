@@ -50,8 +50,8 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 
 		agentResponse, err := h.getAgentResponse(r.Context(), log, &agent)
 		if err != nil {
-			w.RespondWithError(err)
-			return
+			// When listing agents, we don't want a failure when a single agent has an issue.
+			// The getAgentResponse should return its reconciliation status in the agentResponse.
 		}
 
 		agentsWithID = append(agentsWithID, agentResponse)
@@ -75,10 +75,20 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		}
 	}
 
+	accepted := false
+	for _, condition := range agent.Status.Conditions {
+		// The exact reason is not important (although "AgentReconciled" is the current one), as long as the agent is accepted
+		if condition.Type == "Accepted" && condition.Status == "True" {
+			accepted = true
+			break
+		}
+	}
+
 	response := api.AgentResponse{
 		ID:              common.ConvertToPythonIdentifier(agentRef),
 		Agent:           agent,
 		DeploymentReady: deploymentReady,
+		Accepted:        accepted,
 	}
 
 	if agent.Spec.Type == v1alpha2.AgentType_Declarative {
