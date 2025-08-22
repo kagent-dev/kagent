@@ -1,12 +1,10 @@
-from contextlib import _GeneratorContextManager
 import logging
 import sqlite3
-
 from collections.abc import AsyncIterable
+from contextlib import _GeneratorContextManager
 from typing import Any, Literal
 
 import httpx
-
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_core.tools.base import BaseTool
@@ -16,10 +14,18 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 
+from kagent.langgraph import KAgentCheckpointer
+from kagent.core import KAgentConfig
+
 logger = logging.getLogger(__name__)
 memory = MemorySaver()
-conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
-sqlite_saver = SqliteSaver(conn)
+# conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
+# sqlite_saver = SqliteSaver(conn)
+
+kagent_checkpointer = KAgentCheckpointer(
+    client=httpx.AsyncClient(base_url=KAgentConfig().url),
+    app_name=KAgentConfig().app_name,
+)
 
 
 @tool
@@ -85,7 +91,7 @@ class CurrencyAgent:
         self.graph = create_react_agent(
             self.model,
             tools=self.tools,
-            checkpointer=sqlite_saver,
+            checkpointer=kagent_checkpointer,
             prompt=self.SYSTEM_INSTRUCTION,
             # response_format=(self.FORMAT_INSTRUCTION, ResponseFormat),
         )

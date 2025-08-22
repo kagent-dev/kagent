@@ -28,8 +28,8 @@ type KAgentCheckpointPayload struct {
 	CheckpointNS       string  `json:"checkpoint_ns"`
 	CheckpointID       string  `json:"checkpoint_id"`
 	ParentCheckpointID *string `json:"parent_checkpoint_id"`
-	Checkpoint         []byte  `json:"checkpoint"`
-	Metadata           []byte  `json:"metadata"`
+	Checkpoint         string  `json:"checkpoint"`
+	Metadata           string  `json:"metadata"`
 	Type               string  `json:"type_"`
 	Version            int     `json:"version"`
 }
@@ -39,7 +39,7 @@ type KagentCheckpointWrite struct {
 	Idx     int    `json:"idx"`
 	Channel string `json:"channel"`
 	Type    string `json:"type_"`
-	Value   []byte `json:"value"`
+	Value   string `json:"value"`
 }
 
 // KAgentCheckpointWritePayload represents checkpoint write payload data
@@ -57,8 +57,8 @@ type KAgentCheckpointTuple struct {
 	CheckpointNS       string                        `json:"checkpoint_ns"`
 	CheckpointID       string                        `json:"checkpoint_id"`
 	ParentCheckpointID *string                       `json:"parent_checkpoint_id"`
-	Checkpoint         []byte                        `json:"checkpoint"`
-	Metadata           []byte                        `json:"metadata"`
+	Checkpoint         string                        `json:"checkpoint"`
+	Metadata           string                        `json:"metadata"`
 	Type               string                        `json:"type_"`
 	Writes             *KAgentCheckpointWritePayload `json:"writes"`
 }
@@ -101,7 +101,7 @@ func (h *CheckpointsHandler) HandlePutCheckpoint(w ErrorResponseWriter, r *http.
 		w.RespondWithError(errors.NewBadRequestError("thread_id is required", nil))
 		return
 	}
-	if req.Checkpoint == nil {
+	if req.Checkpoint == "" {
 		w.RespondWithError(errors.NewBadRequestError("checkpoint is required", nil))
 		return
 	}

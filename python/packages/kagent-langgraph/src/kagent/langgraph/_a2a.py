@@ -19,7 +19,6 @@ from fastapi.responses import PlainTextResponse
 from kagent.core import KAgentRequestContextBuilder, KAgentTaskStore
 from langgraph.graph.state import CompiledStateGraph, RunnableConfig
 
-
 from ._checkpointer import KAgentCheckpointer
 from ._executor import LangGraphAgentExecutor, LangGraphAgentExecutorConfig
 

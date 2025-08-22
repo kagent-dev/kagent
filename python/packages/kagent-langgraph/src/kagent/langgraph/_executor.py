@@ -7,7 +7,7 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 import asyncio
 import logging
 import uuid
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any, override
 
 from a2a.server.agent_execution import AgentExecutor
@@ -25,9 +25,7 @@ from a2a.types import (
 )
 from langchain_core.messages import (
     AIMessage,
-    BaseMessage,
     HumanMessage,
-    InvalidToolCall,
     ToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
@@ -77,24 +75,6 @@ class LangGraphAgentExecutor(AgentExecutor):
         self.app_name = app_name
         self._config = config or LangGraphAgentExecutorConfig()
 
-    def _convert_a2a_message_to_langchain(self, message: Message) -> BaseMessage:
-        """Convert A2A message to LangChain message format."""
-        # Extract text content from message parts
-        text_content = []
-        for part in message.parts:
-            if hasattr(part, "text") and part.text:
-                text_content.append(part.text)
-
-        content = " ".join(text_content) if text_content else ""
-
-        # Convert to appropriate message type based on role
-        if message.role == Role.user:
-            return HumanMessage(content=content)
-        else:
-            # For now, treat all non-user messages as human messages
-            # This could be extended to support other message types
-            return HumanMessage(content=content)
-
     def _create_graph_config(self, context: RequestContext) -> RunnableConfig:
         """Create LangGraph config from A2A request context."""
         # Extract session information
@@ -118,16 +98,21 @@ class LangGraphAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Stream LangGraph events and convert them to A2A events."""
-        task_result_aggregator = TaskResultAggregator()
 
         try:
             # Stream events from the graph
-            async for event in graph.astream_events(input_data, config, version="v2"):
+            async for event in graph.astream(
+                input_data,
+                config,
+                stream_mode="updates",  # Stream the individual events
+            ):
+                logger.info(f"LangGraph event: {event}")
+
                 # Convert LangGraph events to A2A events
                 a2a_events = await self._convert_langgraph_event_to_a2a(event, context.task_id, context.context_id)
+                logger.info(f"A2A events: {a2a_events}")
 
                 for a2a_event in a2a_events:
-                    task_result_aggregator.process_event(a2a_event)
                     await event_queue.enqueue_event(a2a_event)
 
         except Exception as e:
@@ -151,22 +136,7 @@ class LangGraphAgentExecutor(AgentExecutor):
             )
             return
 
-        # Send final completion event
-        final_message = task_result_aggregator.get_final_message()
-
-        if final_message and final_message.parts:
-            # Send final artifact
-            await event_queue.enqueue_event(
-                TaskArtifactUpdateEvent(
-                    task_id=context.task_id,
-                    last_chunk=True,
-                    context_id=context.context_id,
-                    artifact=Artifact(
-                        artifact_id=str(uuid.uuid4()),
-                        parts=final_message.parts,
-                    ),
-                )
-            )
+        # Final artifacts are already sent through individual event processing
 
         # Send completion status
         await event_queue.enqueue_event(
@@ -187,46 +157,78 @@ class LangGraphAgentExecutor(AgentExecutor):
         """Convert a LangGraph event to A2A events."""
         events = []
 
-        event_type = langgraph_event.get("event")
-        event_data = langgraph_event.get("data", {})
+        # LangGraph events have node names as keys, with 'messages' as values
+        # Example: {'agent': {'messages': [AIMessage(...)]}}
+        for node_name, node_data in langgraph_event.items():
+            if not isinstance(node_data, dict) or "messages" not in node_data:
+                continue
+            messages = node_data["messages"]
+            if not isinstance(messages, list):
+                continue
 
-        # Handle different LangGraph event types
-        if event_type == "on_chat_model_stream" and "chunk" in event_data:
-            # Streaming token from language model
-            chunk = event_data["chunk"]
-            if hasattr(chunk, "content") and chunk.content:
-                events.append(
-                    TaskArtifactUpdateEvent(
-                        task_id=task_id,
-                        last_chunk=False,
-                        context_id=context_id,
-                        artifact=Artifact(
-                            artifact_id=str(uuid.uuid4()),
-                            parts=[TextPart(text=chunk.content)],
-                        ),
-                    )
-                )
-
-        elif event_type == "on_chain_end":
-            # Chain/node completion - could contain final output
-            output = event_data.get("output")
-            if output and isinstance(output, dict):
-                # Try to extract meaningful content
-                content = self._extract_content_from_output(output)
-                if content:
-                    events.append(
-                        TaskArtifactUpdateEvent(
-                            task_id=task_id,
-                            last_chunk=False,
-                            context_id=context_id,
-                            artifact=Artifact(
-                                artifact_id=str(uuid.uuid4()),
-                                parts=[TextPart(text=content)],
-                            ),
+            # Process each message in the event
+            for message in messages:
+                if isinstance(message, AIMessage):
+                    # Handle AI messages (assistant responses)
+                    if message.content and isinstance(message.content, str) and message.content.strip():
+                        events.append(
+                            TaskArtifactUpdateEvent(
+                                task_id=task_id,
+                                last_chunk=False,
+                                context_id=context_id,
+                                artifact=Artifact(
+                                    artifact_id=str(uuid.uuid4()),
+                                    parts=[TextPart(text=message.content)],
+                                ),
+                            )
                         )
-                    )
 
-        # Add more event type handling as needed
+                    # Handle tool calls in AI messages
+                    if hasattr(message, "tool_calls") and message.tool_calls:
+                        for tool_call in message.tool_calls:
+                            tool_call_text = f"Calling tool: {tool_call['name']} with args: {tool_call['args']}"
+                            events.append(
+                                TaskArtifactUpdateEvent(
+                                    task_id=task_id,
+                                    last_chunk=False,
+                                    context_id=context_id,
+                                    artifact=Artifact(
+                                        artifact_id=str(uuid.uuid4()),
+                                        parts=[TextPart(text=tool_call_text)],
+                                    ),
+                                )
+                            )
+
+                elif isinstance(message, ToolMessage):
+                    # Handle tool responses
+                    if message.content and isinstance(message.content, str):
+                        tool_response_text = f"Tool '{message.name}' returned: {message.content}"
+                        events.append(
+                            TaskArtifactUpdateEvent(
+                                task_id=task_id,
+                                last_chunk=False,
+                                context_id=context_id,
+                                artifact=Artifact(
+                                    artifact_id=str(uuid.uuid4()),
+                                    parts=[TextPart(text=tool_response_text)],
+                                ),
+                            )
+                        )
+
+                elif isinstance(message, HumanMessage):
+                    # Handle human messages (user input) - usually for context
+                    if message.content and isinstance(message.content, str) and message.content.strip():
+                        events.append(
+                            TaskArtifactUpdateEvent(
+                                task_id=task_id,
+                                last_chunk=False,
+                                context_id=context_id,
+                                artifact=Artifact(
+                                    artifact_id=str(uuid.uuid4()),
+                                    parts=[TextPart(text=f"User: {message.content}")],
+                                ),
+                            )
+                        )
 
         return events
 
@@ -308,18 +310,14 @@ class LangGraphAgentExecutor(AgentExecutor):
             # Resolve the graph
 
             # Convert A2A message to LangChain format
-            langchain_message = self._convert_a2a_message_to_langchain(context.message)
-
-            # Prepare input for the graph
-            # This assumes the graph expects a "messages" key - adjust as needed
-            input_data = {"messages": [langchain_message]}
+            inputs = {"messages": [("user", context.get_user_input())]}
 
             # Create graph config
             config = self._create_graph_config(context)
 
             # Stream graph execution
             await asyncio.wait_for(
-                self._stream_graph_events(self._graph, input_data, config, context, event_queue),
+                self._stream_graph_events(self._graph, inputs, config, context, event_queue),
                 timeout=self._config.execution_timeout,
             )
 

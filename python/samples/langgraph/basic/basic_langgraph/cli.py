@@ -1,12 +1,15 @@
 """CLI for the basic LangGraph agent."""
 
 import asyncio
+import json
 import logging
 import os
 import sys
 
 import uvicorn
 from agent import CurrencyAgent
+from kagent.core import KAgentConfig
+from kagent.langgraph import KAgentApp
 # from .agent import root_app
 
 # Configure logging
@@ -17,10 +20,29 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Main entry point for the CLI."""
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
-        # Test mode
-        agent = CurrencyAgent()
-        asyncio.run(agent.stream("What have I asked you so far?", "test-session-123"))
+    # from script directory
+    with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
+        agent_card = json.load(f)
+
+    config = KAgentConfig()
+    agent = CurrencyAgent()
+    app = KAgentApp(
+        graph=agent.graph,
+        agent_card=agent_card,
+        kagent_url=config.url,
+        app_name=config.app_name,
+    )
+
+    port = int(os.getenv("PORT", "8080"))
+    host = os.getenv("HOST", "0.0.0.0")
+    logger.info(f"Starting server on {host}:{port}")
+
+    uvicorn.run(
+        app.build(),
+        host=host,
+        port=port,
+        log_level="info",
+    )
 
 
 # def run_server():

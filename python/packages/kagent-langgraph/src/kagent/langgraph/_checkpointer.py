@@ -4,6 +4,7 @@ This module implements a remote checkpointer that calls the KAgent Go service
 for LangGraph checkpoint persistence via HTTP API.
 """
 
+import base64
 import logging
 import random
 from collections.abc import AsyncIterator, Iterator, Sequence
@@ -20,9 +21,9 @@ from langgraph.checkpoint.base import (
     Checkpoint,
     CheckpointMetadata,
     CheckpointTuple,
+    PendingWrite,
     get_checkpoint_id,
     get_checkpoint_metadata,
-    PendingWrite,
 )
 from langgraph.checkpoint.serde.base import SerializerProtocol
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -34,9 +35,9 @@ class KAgentCheckpointPayload(BaseModel):
     thread_id: str
     checkpoint_ns: str
     checkpoint_id: str
-    parent_checkpoint_id: str | None
-    checkpoint: bytes
-    metadata: bytes
+    parent_checkpoint_id: str | None = None
+    checkpoint: str  # Serialized as UTF-8 string, not bytes
+    metadata: str  # Serialized as UTF-8 string, not bytes
     type_: str
     version: int
 
@@ -45,7 +46,7 @@ class KagentCheckpointWrite(BaseModel):
     idx: int
     channel: str
     type_: str
-    value: bytes
+    value: str  # Serialized as UTF-8 string, not bytes
 
 
 class KAgentCheckpointWritePayload(BaseModel):
@@ -60,15 +61,15 @@ class KAgentCheckpointTuple(BaseModel):
     thread_id: str
     checkpoint_ns: str
     checkpoint_id: str
-    parent_checkpoint_id: str | None
-    checkpoint: bytes
-    metadata: bytes
+    parent_checkpoint_id: str | None = None
+    checkpoint: str  # Serialized as UTF-8 string, not bytes
+    metadata: str  # Serialized as UTF-8 string, not bytes
     type_: str
-    writes: KAgentCheckpointWritePayload | None
+    writes: KAgentCheckpointWritePayload | None = None
 
 
 class KAgentCheckpointTupleResponse(BaseModel):
-    data: list[KAgentCheckpointTuple]
+    data: list[KAgentCheckpointTuple] | None = None
 
 
 class KAgentCheckpointer(BaseCheckpointSaver[str]):
@@ -147,8 +148,12 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
             checkpoint_ns=checkpoint_ns,
             checkpoint_id=checkpoint["id"],
             parent_checkpoint_id=config.get("configurable", {}).get("checkpoint_id"),
-            checkpoint=serialized_checkpoint,
-            metadata=serialized_metadata,
+            checkpoint=base64.b64encode(serialized_checkpoint).decode(
+                "ascii"
+            ),  # Base64 encode bytes to string for JSON serialization
+            metadata=base64.b64encode(serialized_metadata).decode(
+                "ascii"
+            ),  # Base64 encode bytes to string for JSON serialization
             type_=type_,
             version=checkpoint["v"],
         )
@@ -158,7 +163,7 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
         # Call the Go service
         response = await self.client.post(
             "/api/langgraph/checkpoints",
-            json=request_data,
+            json=request_data.model_dump(),
             headers={"X-User-ID": user_id},
         )
         response.raise_for_status()
@@ -183,7 +188,9 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
     ) -> None:
         """Store intermediate writes linked to a checkpoint."""
         thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
-        checkpoint_id = config["configurable"]["checkpoint_id"]
+        checkpoint_id = config.get("configurable", {}).get("checkpoint_id")
+        if not checkpoint_id:
+            raise ValueError("checkpoint_id is required in config.configurable for writing checkpoint data")
 
         writes_data = []
         for idx, (channel, value) in enumerate(writes):
@@ -193,7 +200,9 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
                     idx=WRITES_IDX_MAP.get(channel, idx),
                     channel=channel,
                     type_=type_,
-                    value=serialized_value,
+                    value=base64.b64encode(serialized_value).decode(
+                        "ascii"
+                    ),  # Base64 encode bytes to string for JSON serialization
                 )
             )
 
@@ -207,7 +216,7 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
 
         response = await self.client.post(
             "/api/langgraph/checkpoints/writes",
-            json=request_data,
+            json=request_data.model_dump(),
             headers={"X-User-ID": user_id},
         )
         response.raise_for_status()
@@ -219,8 +228,13 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
     ) -> CheckpointTuple:
         return CheckpointTuple(
             config=config,
-            checkpoint=self.serde.loads_typed((checkpoint_tuple.type_, checkpoint_tuple.checkpoint)),
-            metadata=cast(CheckpointMetadata, self.jsonplus_serde.loads(checkpoint_tuple.metadata)),
+            checkpoint=self.serde.loads_typed(
+                (checkpoint_tuple.type_, base64.b64decode(checkpoint_tuple.checkpoint.encode("ascii")))
+            ),
+            metadata=cast(
+                CheckpointMetadata,
+                self.jsonplus_serde.loads(base64.b64decode(checkpoint_tuple.metadata.encode("ascii"))),
+            ),
             parent_config=(
                 {
                     "configurable": {
@@ -238,7 +252,7 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
                         (
                             checkpoint_tuple.writes.task_id,
                             write.channel,
-                            self.serde.loads_typed((write.type_, write.value)),
+                            self.serde.loads_typed((write.type_, base64.b64decode(write.value.encode("ascii")))),
                         )
                     )
                     for write in checkpoint_tuple.writes.writes
@@ -329,8 +343,9 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
 
         data = KAgentCheckpointTupleResponse.model_validate_json(response.text)
 
-        for checkpoint_tuple in data.data:
-            yield self._convert_to_checkpoint_tuple(config, checkpoint_tuple)
+        if data.data:
+            for checkpoint_tuple in data.data:
+                yield self._convert_to_checkpoint_tuple(config, checkpoint_tuple)
 
     def get_next_version(self, current: str | None, channel: None) -> str:
         """Generate the next version ID for a channel.

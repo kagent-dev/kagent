@@ -157,8 +157,8 @@ type LangGraphCheckpoint struct {
 	CreatedAt          time.Time      `gorm:"autoCreateTime;index:idx_lgcp_list" json:"created_at"`
 	UpdatedAt          time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt          gorm.DeletedAt `gorm:"index" json:"deleted_at"`
-	Metadata           []byte         `gorm:"type:text;not null" json:"metadata"`   // JSON serialized metadata
-	Checkpoint         []byte         `gorm:"type:text;not null" json:"checkpoint"` // JSON serialized checkpoint
+	Metadata           string         `gorm:"type:text;not null" json:"metadata"`   // JSON serialized metadata
+	Checkpoint         string         `gorm:"type:text;not null" json:"checkpoint"` // JSON serialized checkpoint
 	CheckpointType     string         `gorm:"not null" json:"checkpoint_type"`
 	Version            int            `gorm:"default:1" json:"version"`
 }
@@ -170,7 +170,7 @@ type LangGraphCheckpointWrite struct {
 	CheckpointNS string         `gorm:"primaryKey;not null;default:''" json:"checkpoint_ns"`
 	CheckpointID string         `gorm:"primaryKey;not null" json:"checkpoint_id"`
 	WriteIndex   int            `gorm:"primaryKey;not null" json:"write_index"`
-	Value        []byte         `gorm:"type:text;not null" json:"value"` // JSON serialized value
+	Value        string         `gorm:"type:text;not null" json:"value"` // JSON serialized value
 	ValueType    string         `gorm:"not null" json:"value_type"`
 	Channel      string         `gorm:"not null" json:"channel"`
 	TaskID       string         `gorm:"not null" json:"task_id"`
