@@ -11,7 +11,6 @@ const (
 	// Version is the current version of the kagent CLI
 	DefaultModelProvider   = v1alpha1.ModelProviderOpenAI
 	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
-	// This is the default path to the profile values files, NOT the "default" profile - as in the profile that is the default - values file
 	// TODO: If possible, we should try and use a release tag for whatever release the CLI is running on
 	DefaultProfileUrl = "https://raw.githubusercontent.com/kagent-dev/kagent/main/helm/kagent/files/profiles/"
 
@@ -74,7 +73,12 @@ func GetProviderAPIKey(provider v1alpha1.ModelProvider) string {
 
 // GetProfileUrl returns the profile url from KAGENT_HELM_PROFILE_URL environment variable
 func GetHelmProfileUrl(profile string) string {
-	return GetEnvVarWithDefault(KAGENT_HELM_PROFILE_URL, DefaultProfileUrl) + profile + ".yaml"
+	profileUrl := GetEnvVarWithDefault(KAGENT_HELM_PROFILE_URL, DefaultProfileUrl)
+	// add trailing slash if not present
+	if !strings.HasSuffix(profileUrl, "/") {
+		profileUrl += "/"
+	}
+	return profileUrl + profile + ".yaml"
 }
 
 // GetEnvVarWithDefault returns the value of the environment variable if it exists, otherwise returns the default value

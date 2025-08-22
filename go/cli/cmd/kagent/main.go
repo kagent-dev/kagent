@@ -32,14 +32,19 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
+	var profile string
 	installCmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install kagent",
 		Long:  `Install kagent`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.InstallCmd(cmd.Context(), cfg)
+			cli.InstallCmd(cmd.Context(), cfg, profile)
 		},
 	}
+	installCmd.Flags().StringVar(&profile, "profile", "minimal", "Installation profile (minimal|demo)")
+	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return cli.Profiles, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	uninstallCmd := &cobra.Command{
 		Use:   "uninstall",
@@ -434,8 +439,7 @@ Example:
 		Aliases: []string{"i"},
 		Help:    "Install kagent.",
 		Func: func(c *ishell.Context) {
-			cfg := config.GetCfg(c)
-			if pf := cli.InstallCmd(ctx, cfg); pf != nil {
+			if pf := cli.InteractiveInstallCmd(ctx, c); pf != nil {
 				// Set the port-forward to the shell.
 				shell.Set(portForwardKey, pf)
 			}

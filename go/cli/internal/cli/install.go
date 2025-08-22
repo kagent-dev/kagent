@@ -26,8 +26,12 @@ const (
 	ProfileDemo    = "demo"
 )
 
+var (
+	Profiles = []string{ProfileMinimal, ProfileDemo}
+)
+
 // installChart installs or upgrades a Helm chart with the given parameters
-func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, s *spinner.Spinner) (string, error) {
+func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, valuesFile string, s *spinner.Spinner) (string, error) {
 	args := []string{
 		"upgrade",
 		"--install",
@@ -50,6 +54,10 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 		args = append(args, "--set", setValue)
 	}
 
+	if valuesFile != "" {
+		args = append(args, "-f", valuesFile)
+	}
+
 	cmd := exec.CommandContext(ctx, "helm", args...)
 	if byt, err := cmd.CombinedOutput(); err != nil {
 		return string(byt), err
@@ -57,7 +65,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
+func InstallCmd(ctx context.Context, cfg *config.Config, profile string) *PortForward {
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
@@ -94,6 +102,19 @@ func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
 		values = append(values, hev)
 	}
 
+	// Validate and normalize profile input
+	profile = strings.TrimSpace(profile)
+	switch profile {
+	case "":
+		// default to minimal. no warning as this is the default
+		profile = ProfileMinimal
+	case ProfileDemo, ProfileMinimal:
+		// valid, no change
+	default:
+		fmt.Fprintln(os.Stderr, "Invalid --profile value, defaulting to minimal")
+		profile = ProfileMinimal
+	}
+
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -101,7 +122,7 @@ func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
 	s.Suffix = " Installing kagent-crds from " + helmRegistry
 	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, s); err != nil {
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, "", s); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 
@@ -120,24 +141,8 @@ func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
 	}
 
 	// Update status
-	var profile string
-	fmt.Fprintln(os.Stdout, "Select a profile:")
-	fmt.Fprintln(os.Stdout, "1. Minimal (no agents enabled, default)")
-	fmt.Fprintln(os.Stdout, "2. Demo (all agents enabled)")
-	fmt.Fprint(os.Stdout, "Enter the profile number: ")
-	fmt.Scanln(&profile)
-	switch profile {
-	case "1":
-		values = append(values, "-f", GetHelmProfileUrl(ProfileMinimal))
-	case "2":
-		values = append(values, "-f", GetHelmProfileUrl(ProfileDemo))
-	default:
-		fmt.Fprintln(os.Stderr, "Invalid profile number, defaulting to minimal profile")
-		values = append(values, "-f", GetHelmProfileUrl(ProfileMinimal))
-	}
-
-	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmRegistry, helmVersion, extraValues)
-	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, s); err != nil {
+	s.Suffix = fmt.Sprintf(" Installing kagent with %s profile [%s] Using %s:%s %v", profile, modelProvider, helmRegistry, helmVersion, extraValues)
+	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, GetHelmProfileUrl(profile), s); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 		fmt.Fprintln(os.Stderr, "Error installing kagent:", output)
@@ -195,6 +200,10 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 		values = append(values, hev)
 	}
 
+	// Add profile selection
+	profileIdx := c.MultiChoice(Profiles, "Select a profile:")
+	selectedProfile := Profiles[profileIdx]
+
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -202,7 +211,7 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 	s.Suffix = " Installing kagent-crds from " + helmRegistry
 	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, s); err != nil {
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, "", s); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 
@@ -220,14 +229,9 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 		}
 	}
 
-	// Add profile selection
-	profiles := []string{ProfileMinimal, ProfileDemo}
-	profileIdx := c.MultiChoice(profiles, "Select a profile:")
-	values = append(values, "-f", GetHelmProfileUrl(profiles[profileIdx]))
-
 	// Update status
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmRegistry, helmVersion, extraValues)
-	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, s); err != nil {
+	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, GetHelmProfileUrl(selectedProfile), s); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 		fmt.Fprintln(os.Stderr, "Error installing kagent:", output)
