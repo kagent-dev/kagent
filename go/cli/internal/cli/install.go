@@ -69,7 +69,7 @@ func InstallCmd(ctx context.Context, cfg *config.Config, profile string) *PortFo
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
 
-	//if model provider is openai, check if the api key is set
+	// If model provider is openai, check if the API key is set
 	apiKeyName := GetProviderAPIKey(modelProvider)
 	apiKeyValue := os.Getenv(apiKeyName)
 
@@ -189,7 +189,7 @@ func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, pro
 	}
 
 	// Update status
-	// removing api key(s) from printed values
+	// Removing api key(s) from printed values
 	redactedValues := []string{}
 	for _, value := range helmConfig.values {
 		if strings.Contains(value, "apiKey") {

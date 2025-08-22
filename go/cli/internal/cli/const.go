@@ -71,10 +71,10 @@ func GetProviderAPIKey(provider v1alpha1.ModelProvider) string {
 	}
 }
 
-// GetProfileUrl returns the profile url from KAGENT_HELM_PROFILE_URL environment variable
+// GetProfileUrl returns the profile URL from KAGENT_HELM_PROFILE_URL environment variable
 func GetHelmProfileUrl(profile string) string {
 	profileUrl := GetEnvVarWithDefault(KAGENT_HELM_PROFILE_URL, DefaultProfileUrl)
-	// add trailing slash if not present
+	// Add trailing slash if not present
 	if !strings.HasSuffix(profileUrl, "/") {
 		profileUrl += "/"
 	}
