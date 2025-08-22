@@ -175,7 +175,6 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
 
 	// Agents - using database handlers
-	// TODO: Ensure all these work with the reconciliation state
 	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleListAgents)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleCreateAgent)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleUpdateAgent)).Methods(http.MethodPut)
