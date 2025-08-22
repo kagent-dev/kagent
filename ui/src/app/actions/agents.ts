@@ -71,7 +71,9 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         if (mcpServer.name.toLocaleLowerCase().includes("kagent-tool-server")) {
           kind = "RemoteMCPServer";
         }else if (mcpServer.name.toLocaleLowerCase().includes("kagent-querydoc")) {
-
+          mcpServer.apiGroup = "";
+          kind = "Service";
+        }
         return {
           type: "McpServer",
           mcpServer: {
