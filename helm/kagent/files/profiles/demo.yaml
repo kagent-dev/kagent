@@ -1,0 +1,23 @@
+# The demo profile installs all kagent agents.
+# This is useful for demoing kagent, and for testing.
+agents:
+  k8s-agent:
+    enabled: true
+  kgateway-agent:
+    enabled: true
+  istio-agent:
+    enabled: true
+  promql-agent:
+    enabled: true
+  observability-agent:
+    enabled: true
+  argo-rollouts-agent:
+    enabled: true
+  helm-agent:
+    enabled: true
+  cilium-policy-agent:
+    enabled: true
+  cilium-manager-agent:
+    enabled: true
+  cilium-debug-agent:
+    enabled: true

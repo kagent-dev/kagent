@@ -10,8 +10,20 @@ import (
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
+	"github.com/abiosoft/ishell/v2"
 	"github.com/briandowns/spinner"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+)
+
+/*
+TODO:
+1. Clean this up (DRY it up if possible, there's the InstallCmd and the InteractiveInstallCmd which are very similar aside from the interactive one having a better UX for the profile selection)
+2. Test this out
+*/
+
+const (
+	ProfileMinimal = "minimal"
+	ProfileDemo    = "demo"
 )
 
 // installChart installs or upgrades a Helm chart with the given parameters
@@ -46,7 +58,6 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 }
 
 func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
-
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
@@ -107,6 +118,112 @@ func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
 			return nil
 		}
 	}
+
+	// Update status
+	var profile string
+	fmt.Fprintln(os.Stdout, "Select a profile:")
+	fmt.Fprintln(os.Stdout, "1. Minimal (no agents enabled, default)")
+	fmt.Fprintln(os.Stdout, "2. Demo (all agents enabled)")
+	fmt.Fprint(os.Stdout, "Enter the profile number: ")
+	fmt.Scanln(&profile)
+	switch profile {
+	case "1":
+		values = append(values, "-f", GetHelmProfileUrl(ProfileMinimal))
+	case "2":
+		values = append(values, "-f", GetHelmProfileUrl(ProfileDemo))
+	default:
+		fmt.Fprintln(os.Stderr, "Invalid profile number, defaulting to minimal profile")
+		values = append(values, "-f", GetHelmProfileUrl(ProfileMinimal))
+	}
+
+	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmRegistry, helmVersion, extraValues)
+	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmRegistry, helmVersion, values, s); err != nil {
+		// Always stop the spinner before printing error messages
+		s.Stop()
+		fmt.Fprintln(os.Stderr, "Error installing kagent:", output)
+		return nil
+	}
+
+	// Stop the spinner completely before printing the success message
+	s.Stop()
+	fmt.Fprintln(os.Stdout, "kagent installed successfully")
+
+	pf, err := NewPortForward(ctx, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+		return nil
+	}
+	return pf
+}
+
+func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward {
+	if version.Version == "dev" {
+		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
+		return nil
+	}
+
+	cfg := config.GetCfg(c)
+
+	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
+	modelProvider := GetModelProvider()
+
+	//if model provider is openai, check if the api key is set
+	apiKeyName := GetProviderAPIKey(modelProvider)
+	apiKeyValue := os.Getenv(apiKeyName)
+
+	if apiKeyName != "" && apiKeyValue == "" {
+		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
+		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
+		return nil
+	}
+
+	// Build Helm values
+	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
+	values := []string{
+		fmt.Sprintf("providers.default=%s", helmProviderKey),
+		fmt.Sprintf("providers.%s.apiKey=%s", helmProviderKey, apiKeyValue),
+	}
+
+	//allow user to set the helm registry and version
+	helmRegistry := GetEnvVarWithDefault(KAGENT_HELM_REPO, DefaultHelmOciRegistry)
+	helmVersion := GetEnvVarWithDefault(KAGENT_HELM_VERSION, version.Version)
+	helmExtraArgs := GetEnvVarWithDefault(KAGENT_HELM_EXTRA_ARGS, "")
+
+	// split helmExtraArgs by "--set" to get additional values
+	extraValues := strings.Split(helmExtraArgs, "--set")
+	for _, hev := range extraValues {
+		values = append(values, hev)
+	}
+
+	// spinner for installation progress
+	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
+
+	// First install kagent-crds
+	s.Suffix = " Installing kagent-crds from " + helmRegistry
+	defer s.Stop()
+	s.Start()
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmRegistry, helmVersion, nil, s); err != nil {
+		// Always stop the spinner before printing error messages
+		s.Stop()
+
+		// Check for various CRD existence scenarios, this is to be compatible with
+		// original kagent installation that had CRDs installed together with the kagent chart
+		if strings.Contains(output, "exists and cannot be imported into the current release") {
+			fmt.Fprintln(os.Stderr, "Warning: CRDs exist but aren't managed by helm.")
+			fmt.Fprintln(os.Stderr, "Run `uninstall` or delete them manually to")
+			fmt.Fprintln(os.Stderr, "ensure they're fully managed on next install.")
+			// Restart the spinner
+			s.Start()
+		} else {
+			fmt.Fprintln(os.Stderr, "Error installing kagent-crds:", output)
+			return nil
+		}
+	}
+
+	// Add profile selection
+	profiles := []string{ProfileMinimal, ProfileDemo}
+	profileIdx := c.MultiChoice(profiles, "Select a profile:")
+	values = append(values, "-f", GetHelmProfileUrl(profiles[profileIdx]))
 
 	// Update status
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmRegistry, helmVersion, extraValues)

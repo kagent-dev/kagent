@@ -184,25 +184,25 @@ kagent-tools:
 
 agents:
   k8s-agent:
-    enabled: true
+    enabled: false
   kgateway-agent:
-    enabled: true
+    enabled: false
   istio-agent:
-    enabled: true
+    enabled: false
   promql-agent:
-    enabled: true
+    enabled: false
   observability-agent:
-    enabled: true
+    enabled: false
   argo-rollouts-agent:
-    enabled: true
+    enabled: false
   helm-agent:
-    enabled: true
+    enabled: false
   cilium-policy-agent:
-    enabled: true
+    enabled: false
   cilium-manager-agent:
-    enabled: true
+    enabled: false
   cilium-debug-agent:
-    enabled: true
+    enabled: false
 
 # ==============================================================================
 # EXTERNAL MCP SERVERS
