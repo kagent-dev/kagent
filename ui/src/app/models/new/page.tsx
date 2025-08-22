@@ -7,17 +7,14 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getModelConfig, createModelConfig, updateModelConfig } from "@/app/actions/modelConfigs";
 import type {
-    CreateModelConfigRequest,
+    CreateModelConfigPayload,
     UpdateModelConfigPayload,
     Provider,
     OpenAIConfigPayload,
     AzureOpenAIConfigPayload,
     AnthropicConfigPayload,
     OllamaConfigPayload,
-    ProviderModelsResponse,
-    GeminiConfigPayload,
-    GeminiVertexAIConfigPayload,
-    AnthropicVertexAIConfigPayload
+    ProviderModelsResponse
 } from "@/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
@@ -419,7 +416,7 @@ function ModelPageContent() {
       }
     }
 
-    const payload: CreateModelConfigRequest = {
+    const payload: CreateModelConfigPayload = {
       ref: k8sRefUtils.toRef(namespace, name),
       provider: {
         name: finalSelectedProvider.name,
@@ -444,15 +441,6 @@ function ModelPageContent() {
         break;
       case 'Ollama':
         payload.ollama = providerParams as OllamaConfigPayload;
-        break;
-      case 'Gemini':
-        payload.gemini = providerParams as GeminiConfigPayload;
-        break;
-      case 'GeminiVertexAI':
-        payload.geminiVertexAI = providerParams as GeminiVertexAIConfigPayload;
-        break;
-      case 'AnthropicVertexAI':
-        payload.anthropicVertexAI = providerParams as AnthropicVertexAIConfigPayload;
         break;
       default:
         console.error("Unsupported provider type during payload construction:", providerType);

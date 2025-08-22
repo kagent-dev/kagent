@@ -70,9 +70,6 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         let kind = mcpServer.kind;
         if (mcpServer.name.toLocaleLowerCase().includes("kagent-tool-server")) {
           kind = "RemoteMCPServer";
-        } else if (mcpServer.name.toLocaleLowerCase().includes("kagent-querydoc")) {
-          mcpServer.apiGroup = "";
-          kind = "Service";
         }
 
         return {
@@ -87,15 +84,14 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       }
 
       if ((tool as any).agent) {
-        const agentObj = (tool as any).agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
-        const refOrName = agentObj.ref || agentObj.name || "";
-        const nameOnly = k8sRefUtils.isValidRef(refOrName) ? k8sRefUtils.fromRef(refOrName).name : refOrName;
+        const ref = (tool as any).agent.ref as string;
+        const nameOnly = k8sRefUtils.isValidRef(ref) ? k8sRefUtils.fromRef(ref).name : ref;
         return {
           type: "Agent",
           agent: {
             name: nameOnly,
-            kind: agentObj.kind || "Agent",
-            apiGroup: agentObj.apiGroup || "kagent.dev",
+            kind: "Agent",
+            apiGroup: "kagent.dev",
           },
         } as unknown as Tool;
       }
