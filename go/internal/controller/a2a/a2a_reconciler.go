@@ -86,14 +86,13 @@ func (a *a2aReconciler) ReconcileAgentDeletion(
 }
 
 func debugOpt() a2aclient.Option {
-	debug := os.Getenv("KAGENT_A2A_DEBUG")
-	if debug == "true" {
+	debugAddr := os.Getenv("KAGENT_A2A_DEBUG_ADDR")
+	if debugAddr != "" {
 		client := new(http.Client)
 		client.Transport = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				addr = "localhost:8080"
 				var zeroDialer net.Dialer
-				return zeroDialer.DialContext(ctx, network, addr)
+				return zeroDialer.DialContext(ctx, network, debugAddr)
 			},
 		}
 		return a2aclient.WithHTTPClient(client)
