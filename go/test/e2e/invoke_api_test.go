@@ -164,6 +164,6 @@ func TestInvokeExternalAgent(t *testing.T) {
 		jsn, err := json.Marshal(taskResult)
 		require.NoError(t, err)
 		// Prime numbers
-		require.Contains(t, text, "kebab", string(jsn))
+		require.Contains(t, text, "kebab for user@example.com", string(jsn))
 	})
 }
