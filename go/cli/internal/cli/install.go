@@ -66,6 +66,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 }
 
 func InstallCmd(ctx context.Context, cfg *config.Config, profile string) *PortForward {
+
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
