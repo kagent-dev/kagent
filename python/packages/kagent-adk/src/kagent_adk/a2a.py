@@ -27,9 +27,6 @@ from ._session_service import KAgentSessionService
 from ._task_store import KAgentTaskStore
 from ._token import KAgentTokenService
 
-# --- Constants ---
-USER_ID = "admin@kagent.dev"
-
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
 
@@ -40,7 +37,7 @@ class KAgentUser(User):
 
     @property
     def is_authenticated(self) -> bool:
-        return False
+        return True
 
     @property
     def user_name(self) -> str:
@@ -52,9 +49,8 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
     A request context builder that will be used to hack in the user_id for now.
     """
 
-    def __init__(self, user_id: str, task_store: TaskStore):
+    def __init__(self, task_store: TaskStore):
         super().__init__(task_store=task_store)
-        self.user_id = user_id
 
     async def build(
         self,
@@ -64,10 +60,12 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
         task: Task | None = None,
         context: ServerCallContext | None = None,
     ) -> RequestContext:
-        if not context:
-            context = ServerCallContext(user=KAgentUser(user_id=self.user_id))
-        else:
-            context.user = KAgentUser(user_id=self.user_id)
+        if context:
+            # grab the user id from the header
+            headers = context.state.get("headers", {})
+            user_id = headers.get("x-user-id", None)
+            if user_id:
+                context.user = KAgentUser(user_id=user_id)
         request_context = await super().build(params, task_id, context_id, task, context)
         return request_context
 
@@ -103,7 +101,7 @@ class KAgentApp:
 
     def build(self) -> FastAPI:
         token_service = KAgentTokenService(self.app_name)
-        http_client = httpx.AsyncClient(
+        http_client = httpx.AsyncClient(  # TODO: add user  and agent headers
             base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks()
         )
         session_service = KAgentSessionService(http_client)
@@ -121,7 +119,7 @@ class KAgentApp:
 
         kagent_task_store = KAgentTaskStore(http_client)
 
-        request_context_builder = KAgentRequestContextBuilder(user_id=USER_ID, task_store=kagent_task_store)
+        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=kagent_task_store,

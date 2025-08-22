@@ -58,3 +58,25 @@ docker buildx create --name kagent-builder-v0.23.0 --platform linux/amd64,linux/
 ```
 
 Then run the `make helm-install` command again.
+
+### Run kagent and an agent locally.
+
+create a minimal cluster with kind. scale kagent to 0 replicas, as we will run it locally.
+
+```bash
+make create-kind-cluster helm-install-provider helm-tools push-test-agent
+kubectl scale -n kagent deployment kagent-controller --replicas 0
+```
+
+Run kagent with `KAGENT_A2A_DEBUG_ADDR=localhost:8080` environment variable set, and when it connect to agents it will go to "localhost:8080" instead of the Kubernetes service.
+
+Run the agent locally as well, with `--net=host` option, so it can connect to the kagent service on localhost. For example:
+
+```bash
+docker run --rm \
+  -e KAGENT_URL=http://localhost:8083 \
+  -e KAGENT_NAME=kebab-agent \
+  -e KAGENT_NAMESPACE=kagent \
+  --net=host \
+  localhost:5001/kebab:latest
+```
