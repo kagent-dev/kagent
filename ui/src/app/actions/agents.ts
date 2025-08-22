@@ -84,16 +84,16 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           },
         } as Tool;
       }
-
       if ((tool as any).agent) {
-        const ref = (tool as any).agent.ref as string;
-        const nameOnly = k8sRefUtils.isValidRef(ref) ? k8sRefUtils.fromRef(ref).name : ref;
+        const agentObj = (tool as any).agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
+        const refOrName = agentObj.ref || agentObj.name || "";
+        const nameOnly = k8sRefUtils.isValidRef(refOrName) ? k8sRefUtils.fromRef(refOrName).name : refOrName;
         return {
           type: "Agent",
           agent: {
             name: nameOnly,
-            kind: "Agent",
-            apiGroup: "kagent.dev",
+            kind: agentObj.kind || "Agent",
+            apiGroup: agentObj.apiGroup || "kagent.dev",
           },
         } as unknown as Tool;
       }
