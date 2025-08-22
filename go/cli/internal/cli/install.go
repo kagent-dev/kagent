@@ -14,19 +14,11 @@ import (
 	"github.com/abiosoft/ishell/v2"
 	"github.com/briandowns/spinner"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
-)
-
-const (
-	ProfileMinimal = "minimal"
-	ProfileDemo    = "demo"
-)
-
-var (
-	Profiles = []string{ProfileMinimal, ProfileDemo}
+	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
 )
 
 // installChart installs or upgrades a Helm chart with the given parameters
-func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, valuesFile string) (string, error) {
+func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, profile string) (string, error) {
 	args := []string{
 		"upgrade",
 		"--install",
@@ -49,13 +41,38 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 		args = append(args, "--set", setValue)
 	}
 
-	if valuesFile != "" {
-		args = append(args, "-f", valuesFile)
+	// If a profile is provided, write the embedded YAML to a temp file and pass its path
+	var tmpProfilePath string
+	if profile != "" {
+		profileYAML := profiles.GetProfile(profile)
+		if strings.TrimSpace(profileYAML) != "" {
+			tmpFile, err := os.CreateTemp("", "kagent-profile-*.yaml")
+			if err != nil {
+				return "", fmt.Errorf("failed creating temp profile file: %w", err)
+			}
+			if _, err := tmpFile.WriteString(profileYAML); err != nil {
+				_ = tmpFile.Close()
+				_ = os.Remove(tmpFile.Name())
+				return "", fmt.Errorf("failed writing temp profile file: %w", err)
+			}
+			if err := tmpFile.Close(); err != nil {
+				_ = os.Remove(tmpFile.Name())
+				return "", fmt.Errorf("failed closing temp profile file: %w", err)
+			}
+			tmpProfilePath = tmpFile.Name()
+			args = append(args, "-f", tmpProfilePath)
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, "helm", args...)
 	if byt, err := cmd.CombinedOutput(); err != nil {
+		if tmpProfilePath != "" {
+			_ = os.Remove(tmpProfilePath)
+		}
 		return string(byt), err
+	}
+	if tmpProfilePath != "" {
+		_ = os.Remove(tmpProfilePath)
 	}
 	return "", nil
 }
@@ -86,12 +103,12 @@ func InstallCmd(ctx context.Context, cfg *config.Config, profile string) *PortFo
 	switch profile {
 	case "":
 		// default to minimal. no warning as this is the default
-		profile = ProfileMinimal
-	case ProfileDemo, ProfileMinimal:
+		profile = profiles.ProfileMinimal
+	case profiles.ProfileDemo, profiles.ProfileMinimal:
 		// valid, no change
 	default:
 		fmt.Fprintln(os.Stderr, "Invalid --profile value, defaulting to minimal")
-		profile = ProfileMinimal
+		profile = profiles.ProfileMinimal
 	}
 
 	return install(ctx, cfg, helmConfig, profile, modelProvider)
@@ -121,8 +138,8 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
 
 	// Add profile selection
-	profileIdx := c.MultiChoice(Profiles, "Select a profile:")
-	selectedProfile := Profiles[profileIdx]
+	profileIdx := c.MultiChoice(profiles.Profiles, "Select a profile:")
+	selectedProfile := profiles.Profiles[profileIdx]
 
 	return install(ctx, cfg, helmConfig, selectedProfile, modelProvider)
 }
@@ -202,7 +219,7 @@ func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, pro
 	}
 
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmConfig.registry, helmConfig.version, redactedValues)
-	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, GetHelmProfileUrl(profile)); err != nil {
+	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, profile); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 		fmt.Fprintln(os.Stderr, "Error installing kagent:", output)

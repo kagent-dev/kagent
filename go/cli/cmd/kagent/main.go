@@ -9,6 +9,7 @@ import (
 	"github.com/abiosoft/ishell/v2"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/pkg/client"
 	"github.com/spf13/cobra"
 )
@@ -43,7 +44,7 @@ func main() {
 	}
 	installCmd.Flags().StringVar(&profile, "profile", "minimal", "Installation profile (minimal|demo)")
 	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return cli.Profiles, cobra.ShellCompDirectiveNoFileComp
+		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})
 
 	uninstallCmd := &cobra.Command{
