@@ -110,9 +110,6 @@ spec:
       containers:
       - name: k8sgpt-container
         imagePullPolicy: Always
-        # TODO: change to the correct image once 
-        # this PR is released (already merged) : https://github.com/k8sgpt-ai/k8sgpt/pull/1557
-        # and this PR is merged : https://github.com/k8sgpt-ai/k8sgpt/pull/1568 
         image: ghcr.io/k8sgpt-ai/k8sgpt:v0.4.24
         ports:
         - containerPort: 8080
