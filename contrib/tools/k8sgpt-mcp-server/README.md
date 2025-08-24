@@ -78,3 +78,4 @@ kubectl logs -n kagent -l app.kubernetes.io/name=k8sgpt
 - [K8sGPT GitHub Repository](https://github.com/k8sgpt-ai/k8sgpt)
 - [K8sGPT Documentation](https://docs.k8sgpt.ai/)
 - [MCP Protocol](https://modelcontextprotocol.io/)
+
