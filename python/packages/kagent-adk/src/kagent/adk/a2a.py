@@ -21,9 +21,6 @@ from ._agent_executor import A2aAgentExecutor
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
 
-# --- Constants ---
-USER_ID = "admin@kagent.dev"
-
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
 
@@ -59,7 +56,7 @@ class KAgentApp:
 
     def build(self) -> FastAPI:
         token_service = KAgentTokenService(self.app_name)
-        http_client = httpx.AsyncClient(
+        http_client = httpx.AsyncClient(  # TODO: add user  and agent headers
             base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks()
         )
         session_service = KAgentSessionService(http_client)
@@ -77,7 +74,7 @@ class KAgentApp:
 
         kagent_task_store = KAgentTaskStore(http_client)
 
-        request_context_builder = KAgentRequestContextBuilder(user_id=USER_ID, task_store=kagent_task_store)
+        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=kagent_task_store,
