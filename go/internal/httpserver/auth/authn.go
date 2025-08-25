@@ -4,56 +4,26 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 )
+
+type sessionKeyType struct{}
 
 var (
-	sessionKey = &struct{}{}
+	sessionKey = sessionKeyType{}
 )
 
-type Verb string
-
-type Resource struct {
-	Name string
-	Type string
-}
-
-const (
-	VerbGet    Verb = "get"
-	VerbCreate Verb = "create"
-	VerbUpdate Verb = "update"
-	VerbDelete Verb = "delete"
-)
-
-func AuthSessionFrom(ctx context.Context) (*Session, bool) {
-	v, ok := ctx.Value(sessionKey).(*Session)
+func AuthSessionFrom(ctx context.Context) (*auth.Session, bool) {
+	v, ok := ctx.Value(sessionKey).(*auth.Session)
 	return v, ok && v != nil
 }
 
-func AuthSessionTo(ctx context.Context, session *Session) context.Context {
+func AuthSessionTo(ctx context.Context, session *auth.Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
 }
 
-type Principal struct {
-	User  string
-	Agent string
-}
-type Session struct {
-	Principal Principal
-}
-
-// Responsibilities:
-// - Authenticate:
-//   - a2a requests from ui/cli (human users)
-//   - api requests from users/agents
-//
-// - Forward auth credentials to upstream agents
-type AuthProvider interface {
-	Authenticate(r *http.Request) (*Session, error)
-	// add auth to upstream requests of a session
-	UpstreamAuth(r *http.Request, session *Session) error
-}
-
-func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
+func AuthnMiddleware(authn auth.AuthProvider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			session, err := authn.Authenticate(r)
@@ -71,7 +41,7 @@ func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 
 type UnsecureAuthenticator struct{}
 
-func (a *UnsecureAuthenticator) Authenticate(r *http.Request) (*Session, error) {
+func (a *UnsecureAuthenticator) Authenticate(r *http.Request) (*auth.Session, error) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		userID = r.Header.Get("X-User-Id")
@@ -80,15 +50,15 @@ func (a *UnsecureAuthenticator) Authenticate(r *http.Request) (*Session, error) 
 		userID = "admin@kagent.dev"
 	}
 	agentId := r.Header.Get("X-Agent-Name")
-	return &Session{
-		Principal: Principal{
+	return &auth.Session{
+		Principal: auth.Principal{
 			User:  userID,
 			Agent: agentId,
 		},
 	}, nil
 }
 
-func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session *Session) error {
+func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session *auth.Session) error {
 	// for unsecure, just forward user id in header
 	if session == nil || session.Principal.User == "" {
 		return nil
@@ -97,14 +67,14 @@ func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session *Session) 
 	return nil
 }
 
-func NewA2AAuthenticator(provider AuthProvider) *A2AAuthenticator {
+func NewA2AAuthenticator(provider auth.AuthProvider) *A2AAuthenticator {
 	return &A2AAuthenticator{
 		provider: provider,
 	}
 }
 
 type A2AAuthenticator struct {
-	provider AuthProvider
+	provider auth.AuthProvider
 }
 
 func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
@@ -117,7 +87,7 @@ func (h handler) Handle(ctx context.Context, client *http.Client, req *http.Requ
 	return h(ctx, client, req)
 }
 
-func A2ARequestHandler(authProvider AuthProvider) handler {
+func A2ARequestHandler(authProvider auth.AuthProvider) handler {
 	return func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
 		var err error
 		var resp *http.Response

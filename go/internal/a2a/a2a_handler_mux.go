@@ -6,8 +6,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
+	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
@@ -47,7 +48,7 @@ func (a *handlerMux) SetAgentHandler(
 	client *client.A2AClient,
 	card server.AgentCard,
 ) error {
-	srv, err := server.NewA2AServer(card, NewPassthroughManager(client), server.WithMiddleWare(auth.NewA2AAuthenticator(a.authenticator)))
+	srv, err := server.NewA2AServer(card, NewPassthroughManager(client), server.WithMiddleWare(authimpl.NewA2AAuthenticator(a.authenticator)))
 	if err != nil {
 		return fmt.Errorf("failed to create A2A server: %w", err)
 	}

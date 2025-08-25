@@ -107,7 +107,6 @@ func TestInvokeExternalAgent(t *testing.T) {
 		text := a2a.ExtractText(taskResult.History[len(taskResult.History)-1])
 		jsn, err := json.Marshal(taskResult)
 		require.NoError(t, err)
-		// Prime numbers
 		require.Contains(t, text, "kebab", string(jsn))
 	})
 
@@ -163,7 +162,6 @@ func TestInvokeExternalAgent(t *testing.T) {
 		text := a2a.ExtractText(taskResult.History[len(taskResult.History)-1])
 		jsn, err := json.Marshal(taskResult)
 		require.NoError(t, err)
-		// Prime numbers
 		require.Contains(t, text, "kebab for user@example.com", string(jsn))
 	})
 }

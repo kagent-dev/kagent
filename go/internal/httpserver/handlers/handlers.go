@@ -5,7 +5,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/internal/database"
-	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 )
 
 // Handlers holds all the HTTP handler components
