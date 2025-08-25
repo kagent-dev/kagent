@@ -102,7 +102,7 @@ type Config struct {
 	Streaming struct {
 		MaxBufSize     resource.QuantityValue `default:"1Mi"`
 		InitialBufSize resource.QuantityValue `default:"4Ki"`
-		Timeout        time.Duration          `default:"300s"`
+		Timeout        time.Duration          `default:"60s"`
 	}
 	LeaderElection     bool
 	ProbeAddr          string
