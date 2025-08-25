@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
@@ -27,28 +28,30 @@ type A2AReconciler interface {
 	)
 }
 
-type a2aReconciler struct {
-	a2aHandler a2a.A2AHandlerMux
-	a2aBaseUrl string
+type ClientOptions struct {
+	StreamingMaxBufSize     int
+	StreamingInitialBufSize int
+	Timeout                 time.Duration
+}
 
-	streamingMaxBufSize     int
-	streamingInitialBufSize int
-	authenticator           auth.AuthProvider
+type a2aReconciler struct {
+	a2aHandler    a2a.A2AHandlerMux
+	a2aBaseUrl    string
+	authenticator auth.AuthProvider
+	clientOptions ClientOptions
 }
 
 func NewReconciler(
 	a2aHandler a2a.A2AHandlerMux,
 	a2aBaseUrl string,
-	streamingMaxBufSize int,
-	streamingInitialBufSize int,
+	clientOptions ClientOptions,
 	authenticator auth.AuthProvider,
 ) A2AReconciler {
 	return &a2aReconciler{
-		a2aHandler:              a2aHandler,
-		a2aBaseUrl:              a2aBaseUrl,
-		streamingMaxBufSize:     streamingMaxBufSize,
-		streamingInitialBufSize: streamingInitialBufSize,
-		authenticator:           authenticator,
+		a2aHandler:    a2aHandler,
+		a2aBaseUrl:    a2aBaseUrl,
+		clientOptions: clientOptions,
+		authenticator: authenticator,
 	}
 }
 
@@ -60,8 +63,9 @@ func (a *a2aReconciler) ReconcileAgent(
 	agentRef := common.GetObjectRef(agent)
 
 	client, err := a2aclient.NewA2AClient(card.URL,
+		a2aclient.WithTimeout(a.clientOptions.Timeout),
+		a2aclient.WithBuffer(a.clientOptions.StreamingInitialBufSize, a.clientOptions.StreamingMaxBufSize),
 		debugOpt(),
-		a2aclient.WithBuffer(a.streamingInitialBufSize, a.streamingMaxBufSize),
 		a2aclient.WithHTTPReqHandler(auth.A2ARequestHandler(a.authenticator)),
 	)
 	if err != nil {

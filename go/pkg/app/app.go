@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
@@ -101,6 +102,7 @@ type Config struct {
 	Streaming struct {
 		MaxBufSize     resource.QuantityValue `default:"1Mi"`
 		InitialBufSize resource.QuantityValue `default:"4Ki"`
+		Timeout        time.Duration          `default:"60s"`
 	}
 	LeaderElection     bool
 	ProbeAddr          string
@@ -145,6 +147,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
 	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
+	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
 }
 
 func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
@@ -301,8 +304,11 @@ func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
 	a2aReconciler := a2a_reconciler.NewReconciler(
 		a2aHandler,
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
-		int(cfg.Streaming.MaxBufSize.Value()),
-		int(cfg.Streaming.InitialBufSize.Value()),
+		a2a_reconciler.ClientOptions{
+			StreamingMaxBufSize:     int(cfg.Streaming.MaxBufSize.Value()),
+			StreamingInitialBufSize: int(cfg.Streaming.InitialBufSize.Value()),
+			Timeout:                 cfg.Streaming.Timeout,
+		},
 		authenticator,
 	)
 
