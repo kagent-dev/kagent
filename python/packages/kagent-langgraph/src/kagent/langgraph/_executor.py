@@ -16,6 +16,7 @@ from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
     Artifact,
     Message,
+    Part,
     Role,
     TaskArtifactUpdateEvent,
     TaskState,
@@ -109,10 +110,9 @@ class LangGraphAgentExecutor(AgentExecutor):
                 logger.info(f"LangGraph event: {event}")
 
                 # Convert LangGraph events to A2A events
-                a2a_events = await self._convert_langgraph_event_to_a2a(event, context.task_id, context.context_id)
-                logger.info(f"A2A events: {a2a_events}")
-
-                for a2a_event in a2a_events:
+                a2a_event = await self._convert_langgraph_event_to_a2a(event, context.task_id, context.context_id)
+                if a2a_event:
+                    logger.info(f"A2A event: {a2a_event}")
                     await event_queue.enqueue_event(a2a_event)
 
         except Exception as e:
@@ -127,7 +127,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.agent,
-                            parts=[TextPart(text=f"Graph execution failed: {str(e)}")],
+                            parts=[Part(TextPart(text=f"Graph execution failed: {str(e)}"))],
                         ),
                     ),
                     context_id=context.context_id,
@@ -153,9 +153,8 @@ class LangGraphAgentExecutor(AgentExecutor):
 
     async def _convert_langgraph_event_to_a2a(
         self, langgraph_event: dict[str, Any], task_id: str, context_id: str
-    ) -> list[TaskArtifactUpdateEvent | TaskStatusUpdateEvent]:
+    ) -> TaskStatusUpdateEvent | None:
         """Convert a LangGraph event to A2A events."""
-        events = []
 
         # LangGraph events have node names as keys, with 'messages' as values
         # Example: {'agent': {'messages': [AIMessage(...)]}}
@@ -170,67 +169,75 @@ class LangGraphAgentExecutor(AgentExecutor):
             for message in messages:
                 if isinstance(message, AIMessage):
                     # Handle AI messages (assistant responses)
+                    a2a_message = Message(message_id=str(uuid.uuid4()), role=Role.agent, parts=[])
                     if message.content and isinstance(message.content, str) and message.content.strip():
-                        events.append(
-                            TaskArtifactUpdateEvent(
-                                task_id=task_id,
-                                last_chunk=False,
-                                context_id=context_id,
-                                artifact=Artifact(
-                                    artifact_id=str(uuid.uuid4()),
-                                    parts=[TextPart(text=message.content)],
-                                ),
-                            )
-                        )
+                        a2a_message.parts.append(Part(TextPart(text=message.content)))
 
                     # Handle tool calls in AI messages
                     if hasattr(message, "tool_calls") and message.tool_calls:
                         for tool_call in message.tool_calls:
                             tool_call_text = f"Calling tool: {tool_call['name']} with args: {tool_call['args']}"
-                            events.append(
-                                TaskArtifactUpdateEvent(
-                                    task_id=task_id,
-                                    last_chunk=False,
-                                    context_id=context_id,
-                                    artifact=Artifact(
-                                        artifact_id=str(uuid.uuid4()),
-                                        parts=[TextPart(text=tool_call_text)],
-                                    ),
-                                )
-                            )
+                            a2a_message.parts.append(Part(TextPart(text=tool_call_text)))
+                    return TaskStatusUpdateEvent(
+                        task_id=task_id,
+                        status=TaskStatus(
+                            state=TaskState.working,
+                            timestamp=datetime.now(UTC).isoformat(),
+                            message=a2a_message,
+                        ),
+                        context_id=context_id,
+                        final=False,
+                        metadata={
+                            "app_name": self.app_name,
+                            "session_id": context_id,
+                        },
+                    )
 
                 elif isinstance(message, ToolMessage):
                     # Handle tool responses
                     if message.content and isinstance(message.content, str):
                         tool_response_text = f"Tool '{message.name}' returned: {message.content}"
-                        events.append(
-                            TaskArtifactUpdateEvent(
-                                task_id=task_id,
-                                last_chunk=False,
-                                context_id=context_id,
-                                artifact=Artifact(
-                                    artifact_id=str(uuid.uuid4()),
-                                    parts=[TextPart(text=tool_response_text)],
+                        return TaskStatusUpdateEvent(
+                            task_id=task_id,
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                timestamp=datetime.now(UTC).isoformat(),
+                                message=Message(
+                                    message_id=str(uuid.uuid4()),
+                                    role=Role.agent,
+                                    parts=[Part(TextPart(text=tool_response_text))],
                                 ),
-                            )
+                            ),
+                            context_id=context_id,
+                            final=False,
+                            metadata={
+                                "app_name": self.app_name,
+                                "session_id": context_id,
+                            },
                         )
 
                 elif isinstance(message, HumanMessage):
                     # Handle human messages (user input) - usually for context
                     if message.content and isinstance(message.content, str) and message.content.strip():
-                        events.append(
-                            TaskArtifactUpdateEvent(
-                                task_id=task_id,
-                                last_chunk=False,
-                                context_id=context_id,
-                                artifact=Artifact(
-                                    artifact_id=str(uuid.uuid4()),
-                                    parts=[TextPart(text=f"User: {message.content}")],
+                        return TaskStatusUpdateEvent(
+                            task_id=task_id,
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                timestamp=datetime.now(UTC).isoformat(),
+                                message=Message(
+                                    message_id=str(uuid.uuid4()),
+                                    role=Role.agent,
+                                    parts=[Part(TextPart(text=f"User: {message.content}"))],
                                 ),
-                            )
+                            ),
+                            context_id=context_id,
+                            final=False,
+                            metadata={
+                                "app_name": self.app_name,
+                                "session_id": context_id,
+                            },
                         )
-
-        return events
+        return None
 
     def _extract_content_from_output(self, output: dict[str, Any]) -> str:
         """Extract meaningful text content from LangGraph output."""
@@ -330,7 +337,9 @@ class LangGraphAgentExecutor(AgentExecutor):
                         state=TaskState.failed,
                         timestamp=datetime.now(UTC).isoformat(),
                         message=Message(
-                            message_id=str(uuid.uuid4()), role=Role.agent, parts=[TextPart(text="Execution timed out")]
+                            message_id=str(uuid.uuid4()),
+                            role=Role.agent,
+                            parts=[Part(TextPart(text="Execution timed out"))],
                         ),
                     ),
                     context_id=context.context_id,
@@ -345,7 +354,11 @@ class LangGraphAgentExecutor(AgentExecutor):
                     status=TaskStatus(
                         state=TaskState.failed,
                         timestamp=datetime.now(UTC).isoformat(),
-                        message=Message(message_id=str(uuid.uuid4()), role=Role.agent, parts=[TextPart(text=str(e))]),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.agent,
+                            parts=[Part(TextPart(text=str(e)))],
+                        ),
                     ),
                     context_id=context.context_id,
                     final=True,

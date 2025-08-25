@@ -13,6 +13,7 @@ from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
     Artifact,
     Message,
+    Part,
     Role,
     TaskArtifactUpdateEvent,
     TaskState,
@@ -133,7 +134,7 @@ class A2aAgentExecutor(AgentExecutor):
                             message=Message(
                                 message_id=str(uuid.uuid4()),
                                 role=Role.agent,
-                                parts=[TextPart(text=str(e))],
+                                parts=[Part(TextPart(text=str(e)))],
                             ),
                         ),
                         context_id=context.context_id,

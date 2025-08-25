@@ -169,7 +169,7 @@ type LangGraphCheckpointWrite struct {
 	ThreadID     string         `gorm:"primaryKey;not null" json:"thread_id"`
 	CheckpointNS string         `gorm:"primaryKey;not null;default:''" json:"checkpoint_ns"`
 	CheckpointID string         `gorm:"primaryKey;not null" json:"checkpoint_id"`
-	WriteIndex   int            `gorm:"primaryKey;not null" json:"write_index"`
+	WriteIdx     int            `gorm:"primaryKey;not null" json:"write_idx"`
 	Value        string         `gorm:"type:text;not null" json:"value"` // JSON serialized value
 	ValueType    string         `gorm:"not null" json:"value_type"`
 	Channel      string         `gorm:"not null" json:"channel"`
