@@ -40,7 +40,7 @@ def static(
     kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
 
     uvicorn.run(
-        kagent_app.build,
+        kagent_app.build(),
         host=host,
         port=port,
         workers=workers,
@@ -67,7 +67,7 @@ def run(
     agent_card = AgentCard.model_validate(agent_card)
     kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
     uvicorn.run(
-        kagent_app.build,
+        kagent_app.build(),
         host=host,
         port=port,
         workers=workers,
