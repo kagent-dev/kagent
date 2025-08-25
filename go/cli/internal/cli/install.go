@@ -3,11 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
@@ -78,17 +80,15 @@ func InstallCmd(ctx context.Context, cfg *config.Config, profile string) *PortFo
 	}
 
 	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
-	// Validate and normalize profile input
-	profile = strings.TrimSpace(profile)
-	switch profile {
-	case "", profiles.ProfileDemo, profiles.ProfileMinimal:
-		// valid, no change
-	default:
-		fmt.Fprintln(os.Stderr, "Invalid --profile value, defaulting to minimal")
-		profile = profiles.ProfileMinimal
-	}
-	if profile != "" {
-		helmConfig.inlineValues = profiles.GetProfile(profile)
+
+	// setup profile if provided
+	if profile = strings.TrimSpace(profile); profile != "" {
+		if !slices.Contains(profiles.Profiles, profile) {
+			fmt.Fprintf(os.Stderr, "Invalid --profile value (%s), defaulting to demo\n", profile)
+			profile = profiles.ProfileDemo
+		}
+
+		helmConfig.inlineValues = profiles.GetProfileYaml(profile)
 	}
 
 	return install(ctx, cfg, helmConfig, modelProvider)
@@ -121,7 +121,7 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 	profileIdx := c.MultiChoice(profiles.Profiles, "Select a profile:")
 	selectedProfile := profiles.Profiles[profileIdx]
 
-	helmConfig.inlineValues = profiles.GetProfile(selectedProfile)
+	helmConfig.inlineValues = profiles.GetProfileYaml(selectedProfile)
 
 	return install(ctx, cfg, helmConfig, modelProvider)
 }
@@ -195,6 +195,7 @@ func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, mod
 	for _, value := range helmConfig.values {
 		if strings.Contains(value, "apiKey") {
 			// Split the value by "=" and replace the second part with "********"
+			// This follows the format we're defining the api key values in the helm chart as part of setupHelmConfig().
 			parts := strings.Split(value, "=")
 			redactedValues = append(redactedValues, parts[0]+"=********")
 		} else {

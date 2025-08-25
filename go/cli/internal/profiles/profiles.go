@@ -3,10 +3,10 @@ package profiles
 import _ "embed"
 
 //go:embed demo.yaml
-var DemoProfile string
+var DemoProfileYaml string
 
 //go:embed minimal.yaml
-var MinimalProfile string
+var MinimalProfileYaml string
 
 const (
 	ProfileDemo    = "demo"
@@ -15,13 +15,13 @@ const (
 
 var Profiles = []string{ProfileMinimal, ProfileDemo}
 
-func GetProfile(profile string) string {
+func GetProfileYaml(profile string) string {
 	switch profile {
 	case ProfileDemo:
-		return DemoProfile
+		return DemoProfileYaml
 	case ProfileMinimal:
-		return MinimalProfile
+		return MinimalProfileYaml
 	default:
-		return MinimalProfile
+		return DemoProfileYaml
 	}
 }
