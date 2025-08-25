@@ -19,6 +19,11 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
 )
 
+type InstallCfg struct {
+	Config  *config.Config
+	Profile string
+}
+
 // installChart installs or upgrades a Helm chart with the given parameters
 func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, inlineValues string) (string, error) {
 	args := []string{
@@ -60,7 +65,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func InstallCmd(ctx context.Context, cfg *config.Config, profile string) *PortForward {
+func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
@@ -82,16 +87,16 @@ func InstallCmd(ctx context.Context, cfg *config.Config, profile string) *PortFo
 	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
 
 	// setup profile if provided
-	if profile = strings.TrimSpace(profile); profile != "" {
-		if !slices.Contains(profiles.Profiles, profile) {
-			fmt.Fprintf(os.Stderr, "Invalid --profile value (%s), defaulting to demo\n", profile)
-			profile = profiles.ProfileDemo
+	if cfg.Profile = strings.TrimSpace(cfg.Profile); cfg.Profile != "" {
+		if !slices.Contains(profiles.Profiles, cfg.Profile) {
+			fmt.Fprintf(os.Stderr, "Invalid --profile value (%s), defaulting to demo\n", cfg.Profile)
+			cfg.Profile = profiles.ProfileDemo
 		}
 
-		helmConfig.inlineValues = profiles.GetProfileYaml(profile)
+		helmConfig.inlineValues = profiles.GetProfileYaml(cfg.Profile)
 	}
 
-	return install(ctx, cfg, helmConfig, modelProvider)
+	return install(ctx, cfg.Config, helmConfig, modelProvider)
 }
 
 func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward {
@@ -193,9 +198,9 @@ func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, mod
 	// Removing api key(s) from printed values
 	redactedValues := []string{}
 	for _, value := range helmConfig.values {
-		if strings.Contains(value, "apiKey") {
+		if strings.Contains(value, "apiKey=") {
 			// Split the value by "=" and replace the second part with "********"
-			// This follows the format we're defining the api key values in the helm chart as part of setupHelmConfig().
+			// This follows the format we're following to define the api key values in the helm chart (providers.{provider}.apiKey=...)
 			parts := strings.Split(value, "=")
 			redactedValues = append(redactedValues, parts[0]+"=********")
 		} else {

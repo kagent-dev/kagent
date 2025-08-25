@@ -33,16 +33,20 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
-	var profile string
+
+	installCfg := &cli.InstallCfg{
+		Config: cfg,
+	}
+
 	installCmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install kagent",
 		Long:  `Install kagent`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.InstallCmd(cmd.Context(), cfg, profile)
+			cli.InstallCmd(cmd.Context(), installCfg)
 		},
 	}
-	installCmd.Flags().StringVar(&profile, "profile", "", "Installation profile (minimal|demo)")
+	installCmd.Flags().StringVar(&installCfg.Profile, "profile", "", "Installation profile (minimal|demo)")
 	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})
