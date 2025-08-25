@@ -38,7 +38,9 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 
 	// Add set values if any
 	for _, setValue := range setValues {
-		args = append(args, "--set", setValue)
+		if setValue != "" {
+			args = append(args, "--set", setValue)
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, "helm", args...)
