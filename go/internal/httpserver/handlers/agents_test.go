@@ -118,7 +118,7 @@ func TestHandleGetAgent(t *testing.T) {
 		require.False(t, response.Data.DeploymentReady) // No status conditions, should be false
 	})
 
-	t.Run("gets agent with DeploymentReady=true", func(t *testing.T) {
+	t.Run("gets agent with DeploymentReady=true, Accepted=true", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		conditions := []metav1.Condition{
 			{
@@ -150,6 +150,7 @@ func TestHandleGetAgent(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		require.True(t, response.Data.DeploymentReady)
+		require.True(t, response.Data.Accepted)
 	})
 
 	t.Run("gets agent with DeploymentReady=false when Ready status is False", func(t *testing.T) {
@@ -235,6 +236,11 @@ func TestHandleListAgents(t *testing.T) {
 				Status: "True",
 				Reason: "DeploymentReady",
 			},
+			{
+				Type:   "Accepted",
+				Status: "True",
+				Reason: "AgentReconciled",
+			},
 		}
 		readyAgent := createTestAgentWithStatus("ready-agent", modelConfig, readyConditions)
 
@@ -268,6 +274,63 @@ func TestHandleListAgents(t *testing.T) {
 		require.Equal(t, "gpt-4", response.Data[1].Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[1].ModelProvider)
 		require.Equal(t, true, response.Data[1].DeploymentReady)
+	})
+
+	t.Run("lists expected agent conditions", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+
+		// Agent with DeploymentReady=true
+		readyConditions := []metav1.Condition{
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DeploymentReady",
+			},
+			{
+				Type:   "Accepted",
+				Status: "True",
+				Reason: "AgentReconciled",
+			},
+		}
+		invalidConditions := []metav1.Condition{ // an agent's deployment can be ready although it's configuration is invalid
+			{
+				Type:   "Accepted",
+				Status: "False",
+				Reason: "AgentReconcileFailed",
+			},
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DeploymentReady",
+			},
+		}
+		readyAgent := createTestAgentWithStatus("ready-agent", modelConfig, readyConditions)
+		invalidAgent := createTestAgentWithStatus("invalid-agent", modelConfig, invalidConditions)
+
+		handler, _ := setupTestHandler(readyAgent, invalidAgent, modelConfig)
+		createAgent(handler.DatabaseService, readyAgent)
+		createAgent(handler.DatabaseService, invalidAgent)
+
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// both agents are returned with their statuses
+		var response api.StandardResponse[[]api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.Len(t, response.Data, 2)
+		require.Equal(t, "ready-agent", response.Data[1].Agent.Name)
+		require.Equal(t, true, response.Data[1].Accepted)
+		require.Equal(t, true, response.Data[1].DeploymentReady)
+		require.Equal(t, "invalid-agent", response.Data[0].Agent.Name)
+		require.Equal(t, false, response.Data[0].Accepted)
+		require.Equal(t, true, response.Data[0].DeploymentReady)
 	})
 }
 

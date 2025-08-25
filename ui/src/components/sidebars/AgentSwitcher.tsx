@@ -19,17 +19,20 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
   const router = useRouter();
   const { isMobile } = useSidebar();
 
-  const selectedTeam = currentAgent;
+  const selectedAgent = currentAgent;
   const agentResponses = allAgents;
 
-  if (!selectedTeam) {
+  if (!selectedAgent) {
     return null;
   }
 
-  const selectedTeamRef = k8sRefUtils.toRef(
-    selectedTeam.agent.metadata.namespace || "",
-    selectedTeam.agent.metadata.name
+  const selectedAgentRef = k8sRefUtils.toRef(
+    selectedAgent.agent.metadata.namespace || "",
+    selectedAgent.agent.metadata.name
   );
+
+  // We don't want to show agents that are not ready or accepted
+  const filteredAgentResponses = agentResponses.filter(({ deploymentReady, accepted }) => deploymentReady && accepted);
 
   return (
     <SidebarMenu>
@@ -41,15 +44,15 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
                 <KagentLogo className="w-4 h-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{selectedTeamRef}</span>
-                <span className="truncate text-xs">{selectedTeam.modelProvider} ({selectedTeam.model})</span>
+                <span className="truncate font-semibold">{selectedAgentRef}</span>
+                <span className="truncate text-xs">{selectedAgent.modelProvider} ({selectedAgent.model})</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg" align="start" side={isMobile ? "bottom" : "right"} sideOffset={4}>
             <DropdownMenuLabel className="text-xs text-muted-foreground">Agents</DropdownMenuLabel>
-            {agentResponses.map(({ id, agent}, index) => {
+            {filteredAgentResponses.map(({ id, agent }, index) => {
               const agentRef = k8sRefUtils.toRef(agent.metadata.namespace || "", agent.metadata.name)
               return (
                 <DropdownMenuItem

@@ -307,6 +307,7 @@ export interface AgentResponse {
   memoryRefs: string[];
   tools: Tool[];
   deploymentReady: boolean;
+  accepted: boolean;
 }
 
 export interface RemoteMCPServer {

@@ -35,7 +35,9 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 
 	// Add set values if any
 	for _, setValue := range setValues {
-		args = append(args, "--set", setValue)
+		if setValue != "" {
+			args = append(args, "--set", setValue)
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, "helm", args...)
@@ -45,8 +47,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward {
-
+func InstallCmd(ctx context.Context, cfg *config.Config) *PortForward { 
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
