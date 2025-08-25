@@ -82,12 +82,6 @@ export function Header() {
                     New Tool Server
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/memories/new" className="gap-2 cursor-pointer w-full">
-                    <Database className="h-4 w-4" />
-                    New Memory
-                  </Link>
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             
@@ -122,12 +116,6 @@ export function Header() {
                   <Link href="/servers" className="gap-2 cursor-pointer w-full">
                     <Server className="h-4 w-4" />
                     Tool Servers
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/memories" className="gap-2 cursor-pointer w-full">
-                    <Database className="h-4 w-4" />
-                    Memory
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -192,12 +180,6 @@ export function Header() {
                       Tool Servers
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/memories" className="gap-2 cursor-pointer w-full">
-                      <Database className="h-4 w-4" />
-                      Memory
-                    </Link>
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -233,12 +215,6 @@ export function Header() {
                     <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
                       New Tool Server
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/memories/new" className="gap-2 cursor-pointer w-full">
-                      <Database className="h-4 w-4" />
-                      New Memory
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>

@@ -39,7 +39,7 @@ export interface AgentFormData {
   volumeMounts?: unknown[];
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
-  env?: EnvVar[];
+   env?: EnvVar[];
   imagePullPolicy?: string;
   memory?: string[];
 }
@@ -94,7 +94,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+ }, []);
 
   const fetchModels = useCallback(async () => {
     try {
@@ -111,7 +111,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+   }, []);
 
   const fetchTools = useCallback(async () => {
     try {
@@ -125,7 +125,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+    }, []);
 
   // Validation logic moved from the component
   const validateAgentData = useCallback((data: Partial<AgentFormData>): ValidationErrors => {
@@ -169,7 +169,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   }, []);
 
   // Get agent by ID function
-  const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
+    const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
     try {
       // Fetch all agents
       const agentResult = await getAgentAction(name, namespace);
@@ -194,7 +194,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   }, []);
 
   // Agent creation logic moved from the component
-  const createNewAgent = useCallback(async (agentData: AgentFormData) => {
+ const createNewAgent = useCallback(async (agentData: AgentFormData) => {
     try {
       const errors = validateAgentData(agentData);
       if (Object.keys(errors).length > 0) {
@@ -216,7 +216,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to create agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
+ }, [fetchAgents, validateAgentData]);
 
   // Update existing agent
   const updateAgent = useCallback(async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
