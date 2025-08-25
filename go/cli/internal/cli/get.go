@@ -105,13 +105,15 @@ func printTools(tools []database.Tool) error {
 
 func printAgents(agents []api.AgentResponse) error {
 	// Prepare table data
-	headers := []string{"#", "NAME", "CREATED"}
+	headers := []string{"#", "NAME", "CREATED", "DEPLOYMENT_READY", "ACCEPTED"}
 	rows := make([][]string, len(agents))
 	for i, agent := range agents {
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
 			utils.GetObjectRef(agent.Agent),
 			agent.Agent.CreationTimestamp.Format(time.RFC3339),
+			strconv.FormatBool(agent.DeploymentReady),
+			strconv.FormatBool(agent.Accepted),
 		}
 	}
 

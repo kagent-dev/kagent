@@ -13,7 +13,7 @@ interface AgentCardProps {
   id: number;
 }
 
-export function AgentCard({ id, agentResponse: { agent, model, modelProvider, deploymentReady } }: AgentCardProps) {
+export function AgentCard({ id, agentResponse: { agent, model, modelProvider, deploymentReady, accepted } }: AgentCardProps) {
   const router = useRouter();
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
@@ -29,7 +29,7 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
 
   const cardContent = (
     <Card className={`group transition-colors ${
-      deploymentReady 
+      deploymentReady && accepted
         ? 'cursor-pointer hover:border-violet-500' 
         : 'cursor-not-allowed opacity-60 border-gray-300'
     }`}>
@@ -37,26 +37,31 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
         <CardTitle className="flex items-center gap-2">
           <KagentLogo className="h-5 w-5" />
           {agentRef}
+          {!accepted && (
+            <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">
+              Not Accepted
+            </span>
+          )}
           {!deploymentReady && (
             <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
               Not Ready
             </span>
           )}
         </CardTitle>
-        <div className={`flex items-center space-x-2 ${deploymentReady ? 'invisible group-hover:visible' : 'invisible'}`}>
+        <div className={`flex items-center space-x-2 ${deploymentReady && accepted ? 'invisible group-hover:visible' : 'invisible'}`}>
           <Button 
             variant="ghost" 
             size="icon" 
             onClick={handleEditClick} 
             aria-label="Edit Agent"
-            disabled={!deploymentReady}
+            disabled={!deploymentReady || !accepted}
           >
             <Pencil className="h-4 w-4" />
           </Button>
           <DeleteButton 
             agentName={agent.metadata.name} 
             namespace={agent.metadata.namespace || ''} 
-            disabled={!deploymentReady}
+            disabled={!deploymentReady || !accepted}
           />
         </div>
       </CardHeader>
@@ -73,7 +78,7 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
     </Card>
   );
 
-  return deploymentReady ? (
+  return deploymentReady && accepted ? (
     <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
       {cardContent}
     </Link>

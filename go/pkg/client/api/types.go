@@ -92,6 +92,7 @@ type AgentResponse struct {
 	MemoryRefs      []string               `json:"memoryRefs"`
 	Tools           []*v1alpha2.Tool       `json:"tools"`
 	DeploymentReady bool                   `json:"deploymentReady"`
+	Accepted        bool                   `json:"accepted"`
 }
 
 // Session types
