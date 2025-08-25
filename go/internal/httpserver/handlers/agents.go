@@ -48,11 +48,9 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 		agentRef := common.GetObjectRef(&agent)
 		log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
-		agentResponse, err := h.getAgentResponse(r.Context(), log, &agent)
-		if err != nil {
-			// When listing agents, we don't want a failure when a single agent has an issue.
-			// The getAgentResponse should return its reconciliation status in the agentResponse.
-		}
+		// When listing agents, we don't want a failure when a single agent has an issue, so we ignore the error.
+		// The getAgentResponse should return its reconciliation status in the agentResponse.
+		agentResponse, _ := h.getAgentResponse(r.Context(), log, &agent)
 
 		agentsWithID = append(agentsWithID, agentResponse)
 	}

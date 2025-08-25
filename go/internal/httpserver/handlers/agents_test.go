@@ -308,8 +308,8 @@ func TestHandleListAgents(t *testing.T) {
 		invalidAgent := createTestAgentWithStatus("invalid-agent", modelConfig, invalidConditions)
 
 		handler, _ := setupTestHandler(readyAgent, invalidAgent, modelConfig)
-		createAgent(handler.Base.DatabaseService, readyAgent)
-		createAgent(handler.Base.DatabaseService, invalidAgent)
+		createAgent(handler.DatabaseService, readyAgent)
+		createAgent(handler.DatabaseService, invalidAgent)
 
 		req := httptest.NewRequest("GET", "/api/agents", nil)
 		req = setUser(req, "test-user")
