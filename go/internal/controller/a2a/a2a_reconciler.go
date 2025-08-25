@@ -3,6 +3,9 @@ package a2a
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -62,6 +65,7 @@ func (a *a2aReconciler) ReconcileAgent(
 	client, err := a2aclient.NewA2AClient(card.URL,
 		a2aclient.WithTimeout(a.clientOptions.Timeout),
 		a2aclient.WithBuffer(a.clientOptions.StreamingInitialBufSize, a.clientOptions.StreamingMaxBufSize),
+		debugOpt(),
 		a2aclient.WithHTTPReqHandler(auth.A2ARequestHandler(a.authenticator)),
 	)
 	if err != nil {
@@ -83,4 +87,20 @@ func (a *a2aReconciler) ReconcileAgentDeletion(
 	agentRef string,
 ) {
 	a.a2aHandler.RemoveAgentHandler(agentRef)
+}
+
+func debugOpt() a2aclient.Option {
+	debugAddr := os.Getenv("KAGENT_A2A_DEBUG_ADDR")
+	if debugAddr != "" {
+		client := new(http.Client)
+		client.Transport = &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				var zeroDialer net.Dialer
+				return zeroDialer.DialContext(ctx, network, debugAddr)
+			},
+		}
+		return a2aclient.WithHTTPClient(client)
+	} else {
+		return func(*a2aclient.A2AClient) {}
+	}
 }

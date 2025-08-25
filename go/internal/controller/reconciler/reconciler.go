@@ -146,15 +146,15 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	conditionChanged := meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeAccepted,
 		Status:             status,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            message,
+		ObservedGeneration: agent.Generation,
 	})
 
 	deployedCondition := metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeReady,
 		Status:             metav1.ConditionUnknown,
-		LastTransitionTime: metav1.Now(),
+		ObservedGeneration: agent.Generation,
 	}
 
 	// Check if the deployment exists
@@ -393,18 +393,18 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	if err != nil {
 		status = metav1.ConditionFalse
 		message = err.Error()
-		reason = "AgentReconcileFailed"
+		reason = "ReconcileFailed"
 		reconcileLog.Error(err, "failed to reconcile agent", "tool_server", utils.GetObjectRef(toolServer))
 	} else {
 		status = metav1.ConditionTrue
-		reason = "AgentReconciled"
+		reason = "Reconciled"
 	}
 	conditionChanged := meta.SetStatusCondition(&toolServer.Status.Conditions, metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeAccepted,
 		Status:             status,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            message,
+		ObservedGeneration: toolServer.Generation,
 	})
 
 	// only update if the status has changed to prevent looping the reconciler
@@ -418,7 +418,7 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	toolServer.Status.DiscoveredTools = discoveredTools
 
 	if err := a.kube.Status().Update(ctx, toolServer); err != nil {
-		return fmt.Errorf("failed to update agent status: %v", err)
+		return fmt.Errorf("failed to update remote mcp server status: %v", err)
 	}
 
 	return nil
