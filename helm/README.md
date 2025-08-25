@@ -64,11 +64,6 @@ make kagent-cli-install
 export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
 export KAGENT_HELM_REPO=./helm/
 make kagent-cli-install
-
-# use local path to install kagent using locally-defined profiles
-export KAGENT_HELM_PROFILE_URL=./helm/kagent/files/profiles/
-export KAGENT_HELM_REPO=./helm/
-make kagent-cli-install
 ```
 
 ## Upgrading
