@@ -42,7 +42,7 @@ func main() {
 			cli.InstallCmd(cmd.Context(), cfg, profile)
 		},
 	}
-	installCmd.Flags().StringVar(&profile, "profile", "minimal", "Installation profile (minimal|demo)")
+	installCmd.Flags().StringVar(&profile, "profile", "", "Installation profile (minimal|demo)")
 	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})

@@ -18,7 +18,7 @@ import (
 )
 
 // installChart installs or upgrades a Helm chart with the given parameters
-func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, profile string) (string, error) {
+func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, inlineValues string) (string, error) {
 	args := []string{
 		"upgrade",
 		"--install",
@@ -41,38 +41,17 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 		args = append(args, "--set", setValue)
 	}
 
-	// If a profile is provided, write the embedded YAML to a temp file and pass its path
-	var tmpProfilePath string
-	if profile != "" {
-		profileYAML := profiles.GetProfile(profile)
-		if strings.TrimSpace(profileYAML) != "" {
-			tmpFile, err := os.CreateTemp("", "kagent-profile-*.yaml")
-			if err != nil {
-				return "", fmt.Errorf("failed creating temp profile file: %w", err)
-			}
-			if _, err := tmpFile.WriteString(profileYAML); err != nil {
-				_ = tmpFile.Close()
-				_ = os.Remove(tmpFile.Name())
-				return "", fmt.Errorf("failed writing temp profile file: %w", err)
-			}
-			if err := tmpFile.Close(); err != nil {
-				_ = os.Remove(tmpFile.Name())
-				return "", fmt.Errorf("failed closing temp profile file: %w", err)
-			}
-			tmpProfilePath = tmpFile.Name()
-			args = append(args, "-f", tmpProfilePath)
-		}
+	cmd := exec.CommandContext(ctx, "helm", args...)
+
+	// If a profile is provided, pass the embedded YAML to the stdin of the helm command.
+	// This must be the last set of arguments.
+	if inlineValues != "" {
+		cmd.Stdin = strings.NewReader(inlineValues)
+		cmd.Args = append(cmd.Args, "-f", "-")
 	}
 
-	cmd := exec.CommandContext(ctx, "helm", args...)
 	if byt, err := cmd.CombinedOutput(); err != nil {
-		if tmpProfilePath != "" {
-			_ = os.Remove(tmpProfilePath)
-		}
 		return string(byt), err
-	}
-	if tmpProfilePath != "" {
-		_ = os.Remove(tmpProfilePath)
 	}
 	return "", nil
 }
@@ -97,21 +76,20 @@ func InstallCmd(ctx context.Context, cfg *config.Config, profile string) *PortFo
 	}
 
 	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
-
 	// Validate and normalize profile input
 	profile = strings.TrimSpace(profile)
 	switch profile {
-	case "":
-		// default to minimal. no warning as this is the default
-		profile = profiles.ProfileMinimal
-	case profiles.ProfileDemo, profiles.ProfileMinimal:
+	case "", profiles.ProfileDemo, profiles.ProfileMinimal:
 		// valid, no change
 	default:
 		fmt.Fprintln(os.Stderr, "Invalid --profile value, defaulting to minimal")
 		profile = profiles.ProfileMinimal
 	}
+	if profile != "" {
+		helmConfig.inlineValues = profiles.GetProfile(profile)
+	}
 
-	return install(ctx, cfg, helmConfig, profile, modelProvider)
+	return install(ctx, cfg, helmConfig, modelProvider)
 }
 
 func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward {
@@ -141,17 +119,23 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 	profileIdx := c.MultiChoice(profiles.Profiles, "Select a profile:")
 	selectedProfile := profiles.Profiles[profileIdx]
 
-	return install(ctx, cfg, helmConfig, selectedProfile, modelProvider)
+	helmConfig.inlineValues = profiles.GetProfile(selectedProfile)
+
+	return install(ctx, cfg, helmConfig, modelProvider)
 }
 
 // helmConfig is the config for the kagent chart
 type helmConfig struct {
 	registry string
 	version  string
-	values   []string
+	// values are values which are passed in via --set flags
+	values []string
+	// inlineValues are values which are passed in via stdin (e.g. embedded profile YAML)
+	inlineValues string
 }
 
 // setupHelmConfig sets up the helm config for the kagent chart
+// This sets up the general configuration for a helm installation without the profile, which is calculated later based on the installation type (interactive or non-interactive)
 func setupHelmConfig(modelProvider v1alpha1.ModelProvider, apiKeyValue string) helmConfig {
 	// Build Helm values
 	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
@@ -179,7 +163,7 @@ func setupHelmConfig(modelProvider v1alpha1.ModelProvider, apiKeyValue string) h
 }
 
 // install installs kagent and kagent-crds using the helm config
-func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, profile string, modelProvider v1alpha1.ModelProvider) *PortForward {
+func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, modelProvider v1alpha1.ModelProvider) *PortForward {
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -219,7 +203,7 @@ func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, pro
 	}
 
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmConfig.registry, helmConfig.version, redactedValues)
-	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, profile); err != nil {
+	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, helmConfig.inlineValues); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 		fmt.Fprintln(os.Stderr, "Error installing kagent:", output)
