@@ -18,14 +18,15 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
-	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
+	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
 
 func setUser(req *http.Request, userID string) *http.Request {
-	ctx := auth.AuthSessionTo(req.Context(), &auth.Session{
+	ctx := authimpl.AuthSessionTo(req.Context(), &auth.Session{
 		Principal: auth.Principal{
 			User: userID,
 		},

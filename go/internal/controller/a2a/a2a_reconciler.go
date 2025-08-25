@@ -10,8 +10,9 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
-	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
+	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
@@ -66,7 +67,7 @@ func (a *a2aReconciler) ReconcileAgent(
 		a2aclient.WithTimeout(a.clientOptions.Timeout),
 		a2aclient.WithBuffer(a.clientOptions.StreamingInitialBufSize, a.clientOptions.StreamingMaxBufSize),
 		debugOpt(),
-		a2aclient.WithHTTPReqHandler(auth.A2ARequestHandler(a.authenticator)),
+		a2aclient.WithHTTPReqHandler(authimpl.A2ARequestHandler(a.authenticator)),
 	)
 	if err != nil {
 		return err

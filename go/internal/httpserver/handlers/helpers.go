@@ -10,8 +10,9 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
+	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -82,7 +83,7 @@ func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *erro
 func GetPrincipal(r *http.Request) (auth.Principal, error) {
 	log := ctrllog.Log.WithName("http-helpers")
 
-	s, ok := auth.AuthSessionFrom(r.Context())
+	s, ok := authimpl.AuthSessionFrom(r.Context())
 	if !ok || s == nil {
 		log.Info("No session found in request context")
 		return auth.Principal{}, fmt.Errorf("no session found")

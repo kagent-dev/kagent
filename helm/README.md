@@ -7,8 +7,6 @@ These Helm charts install kagent-crds,kagent, it is required that the Kagent CRD
 ### Using Helm
 
 ```bash
-helm install kmcp-crds oci://ghcr.io/kagent-dev/kmcp/helm/kmcp-crds --version 0.1.2 --namespace kagent
-
 # First, install the required CRDs
 helm install kagent-crds ./helm/kagent-crds/  --namespace kagent
 

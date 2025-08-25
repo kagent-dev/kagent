@@ -2,14 +2,14 @@ package auth
 
 import (
 	"context"
-)
 
-type Authorizer interface {
-	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
-}
+	"github.com/kagent-dev/kagent/go/pkg/auth"
+)
 
 type NoopAuthorizer struct{}
 
-func (a *NoopAuthorizer) Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error {
+func (a *NoopAuthorizer) Check(ctx context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
 	return nil
 }
+
+var _ auth.Authorizer = (*NoopAuthorizer)(nil)

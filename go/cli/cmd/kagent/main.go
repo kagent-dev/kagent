@@ -9,6 +9,7 @@ import (
 	"github.com/abiosoft/ishell/v2"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/pkg/client"
 	"github.com/spf13/cobra"
 )
@@ -32,14 +33,23 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
+
+	installCfg := &cli.InstallCfg{
+		Config: cfg,
+	}
+
 	installCmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install kagent",
 		Long:  `Install kagent`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.InstallCmd(cmd.Context(), cfg)
+			cli.InstallCmd(cmd.Context(), installCfg)
 		},
 	}
+	installCmd.Flags().StringVar(&installCfg.Profile, "profile", "", "Installation profile (minimal|demo)")
+	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	uninstallCmd := &cobra.Command{
 		Use:   "uninstall",
@@ -434,8 +444,7 @@ Example:
 		Aliases: []string{"i"},
 		Help:    "Install kagent.",
 		Func: func(c *ishell.Context) {
-			cfg := config.GetCfg(c)
-			if pf := cli.InstallCmd(ctx, cfg); pf != nil {
+			if pf := cli.InteractiveInstallCmd(ctx, c); pf != nil {
 				// Set the port-forward to the shell.
 				shell.Set(portForwardKey, pf)
 			}

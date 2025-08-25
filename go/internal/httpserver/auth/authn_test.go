@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
-	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
+	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 )
 
 func TestAuthnMiddleware(t *testing.T) {
@@ -18,7 +19,7 @@ func TestAuthnMiddleware(t *testing.T) {
 	}{
 		{
 			name:         "gets user from query param",
-			authn:        &auth.UnsecureAuthenticator{},
+			authn:        &authimpl.UnsecureAuthenticator{},
 			url:          "http://foo.com/index?user_id=foo",
 			expectedUser: "foo",
 		},
@@ -28,10 +29,10 @@ func TestAuthnMiddleware(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router := mux.NewRouter()
 
-			router.Use(auth.AuthnMiddleware(tt.authn))
+			router.Use(authimpl.AuthnMiddleware(tt.authn))
 			var session *auth.Session
 			router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				session, _ = auth.AuthSessionFrom(r.Context())
+				session, _ = authimpl.AuthSessionFrom(r.Context())
 			})
 
 			rw := httptest.NewRecorder()
