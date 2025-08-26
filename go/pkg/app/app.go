@@ -340,7 +340,7 @@ func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
+		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
 		os.Exit(1)
 	}
 
@@ -362,7 +362,7 @@ func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ToolServer")
+		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
 		os.Exit(1)
 	}
 	if err = (&controller.MemoryController{
