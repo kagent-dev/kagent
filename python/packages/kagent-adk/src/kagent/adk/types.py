@@ -36,6 +36,7 @@ class RemoteAgentConfig(BaseModel):
 
 class BaseLLM(BaseModel):
     model: str
+    headers: dict[str, str] | None = None
 
 
 class OpenAI(BaseLLM):
@@ -97,20 +98,26 @@ class AgentConfig(BaseModel):
                     agent_card=f"{remote_agent.url}/{AGENT_CARD_WELL_KNOWN_PATH}",
                     description=remote_agent.description,
                 )
-                mcp_toolsets.append(AgentTool(agent=remote_agent, skip_summarization=True))
+                mcp_toolsets.append(
+                    AgentTool(agent=remote_agent, skip_summarization=True)
+                )  # Get headers from model config
+
+        extra_headers = self.model.headers or {}
 
         if self.model.type == "openai":
             model = OpenAINative(model=self.model.model, base_url=self.model.base_url, type="openai")
         elif self.model.type == "anthropic":
-            model = LiteLlm(model=f"anthropic/{self.model.model}", base_url=self.model.base_url)
+            model = LiteLlm(
+                model=f"anthropic/{self.model.model}", base_url=self.model.base_url, extra_headers=extra_headers
+            )
         elif self.model.type == "gemini_vertex_ai":
             model = GeminiLLM(model=self.model.model)
         elif self.model.type == "gemini_anthropic":
             model = ClaudeLLM(model=self.model.model)
         elif self.model.type == "ollama":
-            model = LiteLlm(model=f"ollama_chat/{self.model.model}")
+            model = LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers)
         elif self.model.type == "azure_openai":
-            model = OpenAIAzure(model=self.model.model, type="azure_openai")
+            model = OpenAIAzure(model=self.model.model, type="azure_openai", headers=extra_headers)
         elif self.model.type == "gemini":
             model = self.model.model
         else:

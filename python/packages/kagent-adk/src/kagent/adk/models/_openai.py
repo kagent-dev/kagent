@@ -390,6 +390,7 @@ class AzureOpenAI(BaseOpenAI):
     api_version: Optional[str] = None
     azure_endpoint: Optional[str] = None
     azure_deployment: Optional[str] = None
+    headers: Optional[dict[str, str]] = None
 
     @cached_property
     def _client(self) -> AsyncAzureOpenAI:
@@ -408,4 +409,8 @@ class AzureOpenAI(BaseOpenAI):
                 "API key must be provided either via api_key parameter or AZURE_OPENAI_API_KEY environment variable"
             )
 
-        return AsyncAzureOpenAI(api_version=api_version, azure_endpoint=azure_endpoint, api_key=api_key)
+        default_headers = self.headers or {}
+
+        return AsyncAzureOpenAI(
+            api_version=api_version, azure_endpoint=azure_endpoint, api_key=api_key, default_headers=default_headers
+        )
