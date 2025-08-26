@@ -9,21 +9,8 @@ import (
 	"dario.cat/mergo"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-)
-
-type ImmutableFieldChangeErr struct {
-	Field string
-}
-
-func (e *ImmutableFieldChangeErr) Error() string {
-	return fmt.Sprintf("Immutable field change attempted: %s", e.Field)
-}
-
-var (
-	ImmutableChangeErr *ImmutableFieldChangeErr
 )
 
 func MutateFuncFor(existing, desired client.Object) controllerutil.MutateFn {
@@ -96,16 +83,6 @@ func mutateService(existing, desired *corev1.Service) {
 }
 
 func mutateDeployment(existing, desired *appsv1.Deployment) error {
-	if !existing.CreationTimestamp.IsZero() {
-		if !apiequality.Semantic.DeepEqual(desired.Spec.Selector, existing.Spec.Selector) {
-			return &ImmutableFieldChangeErr{Field: "Spec.Selector"}
-		}
-
-		if err := hasImmutableLabelChange(existing.Spec.Selector.MatchLabels, desired.Spec.Template.Labels); err != nil {
-			return err
-		}
-	}
-
 	existing.Spec.MinReadySeconds = desired.Spec.MinReadySeconds
 	existing.Spec.Paused = desired.Spec.Paused
 	existing.Spec.ProgressDeadlineSeconds = desired.Spec.ProgressDeadlineSeconds
@@ -131,14 +108,5 @@ func mutatePodTemplate(existing, desired *corev1.PodTemplateSpec) error {
 
 	existing.Spec = desired.Spec
 
-	return nil
-}
-
-func hasImmutableLabelChange(existingSelectorLabels, desiredLabels map[string]string) error {
-	for k, v := range existingSelectorLabels {
-		if vv, ok := desiredLabels[k]; !ok || vv != v {
-			return &ImmutableFieldChangeErr{Field: "Spec.Template.Metadata.Labels"}
-		}
-	}
 	return nil
 }

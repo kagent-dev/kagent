@@ -432,19 +432,10 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 		existing := desired.DeepCopyObject().(client.Object)
 		mutateFn := translator.MutateFuncFor(existing, desired)
 
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			_, createOrUpdateErr := controllerutil.CreateOrUpdate(ctx, a.kube, existing, mutateFn)
 			return createOrUpdateErr
-		})
-
-		if err != nil && errors.As(err, &translator.ImmutableChangeErr) {
-			l.Error(err, "detected immutable field change, trying to delete, new object will be created on next reconcile", "existing", existing.GetName())
-			delErr := a.kube.Delete(ctx, existing)
-			if delErr != nil {
-				return delErr
-			}
-			continue
-		} else if err != nil {
+		}); err != nil {
 			l.Error(err, "failed to configure desired")
 			errs = append(errs, err)
 			continue
