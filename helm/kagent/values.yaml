@@ -18,6 +18,9 @@ fullnameOverride: ""
 # @default -- `.Release.Namespace`
 namespaceOverride: ""
 
+# -- Additional labels to add to all resources
+labels: {}
+
 podAnnotations: {}
 
 podSecurityContext: {}
