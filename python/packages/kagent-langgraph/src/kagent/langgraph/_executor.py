@@ -109,8 +109,8 @@ class LangGraphAgentExecutor(AgentExecutor):
             logger.info(f"LangGraph event: {event}")
 
             # Convert LangGraph events to A2A events
-            a2a_event = await converters._convert_langgraph_event_to_a2a(event, context.task_id, context.context_id)
-            if a2a_event:
+            a2a_events = await converters._convert_langgraph_event_to_a2a(event, context.task_id, context.context_id)
+            for a2a_event in a2a_events:
                 logger.info(f"A2A event: {a2a_event}")
                 await event_queue.enqueue_event(a2a_event)
 

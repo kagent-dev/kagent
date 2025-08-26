@@ -2,7 +2,6 @@ import random
 
 from google.adk import Agent
 from google.adk.tools.tool_context import ToolContext
-from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams, StreamableHTTPConnectionParams
 
 
 def roll_die(sides: int, tool_context: ToolContext) -> int:
@@ -63,12 +62,5 @@ root_agent = Agent(
       You should always perform the previous 3 steps when asking for a roll and checking prime numbers.
       You should not rely on the previous history on prime results.
     """,
-    tools=[
-        roll_die,
-        check_prime,
-        MCPToolset(
-            connection_params=StreamableHTTPConnectionParams(url="http://localhost:8080/mcp"),
-            tools=[roll_die, check_prime],
-        ),
-    ],
+    tools=[roll_die, check_prime],
 )

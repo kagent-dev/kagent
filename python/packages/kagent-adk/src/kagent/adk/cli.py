@@ -8,6 +8,7 @@ import typer
 import uvicorn
 from a2a.types import AgentCard
 from google.adk.cli.utils.agent_loader import AgentLoader
+
 from kagent.core import KAgentConfig, configure_tracing
 
 from . import AgentConfig, KAgentApp
