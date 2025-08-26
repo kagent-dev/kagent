@@ -71,8 +71,9 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 
-# kmcp version extraction from go.mod
-KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod)
+# KMCP 
+KMCP_ENABLED ?= true
+KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
 
 HELM_ACTION=upgrade --install
 
@@ -263,7 +264,8 @@ helm-install-provider: helm-version check-openai-key
 		--history-max 2    \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--wait
+		--wait \
+		--set kmcp.enabled=$(KMCP_ENABLED)
 	helm $(HELM_ACTION) kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
