@@ -173,6 +173,17 @@ providers:
       azureEndpoint: ""
 
 # ==============================================================================
+# KMCP
+# ==============================================================================
+
+kmcp:
+  enabled: true
+  nameOverride: "kmcp"
+  fullnameOverride: "" # Override if desired
+  namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
+  # See https://github.com/kagent-dev/kmcp/blob/main/helm/kmcp/values.yaml for chart values
+
+# ==============================================================================
 # BUILT-IN TOOLS
 # ==============================================================================
 
