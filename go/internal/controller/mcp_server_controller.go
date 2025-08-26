@@ -24,6 +24,7 @@ import (
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -31,6 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
+
+var mcpServerGK = schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}
 
 // MCPServerController reconciles a MCPServer object
 type MCPServerController struct {
@@ -51,6 +54,11 @@ func (r *MCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MCPServerController) SetupWithManager(mgr ctrl.Manager) error {
+	if _, err := mgr.GetRESTMapper().RESTMapping(mcpServerGK); err != nil {
+		ctrl.Log.Info("MCPServer CRD not found - controller will not be started", "controller", "mcpserver")
+		return nil
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
