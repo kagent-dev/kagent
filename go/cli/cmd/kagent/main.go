@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"syscall"
 	"strings"
+	"os/signal"
 
 	"github.com/abiosoft/ishell/v2"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli"
@@ -18,10 +20,23 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// listen for signals to cancel the context throughout the application
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-done
+
+		fmt.Fprintf(os.Stderr, "kagent aborted.\n")
+		fmt.Fprintf(os.Stderr, "Exiting.\n")
+
+		cancel()
+	}()
+
 	rootCmd := &cobra.Command{
 		Use:   "kagent",
 		Short: "kagent is a CLI for kagent",
-		Long:  `kagent is a CLI for kagent`,
+		Long:  "kagent is a CLI for kagent",
 		Run: func(cmd *cobra.Command, args []string) {
 			runInteractive()
 		},
@@ -210,6 +225,8 @@ func main() {
 	}
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+
 		os.Exit(1)
 	}
 
