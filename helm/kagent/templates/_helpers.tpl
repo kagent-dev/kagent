@@ -25,7 +25,7 @@ app.kubernetes.io/version: {{ .Chart.Version | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: kagent
 {{- with .Values.labels }}
-{{ toYaml . }}
+{{ toYaml . | nindent 0 }}
 {{- end }}
 {{- end }}
 
