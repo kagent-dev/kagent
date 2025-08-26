@@ -16,7 +16,7 @@ from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
-from kagent.core import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.core import KAgentConfig, KAgentRequestContextBuilder, KAgentTaskStore
 from langgraph.graph.state import CompiledStateGraph, RunnableConfig
 
 from ._checkpointer import KAgentCheckpointer
@@ -56,9 +56,7 @@ class KAgentApp:
         *,
         graph: CompiledStateGraph,
         agent_card: AgentCard,
-        kagent_url: str,
-        app_name: str,
-        user_id: str = DEFAULT_USER_ID,
+        config: KAgentConfig,
         executor_config: LangGraphAgentExecutorConfig | None = None,
     ):
         """Initialize the KAgent application.
@@ -66,17 +64,14 @@ class KAgentApp:
         Args:
             graph: Pre-compiled LangGraph
             agent_card: Agent card configuration for A2A protocol
-            kagent_url: Base URL of the KAgent server
-            app_name: Application name for session management
-            user_id: Default user ID for requests
+            config: KAgent configuration
             executor_config: Optional executor configuration
 
         """
         self._graph = graph
         self.agent_card = AgentCard.model_validate(agent_card)
-        self.kagent_url = kagent_url
-        self.app_name = app_name
-        self.user_id = user_id
+        self.kagent_url = config.url
+        self.app_name = config.app_name
         self.executor_config = executor_config or LangGraphAgentExecutorConfig()
 
     def build(self) -> FastAPI:
@@ -100,7 +95,7 @@ class KAgentApp:
         task_store = KAgentTaskStore(http_client)
 
         # Create request context builder
-        request_context_builder = KAgentRequestContextBuilder(user_id=self.user_id, task_store=task_store)
+        request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
 
         # Create request handler
         request_handler = DefaultRequestHandler(

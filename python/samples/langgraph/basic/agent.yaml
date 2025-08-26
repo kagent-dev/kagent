@@ -14,5 +14,3 @@ spec:
             secretKeyRef:
               name: kagent-google
               key: GOOGLE_API_KEY
-        - name: KAGENT_URL
-          value: "http://kagent-server:8080"

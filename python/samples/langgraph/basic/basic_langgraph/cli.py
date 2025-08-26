@@ -22,12 +22,7 @@ def main():
         agent_card = json.load(f)
 
     config = KAgentConfig()
-    app = KAgentApp(
-        graph=graph,
-        agent_card=agent_card,
-        kagent_url=config.url,
-        app_name=config.app_name,
-    )
+    app = KAgentApp(graph=graph, agent_card=agent_card, config=config)
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")

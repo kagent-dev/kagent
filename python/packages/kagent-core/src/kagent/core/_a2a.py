@@ -29,17 +29,12 @@ class KAgentUser(User):
 
 
 class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
-    """Request context builder that injects user information for KAgent."""
+    """
+    A request context builder that will be used to hack in the user_id for now.
+    """
 
-    def __init__(self, user_id: str, task_store: TaskStore):
-        """Initialize the context builder.
-
-        Args:
-            user_id: Default user ID to use
-            task_store: Task store implementation
-        """
+    def __init__(self, task_store: TaskStore):
         super().__init__(task_store=task_store)
-        self.user_id = user_id
 
     async def build(
         self,
@@ -49,11 +44,11 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
         task: Task | None = None,
         context: ServerCallContext | None = None,
     ) -> RequestContext:
-        """Build a request context with user information."""
-        if not context:
-            context = ServerCallContext(user=KAgentUser(user_id=self.user_id))
-        else:
-            context.user = KAgentUser(user_id=self.user_id)
-
+        if context:
+            # grab the user id from the header
+            headers = context.state.get("headers", {})
+            user_id = headers.get("x-user-id", None)
+            if user_id:
+                context.user = KAgentUser(user_id=user_id)
         request_context = await super().build(params, task_id, context_id, task, context)
         return request_context
