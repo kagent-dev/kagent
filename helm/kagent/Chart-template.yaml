@@ -8,10 +8,14 @@ dependencies:
     version: 0.0.11
     repository: oci://ghcr.io/kagent-dev/tools/helm
     condition: kagent-tools.enabled
+  - name: grafana-mcp
+    version: ${VERSION}
+    repository: file://../tools/grafana-mcp
+    condition: tools.grafana-mcp.enabled, agents.observability-agent.enabled
   - name: querydoc
     version: ${VERSION}
     repository: file://../tools/querydoc
-    condition: external-mcp.querydoc.enabled
+    condition: tools.querydoc.enabled
   - name: k8s-agent
     version: ${VERSION}
     repository: file://../agents/k8s
