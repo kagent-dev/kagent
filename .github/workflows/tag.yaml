@@ -104,8 +104,12 @@ jobs:
           export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
         fi
         uv sync --all-extras
+        uv version $VERSION --package kagent-core
+        uv build --package kagent-core
         uv version $VERSION --package kagent-adk
         uv build --package kagent-adk
+        uv version $VERSION --package kagent-langgraph
+        uv build --package kagent-langgraph
         uv publish --token ${{ secrets.PYPI_TOKEN }}
       
   release:

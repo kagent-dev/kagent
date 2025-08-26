@@ -10,7 +10,6 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, override
 
-import converters
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
@@ -34,6 +33,8 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
 from langgraph.graph.state import CompiledStateGraph
+
+from ._converters import _convert_langgraph_event_to_a2a
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,9 @@ class LangGraphAgentExecutor(AgentExecutor):
             logger.info(f"LangGraph event: {event}")
 
             # Convert LangGraph events to A2A events
-            a2a_events = await converters._convert_langgraph_event_to_a2a(event, context.task_id, context.context_id)
+            a2a_events = await _convert_langgraph_event_to_a2a(
+                event, context.task_id, context.context_id, self.app_name
+            )
             for a2a_event in a2a_events:
                 logger.info(f"A2A event: {a2a_event}")
                 await event_queue.enqueue_event(a2a_event)

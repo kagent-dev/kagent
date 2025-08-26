@@ -70,8 +70,8 @@ class KAgentApp:
         """
         self._graph = graph
         self.agent_card = AgentCard.model_validate(agent_card)
-        self.kagent_url = config.url
-        self.app_name = config.app_name
+        self.config = config
+
         self.executor_config = executor_config or LangGraphAgentExecutorConfig()
 
     def build(self) -> FastAPI:
@@ -82,12 +82,12 @@ class KAgentApp:
         """
 
         # Create HTTP client for KAgent API
-        http_client = httpx.AsyncClient(base_url=self.kagent_url)
+        http_client = httpx.AsyncClient(base_url=self.config.url)
 
         # Create agent executor
         agent_executor = LangGraphAgentExecutor(
             graph=self._graph,
-            app_name=self.app_name,
+            app_name=self.config.app_name,
             config=self.executor_config,
         )
 
@@ -115,7 +115,7 @@ class KAgentApp:
 
         # Create FastAPI application
         app = FastAPI(
-            title=f"KAgent LangGraph: {self.app_name}",
+            title=f"KAgent LangGraph: {self.config.app_name}",
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
         )
