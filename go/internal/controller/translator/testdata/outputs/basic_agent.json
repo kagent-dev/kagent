@@ -23,6 +23,7 @@
     "instruction": "You are a helpful assistant.",
     "model": {
       "base_url": "",
+      "headers": null,
       "model": "gpt-4o",
       "type": "openai"
     },
@@ -53,7 +54,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"basic_agent\",\"description\":\"\",\"url\":\"http://basic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
+        "config.json": "{\"model\":{\"base_url\":\"\",\"headers\":null,\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -117,7 +118,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "10700924837799816723"
+              "kagent.dev/config-hash": "3856130137997510117"
             },
             "labels": {
               "app": "kagent",
