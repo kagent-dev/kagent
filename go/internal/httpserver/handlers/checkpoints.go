@@ -68,22 +68,11 @@ type KAgentCheckpointTupleResponse struct {
 	Data []KAgentCheckpointTuple `json:"data"`
 }
 
-// GetUserIDFromHeaderOrQuery gets user ID from X-User-ID header or user_id query param
-func GetUserIDFromHeaderOrQuery(r *http.Request) (string, error) {
-	// Prefer X-User-ID header
-	if userID := r.Header.Get("X-User-ID"); userID != "" {
-		return userID, nil
-	}
-
-	// Fall back to query parameter
-	return GetUserID(r)
-}
-
 // HandlePutCheckpoint handles POST /api/langgraph/checkpoints requests
 func (h *CheckpointsHandler) HandlePutCheckpoint(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("checkpoints-handler").WithValues("operation", "put")
 
-	userID, err := GetUserIDFromHeaderOrQuery(r)
+	userID, err := GetUserID(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -139,7 +128,7 @@ func (h *CheckpointsHandler) HandlePutCheckpoint(w ErrorResponseWriter, r *http.
 func (h *CheckpointsHandler) HandleListCheckpoints(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("checkpoints-handler").WithValues("operation", "list")
 
-	userID, err := GetUserIDFromHeaderOrQuery(r)
+	userID, err := GetUserID(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -152,9 +141,6 @@ func (h *CheckpointsHandler) HandleListCheckpoints(w ErrorResponseWriter, r *htt
 	}
 
 	checkpointNS := r.URL.Query().Get("checkpoint_ns")
-	if checkpointNS == "" {
-		checkpointNS = ""
-	}
 
 	var checkpointID *string
 	if checkpointIDStr := r.URL.Query().Get("checkpoint_id"); checkpointIDStr != "" {
@@ -218,7 +204,7 @@ func (h *CheckpointsHandler) HandleListCheckpoints(w ErrorResponseWriter, r *htt
 func (h *CheckpointsHandler) HandlePutWrites(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("checkpoints-handler").WithValues("operation", "put")
 
-	userID, err := GetUserIDFromHeaderOrQuery(r)
+	userID, err := GetUserID(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -269,7 +255,7 @@ func (h *CheckpointsHandler) HandlePutWrites(w ErrorResponseWriter, r *http.Requ
 func (h *CheckpointsHandler) HandleDeleteThread(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("checkpoints-handler").WithValues("operation", "delete")
 
-	userID, err := GetUserIDFromHeaderOrQuery(r)
+	userID, err := GetUserID(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
