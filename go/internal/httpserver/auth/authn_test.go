@@ -29,10 +29,10 @@ func TestAuthnMiddleware(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router := mux.NewRouter()
 
-			router.Use(authimpl.AuthnMiddleware(tt.authn))
-			var session *auth.Session
+			router.Use(auth.AuthnMiddleware(tt.authn))
+			var session auth.Session
 			router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				session, _ = authimpl.AuthSessionFrom(r.Context())
+				session, _ = auth.AuthSessionFrom(r.Context())
 			})
 
 			rw := httptest.NewRecorder()
@@ -46,7 +46,7 @@ func TestAuthnMiddleware(t *testing.T) {
 				t.Fatalf("status Not Found, router not engaged")
 			}
 			if tt.expectedUser != "" {
-				if session == nil || session.Principal.User != tt.expectedUser {
+				if session == nil || session.Principal().User.ID != tt.expectedUser {
 					t.Fatalf("Expected user %s but got %v", tt.expectedUser, session)
 				}
 			} else if session != nil {
