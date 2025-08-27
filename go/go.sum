@@ -132,6 +132,8 @@ github.com/kagent-dev/a2a-go v0.0.0-20250806145931-0fab01f644c3 h1:NrQCHyIOsQTtq
 github.com/kagent-dev/a2a-go v0.0.0-20250806145931-0fab01f644c3/go.mod h1:lu052zH/pTlTBwWMU/E3UckR0U9ajL1NlhiRkIF9R6A=
 github.com/kagent-dev/kmcp v0.1.4 h1:LozbTJYZCdPh8JDkFiCihevV4+l+eS1+cvmjD+1BpdI=
 github.com/kagent-dev/kmcp v0.1.4/go.mod h1:aPwM1QtoAackdbQqLrPaNSSg/KZa0fFjbTJyOZFJNK8=
+github.com/kagent-dev/kmcp v0.1.6 h1:O+W2g1tV2GcBHl04Tzln/wbP+VsVV6Mp/E1qCjUjYPQ=
+github.com/kagent-dev/kmcp v0.1.6/go.mod h1:aPwM1QtoAackdbQqLrPaNSSg/KZa0fFjbTJyOZFJNK8=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
