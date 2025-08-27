@@ -20,6 +20,11 @@ namespaceOverride: ""
 
 podAnnotations: {}
 
+# -- Additional labels to add to all Kubernetes resources
+labels: {}
+  # environment: production
+  # team: platform
+
 podSecurityContext: {}
   # fsGroup: 2000
 
