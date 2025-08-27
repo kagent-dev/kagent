@@ -3,14 +3,10 @@ package auth
 import (
 	"context"
 	"net/http"
+	"net/url"
 )
 
 type Verb string
-
-type Resource struct {
-	Name string
-	Type string
-}
 
 const (
 	VerbGet    Verb = "get"
@@ -19,13 +15,27 @@ const (
 	VerbDelete Verb = "delete"
 )
 
+type Resource struct {
+	Name string
+	Type string
+}
+
+type User struct {
+	ID    string
+	Roles []string
+}
+type Agent struct {
+	ID string
+}
+
 // Authn
 type Principal struct {
-	User  string
-	Agent string
+	User  User
+	Agent Agent
 }
-type Session struct {
-	Principal Principal
+
+type Session interface {
+	Principal() Principal
 }
 
 // Responsibilities:
@@ -35,12 +45,45 @@ type Session struct {
 //
 // - Forward auth credentials to upstream agents
 type AuthProvider interface {
-	Authenticate(r *http.Request) (*Session, error)
+	Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (Session, error)
 	// add auth to upstream requests of a session
-	UpstreamAuth(r *http.Request, session *Session) error
+	UpstreamAuth(r *http.Request, session Session) error
 }
 
 // Authz
 type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
+}
+
+// context utils
+
+type sessionKeyType struct{}
+
+var (
+	sessionKey = sessionKeyType{}
+)
+
+func AuthSessionFrom(ctx context.Context) (Session, bool) {
+	v, ok := ctx.Value(sessionKey).(Session)
+	return v, ok && v != nil
+}
+
+func AuthSessionTo(ctx context.Context, session Session) context.Context {
+	return context.WithValue(ctx, sessionKey, session)
+}
+
+func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			session, err := authn.Authenticate(r.Context(), r.Header, r.URL.Query())
+			if err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			if session != nil {
+				r = r.WithContext(AuthSessionTo(r.Context(), session))
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

@@ -28,7 +28,7 @@ require (
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 	sigs.k8s.io/controller-runtime v0.21.0
 	sigs.k8s.io/yaml v1.6.0
-	trpc.group/trpc-go/trpc-a2a-go v0.2.1
+	trpc.group/trpc-go/trpc-a2a-go v0.2.3
 )
 
 require (
@@ -152,5 +152,3 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 )
-
-replace trpc.group/trpc-go/trpc-a2a-go => github.com/kagent-dev/a2a-go v0.0.0-20250806145931-0fab01f644c3

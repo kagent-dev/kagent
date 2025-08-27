@@ -26,9 +26,11 @@ import (
 )
 
 func setUser(req *http.Request, userID string) *http.Request {
-	ctx := authimpl.AuthSessionTo(req.Context(), &auth.Session{
-		Principal: auth.Principal{
-			User: userID,
+	ctx := auth.AuthSessionTo(req.Context(), &authimpl.SimpleSession{
+		P: auth.Principal{
+			User: auth.User{
+				ID: userID,
+			},
 		},
 	})
 	return req.WithContext(ctx)

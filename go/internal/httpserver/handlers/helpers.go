@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	corev1 "k8s.io/api/core/v1"
@@ -51,7 +50,7 @@ func RespondWithError(w http.ResponseWriter, code int, message string) {
 
 func GetUserID(r *http.Request) (string, error) {
 	p, err := GetPrincipal(r)
-	return p.User, err
+	return p.User.ID, err
 }
 
 func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *errors.APIError {
@@ -83,13 +82,13 @@ func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *erro
 func GetPrincipal(r *http.Request) (auth.Principal, error) {
 	log := ctrllog.Log.WithName("http-helpers")
 
-	s, ok := authimpl.AuthSessionFrom(r.Context())
+	s, ok := auth.AuthSessionFrom(r.Context())
 	if !ok || s == nil {
 		log.Info("No session found in request context")
 		return auth.Principal{}, fmt.Errorf("no session found")
 	}
-	log.V(2).Info("Retrieved session from request", "userID", s.Principal.User)
-	return s.Principal, nil
+	log.V(2).Info("Retrieved session from request", "userID", s.Principal().User)
+	return s.Principal(), nil
 }
 
 // GetPathParam gets a path parameter from the request
