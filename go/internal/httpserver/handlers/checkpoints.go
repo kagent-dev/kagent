@@ -273,4 +273,8 @@ func (h *CheckpointsHandler) HandleDeleteThread(w ErrorResponseWriter, r *http.R
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete thread", err))
 		return
 	}
+
+	log.Info("Successfully deleted thread")
+	data := api.NewResponse(struct{}{}, "Successfully deleted thread", false)
+	RespondWithJSON(w, http.StatusOK, data)
 }
