@@ -14,20 +14,13 @@ from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
-    Artifact,
     Message,
     Part,
     Role,
-    TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
     TextPart,
-)
-from langchain_core.messages import (
-    AIMessage,
-    HumanMessage,
-    ToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
@@ -47,9 +40,6 @@ class LangGraphAgentExecutorConfig(BaseModel):
 
     # Whether to stream intermediate results
     enable_streaming: bool = True
-
-    # User ID to use if not provided in request
-    default_user_id: str = "admin@kagent.dev"
 
 
 class LangGraphAgentExecutor(AgentExecutor):
@@ -82,12 +72,10 @@ class LangGraphAgentExecutor(AgentExecutor):
         """Create LangGraph config from A2A request context."""
         # Extract session information
         session_id = getattr(context, "session_id", None) or context.context_id
-        user_id = getattr(context, "user_id", self._config.default_user_id)
 
         return {
             "configurable": {
                 "thread_id": session_id,
-                "user_id": user_id,
                 "app_name": self.app_name,
             }
         }
@@ -176,7 +164,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                 metadata={
                     "app_name": self.app_name,
                     "session_id": getattr(context, "session_id", context.context_id),
-                    "user_id": getattr(context, "user_id", self._config.default_user_id),
                 },
             )
         )

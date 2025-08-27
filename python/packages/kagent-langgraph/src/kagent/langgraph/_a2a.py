@@ -22,9 +22,6 @@ from langgraph.graph.state import CompiledStateGraph, RunnableConfig
 from ._checkpointer import KAgentCheckpointer
 from ._executor import LangGraphAgentExecutor, LangGraphAgentExecutorConfig
 
-# --- Constants ---
-DEFAULT_USER_ID = "admin@kagent.dev"
-
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
 
