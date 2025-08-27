@@ -372,7 +372,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 		return
 	}
 
-	if session.AgentID != nil && *session.AgentID != principal.Agent {
+	if session.AgentID != nil && *session.AgentID != principal.Agent.ID {
 		w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
 		return
 	}
