@@ -306,7 +306,7 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 }
 
 func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {
-	serverRef := req.NamespacedName.String()
+	serverRef := req.String()
 	l := reconcileLog.WithValues("remoteMCPServer", serverRef)
 
 	server := &v1alpha2.RemoteMCPServer{}
