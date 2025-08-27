@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y \
 RUN pip install uv
 
 # Copy project files
-COPY basic_langgraph/ basic_langgraph/
+COPY samples samples
+COPY packages packages
 COPY pyproject.toml pyproject.toml
 COPY README.md README.md
 COPY .python-version .python-version
@@ -35,4 +36,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the application
-CMD ["uv", "run", "basic-langgraph"]
+CMD ["uv", "run", "samples/langgraph/basic/basic_langgraph"]

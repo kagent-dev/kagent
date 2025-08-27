@@ -6,9 +6,6 @@ from a2a.server.context import ServerCallContext
 from a2a.server.tasks import TaskStore
 from a2a.types import MessageSendParams, Task
 
-# --- Constants ---
-DEFAULT_USER_ID = "admin@kagent.dev"
-
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
 
