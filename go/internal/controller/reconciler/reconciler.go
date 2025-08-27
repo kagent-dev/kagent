@@ -306,11 +306,12 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 }
 
 func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {
-	serverRef := req.NamespacedName.String()
+	nns := req.NamespacedName
+	serverRef := nns.String()
 	l := reconcileLog.WithValues("remoteMCPServer", serverRef)
 
 	server := &v1alpha2.RemoteMCPServer{}
-	if err := a.kube.Get(ctx, req.NamespacedName, server); err != nil {
+	if err := a.kube.Get(ctx, nns, server); err != nil {
 		// if the remote MCP server is not found, we can ignore it
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the remote mcp server is deleted
