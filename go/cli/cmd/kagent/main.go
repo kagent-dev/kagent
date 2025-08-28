@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -209,7 +210,166 @@ func main() {
 
 	getCmd.AddCommand(getSessionCmd, getAgentCmd, getToolCmd)
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd)
+	initCmd := &cobra.Command{
+		Use:   "init [framework] [language] [agent-name]",
+		Short: "Initialize a new agent project",
+		Long: `Initialize a new agent project using the specified framework and language.
+
+You can customize the root agent instructions using the --instruction-file flag.
+You can select a specific model using --model-provider and --model-name flags.
+If no custom instruction file is provided, a default dice-rolling instruction will be used.
+If no model is specified, the agent will need to be configured later.
+
+Examples:
+  kagent init adk python dice
+  kagent init adk python dice --instruction-file instructions.md
+  kagent init adk python dice --model-provider Gemini --model-name gemini-2.0-flash`,
+		Args: cobra.ExactArgs(3),
+		Run: func(cmd *cobra.Command, args []string) {
+			initCfg := &cli.InitCfg{
+				Config:    cfg,
+				Framework: args[0],
+				Language:  args[1],
+				AgentName: args[2],
+			}
+
+			// Get instruction file path if specified
+			if instructionFile, _ := cmd.Flags().GetString("instruction-file"); instructionFile != "" {
+				initCfg.InstructionFile = instructionFile
+			}
+
+			// Get model provider and name if specified
+			if modelProvider, _ := cmd.Flags().GetString("model-provider"); modelProvider != "" {
+				initCfg.ModelProvider = modelProvider
+			}
+
+			if modelName, _ := cmd.Flags().GetString("model-name"); modelName != "" {
+				initCfg.ModelName = modelName
+			}
+
+			if description, _ := cmd.Flags().GetString("description"); description != "" {
+				initCfg.Description = description
+			}
+
+			if err := cli.InitCmd(initCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+		Example: `kagent init adk python dice`,
+	}
+
+	// Add flags for custom instructions and model selection
+	initCmd.Flags().String("instruction-file", "", "Path to file containing custom instructions for the root agent")
+	initCmd.Flags().String("model-provider", "", "Model provider (OpenAI, Anthropic, AzureOpenAI, Gemini)")
+	initCmd.Flags().String("model-name", "", "Model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.0-flash)")
+	initCmd.Flags().String("description", "", "Description for the agent")
+
+	buildCmd := &cobra.Command{
+		Use:   "build [project-directory]",
+		Short: "Build a Docker image for an agent project",
+		Long: `Build a Docker image for an agent project created with the init command.
+
+This command will look for a Dockerfile in the specified project directory and build
+a Docker image using docker build. The image can optionally be pushed to a registry.
+
+Image naming:
+- If --image is provided, it will be used as the full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)
+- Otherwise, defaults to localhost:5001/{agentName}:latest where agentName is loaded from kagent.yaml
+
+Examples:
+  kagent build ./my-agent
+  kagent build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0
+  kagent build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0 --push`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			buildCfg := &cli.BuildCfg{
+				Config: cfg,
+			}
+
+			// Get project directory from positional argument
+			buildCfg.ProjectDir = args[0]
+
+			if image, _ := cmd.Flags().GetString("image"); image != "" {
+				buildCfg.Image = image
+			}
+
+			if push, _ := cmd.Flags().GetBool("push"); push {
+				buildCfg.Push = true
+			}
+
+			if err := cli.BuildCmd(buildCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+		Example: `kagent build ./my-agent`,
+	}
+
+	// Add flags for build command
+	buildCmd.Flags().String("image", "", "Full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)")
+	buildCmd.Flags().Bool("push", false, "Push the image to the registry")
+
+	deployCmd := &cobra.Command{
+		Use:   "deploy [project-directory]",
+		Short: "Deploy an agent to Kubernetes",
+		Long: `Deploy an agent to Kubernetes.
+
+This command will read the kagent.yaml file from the specified project directory,
+create or reference a Kubernetes secret with the API key, and create an Agent CRD.
+
+The command will:
+1. Load the agent configuration from kagent.yaml
+2. Either create a new secret with the provided API key or verify an existing secret
+3. Create an Agent CRD with the appropriate configuration
+
+API Key Options:
+  --api-key: Convenience option to create a new secret with the provided API key
+  --api-key-secret: Canonical way to reference an existing secret by name
+
+Examples:
+  kagent deploy ./my-agent --api-key-secret "my-existing-secret"
+  kagent deploy ./my-agent --api-key "your-api-key-here" --image "myregistry/myagent:v1.0"
+  kagent deploy ./my-agent --api-key-secret "my-secret" --namespace "my-namespace"`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			deployCfg := &cli.DeployCfg{
+				Config: cfg,
+			}
+
+			// Get project directory from positional argument
+			deployCfg.ProjectDir = args[0]
+
+			if image, _ := cmd.Flags().GetString("image"); image != "" {
+				deployCfg.Image = image
+			}
+
+			if apiKey, _ := cmd.Flags().GetString("api-key"); apiKey != "" {
+				deployCfg.APIKey = apiKey
+			}
+
+			if apiKeySecret, _ := cmd.Flags().GetString("api-key-secret"); apiKeySecret != "" {
+				deployCfg.APIKeySecret = apiKeySecret
+			}
+
+			if namespace, _ := cmd.Flags().GetString("namespace"); namespace != "" {
+				deployCfg.Config.Namespace = namespace
+			}
+
+			if err := cli.DeployCmd(deployCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+		Example: `kagent deploy ./my-agent --api-key-secret "my-existing-secret"`,
+	}
+
+	// Add flags for deploy command
+	deployCmd.Flags().StringP("image", "i", "", "Image to use (defaults to localhost:5001/{agentName}:latest)")
+	deployCmd.Flags().String("api-key", "", "API key for the model provider (convenience option to create secret)")
+	deployCmd.Flags().String("api-key-secret", "", "Name of existing secret containing API key")
+
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd)
 
 	// Initialize config
 	if err := config.Init(); err != nil {
@@ -491,6 +651,139 @@ Example:
 			}
 			cfg := config.GetCfg(c)
 			cli.DashboardCmd(ctx, cfg)
+		},
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name:    "init",
+		Aliases: []string{"i"},
+		Help:    "Initialize a new kagent project.",
+		LongHelp: `Initialize a new kagent project with the specified framework and language.
+
+Usage: init [framework] [language] [project-name]
+
+You can optionally provide custom instructions for the root agent by specifying a file path containing the instructions.
+You can also select a specific model provider and model name during initialization.
+If no custom instruction file is provided, a default dice-rolling instruction will be used.
+If no model is specified, the gemini-2.0-flash model will be used.
+
+Examples:
+  init adk python dice
+`,
+		Func: func(c *ishell.Context) {
+			if len(c.Args) != 3 {
+				c.Println("Usage: init [framework] [language] [project-name]")
+				c.Println("Example: init adk python dice")
+				return
+			}
+
+			initCfg := &cli.InitCfg{
+				Framework: c.Args[0],
+				Language:  c.Args[1],
+				AgentName: c.Args[2],
+			}
+
+			// Prompt for custom instruction if user wants to provide one
+			c.Println("Would you like to provide custom instructions for the root agent? (y/n)")
+			choice := c.ReadLine()
+			if strings.ToLower(strings.TrimSpace(choice)) == "y" {
+				c.Print("Enter the path to your instruction file: ")
+				filePath := c.ReadLine()
+				if filePath != "" {
+					initCfg.InstructionFile = strings.TrimSpace(filePath)
+					c.Println("Instruction file path saved.")
+				}
+			}
+
+			// Prompt for model selection
+			c.Println("Would you like to select a specific model? (y/n)")
+			choice = c.ReadLine()
+			if strings.ToLower(strings.TrimSpace(choice)) == "y" {
+				c.Println("Available model providers:")
+				c.Println("1. OpenAI")
+				c.Println("2. Anthropic")
+				c.Println("3. AzureOpenAI")
+				c.Println("4. Gemini")
+
+				c.Print("Enter the number of your choice (1-4): ")
+				providerChoice := c.ReadLine()
+
+				providers := []string{"OpenAI", "Anthropic", "AzureOpenAI", "Gemini"}
+				if idx := strings.TrimSpace(providerChoice); idx != "" {
+					if i, err := strconv.Atoi(idx); err == nil && i >= 1 && i <= len(providers) {
+						initCfg.ModelProvider = providers[i-1]
+						c.Printf("Selected provider: %s\n", initCfg.ModelProvider)
+
+						// Prompt for custom instruction if user wants to provide one
+						c.Print("Enter the model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.0-flash): ")
+						modelName := c.ReadLine()
+						if modelName != "" {
+							initCfg.ModelName = strings.TrimSpace(modelName)
+							c.Printf("Selected model: %s\n", initCfg.ModelName)
+						}
+					}
+				}
+			}
+
+			if err := cli.InitCmd(initCfg); err != nil {
+				c.Println("Error:", err)
+				return
+			}
+		},
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name:    "build",
+		Aliases: []string{"b"},
+		Help:    "Build a Docker image for an agent project.",
+		LongHelp: `Build a Docker image for an agent project created with the init command.
+
+Usage: build [project-directory]
+
+This command will look for a Dockerfile in the specified project directory and build
+a Docker image using docker build. The image can optionally be pushed to a registry.
+
+Examples:
+  build ./my-agent
+  build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0
+  build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0 --push
+`,
+		Func: func(c *ishell.Context) {
+			if len(c.Args) < 1 {
+				c.Println("Usage: build [project-directory]")
+				c.Println("Example: build ./my-agent")
+				return
+			}
+
+			buildCfg := &cli.BuildCfg{
+				ProjectDir: c.Args[0],
+				Config:     cfg,
+			}
+
+			// Prompt for full image specification if user wants to specify one
+			c.Println("Would you like to specify a full image name? (y/n)")
+			choice := c.ReadLine()
+			if strings.ToLower(strings.TrimSpace(choice)) == "y" {
+				c.Print("Enter the full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0): ")
+				image := c.ReadLine()
+				if image != "" {
+					buildCfg.Image = strings.TrimSpace(image)
+					c.Printf("Image set to: %s\n", buildCfg.Image)
+				}
+			}
+
+			// Prompt for push
+			c.Println("Would you like to push the image after building? (y/n)")
+			choice = c.ReadLine()
+			if strings.ToLower(strings.TrimSpace(choice)) == "y" {
+				buildCfg.Push = true
+				c.Println("Image will be pushed after building.")
+			}
+
+			if err := cli.BuildCmd(buildCfg); err != nil {
+				c.Println("Error:", err)
+				return
+			}
 		},
 	})
 
