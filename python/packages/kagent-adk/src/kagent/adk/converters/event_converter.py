@@ -13,10 +13,13 @@ from google.adk.events.event import Event
 from google.adk.flows.llm_flows.functions import REQUEST_EUC_FUNCTION_CALL_NAME
 from google.genai import types as genai_types
 
-from .part_converter import (
+from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_KEY,
+)
+
+from .part_converter import (
     convert_a2a_part_to_genai_part,
     convert_genai_part_to_a2a_part,
 )
@@ -129,136 +132,6 @@ def _process_long_running_tool(a2a_part: A2APart, event: Event) -> None:
         and a2a_part.root.data.get("id") in event.long_running_tool_ids
     ):
         a2a_part.root.metadata[_get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)] = True
-
-
-def convert_a2a_task_to_event(
-    a2a_task: Task,
-    author: Optional[str] = None,
-    invocation_context: Optional[InvocationContext] = None,
-) -> Event:
-    """Converts an A2A task to an ADK event.
-
-    Args:
-      a2a_task: The A2A task to convert. Must not be None.
-      author: The author of the event. Defaults to "a2a agent" if not provided.
-      invocation_context: The invocation context containing session information.
-        If provided, the branch will be set from the context.
-
-    Returns:
-      An ADK Event object representing the converted task.
-
-    Raises:
-      ValueError: If a2a_task is None.
-      RuntimeError: If conversion of the underlying message fails.
-    """
-    if a2a_task is None:
-        raise ValueError("A2A task cannot be None")
-
-    try:
-        # Extract message from task status or history
-        message = None
-        if a2a_task.artifacts:
-            message = Message(message_id="", role=Role.agent, parts=a2a_task.artifacts[-1].parts)
-        elif a2a_task.status and a2a_task.status.message:
-            message = a2a_task.status.message
-        elif a2a_task.history:
-            message = a2a_task.history[-1]
-
-        # Convert message if available
-        if message:
-            try:
-                return convert_a2a_message_to_event(message, author, invocation_context)
-            except Exception as e:
-                logger.error("Failed to convert A2A task message to event: %s", e)
-                raise RuntimeError(f"Failed to convert task message: {e}") from e
-
-        # Create minimal event if no message is available
-        return Event(
-            invocation_id=(invocation_context.invocation_id if invocation_context else str(uuid.uuid4())),
-            author=author or "a2a agent",
-            branch=invocation_context.branch if invocation_context else None,
-        )
-
-    except Exception as e:
-        logger.error("Failed to convert A2A task to event: %s", e)
-        raise
-
-
-def convert_a2a_message_to_event(
-    a2a_message: Message,
-    author: Optional[str] = None,
-    invocation_context: Optional[InvocationContext] = None,
-) -> Event:
-    """Converts an A2A message to an ADK event.
-
-    Args:
-      a2a_message: The A2A message to convert. Must not be None.
-      author: The author of the event. Defaults to "a2a agent" if not provided.
-      invocation_context: The invocation context containing session information.
-        If provided, the branch will be set from the context.
-
-    Returns:
-      An ADK Event object with converted content and long-running tool metadata.
-
-    Raises:
-      ValueError: If a2a_message is None.
-      RuntimeError: If conversion of message parts fails.
-    """
-    if a2a_message is None:
-        raise ValueError("A2A message cannot be None")
-
-    if not a2a_message.parts:
-        logger.warning("A2A message has no parts, creating event with empty content")
-        return Event(
-            invocation_id=(invocation_context.invocation_id if invocation_context else str(uuid.uuid4())),
-            author=author or "a2a agent",
-            branch=invocation_context.branch if invocation_context else None,
-            content=genai_types.Content(role="model", parts=[]),
-        )
-
-    try:
-        parts = []
-        long_running_tool_ids = set()
-
-        for a2a_part in a2a_message.parts:
-            try:
-                part = convert_a2a_part_to_genai_part(a2a_part)
-                if part is None:
-                    logger.warning("Failed to convert A2A part, skipping: %s", a2a_part)
-                    continue
-
-                # Check for long-running tools
-                if (
-                    a2a_part.root.metadata
-                    and a2a_part.root.metadata.get(_get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY))
-                    is True
-                ):
-                    long_running_tool_ids.add(part.function_call.id)
-
-                parts.append(part)
-
-            except Exception as e:
-                logger.error("Failed to convert A2A part: %s, error: %s", a2a_part, e)
-                # Continue processing other parts instead of failing completely
-                continue
-
-        if not parts:
-            logger.warning("No parts could be converted from A2A message %s", a2a_message)
-
-        return Event(
-            invocation_id=(invocation_context.invocation_id if invocation_context else str(uuid.uuid4())),
-            author=author or "a2a agent",
-            branch=invocation_context.branch if invocation_context else None,
-            long_running_tool_ids=long_running_tool_ids if long_running_tool_ids else None,
-            content=genai_types.Content(
-                role="model",
-                parts=parts,
-            ),
-        )
-
-    except Exception as e:
-        logger.error("Failed to convert A2A message to event: %s", e)
-        raise RuntimeError(f"Failed to convert message: {e}") from e
 
 
 def convert_event_to_a2a_message(

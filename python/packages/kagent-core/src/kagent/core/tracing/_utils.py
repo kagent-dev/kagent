@@ -15,7 +15,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 
-def configure_tracing():
+def configure():
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
 
