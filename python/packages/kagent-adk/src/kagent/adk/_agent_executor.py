@@ -21,13 +21,14 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from google.adk.a2a.converters.event_converter import convert_event_to_a2a_events
-from google.adk.a2a.converters.request_converter import convert_a2a_request_to_adk_run_args
-from google.adk.a2a.converters.utils import _get_adk_metadata_key
 from google.adk.a2a.executor.task_result_aggregator import TaskResultAggregator
 from google.adk.runners import Runner
 from pydantic import BaseModel
 from typing_extensions import override
+
+from .converters.event_converter import convert_event_to_a2a_events
+from .converters.request_converter import convert_a2a_request_to_adk_run_args
+from .converters.utils import _get_kagent_metadata_key
 
 logger = logging.getLogger("google_adk." + __name__)
 
@@ -185,9 +186,9 @@ class A2aAgentExecutor(AgentExecutor):
                 context_id=context.context_id,
                 final=False,
                 metadata={
-                    _get_adk_metadata_key("app_name"): runner.app_name,
-                    _get_adk_metadata_key("user_id"): run_args["user_id"],
-                    _get_adk_metadata_key("session_id"): run_args["session_id"],
+                    _get_kagent_metadata_key("app_name"): runner.app_name,
+                    _get_kagent_metadata_key("user_id"): run_args["user_id"],
+                    _get_kagent_metadata_key("session_id"): run_args["session_id"],
                 },
             )
         )

@@ -11,7 +11,6 @@ from a2a.types import Part as A2APart
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.flows.llm_flows.functions import REQUEST_EUC_FUNCTION_CALL_NAME
-from google.adk.utils.feature_decorator import experimental
 from google.genai import types as genai_types
 
 from .part_converter import (
@@ -185,7 +184,6 @@ def convert_a2a_task_to_event(
         raise
 
 
-@experimental
 def convert_a2a_message_to_event(
     a2a_message: Message,
     author: Optional[str] = None,
@@ -263,7 +261,6 @@ def convert_a2a_message_to_event(
         raise RuntimeError(f"Failed to convert message: {e}") from e
 
 
-@experimental
 def convert_event_to_a2a_message(
     event: Event, invocation_context: InvocationContext, role: Role = Role.agent
 ) -> Optional[Message]:
@@ -400,7 +397,6 @@ def _create_status_update_event(
     )
 
 
-@experimental
 def convert_event_to_a2a_events(
     event: Event,
     invocation_context: InvocationContext,

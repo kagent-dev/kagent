@@ -24,7 +24,6 @@ import logging
 from typing import Optional
 
 from a2a import types as a2a_types
-from google.adk.utils.feature_decorator import experimental
 from google.genai import types as genai_types
 
 from .utils import _get_kagent_metadata_key
@@ -39,7 +38,6 @@ A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT = "code_execution_result"
 A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE = "executable_code"
 
 
-@experimental
 def convert_a2a_part_to_genai_part(
     a2a_part: a2a_types.Part,
 ) -> Optional[genai_types.Part]:
@@ -51,14 +49,14 @@ def convert_a2a_part_to_genai_part(
     if isinstance(part, a2a_types.FilePart):
         if isinstance(part.file, a2a_types.FileWithUri):
             return genai_types.Part(
-                file_data=genai_types.FileData(file_uri=part.file.uri, mime_type=part.file.mimeType)
+                file_data=genai_types.FileData(file_uri=part.file.uri, mime_type=part.file.mime_type)
             )
 
         elif isinstance(part.file, a2a_types.FileWithBytes):
             return genai_types.Part(
                 inline_data=genai_types.Blob(
                     data=base64.b64decode(part.file.bytes),
-                    mime_type=part.file.mimeType,
+                    mime_type=part.file.mime_type,
                 )
             )
         else:
@@ -112,7 +110,6 @@ def convert_a2a_part_to_genai_part(
     return None
 
 
-@experimental
 def convert_genai_part_to_a2a_part(
     part: genai_types.Part,
 ) -> Optional[a2a_types.Part]:
