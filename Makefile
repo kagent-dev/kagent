@@ -233,6 +233,8 @@ helm-agents:
 
 .PHONY: helm-tools
 helm-tools:
+	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
 	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
 

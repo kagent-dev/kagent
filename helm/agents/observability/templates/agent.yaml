@@ -94,8 +94,8 @@ spec:
           - k8s_get_available_api_resources
       - type: McpServer
         mcpServer:
-          name: grafana
-          kind: MCPServer
+          name: kagent-grafana-mcp
+          kind: RemoteMCPServer
           apiGroup: kagent.dev
           toolNames:
           - update_dashboard

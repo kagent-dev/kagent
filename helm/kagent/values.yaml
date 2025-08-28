@@ -210,11 +210,21 @@ agents:
     enabled: true
 
 # ==============================================================================
-# EXTERNAL MCP SERVERS
+# MCP TOOLS
 # ==============================================================================
 
+tools:
+  grafana-mcp:
+    enabled: true
+  querydoc:
+    enabled: true
+
+grafana-mcp:
+  grafana:
+    url: "grafana.kagent:3000/api"
+    apiKey: "-"
+
 querydoc:
-  enabled: true
   replicas: 1
   image:
     registry: ghcr.io
