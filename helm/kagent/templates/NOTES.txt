@@ -20,11 +20,15 @@ DEPLOYED COMPONENTS:
   - Controller: {{ include "kagent.fullname" . }}-controller (manages Kubernetes resources)
   - Engine: {{ include "kagent.fullname" . }}-engine (AI agent runtime)
   - UI: {{ include "kagent.fullname" . }}-ui (web interface)
+
+ENABLED TOOLS:
 {{- if index .Values "kagent-tools" "enabled" }}
   - Tool Server: Kagent's Built-in tools
 {{- end }}
-{{- if index .Values "querydoc" "enabled" }}
-  - QueryDoc: Document search and analysis
+{{- range $tool, $config := .Values.tools }}
+{{- if $config.enabled }}
+  - {{ $tool }}
+{{- end }}
 {{- end }}
 
 ENABLED AGENTS:
