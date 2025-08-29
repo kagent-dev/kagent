@@ -299,7 +299,7 @@ func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
 		cfg.DefaultModelConfig,
 	)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, authenticator)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, authenticator, dbClient)
 
 	a2aReconciler := a2a_reconciler.NewReconciler(
 		a2aHandler,

@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -129,35 +130,38 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		ObservedGeneration: agent.Generation,
 	})
 
-	deployedCondition := metav1.Condition{
-		Type:               v1alpha2.AgentConditionTypeReady,
-		Status:             metav1.ConditionUnknown,
-		ObservedGeneration: agent.Generation,
-	}
-
-	// Check if the deployment exists
-	deployment := &appsv1.Deployment{}
-	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
-		deployedCondition.Status = metav1.ConditionUnknown
-		deployedCondition.Reason = "DeploymentNotFound"
-		deployedCondition.Message = err.Error()
-	} else {
-		replicas := int32(1)
-		if deployment.Spec.Replicas != nil {
-			replicas = *deployment.Spec.Replicas
+	// Remote agents don't have a deployment, so we do not add a deployment condition.
+	if agent.Spec.Type != v1alpha2.AgentType_Remote {
+		deployedCondition := metav1.Condition{
+			Type:               v1alpha2.AgentConditionTypeReady,
+			Status:             metav1.ConditionUnknown,
+			ObservedGeneration: agent.Generation,
 		}
-		if deployment.Status.AvailableReplicas == replicas {
-			deployedCondition.Status = metav1.ConditionTrue
-			deployedCondition.Reason = "DeploymentReady"
-			deployedCondition.Message = "Deployment is ready"
+
+		// Check if the deployment exists
+		deployment := &appsv1.Deployment{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
+			deployedCondition.Status = metav1.ConditionUnknown
+			deployedCondition.Reason = "DeploymentNotFound"
+			deployedCondition.Message = err.Error()
 		} else {
-			deployedCondition.Status = metav1.ConditionFalse
-			deployedCondition.Reason = "DeploymentNotReady"
-			deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+			replicas := int32(1)
+			if deployment.Spec.Replicas != nil {
+				replicas = *deployment.Spec.Replicas
+			}
+			if deployment.Status.AvailableReplicas == replicas {
+				deployedCondition.Status = metav1.ConditionTrue
+				deployedCondition.Reason = "DeploymentReady"
+				deployedCondition.Message = "Deployment is ready"
+			} else {
+				deployedCondition.Status = metav1.ConditionFalse
+				deployedCondition.Reason = "DeploymentNotReady"
+				deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+			}
 		}
-	}
 
-	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+		conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+	}
 
 	// update the status if it has changed or the generation has changed
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
@@ -498,10 +502,21 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	defer a.upsertLock.Unlock()
 
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+
+	// Marshal remote agent's AgentCard to store in DB
+	var serializedCard string
+	if agent.Spec.Type == v1alpha2.AgentType_Remote && agentOutputs != nil {
+		if cardBytes, err := json.Marshal(agentOutputs.AgentCard); err == nil {
+			serializedCard = string(cardBytes)
+		}
+	}
+
 	dbAgent := &database.Agent{
-		ID:     id,
-		Type:   string(agent.Spec.Type),
-		Config: agentOutputs.Config,
+		ID:           id,
+		Type:         string(agent.Spec.Type),
+		Config:       agentOutputs.Config,
+		RemoteConfig: agentOutputs.RemoteConfig,
+		AgentCard:    serializedCard,
 	}
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {

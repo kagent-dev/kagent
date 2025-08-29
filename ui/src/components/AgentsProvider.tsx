@@ -17,6 +17,7 @@ interface ValidationErrors {
   knowledgeSources?: string;
   tools?: string;
   memory?: string;
+  remoteAgentCardUrl?: string;
 }
 
 export interface AgentFormData {
@@ -32,6 +33,9 @@ export interface AgentFormData {
   byoImage?: string;
   byoCmd?: string;
   byoArgs?: string[];
+  // Remote fields
+  remoteAgentCardUrl?: string;
+  remoteServerUrl?: string;
   // Shared deployment optional fields
   replicas?: number;
   imagePullSecrets?: Array<{ name: string }>;
@@ -162,6 +166,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } else if (type === "BYO") {
       if (!data.byoImage || data.byoImage.trim() === "") {
         errors.model = "Container image is required";
+      }
+    } else if (type === "Remote") {
+      if (!data.remoteAgentCardUrl || data.remoteAgentCardUrl.trim() === "") {
+        errors.remoteAgentCardUrl = "Agent card URL is required";
       }
     }
 

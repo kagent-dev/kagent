@@ -64,11 +64,16 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	agentRef := utils.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
-	deploymentReady := false
-	for _, condition := range agent.Status.Conditions {
-		if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
-			deploymentReady = true
-			break
+	deploymentReady := true
+	if agent.Spec.Type != v1alpha2.AgentType_Remote {
+		// for non-remote agents, we need to check the deployment conditions to see if the deployment is ready
+		deploymentReady = false
+
+		for _, condition := range agent.Status.Conditions {
+			if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
+				deploymentReady = true
+				break
+			}
 		}
 	}
 
@@ -112,6 +117,24 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		response.ModelConfigRef = utils.GetObjectRef(modelConfig)
 		response.Tools = agent.Spec.Declarative.Tools
 	}
+
+	// TODO(infocus7): get this to work. not sure if the database is the expected one (with all the agent information).
+	// At the moment, it says agent does not exist (maybe the error log causes it to not return anything) instead of finding it and updating the description..
+	// if agent.Spec.Type == v1alpha2.AgentType_Remote {
+	// 	log.V(1).Info("Processing Remote Agent", "agentRef", agentRef)
+	// 	// if agent.Spec.Description == "" {
+	// 	log.V(1).Info("No description provided for agent, getting from database", "agentRef", agentRef)
+	// 	dbAgent, err := h.DatabaseService.GetAgent(agent.Name)
+	// 	if err != nil {
+	// 		log.Error(err, "Failed to get remote agent information from database", "agentRef", agentRef)
+	// 		return response, err
+	// 	}
+	// 	log.V(1).Info("Got Agent from database", "agentRef", agentRef, "description", dbAgent.RemoteConfig.Description)
+	// 	if dbAgent.RemoteConfig.Description != "" {
+	// 		response.Agent.Spec.Description = dbAgent.RemoteConfig.Description
+	// 	}
+	// 	// }
+	// }
 
 	return response, nil
 }
@@ -159,6 +182,49 @@ func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 
 	log.Info("Successfully retrieved agent")
 	data := api.NewResponse(agentResponse, "Successfully retrieved agent", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleGetAgentCard handles GET /api/agents/{namespace}/{name}/card by returning the stored AgentCard JSON
+// Note: Currently, we only store the AgentCard for remote agents so that users can see the latest agent card fetched.
+func (h *AgentsHandler) HandleGetAgentCard(w ErrorResponseWriter, r *http.Request) {
+
+	agentName, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+	agentNamespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	// Ensure the agent exists in Kube (authz scope and 404 semantics)
+	agent := &v1alpha2.Agent{}
+	if err := h.KubeClient.Get(
+		r.Context(),
+		client.ObjectKey{Namespace: agentNamespace, Name: agentName},
+		agent,
+	); err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
+		return
+	}
+
+	// Load from DB and return stored AgentCard JSON only
+	agentID := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+	dbAgent, err := h.DatabaseService.GetAgent(agentID)
+	if err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Agent card not found", err))
+		return
+	}
+
+	data := api.NewResponse(dbAgent.AgentCard, "Successfully retrieved agent card", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 

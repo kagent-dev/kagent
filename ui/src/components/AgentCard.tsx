@@ -5,8 +5,10 @@ import { DeleteButton } from "@/components/DeleteAgentButton";
 import KagentLogo from "@/components/kagent-logo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Eye, Pencil } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { useState } from "react";
+import { AgentCardPreview } from "@/components/AgentCardPreview";
 
 interface AgentCardProps {
   agentResponse: AgentResponse;
@@ -15,10 +17,12 @@ interface AgentCardProps {
 
 export function AgentCard({ id, agentResponse: { agent, model, modelProvider, deploymentReady, accepted } }: AgentCardProps) {
   const router = useRouter();
+  const [previewOpen, setPreviewOpen] = useState(false);
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
     agent.metadata.name || '');
   const isBYO = agent.spec?.type === "BYO";
+  const isRemote = agent.spec?.type === "Remote";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
 
   const handleEditClick = (e: React.MouseEvent) => {
@@ -66,9 +70,15 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
       <CardContent className="flex flex-col justify-between h-32">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">{agent.spec.description}</p>
         <div className="mt-4 flex items-center text-xs text-muted-foreground">
-          {isBYO ? (
+          {isBYO && (
             <span title={byoImage}>Image: {byoImage}</span>
-          ) : (
+          )}
+          {isRemote && (
+            <Button variant="ghost" size="icon" className="text-muted-foreground" disabled={!deploymentReady || !accepted} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPreviewOpen(true); }}>
+              <Eye className="w-4 h-4" />
+            </Button>
+          )}
+          {!isBYO && !isRemote && (
             <span>{modelProvider} ({model})</span>
           )}
         </div>
@@ -76,11 +86,18 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
     </Card>
   );
 
-  return deploymentReady && accepted ? (
-    <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
-      {cardContent}
-    </Link>
-  ) : (
-    cardContent
+  return (
+    <>
+      {deploymentReady && accepted ? (
+        <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
+          {cardContent}
+        </Link>
+      ) : (
+        cardContent
+      )}
+      {isRemote && (
+        <AgentCardPreview open={previewOpen} onOpenChange={setPreviewOpen} namespace={agent.metadata.namespace || ''} name={agent.metadata.name} />
+      )}
+    </>
   );
 }

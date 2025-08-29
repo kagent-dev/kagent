@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
+	"net/http"
 	"os"
 	"slices"
 	"strconv"
@@ -57,8 +59,9 @@ var DefaultImageConfig = ImageConfig{
 type AgentOutputs struct {
 	Manifest []client.Object `json:"manifest,omitempty"`
 
-	Config    *adk.AgentConfig `json:"config,omitempty"`
-	AgentCard server.AgentCard `json:"agentCard"`
+	Config       *adk.AgentConfig       `json:"config,omitempty"`
+	RemoteConfig *adk.RemoteAgentConfig `json:"remoteConfig,omitempty"`
+	AgentCard    server.AgentCard       `json:"agentCard"`
 }
 
 type AdkApiTranslator interface {
@@ -140,10 +143,55 @@ func (a *adkApiTranslator) TranslateAgent(
 			DefaultOutputModes: []string{"text"},
 		}
 		return a.buildManifest(ctx, agent, dep, nil, agentCard)
+	case v1alpha2.AgentType_Remote:
+		// fetch the agent card details from the URL
+		agentCard, remoteConfig, err := a.fetchRemoteAgentDetails(agent.Spec.Remote)
+		if err != nil {
+			return nil, err
+		}
 
+		// remote agents are already served elsewhere, so we don't need to build a manifest
+		return &AgentOutputs{
+			Manifest:     []client.Object{},
+			AgentCard:    *agentCard,
+			RemoteConfig: remoteConfig,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
+}
+
+func (a *adkApiTranslator) fetchRemoteAgentDetails(r *v1alpha2.RemoteAgentSpec) (*server.AgentCard, *adk.RemoteAgentConfig, error) {
+	agentCard := &server.AgentCard{}
+
+	resp, err := http.Get(r.AgentCardURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch agent card: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read agent card body: %w", err)
+	}
+
+	err = json.Unmarshal(body, agentCard)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal agent card: %w", err)
+	}
+
+	// override the agent card's server url to be the provided server url if provided
+	if r.ServerURL != "" {
+		agentCard.URL = r.ServerURL
+	}
+
+	agentConfig := &adk.RemoteAgentConfig{
+		Name:        agentCard.Name,
+		Url:         agentCard.URL,
+		Description: agentCard.Description,
+	}
+
+	return agentCard, agentConfig, nil
 }
 
 func (a *adkApiTranslator) buildManifest(
@@ -440,6 +488,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					Url:         url,
 					Description: toolAgent.Spec.Description,
 				})
+			case v1alpha2.AgentType_Remote:
+				/* TODO: Add support for remote agents.
+				Either:
+					- Add the dbClient be a part of the *adkApiTranslator, which we'd fetch the remote agent config based on the agent
+					- Do a fetch to the remote agent card url to get the remote agent config.
+
+				We'll also need to look into how the polling system would work to update the db with updated details AND ensuring the updated details are reflected when the agent is used as a tool.
+				*/
+				return nil, nil, nil, fmt.Errorf("remote agent type is not supported")
 			default:
 				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
 			}

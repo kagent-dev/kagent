@@ -184,6 +184,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     ? `${handlers.agentContext.namespace}/${handlers.agentContext.agentName.replace(/_/g, "-")}`
     : "assistant";
 
+  let lastArtifactText = "";
 
   const handleA2ATask = (task: Task) => {
     handlers.setIsStreaming(true);
@@ -314,6 +315,22 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         }
       }
 
+      // If we are finalizing and we were streaming artifact text, commit it as a message
+      if (statusUpdate.final && lastArtifactText) {
+        const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+        const displayMessage = createMessage(
+          lastArtifactText,
+          source,
+          {
+            originalType: "TextMessage",
+            contextId: statusUpdate.contextId,
+            taskId: statusUpdate.taskId
+          }
+        );
+        handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
+        lastArtifactText = "";
+      }
+
       if (statusUpdate.final) {
         handlers.setIsStreaming(false);
         handlers.setStreamingContent(() => "");
@@ -348,7 +365,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       }));
     }
 
-    // Add artifact content as final message (artifacts are typically final responses)
+    // Add artifact content as message or stream depending on lastChunk
     const artifactText = artifactUpdate.artifact.parts.map((part: Part) => {
       // Handle different part types from A2A SDK
       if (isTextPart(part)) {
@@ -376,7 +393,6 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         }
       );
       handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
-      
       // Add a tool call summary message to mark any pending tool calls as completed
       const summarySource = getSourceFromMetadata(adkMetadata, defaultAgentSource);
       const toolSummaryMessage = createMessage(
@@ -393,6 +409,16 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       if (handlers.setChatStatus) {
         handlers.setChatStatus("ready");
       }
+
+      lastArtifactText = "";
+    } else {
+      // Stream partial or single-chunk artifact content; final commit happens on statusUpdate.final
+      handlers.setIsStreaming(true);
+      handlers.setStreamingContent(() => artifactText);
+      if (handlers.setChatStatus) {
+        handlers.setChatStatus("generating_response");
+      }
+      lastArtifactText = artifactText;
     }
   };
 
