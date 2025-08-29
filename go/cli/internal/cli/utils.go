@@ -47,7 +47,7 @@ func NewPortForward(ctx context.Context, cfg *config.Config) (*PortForward, erro
 		}
 	}()
 
-	client := client.New(cfg.KAgentURL)
+	client := cfg.Client()
 	var err error
 	for i := 0; i < 10; i++ {
 		err = CheckServerConnection(client)

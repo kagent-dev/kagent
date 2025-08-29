@@ -11,12 +11,11 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/utils"
-	"github.com/kagent-dev/kagent/go/pkg/client"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
 
 func GetAgentCmd(cfg *config.Config, resourceName string) {
-	client := client.New(cfg.KAgentURL)
+	client := cfg.Client()
 
 	if resourceName == "" {
 		agentList, err := client.Agent.ListAgents(context.Background())
@@ -46,7 +45,7 @@ func GetAgentCmd(cfg *config.Config, resourceName string) {
 }
 
 func GetSessionCmd(cfg *config.Config, resourceName string) {
-	client := client.New(cfg.KAgentURL)
+	client := cfg.Client()
 	if resourceName == "" {
 		sessionList, err := client.Session.ListSessions(context.Background())
 		if err != nil {
@@ -75,7 +74,7 @@ func GetSessionCmd(cfg *config.Config, resourceName string) {
 }
 
 func GetToolCmd(cfg *config.Config) {
-	client := client.New(cfg.KAgentURL)
+	client := cfg.Client()
 	toolList, err := client.Tool.ListTools(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get tools: %v\n", err)

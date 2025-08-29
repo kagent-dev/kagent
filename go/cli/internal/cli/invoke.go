@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
-	"github.com/kagent-dev/kagent/go/pkg/client"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -25,7 +24,7 @@ type InvokeCfg struct {
 
 func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 
-	clientSet := client.New(cfg.Config.KAgentURL)
+	clientSet := cfg.Config.Client()
 
 	if err := CheckServerConnection(clientSet); err != nil {
 		// If a connection does not exist, start a short-lived port-forward.
