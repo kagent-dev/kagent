@@ -55,7 +55,7 @@ export default function ServersPage() {
     }
   };
   
-  const fetchToolServerTypes = async ()=> {
+  const fetchToolServerTypes = async () => {
     try {
       setIsLoading(true);
 
