@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"github.com/kagent-dev/kmcp/pkg/controller/transportadapter"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -150,9 +151,26 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
 }
 
-func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
+type BootstrapConfig struct {
+	Ctx     context.Context
+	Manager manager.Manager
+}
+
+type ExtensionConfig struct {
+	Authenticator    auth.AuthProvider
+	Authorizer       auth.Authorizer
+	AgentPlugins     []translator.TranslatorPlugin
+	MCPServerPlugins []transportadapter.TranslatorPlugin
+}
+
+type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
+
+func Start(getExtensionConfig GetExtensionConfig) {
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
+
+	// TODO setup signal handlers
+	ctx := context.Background()
 
 	cfg.SetFlags(flag.CommandLine)
 	flag.StringVar(&translator.DefaultImageConfig.Registry, "image-registry", translator.DefaultImageConfig.Registry, "The registry to use for the image.")
@@ -294,12 +312,22 @@ func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
 
 	dbClient := database.NewClient(dbManager)
 
+	extensionCfg, err := getExtensionConfig(BootstrapConfig{
+		Ctx:     ctx,
+		Manager: mgr,
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to get start config")
+		os.Exit(1)
+	}
+
 	apiTranslator := translator.NewAdkApiTranslator(
 		mgr.GetClient(),
 		cfg.DefaultModelConfig,
+		extensionCfg.AgentPlugins,
 	)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, authenticator)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, extensionCfg.Authenticator)
 
 	a2aReconciler := a2a_reconciler.NewReconciler(
 		a2aHandler,
@@ -309,7 +337,7 @@ func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
 			StreamingInitialBufSize: int(cfg.Streaming.InitialBufSize.Value()),
 			Timeout:                 cfg.Streaming.Timeout,
 		},
-		authenticator,
+		extensionCfg.Authenticator,
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
@@ -321,8 +349,9 @@ func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
 	)
 
 	if err = (&kmcpcontroller.MCPServerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Plugins: extensionCfg.MCPServerPlugins,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
 		os.Exit(1)
@@ -409,8 +438,8 @@ func Start(authenticator auth.AuthProvider, authorizer auth.Authorizer) {
 		A2AHandler:        a2aHandler,
 		WatchedNamespaces: watchNamespacesList,
 		DbClient:          dbClient,
-		Authorizer:        authorizer,
-		Authenticator:     authenticator,
+		Authorizer:        extensionCfg.Authorizer,
+		Authenticator:     extensionCfg.Authenticator,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
