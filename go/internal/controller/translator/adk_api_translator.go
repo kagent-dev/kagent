@@ -470,6 +470,17 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	}
 
 	modelDeploymentData := &modelDeploymentData{}
+	
+	// Propagate default model headers to the agent runtime so it can forward them to the provider.
+	if model.Spec.DefaultHeaders != nil && len(model.Spec.DefaultHeaders) > 0 {
+		if b, err := json.Marshal(model.Spec.DefaultHeaders); err == nil {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  "KAGENT_MODEL_DEFAULT_HEADERS",
+				Value: string(b),
+			})
+		}
+	}
+
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
 		if model.Spec.APIKeySecret != "" {
