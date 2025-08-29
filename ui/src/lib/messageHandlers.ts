@@ -34,7 +34,7 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
   for (const task of tasks) {
     if (task.metadata) {
       const metadata = task.metadata as ADKMetadata;
-      const usage = metadata.adk_usage_metadata;
+      const usage = metadata.kagent_usage_metadata;
       
       if (usage) {
         maxTotal = Math.max(maxTotal, usage.totalTokenCount || 0);
@@ -58,17 +58,17 @@ export type OriginalMessageType =
   | "ToolCallSummaryMessage";
 
 export interface ADKMetadata {
-  adk_app_name?: string;
-  adk_session_id?: string;
-  adk_user_id?: string;
-  adk_usage_metadata?: {
+  kagent_app_name?: string;
+  kagent_session_id?: string;
+  kagent_user_id?: string;
+  kagent_usage_metadata?: {
     totalTokenCount?: number;
     promptTokenCount?: number;
     candidatesTokenCount?: number;
   };
-  adk_type?: "function_call" | "function_response";
-  adk_author?: string;
-  adk_invocation_id?: string;
+  kagent_type?: "function_call" | "function_response";
+  kagent_author?: string;
+  kagent_invocation_id?: string;
   originalType?: OriginalMessageType;
   displaySource?: string;
   toolCallData?: ProcessedToolCallData[];
@@ -117,8 +117,8 @@ function isDataPart(part: Part): part is DataPart {
 }
 
 function  getSourceFromMetadata(metadata: ADKMetadata | undefined, fallback: string = "assistant"): string {
-  if (metadata?.adk_app_name) {
-    return convertToUserFriendlyName(metadata.adk_app_name);
+  if (metadata?.kagent_app_name) {
+    return convertToUserFriendlyName(metadata.kagent_app_name);
   }
   return fallback;
 }
@@ -194,8 +194,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     try {
       const adkMetadata = getADKMetadata(statusUpdate);
 
-      if (adkMetadata?.adk_usage_metadata) {
-        const usage = adkMetadata.adk_usage_metadata;
+      if (adkMetadata?.kagent_usage_metadata) {
+        const usage = adkMetadata.kagent_usage_metadata;
 
         const tokenStats = {
           total: usage.totalTokenCount || 0,
@@ -251,7 +251,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             const data = part.data;
             const partMetadata = part.metadata as ADKMetadata | undefined;
 
-            if (partMetadata?.adk_type === "function_call") {
+            if (partMetadata?.kagent_type === "function_call") {
               if (handlers.setChatStatus) {
                 handlers.setChatStatus("processing_tools");
               }
@@ -275,7 +275,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               );
               handlers.setMessages(prevMessages => [...prevMessages, convertedMessage]);
 
-            } else if (partMetadata?.adk_type === "function_response") {
+            } else if (partMetadata?.kagent_type === "function_response") {
               const toolData = data as unknown as ToolResponseData;
               const content = toolData.response?.result?.content || [];
               const textContent = content.map((c: unknown) => {
@@ -332,8 +332,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       adkMetadata = getADKMetadata(artifactUpdate.artifact);
     }
 
-    if (adkMetadata?.adk_usage_metadata) {
-      const usage = adkMetadata.adk_usage_metadata;
+    if (adkMetadata?.kagent_usage_metadata) {
+      const usage = adkMetadata.kagent_usage_metadata;
 
       const tokenStats = {
         total: usage.totalTokenCount || 0,

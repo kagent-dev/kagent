@@ -51,6 +51,17 @@ type Client interface {
 
 	// Helper methods
 	RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error
+
+	// LangGraph Checkpoint methods
+	StoreCheckpoint(checkpoint *LangGraphCheckpoint) error
+	StoreCheckpointWrites(writes []*LangGraphCheckpointWrite) error
+	ListCheckpoints(userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*LangGraphCheckpointTuple, error)
+	DeleteCheckpoint(userID, threadID string) error
+}
+
+type LangGraphCheckpointTuple struct {
+	Checkpoint *LangGraphCheckpoint
+	Writes     []*LangGraphCheckpointWrite
 }
 
 type clientImpl struct {
@@ -480,4 +491,90 @@ func (c *clientImpl) ListPushNotifications(taskID string) ([]*protocol.TaskPushN
 // DeletePushNotification deletes a push notification configuration from the database
 func (c *clientImpl) DeletePushNotification(taskID string) error {
 	return delete[PushNotification](c.db, Clause{Key: "task_id", Value: taskID})
+}
+
+// StoreCheckpoint stores a LangGraph checkpoint and its writes atomically
+func (c *clientImpl) StoreCheckpoint(checkpoint *LangGraphCheckpoint) error {
+	err := save(c.db, checkpoint)
+	if err != nil {
+		return fmt.Errorf("failed to store checkpoint: %w", err)
+	}
+
+	return nil
+}
+
+func (c *clientImpl) StoreCheckpointWrites(writes []*LangGraphCheckpointWrite) error {
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		for _, write := range writes {
+			if err := save(tx, write); err != nil {
+				return fmt.Errorf("failed to store checkpoint write: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// ListCheckpoints lists checkpoints for a thread, optionally filtered by beforeCheckpointID
+func (c *clientImpl) ListCheckpoints(userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*LangGraphCheckpointTuple, error) {
+
+	var checkpointTuples []*LangGraphCheckpointTuple
+	if err := c.db.Transaction(func(tx *gorm.DB) error {
+		query := c.db.Where(
+			"user_id = ? AND thread_id = ? AND checkpoint_ns = ?",
+			userID, threadID, checkpointNS,
+		)
+
+		if checkpointID != nil {
+			query = query.Where("checkpoint_id = ?", *checkpointID)
+		} else {
+			query = query.Order("checkpoint_id DESC")
+		}
+
+		// Apply limit
+		if limit > 0 {
+			query = query.Limit(limit)
+		}
+
+		var checkpoints []LangGraphCheckpoint
+		err := query.Find(&checkpoints).Error
+		if err != nil {
+			return fmt.Errorf("failed to list checkpoints: %w", err)
+		}
+
+		for _, checkpoint := range checkpoints {
+			var writes []*LangGraphCheckpointWrite
+			if err := tx.Where(
+				"user_id = ? AND thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+				userID, threadID, checkpointNS, checkpoint.CheckpointID,
+			).Order("task_id, write_idx").Find(&writes).Error; err != nil {
+				return fmt.Errorf("failed to get checkpoint writes: %w", err)
+			}
+			checkpointTuples = append(checkpointTuples, &LangGraphCheckpointTuple{
+				Checkpoint: &checkpoint,
+				Writes:     writes,
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to list checkpoints: %w", err)
+	}
+	return checkpointTuples, nil
+}
+
+// DeleteCheckpoint deletes a checkpoint and its writes atomically
+func (c *clientImpl) DeleteCheckpoint(userID, threadID string) error {
+	clauses := []Clause{
+		{Key: "user_id", Value: userID},
+		{Key: "thread_id", Value: threadID},
+	}
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		if err := delete[LangGraphCheckpoint](tx, clauses...); err != nil {
+			return fmt.Errorf("failed to delete checkpoint: %w", err)
+		}
+		if err := delete[LangGraphCheckpointWrite](tx, clauses...); err != nil {
+			return fmt.Errorf("failed to delete checkpoint writes: %w", err)
+		}
+		return nil
+	})
+
 }

@@ -147,12 +147,46 @@ type ToolServer struct {
 	LastConnected *time.Time     `json:"last_connected,omitempty"`
 }
 
+// LangGraphCheckpoint represents a LangGraph checkpoint
+type LangGraphCheckpoint struct {
+	UserID             string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID           string         `gorm:"primaryKey;not null" json:"thread_id"`
+	CheckpointNS       string         `gorm:"primaryKey;not null;default:''" json:"checkpoint_ns"`
+	CheckpointID       string         `gorm:"primaryKey;not null" json:"checkpoint_id"`
+	ParentCheckpointID *string        `gorm:"index" json:"parent_checkpoint_id,omitempty"`
+	CreatedAt          time.Time      `gorm:"autoCreateTime;index:idx_lgcp_list" json:"created_at"`
+	UpdatedAt          time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt          gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Metadata           string         `gorm:"type:text;not null" json:"metadata"`   // JSON serialized metadata
+	Checkpoint         string         `gorm:"type:text;not null" json:"checkpoint"` // JSON serialized checkpoint
+	CheckpointType     string         `gorm:"not null" json:"checkpoint_type"`
+	Version            int            `gorm:"default:1" json:"version"`
+}
+
+// LangGraphCheckpointWrite represents a write operation for a checkpoint
+type LangGraphCheckpointWrite struct {
+	UserID       string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID     string         `gorm:"primaryKey;not null" json:"thread_id"`
+	CheckpointNS string         `gorm:"primaryKey;not null;default:''" json:"checkpoint_ns"`
+	CheckpointID string         `gorm:"primaryKey;not null" json:"checkpoint_id"`
+	WriteIdx     int            `gorm:"primaryKey;not null" json:"write_idx"`
+	Value        string         `gorm:"type:text;not null" json:"value"` // JSON serialized value
+	ValueType    string         `gorm:"not null" json:"value_type"`
+	Channel      string         `gorm:"not null" json:"channel"`
+	TaskID       string         `gorm:"not null" json:"task_id"`
+	CreatedAt    time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt    time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+}
+
 // TableName methods to match Python table names
-func (Agent) TableName() string            { return "agent" }
-func (Event) TableName() string            { return "event" }
-func (Session) TableName() string          { return "session" }
-func (Task) TableName() string             { return "task" }
-func (PushNotification) TableName() string { return "push_notification" }
-func (Feedback) TableName() string         { return "feedback" }
-func (Tool) TableName() string             { return "tool" }
-func (ToolServer) TableName() string       { return "toolserver" }
+func (Agent) TableName() string                    { return "agent" }
+func (Event) TableName() string                    { return "event" }
+func (Session) TableName() string                  { return "session" }
+func (Task) TableName() string                     { return "task" }
+func (PushNotification) TableName() string         { return "push_notification" }
+func (Feedback) TableName() string                 { return "feedback" }
+func (Tool) TableName() string                     { return "tool" }
+func (ToolServer) TableName() string               { return "toolserver" }
+func (LangGraphCheckpoint) TableName() string      { return "lg_checkpoint" }
+func (LangGraphCheckpointWrite) TableName() string { return "lg_checkpoint_write" }

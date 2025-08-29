@@ -22,6 +22,7 @@ type Handlers struct {
 	Feedback    *FeedbackHandler
 	Namespaces  *NamespacesHandler
 	Tasks       *TasksHandler
+	Checkpoints *CheckpointsHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -54,5 +55,6 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Feedback:    NewFeedbackHandler(base),
 		Namespaces:  NewNamespacesHandler(base, watchedNamespaces),
 		Tasks:       NewTasksHandler(base),
+		Checkpoints: NewCheckpointsHandler(base),
 	}
 }

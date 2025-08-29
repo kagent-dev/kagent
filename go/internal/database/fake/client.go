@@ -24,6 +24,8 @@ type InMemoryFakeClient struct {
 	eventsBySession   map[string][]*database.Event                    // key: sessionId
 	events            map[string]*database.Event                      // key: eventID
 	pushNotifications map[string]*protocol.TaskPushNotificationConfig // key: taskID
+	checkpoints       map[string]*database.LangGraphCheckpoint        // key: user_id:thread_id:checkpoint_ns:checkpoint_id
+	checkpointWrites  map[string][]*database.LangGraphCheckpointWrite // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	nextFeedbackID    int
 }
 
@@ -39,6 +41,8 @@ func NewClient() database.Client {
 		eventsBySession:   make(map[string][]*database.Event),
 		events:            make(map[string]*database.Event),
 		pushNotifications: make(map[string]*protocol.TaskPushNotificationConfig),
+		checkpoints:       make(map[string]*database.LangGraphCheckpoint),
+		checkpointWrites:  make(map[string][]*database.LangGraphCheckpointWrite),
 		nextFeedbackID:    1,
 	}
 }
@@ -55,7 +59,7 @@ func (c *InMemoryFakeClient) DeletePushNotification(taskID string) error {
 	return nil
 }
 
-func (c *InMemoryFakeClient) GetPushNotification(taskID, userID string) (*protocol.TaskPushNotificationConfig, error) {
+func (c *InMemoryFakeClient) GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -523,6 +527,8 @@ func (c *InMemoryFakeClient) Clear() {
 	c.eventsBySession = make(map[string][]*database.Event)
 	c.events = make(map[string]*database.Event)
 	c.pushNotifications = make(map[string]*protocol.TaskPushNotificationConfig)
+	c.checkpoints = make(map[string]*database.LangGraphCheckpoint)
+	c.checkpointWrites = make(map[string][]*database.LangGraphCheckpointWrite)
 	c.nextFeedbackID = 1
 }
 
@@ -533,4 +539,188 @@ func (c *InMemoryFakeClient) UpsertAgent(agent *database.Agent) error {
 
 	c.agents[agent.ID] = agent
 	return nil
+}
+
+// checkpointKey creates a key for checkpoint storage
+func (c *InMemoryFakeClient) checkpointKey(userID, threadID, checkpointNS, checkpointID string) string {
+	return fmt.Sprintf("%s:%s:%s:%s", userID, threadID, checkpointNS, checkpointID)
+}
+
+// StoreCheckpoint stores a LangGraph checkpoint
+func (c *InMemoryFakeClient) StoreCheckpoint(checkpoint *database.LangGraphCheckpoint) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	key := c.checkpointKey(checkpoint.UserID, checkpoint.ThreadID, checkpoint.CheckpointNS, checkpoint.CheckpointID)
+
+	// Check for idempotent retry
+	if existing, exists := c.checkpoints[key]; exists {
+		if existing.Metadata == checkpoint.Metadata && existing.Checkpoint == checkpoint.Checkpoint {
+			return nil // Idempotent success
+		}
+		return fmt.Errorf("checkpoint already exists with different data")
+	}
+
+	// Store checkpoint
+	c.checkpoints[key] = checkpoint
+
+	return nil
+}
+
+// StoreCheckpointWrites stores checkpoint writes
+func (c *InMemoryFakeClient) StoreCheckpointWrites(writes []*database.LangGraphCheckpointWrite) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Group writes by checkpoint key
+	writesByKey := make(map[string][]*database.LangGraphCheckpointWrite)
+	for _, write := range writes {
+		key := c.checkpointKey(write.UserID, write.ThreadID, write.CheckpointNS, write.CheckpointID)
+		writesByKey[key] = append(writesByKey[key], write)
+	}
+
+	// Store writes for each checkpoint
+	for key, keyWrites := range writesByKey {
+		c.checkpointWrites[key] = append(c.checkpointWrites[key], keyWrites...)
+	}
+
+	return nil
+}
+
+// GetLatestCheckpoint retrieves the most recent checkpoint for a thread
+func (c *InMemoryFakeClient) GetLatestCheckpoint(userID, threadID, checkpointNS string) (*database.LangGraphCheckpoint, []*database.LangGraphCheckpointWrite, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var latest *database.LangGraphCheckpoint
+	var latestKey string
+
+	// Find the latest checkpoint by creation time
+	for key, checkpoint := range c.checkpoints {
+		if checkpoint.UserID == userID && checkpoint.ThreadID == threadID && checkpoint.CheckpointNS == checkpointNS {
+			if latest == nil || checkpoint.CreatedAt.After(latest.CreatedAt) {
+				latest = checkpoint
+				latestKey = key
+			}
+		}
+	}
+
+	if latest == nil {
+		return nil, nil, nil
+	}
+
+	// Get writes for this checkpoint
+	writes := c.checkpointWrites[latestKey]
+
+	return latest, writes, nil
+}
+
+// GetCheckpoint retrieves a specific checkpoint by ID
+func (c *InMemoryFakeClient) GetCheckpoint(userID, threadID, checkpointNS, checkpointID string) (*database.LangGraphCheckpoint, []*database.LangGraphCheckpointWrite, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	key := c.checkpointKey(userID, threadID, checkpointNS, checkpointID)
+	checkpoint, exists := c.checkpoints[key]
+	if !exists {
+		return nil, nil, nil
+	}
+
+	// Get writes for this checkpoint
+	writes := c.checkpointWrites[key]
+
+	return checkpoint, writes, nil
+}
+
+// ListCheckpoints lists checkpoints for a thread, optionally filtered by checkpointID
+func (c *InMemoryFakeClient) ListCheckpoints(userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*database.LangGraphCheckpointTuple, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []*database.LangGraphCheckpointTuple
+
+	// Find matching checkpoints
+	for key, checkpoint := range c.checkpoints {
+		if checkpoint.UserID == userID && checkpoint.ThreadID == threadID && checkpoint.CheckpointNS == checkpointNS {
+			// If a specific checkpoint ID is requested, only return that one
+			if checkpointID != nil && checkpoint.CheckpointID != *checkpointID {
+				continue
+			}
+
+			// Get writes for this checkpoint
+			writes := c.checkpointWrites[key]
+			if writes == nil {
+				writes = []*database.LangGraphCheckpointWrite{}
+			}
+
+			result = append(result, &database.LangGraphCheckpointTuple{
+				Checkpoint: checkpoint,
+				Writes:     writes,
+			})
+		}
+	}
+
+	// Sort by creation time (newest first)
+	for i := 0; i < len(result)-1; i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[i].Checkpoint.CreatedAt.Before(result[j].Checkpoint.CreatedAt) {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	// Apply limit
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+
+	return result, nil
+}
+
+// DeleteCheckpoint deletes a checkpoint and its writes atomically
+func (c *InMemoryFakeClient) DeleteCheckpoint(userID, threadID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Find and delete all checkpoints for the thread
+	keysToDelete := make([]string, 0)
+	for key, checkpoint := range c.checkpoints {
+		if checkpoint.UserID == userID && checkpoint.ThreadID == threadID {
+			keysToDelete = append(keysToDelete, key)
+		}
+	}
+
+	// Delete checkpoints and their writes
+	for _, key := range keysToDelete {
+		delete(c.checkpoints, key)
+		delete(c.checkpointWrites, key)
+	}
+
+	return nil
+}
+
+// ListWrites retrieves writes for a specific checkpoint
+func (c *InMemoryFakeClient) ListWrites(userID, threadID, checkpointNS, checkpointID string, offset, limit int) ([]*database.LangGraphCheckpointWrite, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	key := c.checkpointKey(userID, threadID, checkpointNS, checkpointID)
+	writes := c.checkpointWrites[key]
+
+	if writes == nil {
+		return []*database.LangGraphCheckpointWrite{}, nil
+	}
+
+	// Apply pagination
+	start := offset
+	if start >= len(writes) {
+		return []*database.LangGraphCheckpointWrite{}, nil
+	}
+
+	end := len(writes)
+	if limit > 0 && start+limit < end {
+		end = start + limit
+	}
+
+	return writes[start:end], nil
 }

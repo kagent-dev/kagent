@@ -62,8 +62,5 @@ root_agent = Agent(
       You should always perform the previous 3 steps when asking for a roll and checking prime numbers.
       You should not rely on the previous history on prime results.
     """,
-    tools=[
-        roll_die,
-        check_prime,
-    ],
+    tools=[roll_die, check_prime],
 )

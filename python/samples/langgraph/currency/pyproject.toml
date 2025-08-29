@@ -1,0 +1,23 @@
+[project]
+name = "currency"
+version = "0.1.0"
+description = "Basic LangGraph agent for KAgent"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "kagent-langgraph",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=1.0.0",
+    "langgraph-checkpoint-sqlite>=2.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+currency = "currency.cli:main"
+
+[tool.uv.sources]
+kagent-langgraph = { workspace = true }

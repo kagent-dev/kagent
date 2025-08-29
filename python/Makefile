@@ -25,3 +25,7 @@ audit: build
 	#check pip-audit is installed
 	uv run pip-audit --version || uv pip install pip-audit
 	uv run pip-audit
+
+.PHONY: basic-langchain-sample
+basic-langchain-sample:
+	docker build . -f samples/langgraph/currency/Dockerfile --tag localhost:5001/langgraph-currency:latest --push
