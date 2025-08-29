@@ -474,9 +474,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			}
 
 			switch toolAgent.Spec.Type {
-			case v1alpha2.AgentType_Declarative:
-				fallthrough
-			case v1alpha2.AgentType_BYO:
+			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
 					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
