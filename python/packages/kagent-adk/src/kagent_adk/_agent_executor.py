@@ -25,6 +25,7 @@ from google.adk.a2a.converters.request_converter import convert_a2a_request_to_a
 from google.adk.a2a.converters.utils import _get_adk_metadata_key
 from google.adk.a2a.executor.task_result_aggregator import TaskResultAggregator
 from google.adk.runners import Runner
+from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override
 
@@ -165,6 +166,14 @@ class A2aAgentExecutor(AgentExecutor):
 
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
+
+        current_span = trace.get_current_span()
+        if context.task_id:
+            current_span.set_attribute("kagent.task_id", context.task_id)
+        if run_args["user_id"]:
+            current_span.set_attribute("kagent.user_id", run_args["user_id"])
+        if run_args["session_id"]:
+            current_span.set_attribute("kagent.session_id", run_args["session_id"])
 
         # create invocation context
         invocation_context = runner._new_invocation_context(
