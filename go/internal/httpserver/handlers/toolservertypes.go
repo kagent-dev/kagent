@@ -9,7 +9,7 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// ToolServersHandler handles ToolServer-related requests
+// ToolServerTypesHandler handles ToolServerType-related requests
 type ToolServerTypesHandler struct {
 	*Base
 }
