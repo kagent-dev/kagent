@@ -6,11 +6,14 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/kagent-dev/kagent/go/pkg/translator"
 	"maps"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
+
+	"go.uber.org/multierr"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/adk"
@@ -54,12 +57,8 @@ var DefaultImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/app",
 }
 
-type AgentOutputs struct {
-	Manifest []client.Object `json:"manifest,omitempty"`
-
-	Config    *adk.AgentConfig `json:"config,omitempty"`
-	AgentCard server.AgentCard `json:"agentCard"`
-}
+// TODO(ilackarms): migrate this whole package to pkg/translator
+type AgentOutputs = translator.AgentOutputs
 
 type AdkApiTranslator interface {
 	TranslateAgent(
@@ -68,16 +67,20 @@ type AdkApiTranslator interface {
 	) (*AgentOutputs, error)
 }
 
-func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName) AdkApiTranslator {
+type TranslatorPlugin = translator.TranslatorPlugin
+
+func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin) AdkApiTranslator {
 	return &adkApiTranslator{
 		kube:               kube,
 		defaultModelConfig: defaultModelConfig,
+		plugins:            plugins,
 	}
 }
 
 type adkApiTranslator struct {
 	kube               client.Client
 	defaultModelConfig types.NamespacedName
+	plugins            []TranslatorPlugin
 }
 
 const MAX_DEPTH = 10
@@ -356,7 +359,8 @@ func (a *adkApiTranslator) buildManifest(
 	if card != nil {
 		outputs.AgentCard = *card
 	}
-	return outputs, nil
+
+	return outputs, a.runPlugins(ctx, agent, outputs)
 }
 
 func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, error) {
@@ -1031,4 +1035,14 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 	}
 
 	return dep, nil
+}
+
+func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error {
+	var errs error
+	for _, plugin := range a.plugins {
+		if err := plugin(ctx, agent, outputs); err != nil {
+			errs = multierr.Append(errs, err)
+		}
+	}
+	return nil
 }

@@ -29,5 +29,12 @@ import (
 func main() {
 	authorizer := &auth.NoopAuthorizer{}
 	authenticator := &auth.UnsecureAuthenticator{}
-	app.Start(authenticator, authorizer)
+	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
+		return &app.ExtensionConfig{
+			Authenticator:    authenticator,
+			Authorizer:       authorizer,
+			AgentPlugins:     nil,
+			MCPServerPlugins: nil,
+		}, nil
+	})
 }
