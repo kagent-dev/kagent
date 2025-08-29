@@ -12,7 +12,6 @@ from opentelemetry import _logs, trace
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._events import EventLoggerProvider
 from opentelemetry.sdk._logs import LoggerProvider
@@ -83,7 +82,6 @@ def configure_tracing():
             processor = BatchSpanProcessor(OTLPSpanExporter())
         tracer_provider.add_span_processor(processor)
         trace.set_tracer_provider(tracer_provider)
-        HTTPXClientInstrumentor().instrument()
 
     # Configure logging if enabled
     if logging_enabled:

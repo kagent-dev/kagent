@@ -18,7 +18,6 @@
     "version": ""
   },
   "config": {
-    "agents": null,
     "description": "",
     "http_tools": null,
     "instruction": "You are Claude, an AI assistant created by Anthropic.",
@@ -58,7 +57,7 @@
       "apiVersion": "v1",
       "data": {
         "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"agents\":null,\"remote_agents\":null}"
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
       },
       "kind": "ConfigMap",
       "metadata": {
@@ -124,7 +123,7 @@
             "labels": {
               "app": "kagent",
               "kagent": "anthropic-agent",
-              "kagent.dev/config-hash": "10123344046460149015"
+              "kagent.dev/config-hash": "2737405799465163407"
             }
           },
           "spec": {

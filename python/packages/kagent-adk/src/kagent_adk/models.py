@@ -76,7 +76,6 @@ class AgentConfig(BaseModel):
     instruction: str
     http_tools: list[HttpMcpServerConfig] | None = None  # tools, always MCP
     sse_tools: list[SseMcpServerConfig] | None = None  # tools, always MCP
-    agents: list[Self] | None = None  # agent names
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
 
     def to_agent(self, name: str) -> Agent:
@@ -89,9 +88,6 @@ class AgentConfig(BaseModel):
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add stdio tools
                 mcp_toolsets.append(MCPToolset(connection_params=sse_tool.params, tool_filter=sse_tool.tools))
-        if self.agents:
-            for agent in self.agents:  # Add sub agents as tools
-                mcp_toolsets.append(AgentTool(agent.to_agent(name)))
         remote_agents: list[BaseAgent] = []
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
