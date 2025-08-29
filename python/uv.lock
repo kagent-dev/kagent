@@ -5,7 +5,7 @@ requires-python = ">=3.13"
 [manifest]
 members = [
     "basic",
-    "basic-langgraph",
+    "currency",
     "kagent-adk",
     "kagent-core",
     "kagent-langgraph",
@@ -197,27 +197,6 @@ dependencies = [
 requires-dist = [{ name = "google-adk", specifier = ">=1.8.0" }]
 
 [[package]]
-name = "basic-langgraph"
-version = "0.1.0"
-source = { editable = "samples/langgraph/basic" }
-dependencies = [
-    { name = "kagent-langgraph" },
-    { name = "langchain-core" },
-    { name = "langchain-google-genai" },
-    { name = "langgraph" },
-    { name = "langgraph-checkpoint-sqlite" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "kagent-langgraph", editable = "packages/kagent-langgraph" },
-    { name = "langchain-core", specifier = ">=0.3.0" },
-    { name = "langchain-google-genai", specifier = ">=1.0.0" },
-    { name = "langgraph", specifier = ">=0.2.0" },
-    { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.0" },
-]
-
-[[package]]
 name = "black"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -362,6 +341,27 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f2/2e/e2dbd629481b499b14516eed933f3276eb3239f7cee2dcfa4ee6b44d4711/cryptography-45.0.5-cp37-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:7259038202a47fdecee7e62e0fd0b0738b6daa335354396c6ddebdbe1206af2a", size = 4554189, upload-time = "2025-07-02T13:05:46.045Z" },
     { url = "https://files.pythonhosted.org/packages/f8/ea/a78a0c38f4c8736287b71c2ea3799d173d5ce778c7d6e3c163a95a05ad2a/cryptography-45.0.5-cp37-abi3-win32.whl", hash = "sha256:1e1da5accc0c750056c556a93c3e9cb828970206c68867712ca5805e46dc806f", size = 2911769, upload-time = "2025-07-02T13:05:48.329Z" },
     { url = "https://files.pythonhosted.org/packages/79/b3/28ac139109d9005ad3f6b6f8976ffede6706a6478e21c889ce36c840918e/cryptography-45.0.5-cp37-abi3-win_amd64.whl", hash = "sha256:90cb0a7bb35959f37e23303b7eed0a32280510030daba3f7fdfbb65defde6a97", size = 3390016, upload-time = "2025-07-02T13:05:50.811Z" },
+]
+
+[[package]]
+name = "currency"
+version = "0.1.0"
+source = { editable = "samples/langgraph/currency" }
+dependencies = [
+    { name = "kagent-langgraph" },
+    { name = "langchain-core" },
+    { name = "langchain-google-genai" },
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint-sqlite" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "kagent-langgraph", editable = "packages/kagent-langgraph" },
+    { name = "langchain-core", specifier = ">=0.3.0" },
+    { name = "langchain-google-genai", specifier = ">=1.0.0" },
+    { name = "langgraph", specifier = ">=0.2.0" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.0" },
 ]
 
 [[package]]

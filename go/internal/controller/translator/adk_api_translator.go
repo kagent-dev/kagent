@@ -1005,9 +1005,9 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 		args = spec.Args
 	}
 
-	imagePullPolicy := corev1.PullIfNotPresent
+	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
 	if spec.ImagePullPolicy != "" {
-		imagePullPolicy = spec.ImagePullPolicy
+		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
 	}
 
 	replicas := spec.Replicas

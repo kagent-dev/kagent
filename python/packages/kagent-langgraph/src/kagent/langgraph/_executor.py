@@ -7,24 +7,27 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from typing import Any, override
 
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
+    Artifact,
     Message,
     Part,
     Role,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
+    TaskArtifactUpdateEvent,
     TextPart,
 )
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
+from kagent.core.a2a import TaskResultAggregator
 from langgraph.graph.state import CompiledStateGraph
 
 from ._converters import _convert_langgraph_event_to_a2a
@@ -89,36 +92,68 @@ class LangGraphAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Stream LangGraph events and convert them to A2A events."""
+        task_result_aggregator = TaskResultAggregator()
+
         # Stream events from the graph
         async for event in graph.astream(
             input_data,
             config,
             stream_mode="updates",  # Stream the individual events
         ):
-            logger.info(f"LangGraph event: {event}")
-
             # Convert LangGraph events to A2A events
             a2a_events = await _convert_langgraph_event_to_a2a(
                 event, context.task_id, context.context_id, self.app_name
             )
             for a2a_event in a2a_events:
-                logger.info(f"A2A event: {a2a_event}")
+                task_result_aggregator.process_event(a2a_event)
                 await event_queue.enqueue_event(a2a_event)
 
         # Final artifacts are already sent through individual event processing
 
-        # Send completion status
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                status=TaskStatus(
-                    state=TaskState.completed,
-                    timestamp=datetime.now(UTC).isoformat(),
-                ),
-                context_id=context.context_id,
-                final=True,
+        # publish the task result event - this is final
+        if (
+            task_result_aggregator.task_state == TaskState.working
+            and task_result_aggregator.task_status_message is not None
+            and task_result_aggregator.task_status_message.parts
+        ):
+            # if task is still working properly, publish the artifact update event as
+            # the final result according to a2a protocol.
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    task_id=context.task_id,
+                    last_chunk=True,
+                    context_id=context.context_id,
+                    artifact=Artifact(
+                        artifact_id=str(uuid.uuid4()),
+                        parts=task_result_aggregator.task_status_message.parts,
+                    ),
+                )
             )
-        )
+            # public the final status update event
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.completed,
+                        timestamp=datetime.now(UTC).isoformat(),
+                    ),
+                    context_id=context.context_id,
+                    final=True,
+                )
+            )
+        else:
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=task_result_aggregator.task_state,
+                        timestamp=datetime.now(UTC).isoformat(),
+                        message=task_result_aggregator.task_status_message,
+                    ),
+                    context_id=context.context_id,
+                    final=True,
+                )
+            )
 
     @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue):

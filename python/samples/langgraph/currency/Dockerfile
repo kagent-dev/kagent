@@ -36,4 +36,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the application
-CMD ["uv", "run", "samples/langgraph/basic/basic_langgraph"]
+CMD ["uv", "run", "samples/langgraph/currency/currency/cli.py"]

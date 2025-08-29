@@ -17,13 +17,12 @@ from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_KEY,
+    get_kagent_metadata_key,
 )
 
 from .part_converter import (
-    convert_a2a_part_to_genai_part,
     convert_genai_part_to_a2a_part,
 )
-from .utils import _get_kagent_metadata_key
 
 # Constants
 
@@ -72,11 +71,11 @@ def _get_context_metadata(event: Event, invocation_context: InvocationContext) -
 
     try:
         metadata = {
-            _get_kagent_metadata_key("app_name"): invocation_context.app_name,
-            _get_kagent_metadata_key("user_id"): invocation_context.user_id,
-            _get_kagent_metadata_key("session_id"): invocation_context.session.id,
-            _get_kagent_metadata_key("invocation_id"): event.invocation_id,
-            _get_kagent_metadata_key("author"): event.author,
+            get_kagent_metadata_key("app_name"): invocation_context.app_name,
+            get_kagent_metadata_key("user_id"): invocation_context.user_id,
+            get_kagent_metadata_key("session_id"): invocation_context.session.id,
+            get_kagent_metadata_key("invocation_id"): event.invocation_id,
+            get_kagent_metadata_key("author"): event.author,
         }
 
         # Add optional metadata fields if present
@@ -90,7 +89,7 @@ def _get_context_metadata(event: Event, invocation_context: InvocationContext) -
 
         for field_name, field_value in optional_fields:
             if field_value is not None:
-                metadata[_get_kagent_metadata_key(field_name)] = _serialize_metadata_value(field_value)
+                metadata[get_kagent_metadata_key(field_name)] = _serialize_metadata_value(field_value)
 
         return metadata
 
@@ -127,11 +126,11 @@ def _process_long_running_tool(a2a_part: A2APart, event: Event) -> None:
         isinstance(a2a_part.root, DataPart)
         and event.long_running_tool_ids
         and a2a_part.root.metadata
-        and a2a_part.root.metadata.get(_get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        and a2a_part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
         == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
         and a2a_part.root.data.get("id") in event.long_running_tool_ids
     ):
-        a2a_part.root.metadata[_get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)] = True
+        a2a_part.root.metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)] = True
 
 
 def convert_event_to_a2a_message(
@@ -197,7 +196,7 @@ def _create_error_status_event(
     # Get context metadata and add error code
     event_metadata = _get_context_metadata(event, invocation_context)
     if event.error_code:
-        event_metadata[_get_kagent_metadata_key("error_code")] = str(event.error_code)
+        event_metadata[get_kagent_metadata_key("error_code")] = str(event.error_code)
 
     return TaskStatusUpdateEvent(
         task_id=task_id,
@@ -209,7 +208,7 @@ def _create_error_status_event(
                 message_id=str(uuid.uuid4()),
                 role=Role.agent,
                 parts=[A2APart(TextPart(text=error_message))],
-                metadata={_get_kagent_metadata_key("error_code"): str(event.error_code)} if event.error_code else {},
+                metadata={get_kagent_metadata_key("error_code"): str(event.error_code)} if event.error_code else {},
             ),
             timestamp=datetime.now(timezone.utc).isoformat(),
         ),
@@ -244,18 +243,18 @@ def _create_status_update_event(
     )
 
     if any(
-        part.root.metadata.get(_get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
         == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        and part.root.metadata.get(_get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
+        and part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
         and part.root.data.get("name") == REQUEST_EUC_FUNCTION_CALL_NAME
         for part in message.parts
         if part.root.metadata
     ):
         status.state = TaskState.auth_required
     elif any(
-        part.root.metadata.get(_get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
         == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        and part.root.metadata.get(_get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
+        and part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
         for part in message.parts
         if part.root.metadata
     ):

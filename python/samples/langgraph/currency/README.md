@@ -1,10 +1,10 @@
-# Basic LangGraph Agent
+# Currency LangGraph Agent
 
-This is a basic LangGraph agent that demonstrates KAgent integration with session persistence via REST API.
+This is a currency LangGraph agent that demonstrates KAgent integration with session persistence via REST API.
 
 ## Features
 
-- Simple conversational agent using Google Gemini
+- Currency conversion agent using Google Gemini
 - LangGraph state management with KAgent checkpointer
 - A2A protocol compatibility
 - Session persistence via KAgent REST API
@@ -14,14 +14,16 @@ This is a basic LangGraph agent that demonstrates KAgent integration with sessio
 
 1. Build the agent image:
 
+Run the basic-langchain-sample target from the top-level Python directory.
+
 ```bash
-docker build . --tag localhost:5001/basic-langgraph:latest
+make basic-langchain-sample
 ```
 
 2. Push to local registry (if using one):
 
 ```bash
-docker push localhost:5001/basic-langgraph:latest
+docker push localhost:5001/langgraph-currency:latest
 ```
 
 3. Create a secret with the Google API key:
@@ -56,13 +58,13 @@ export KAGENT_URL=http://localhost:8080
 3. Run the agent server:
 
 ```bash
-uv run basic-langgraph
+uv run currency
 ```
 
 4. Test the agent:
 
 ```bash
-uv run basic-langgraph test
+uv run currency test
 ```
 
 ## Architecture

@@ -41,8 +41,8 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
       return displaySource;
     }
     
-    // For stored messages from Task history, try to get adk_app_name from metadata
-    const adkAppName = msgMetadata?.adk_app_name;
+    // For stored messages from Task history, try to get kagent_app_name from metadata
+    const adkAppName = msgMetadata?.kagent_app_name;
     
     if (adkAppName) {
       return convertToUserFriendlyName(adkAppName);
@@ -73,7 +73,7 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
   const hasToolCallParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {
       const partMetadata = part.metadata as ADKMetadata;
-      return partMetadata?.adk_type === "function_call" || partMetadata?.adk_type === "function_response";
+      return partMetadata?.kagent_type === "function_call" || partMetadata?.kagent_type === "function_response";
     }
     return false;
   });
@@ -90,7 +90,7 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
       return msg.parts?.some(part => {
         if (part.kind === "data" && part.metadata) {
           const partMetadata = part.metadata as ADKMetadata;
-          return partMetadata?.adk_type === "function_call" || partMetadata?.adk_type === "function_response";
+          return partMetadata?.kagent_type === "function_call" || partMetadata?.kagent_type === "function_response";
         }
         return false;
       });

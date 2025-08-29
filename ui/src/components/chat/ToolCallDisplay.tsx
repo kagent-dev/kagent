@@ -24,11 +24,11 @@ const toolCallCache = new Map<string, boolean>();
 
 // Helper functions to work with A2A SDK Messages
 const isToolCallRequestMessage = (message: Message): boolean => {
-  // Check data parts for adk_type first
+  // Check data parts for kagent_type first
   const hasDataParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {
       const partMetadata = part.metadata as ADKMetadata;
-      return partMetadata?.adk_type === "function_call";
+      return partMetadata?.kagent_type === "function_call";
     }
     return false;
   }) || false;
@@ -46,7 +46,7 @@ const isToolCallExecutionMessage = (message: Message): boolean => {
   const hasDataParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {
       const partMetadata = part.metadata as ADKMetadata;
-      return partMetadata?.adk_type === "function_response";
+      return partMetadata?.kagent_type === "function_response";
     }
     return false;
   }) || false;
@@ -73,7 +73,7 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
   for (const part of dataParts) {
     if (part.metadata) {
       const partMetadata = part.metadata as ADKMetadata;
-      if (partMetadata?.adk_type === "function_call") {
+      if (partMetadata?.kagent_type === "function_call") {
         const data = part.data as unknown as FunctionCall;
         return [{
           id: data.id,
@@ -106,7 +106,7 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   for (const part of dataParts) {
     if (part.metadata) {
       const partMetadata = part.metadata as ADKMetadata;
-      if (partMetadata?.adk_type === "function_response") {
+      if (partMetadata?.kagent_type === "function_response") {
         const data = part.data as unknown as ToolResponseData;
         // Extract content from the result
         const content = data.response?.result?.content || [];
