@@ -53,7 +53,7 @@ export default function ServersPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  };
   
   const fetchToolServerTypes = async ()=> {
     try {
