@@ -169,11 +169,11 @@ class A2aAgentExecutor(AgentExecutor):
 
         current_span = trace.get_current_span()
         if context.task_id:
-            current_span.set_attribute("kagent.task_id", context.task_id)
+            current_span.set_attribute("a2a.task_id", context.task_id)
         if run_args["user_id"]:
             current_span.set_attribute("kagent.user_id", run_args["user_id"])
         if run_args["session_id"]:
-            current_span.set_attribute("kagent.session_id", run_args["session_id"])
+            current_span.set_attribute("gen_ai.converstation.id", run_args["session_id"])
 
         # create invocation context
         invocation_context = runner._new_invocation_context(
