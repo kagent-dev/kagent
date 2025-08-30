@@ -107,7 +107,7 @@ export interface AnthropicVertexAIConfigPayload {
   topK?: number;
 }
 
-export interface CreateModelConfigRequest {
+export interface CreateModelConfigPayload {
   ref: string;
   provider: Pick<Provider, "name" | "type">;
   model: string;
@@ -132,35 +132,6 @@ export interface UpdateModelConfigPayload {
   gemini?: GeminiConfigPayload;
   geminiVertexAI?: GeminiVertexAIConfigPayload;
   anthropicVertexAI?: AnthropicVertexAIConfigPayload;
-}
-
-export interface MemoryResponse {
-  ref: string;
-  providerName: string;
-  apiKeySecretRef: string;
-  apiKeySecretKey: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  memoryParams?: Record<string, any>;
-}
-
-export interface PineconeConfigPayload {
-  indexHost: string;
-  topK?: number;
-  namespace?: string;
-  recordFields?: string[];
-  scoreThreshold?: string;
-}
-
-export interface CreateMemoryRequest {
-  ref: string;
-  provider: Pick<Provider, "type">;
-  apiKey: string;
-  pinecone?: PineconeConfigPayload;
-}
-
-export interface UpdateMemoryRequest {
-  ref: string;
-  pinecone?: PineconeConfigPayload;
 }
 
 /**
@@ -274,7 +245,7 @@ export interface BYODeploymentSpec {
   volumeMounts?: unknown[];
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
-  env?: EnvVar[];
+  env?: Array<{ name: string; value?: string }>;
   imagePullPolicy?: string;
 }
 
@@ -313,22 +284,6 @@ export interface AgentResponse {
 export interface RemoteMCPServer {
   metadata: ResourceMetadata;
   spec: RemoteMCPServerSpec;
-}
-
-export interface SecretKeySelector {
-  name: string;
-  key: string;
-  optional?: boolean;
-}
-
-export interface EnvVarSource {
-  secretKeyRef?: SecretKeySelector;
-}
-
-export interface EnvVar {
-  name: string;
-  value?: string;
-  valueFrom?: EnvVarSource;
 }
 
 export interface ValueSource {
