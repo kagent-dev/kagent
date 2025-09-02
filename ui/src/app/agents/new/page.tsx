@@ -5,11 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Settings2, PlusCircle, Trash2 } from "lucide-react";
-import { ModelConfig, MemoryResponse, AgentType } from "@/types";
+import { ModelConfig, AgentType } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
-import { MemorySelectionSection } from "@/components/create/MemorySelectionSection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
@@ -18,7 +17,6 @@ import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
-import { listMemories } from "@/app/actions/memories";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,7 +31,6 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
-  memory?: string;
 }
 
 interface AgentPageContentProps {
@@ -70,8 +67,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     systemPrompt: string;
     selectedModel: SelectedModelType | null;
     selectedTools: Tool[];
-    availableMemories: MemoryResponse[];
-    selectedMemories: string[];
     byoImage: string;
     byoCmd: string;
     byoArgs: string;
@@ -92,8 +87,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
     selectedModel: null,
     selectedTools: [],
-    availableMemories: [],
-    selectedMemories: [],
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
@@ -161,11 +154,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   )).concat((agent.spec?.byo?.deployment?.env || []).length === 0 ? [{ name: "", value: "", isSecret: false }] : []),
                 }));
               }
-
-              // Set selected memories if they exist
-              if (agentResponse.memoryRefs && Array.isArray(agentResponse.memoryRefs)) {
-                setState(prev => ({ ...prev, selectedMemories: agentResponse.memoryRefs }));
-              }
+              
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
               toast.error("Failed to extract agent data");
@@ -184,19 +173,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
     void fetchAgentData();
   }, [isEditMode, agentName, agentNamespace, getAgent]);
-
-  useEffect(() => {
-    const fetchMemories = async () => {
-      try {
-        const memories = await listMemories();
-        setState(prev => ({ ...prev, availableMemories: memories }));
-      } catch (error) {
-        console.error("Error fetching memories:", error);
-        toast.error("Failed to load available memories.");
-      }
-    };
-    fetchMemories();
-  }, []);
 
   const validateForm = () => {
     const formData = {
@@ -229,7 +205,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       case 'systemPrompt': formData.systemPrompt = value; break;
       case 'model': formData.modelName = value; break;
       case 'tools': formData.tools = value; break;
-      case 'memory': formData.memory = value; break;
     }
 
     const fieldErrors = validateAgentData(formData);
@@ -265,7 +240,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         modelName: state.selectedModel?.ref || "",
         stream: true,
         tools: state.selectedTools,
-        memory: state.selectedMemories,
         // BYO
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -585,25 +559,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             </Card>
             {state.agentType === "Declarative" && (
               <>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Settings2 className="h-5 w-5" />
-                      Memory
-                    </CardTitle>
-                      <p className="text-xs mb-2 block text-muted-foreground">
-                        The memories that the agent will use to answer the user&apos;s questions.
-                      </p>
-                  </CardHeader>
-                  <CardContent>
-                    <MemorySelectionSection
-                      availableMemories={state.availableMemories}
-                      selectedMemories={state.selectedMemories}
-                      onSelectionChange={(mems) => setState(prev => ({ ...prev, selectedMemories: mems }))}
-                      disabled={state.isSubmitting || state.isLoading}
-                    />
-                  </CardContent>
-                </Card>
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">

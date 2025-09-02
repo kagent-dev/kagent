@@ -31,7 +31,7 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
     <Card className={`group transition-colors ${
       deploymentReady && accepted
         ? 'cursor-pointer hover:border-violet-500' 
-        : 'cursor-not-allowed opacity-60 border-gray-300'
+        : 'border-gray-300'
     }`}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
         <CardTitle className="flex items-center gap-2">
@@ -48,20 +48,18 @@ export function AgentCard({ id, agentResponse: { agent, model, modelProvider, de
             </span>
           )}
         </CardTitle>
-        <div className={`flex items-center space-x-2 ${deploymentReady && accepted ? 'invisible group-hover:visible' : 'invisible'}`}>
+        <div className="flex items-center space-x-2 invisible group-hover:visible">
           <Button 
             variant="ghost" 
             size="icon" 
             onClick={handleEditClick} 
             aria-label="Edit Agent"
-            disabled={!deploymentReady || !accepted}
           >
             <Pencil className="h-4 w-4" />
           </Button>
           <DeleteButton 
             agentName={agent.metadata.name} 
             namespace={agent.metadata.namespace || ''} 
-            disabled={!deploymentReady || !accepted}
           />
         </div>
       </CardHeader>

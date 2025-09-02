@@ -134,35 +134,6 @@ export interface UpdateModelConfigPayload {
   anthropicVertexAI?: AnthropicVertexAIConfigPayload;
 }
 
-export interface MemoryResponse {
-  ref: string;
-  providerName: string;
-  apiKeySecretRef: string;
-  apiKeySecretKey: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  memoryParams?: Record<string, any>;
-}
-
-export interface PineconeConfigPayload {
-  indexHost: string;
-  topK?: number;
-  namespace?: string;
-  recordFields?: string[];
-  scoreThreshold?: string;
-}
-
-export interface CreateMemoryRequest {
-  ref: string;
-  provider: Pick<Provider, "type">;
-  apiKey: string;
-  pinecone?: PineconeConfigPayload;
-}
-
-export interface UpdateMemoryRequest {
-  ref: string;
-  pinecone?: PineconeConfigPayload;
-}
-
 /**
  * Feedback issue types
  */
@@ -253,7 +224,6 @@ export interface DeclarativeAgentSpec {
   tools: Tool[];
   // Name of the model config resource
   modelConfig: string;
-  memory?: string[];
   stream?: boolean;
   a2aConfig?: A2AConfig;
 }
@@ -304,7 +274,6 @@ export interface AgentResponse {
   model: string;
   modelProvider: string;
   modelConfigRef: string;
-  memoryRefs: string[];
   tools: Tool[];
   deploymentReady: boolean;
   accepted: boolean;
