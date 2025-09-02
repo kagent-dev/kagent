@@ -67,12 +67,15 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           name = k8sRefUtils.fromRef(mcpServer.name).name;
         }
 
+        // Use the kind as provided - the frontend tool selection logic now 
+        // queries backend server data to determine the correct kind
         let kind = mcpServer.kind;
-        if (mcpServer.name.toLocaleLowerCase().includes("kagent-tool-server")) {
-          kind = "RemoteMCPServer";
-        } else if (mcpServer.name.toLocaleLowerCase().includes("kagent-querydoc")) {
+        
+        // Handle legacy cases where apiGroup might need adjustment
+        if (kind === "Service") {
           mcpServer.apiGroup = "";
-          kind = "Service";
+        } else if (!mcpServer.apiGroup) {
+          mcpServer.apiGroup = "kagent.dev";
         }
 
         return {

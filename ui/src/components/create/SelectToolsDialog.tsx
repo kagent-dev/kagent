@@ -5,10 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Search, Filter, ChevronDown, ChevronRight, AlertCircle, PlusCircle, XCircle, FunctionSquare, LucideIcon } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import type { AgentResponse, Tool, ToolsResponse } from "@/types";
+import type { AgentResponse, Tool, ToolsResponse, ToolServerResponse } from "@/types";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentToolWithServerData, groupMcpToolsByServer } from "@/lib/toolUtils";
 import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
@@ -20,6 +20,7 @@ interface SelectToolsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   availableTools: ToolsResponse[];
+  availableServers: ToolServerResponse[];
   selectedTools: Tool[];
   onToolsSelected: (tools: Tool[]) => void;
   availableAgents: AgentResponse[];
@@ -63,7 +64,7 @@ const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
   }
 };
 
-export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, availableAgents, loadingAgents }) => {
+export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, availableServers, selectedTools, onToolsSelected, availableAgents, loadingAgents }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [localSelectedTools, setLocalSelectedTools] = useState<Tool[]>([]);
   const [categories, setCategories] = useState<Set<string>>(new Set());
@@ -214,7 +215,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       };
     } else {
       const tool = item as ToolsResponse;
-      toolToAdd = toolResponseToAgentTool(tool, tool.server_name);
+      toolToAdd = toolResponseToAgentToolWithServerData(tool, tool.server_name, availableServers);
     }
 
     if (actualSelectedCount + 1 <= MAX_TOOLS_LIMIT) {

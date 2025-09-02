@@ -1,4 +1,4 @@
-import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
+import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse, ToolServerResponse } from "@/types";
 
 export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: TypedLocalReference } => {
   if (!value || typeof value !== "object") return false;
@@ -62,7 +62,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
     mcpServer: {
       name: serverNameRef,
       apiGroup: "kagent.dev",
-      kind: "MCPServer",
+      kind: "RemoteMCPServer",
       toolNames: Array.from(toolNamesSet)
     }
   }));
@@ -142,17 +142,56 @@ export const getToolResponseIdentifier = (tool: ToolsResponse | undefined | null
   return `${(tool as ToolsResponse).server_name}-${(tool as ToolsResponse).id}`;
 };
 
+// Helper function to determine correct kind from groupKind
+const getKindFromGroupKind = (groupKind?: string): { kind: string; apiGroup: string } => {
+  if (!groupKind) {
+    return { kind: "RemoteMCPServer", apiGroup: "kagent.dev" };
+  }
+  
+  if (groupKind === "MCPServer.kagent.dev") {
+    return { kind: "MCPServer", apiGroup: "kagent.dev" };
+  } else if (groupKind === "RemoteMCPServer.kagent.dev") {
+    return { kind: "RemoteMCPServer", apiGroup: "kagent.dev" };
+  } else if (groupKind === "Service") {
+    return { kind: "Service", apiGroup: "" };
+  }
+  
+  // Default fallback
+  return { kind: "RemoteMCPServer", apiGroup: "kagent.dev" };
+};
+
 // Convert DiscoveredTool to Tool for agent creation
-export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string): Tool => {
+export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string, serverGroupKind?: string): Tool => {
+  const { kind, apiGroup } = getKindFromGroupKind(serverGroupKind);
+  
   return {
     type: "McpServer",
     mcpServer: {
       name: serverRef,
-      apiGroup: "kagent.dev",
-      kind: "MCPServer",
+      apiGroup,
+      kind,
       toolNames: [tool.id]
     }
   };
+};
+
+// Create a map of server names to their groupKind for quick lookup
+export const createServerGroupKindMap = (servers: ToolServerResponse[]): Map<string, string> => {
+  const map = new Map<string, string>();
+  servers.forEach(server => {
+    map.set(server.ref, server.groupKind);
+  });
+  return map;
+};
+
+// Enhanced version that uses server data to determine correct kind
+export const toolResponseToAgentToolWithServerData = (
+  tool: ToolsResponse, 
+  serverRef: string, 
+  servers: ToolServerResponse[]
+): Tool => {
+  const server = servers.find(s => s.ref === serverRef);
+  return toolResponseToAgentTool(tool, serverRef, server?.groupKind);
 };
 
 // Utility functions for DiscoveredTool type (used in tools page)

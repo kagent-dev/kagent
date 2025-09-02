@@ -664,7 +664,7 @@ describe('Tool Utility Functions', () => {
         mcpServer: {
           name: "default/github-server",
           apiGroup: "kagent.dev",
-          kind: "MCPServer",
+          kind: "RemoteMCPServer",
           toolNames: ["create_pull_request"]
         }
       });

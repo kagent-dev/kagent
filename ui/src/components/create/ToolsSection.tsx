@@ -5,9 +5,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
 import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
-import type { Tool, AgentResponse, ToolsResponse } from "@/types";
+import type { Tool, AgentResponse, ToolsResponse, ToolServerResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
+import { getServers } from "@/app/actions/servers";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
@@ -24,15 +25,17 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
   const [availableTools, setAvailableTools] = useState<ToolsResponse[]>([]);
+  const [availableServers, setAvailableServers] = useState<ToolServerResponse[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoadingAgents(true);
       
       try {
-        const [agentsResponse, toolsResponse] = await Promise.all([
+        const [agentsResponse, toolsResponse, serversResponse] = await Promise.all([
           getAgents(),
-          getTools()
+          getTools(),
+          getServers()
         ]);
 
         // Handle agents
@@ -44,7 +47,17 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
         } else {
           console.error("Failed to fetch agents:", agentsResponse.error);
         }
+        
+        // Handle tools
         setAvailableTools(toolsResponse);
+        
+        // Handle servers
+        if (!serversResponse.error && serversResponse.data) {
+          setAvailableServers(serversResponse.data);
+        } else {
+          console.error("Failed to fetch servers:", serversResponse.error);
+          setAvailableServers([]);
+        }
       } catch (error) {
         console.error("Failed to fetch data:", error);
       } finally {
@@ -232,6 +245,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
         open={showToolSelector}
         onOpenChange={setShowToolSelector}
         availableTools={availableTools}
+        availableServers={availableServers}
         availableAgents={availableAgents}
         selectedTools={selectedTools}
         onToolsSelected={handleToolSelect}
