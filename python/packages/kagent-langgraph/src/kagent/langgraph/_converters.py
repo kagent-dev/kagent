@@ -102,7 +102,7 @@ async def _convert_langgraph_event_to_a2a(
 
             elif isinstance(message, ToolMessage):
                 # Handle tool responses
-                if message.content and isinstance(message.content, str):
+                if message.content:
                     a2a_events.append(
                         TaskStatusUpdateEvent(
                             task_id=task_id,
@@ -151,7 +151,7 @@ async def _convert_langgraph_event_to_a2a(
                                 message=Message(
                                     message_id=str(uuid.uuid4()),
                                     role=Role.agent,
-                                    parts=[Part(TextPart(text=f"User: {message.content}"))],
+                                    parts=[Part(TextPart(text=message.content))],
                                 ),
                             ),
                             context_id=context_id,
