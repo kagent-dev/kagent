@@ -69,7 +69,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
 
         // Use the kind as provided - the frontend tool selection logic now 
         // queries backend server data to determine the correct kind
-        let kind = mcpServer.kind;
+        const kind = mcpServer.kind;
         
         // Handle legacy cases where apiGroup might need adjustment
         if (kind === "Service") {
@@ -89,8 +89,8 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         } as Tool;
       }
 
-      if ((tool as any).agent) {
-        const agentObj = (tool as any).agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
+      if ((tool as Record<string, unknown>).agent) {
+        const agentObj = (tool as Record<string, unknown>).agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
         const refOrName = agentObj.ref || agentObj.name || "";
         const nameOnly = k8sRefUtils.isValidRef(refOrName) ? k8sRefUtils.fromRef(refOrName).name : refOrName;
         return {

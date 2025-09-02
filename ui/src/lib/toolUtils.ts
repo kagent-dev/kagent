@@ -2,13 +2,13 @@ import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalRefer
 
 export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: TypedLocalReference } => {
   if (!value || typeof value !== "object") return false;
-  const obj = value as any;
+  const obj = value as Record<string, unknown>;
   return obj.type === "Agent" && obj.agent && typeof obj.agent === "object" && typeof obj.agent.name === "string";
 };
 
 export const isAgentResponse = (value: unknown): value is AgentResponse => {
   if (!value || typeof value !== "object") return false;
-  const obj = value as any;
+  const obj = value as Record<string, unknown>;
   return !!obj.agent && typeof obj.agent === "object" && !!obj.agent.metadata && typeof obj.agent.metadata?.name === "string";
 };
 
