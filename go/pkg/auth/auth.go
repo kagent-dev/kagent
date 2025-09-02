@@ -46,8 +46,8 @@ type Session interface {
 // - Forward auth credentials to upstream agents
 type AuthProvider interface {
 	Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (Session, error)
-	// add auth to upstream requests of a session
-	UpstreamAuth(r *http.Request, session Session) error
+	// add auth to upstream requests of a session for upstream service account.
+	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
 }
 
 // Authz

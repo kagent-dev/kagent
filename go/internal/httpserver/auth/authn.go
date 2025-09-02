@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/kagent-dev/kagent/go/pkg/auth"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type SimpleSession struct {
@@ -40,7 +41,7 @@ func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 	}, nil
 }
 
-func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session) error {
+func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {
 	// for unsecure, just forward user id in header
 	if session == nil || session.Principal().User.ID == "" {
 		return nil
@@ -69,7 +70,7 @@ func (h handler) Handle(ctx context.Context, client *http.Client, req *http.Requ
 	return h(ctx, client, req)
 }
 
-func A2ARequestHandler(authProvider auth.AuthProvider) handler {
+func A2ARequestHandler(authProvider auth.AuthProvider, agentNns types.NamespacedName) handler {
 	return func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
 		var err error
 		var resp *http.Response
@@ -82,9 +83,17 @@ func A2ARequestHandler(authProvider auth.AuthProvider) handler {
 		if client == nil {
 			return nil, fmt.Errorf("a2aClient.httpRequestHandler: http client is nil")
 		}
+		upstreamPrincipal := auth.Principal{
+			Agent: auth.Agent{
+				ID: types.NamespacedName{
+					Name:      agentNns.Name,
+					Namespace: agentNns.Namespace,
+				}.String(),
+			},
+		}
 
 		if session, ok := auth.AuthSessionFrom(ctx); ok {
-			if err := authProvider.UpstreamAuth(req, session); err != nil {
+			if err := authProvider.UpstreamAuth(req, session, upstreamPrincipal); err != nil {
 				return nil, fmt.Errorf("a2aClient.httpRequestHandler: upstream auth failed: %w", err)
 			}
 		}

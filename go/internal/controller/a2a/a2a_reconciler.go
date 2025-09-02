@@ -13,6 +13,7 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
+	"k8s.io/apimachinery/pkg/types"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
@@ -62,12 +63,13 @@ func (a *a2aReconciler) ReconcileAgent(
 	card server.AgentCard,
 ) error {
 	agentRef := common.GetObjectRef(agent)
+	agentNns := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 
 	client, err := a2aclient.NewA2AClient(card.URL,
 		a2aclient.WithTimeout(a.clientOptions.Timeout),
 		a2aclient.WithBuffer(a.clientOptions.StreamingInitialBufSize, a.clientOptions.StreamingMaxBufSize),
 		debugOpt(),
-		a2aclient.WithHTTPReqHandler(authimpl.A2ARequestHandler(a.authenticator)),
+		a2aclient.WithHTTPReqHandler(authimpl.A2ARequestHandler(a.authenticator, agentNns)),
 	)
 	if err != nil {
 		return err
