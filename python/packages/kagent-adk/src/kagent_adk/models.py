@@ -34,6 +34,7 @@ class RemoteAgentConfig(BaseModel):
 
 class BaseLLM(BaseModel):
     model: str
+    timeout: int | None = None
 
 
 class OpenAI(BaseLLM):
@@ -102,18 +103,21 @@ class AgentConfig(BaseModel):
                         description=remote_agent.description,
                     )
                 )
+        # Extract timeout configuration
+        timeout = getattr(self.model, 'timeout', None)
+        
         if self.model.type == "openai":
-            model = LiteLlm(model=f"openai/{self.model.model}", base_url=self.model.base_url)
+            model = LiteLlm(model=f"openai/{self.model.model}", base_url=self.model.base_url, timeout=timeout)
         elif self.model.type == "anthropic":
-            model = LiteLlm(model=f"anthropic/{self.model.model}", base_url=self.model.base_url)
+            model = LiteLlm(model=f"anthropic/{self.model.model}", base_url=self.model.base_url, timeout=timeout)
         elif self.model.type == "gemini_vertex_ai":
-            model = GeminiLLM(model=self.model.model)
+            model = GeminiLLM(model=self.model.model, timeout=timeout)
         elif self.model.type == "gemini_anthropic":
-            model = ClaudeLLM(model=self.model.model)
+            model = ClaudeLLM(model=self.model.model, timeout=timeout)
         elif self.model.type == "ollama":
-            model = LiteLlm(model=f"ollama_chat/{self.model.model}")
+            model = LiteLlm(model=f"ollama_chat/{self.model.model}", timeout=timeout)
         elif self.model.type == "azure_openai":
-            model = LiteLlm(model=f"azure/{self.model.model}")
+            model = LiteLlm(model=f"azure/{self.model.model}", timeout=timeout)
         elif self.model.type == "gemini":
             model = self.model.model
         else:
@@ -125,4 +129,5 @@ class AgentConfig(BaseModel):
             instruction=self.instruction,
             tools=mcp_toolsets,
             sub_agents=remote_agents,
+            timeout=timeout,
         )

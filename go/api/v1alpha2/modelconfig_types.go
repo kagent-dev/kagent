@@ -79,6 +79,13 @@ type GeminiVertexAIConfig struct {
 	// Response mime type
 	// +optional
 	ResponseMimeType string `json:"responseMimeType,omitempty"`
+
+	// Timeout for LLM API calls in seconds
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:default=300
+	Timeout *int `json:"timeout,omitempty"`
 }
 
 type AnthropicVertexAIConfig struct {
@@ -87,6 +94,13 @@ type AnthropicVertexAIConfig struct {
 	// Maximum tokens to generate
 	// +optional
 	MaxTokens int `json:"maxTokens,omitempty"`
+
+	// Timeout for LLM API calls in seconds
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:default=300
+	Timeout *int `json:"timeout,omitempty"`
 }
 
 // AnthropicConfig contains Anthropic-specific configuration options
@@ -110,6 +124,13 @@ type AnthropicConfig struct {
 	// Top-k sampling parameter
 	// +optional
 	TopK int `json:"topK,omitempty"`
+
+	// Timeout for LLM API calls in seconds
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:default=300
+	Timeout *int `json:"timeout,omitempty"`
 }
 
 // OpenAIConfig contains OpenAI-specific configuration options
@@ -149,7 +170,11 @@ type OpenAIConfig struct {
 	// N value
 	N *int `json:"n,omitempty"`
 
-	// Timeout
+	// Timeout for LLM API calls in seconds
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:default=300
 	Timeout *int `json:"timeout,omitempty"`
 }
 
@@ -187,6 +212,13 @@ type AzureOpenAIConfig struct {
 	// Top-p sampling parameter
 	// +optional
 	TopP string `json:"topP,omitempty"`
+
+	// Timeout for LLM API calls in seconds
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:default=300
+	Timeout *int `json:"timeout,omitempty"`
 }
 
 // OllamaConfig contains Ollama-specific configuration options
@@ -198,9 +230,23 @@ type OllamaConfig struct {
 	// Options for the Ollama API
 	// +optional
 	Options map[string]string `json:"options,omitempty"`
+
+	// Timeout for LLM API calls in seconds
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:default=300
+	Timeout *int `json:"timeout,omitempty"`
 }
 
-type GeminiConfig struct{}
+type GeminiConfig struct {
+	// Timeout for LLM API calls in seconds
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:default=300
+	Timeout *int `json:"timeout,omitempty"`
+}
 
 // ModelConfigSpec defines the desired state of ModelConfig.
 //

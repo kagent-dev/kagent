@@ -492,6 +492,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		if model.Spec.OpenAI != nil {
 			openai.BaseUrl = model.Spec.OpenAI.BaseURL
+			openai.Timeout = model.Spec.OpenAI.Timeout
 			if model.Spec.OpenAI.Organization != "" {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 					Name:  "OPENAI_ORGANIZATION",
@@ -521,6 +522,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		if model.Spec.Anthropic != nil {
 			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
+			anthropic.Timeout = model.Spec.Anthropic.Timeout
 		}
 		return anthropic, modelDeploymentData, nil
 	case v1alpha2.ModelProviderAzureOpenAI:
@@ -558,7 +560,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		azureOpenAI := &adk.AzureOpenAI{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.AzureOpenAI.DeploymentName,
+				Model:   model.Spec.AzureOpenAI.DeploymentName,
+				Timeout: model.Spec.AzureOpenAI.Timeout,
 			},
 		}
 		return azureOpenAI, modelDeploymentData, nil
@@ -598,7 +601,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		gemini := &adk.GeminiVertexAI{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Timeout: model.Spec.GeminiVertexAI.Timeout,
 			},
 		}
 		return gemini, modelDeploymentData, nil
@@ -634,7 +638,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		anthropic := &adk.GeminiAnthropic{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Timeout: model.Spec.AnthropicVertexAI.Timeout,
 			},
 		}
 		return anthropic, modelDeploymentData, nil
@@ -648,7 +653,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		})
 		ollama := &adk.Ollama{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Timeout: model.Spec.Ollama.Timeout,
 			},
 		}
 		return ollama, modelDeploymentData, nil
@@ -666,7 +672,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		})
 		gemini := &adk.Gemini{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Timeout: model.Spec.Gemini.Timeout,
 			},
 		}
 		return gemini, modelDeploymentData, nil

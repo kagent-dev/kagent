@@ -37,8 +37,9 @@ type Model interface {
 }
 
 type BaseModel struct {
-	Type  string `json:"type"`
-	Model string `json:"model"`
+	Type    string `json:"type"`
+	Model   string `json:"model"`
+	Timeout *int   `json:"timeout,omitempty"`
 }
 
 type OpenAI struct {
@@ -61,6 +62,7 @@ func (o *OpenAI) MarshalJSON() ([]byte, error) {
 		"type":     ModelTypeOpenAI,
 		"model":    o.Model,
 		"base_url": o.BaseUrl,
+		"timeout":  o.Timeout,
 	})
 }
 
@@ -78,8 +80,9 @@ func (a *AzureOpenAI) GetType() string {
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeAzureOpenAI,
-		"model": a.Model,
+		"type":    ModelTypeAzureOpenAI,
+		"model":   a.Model,
+		"timeout": a.Timeout,
 	})
 }
 
@@ -93,6 +96,7 @@ func (a *Anthropic) MarshalJSON() ([]byte, error) {
 		"type":     ModelTypeAnthropic,
 		"model":    a.Model,
 		"base_url": a.BaseUrl,
+		"timeout":  a.Timeout,
 	})
 }
 
@@ -105,10 +109,10 @@ type GeminiVertexAI struct {
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGeminiVertexAI,
-		"model": g.Model,
+		"type":    ModelTypeGeminiVertexAI,
+		"model":   g.Model,
+		"timeout": g.Timeout,
 	})
 }
 
@@ -121,10 +125,10 @@ type GeminiAnthropic struct {
 }
 
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGeminiAnthropic,
-		"model": g.Model,
+		"type":    ModelTypeGeminiAnthropic,
+		"model":   g.Model,
+		"timeout": g.Timeout,
 	})
 }
 
@@ -138,8 +142,9 @@ type Ollama struct {
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeOllama,
-		"model": o.Model,
+		"type":    ModelTypeOllama,
+		"model":   o.Model,
+		"timeout": o.Timeout,
 	})
 }
 
@@ -152,10 +157,10 @@ type Gemini struct {
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGemini,
-		"model": g.Model,
+		"type":    ModelTypeGemini,
+		"model":   g.Model,
+		"timeout": g.Timeout,
 	})
 }
 
