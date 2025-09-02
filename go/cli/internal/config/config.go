@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	kagentclient "github.com/kagent-dev/kagent/go/pkg/client"
+
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -14,6 +16,10 @@ type Config struct {
 	Namespace    string `mapstructure:"namespace"`
 	OutputFormat string `mapstructure:"output_format"`
 	Verbose      bool   `mapstructure:"verbose"`
+}
+
+func (c *Config) Client() *kagentclient.ClientSet {
+	return kagentclient.New(c.KAgentURL, kagentclient.WithUserID("admin@kagent.dev"))
 }
 
 func Init() error {

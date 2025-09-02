@@ -16,7 +16,6 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
-  memory?: string;
 }
 
 export interface AgentFormData {
@@ -41,7 +40,6 @@ export interface AgentFormData {
   annotations?: Record<string, string>;
   env?: EnvVar[];
   imagePullPolicy?: string;
-  memory?: string[];
 }
 
 interface AgentsContextType {

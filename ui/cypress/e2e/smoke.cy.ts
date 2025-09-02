@@ -51,11 +51,5 @@ describe('Main page', () => {
     cy.wait(1000)
     cy.visit('/servers')
     cy.contains('h1', 'Tool Servers').should('be.visible');
-
-    cy.visit('/memories')
-    cy.contains('h1', 'Memories').should('be.visible');
-
-    cy.visit('/memories/new')
-    cy.contains('div', 'Create New Memory').should('be.visible');
   })
 })
