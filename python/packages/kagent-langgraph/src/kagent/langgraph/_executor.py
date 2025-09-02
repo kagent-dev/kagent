@@ -7,7 +7,7 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, override
 
 from a2a.server.agent_execution import AgentExecutor
@@ -18,10 +18,10 @@ from a2a.types import (
     Message,
     Part,
     Role,
+    TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TaskArtifactUpdateEvent,
     TextPart,
 )
 from langchain_core.runnables import RunnableConfig

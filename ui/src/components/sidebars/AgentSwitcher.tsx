@@ -45,7 +45,7 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">{selectedAgentRef}</span>
-                <span className="truncate text-xs">{selectedAgent.modelProvider} ({selectedAgent.model})</span>
+                <span className="truncate text-xs">{selectedAgent.modelProvider} {selectedAgent.model && `(${selectedAgent.model})`}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>
