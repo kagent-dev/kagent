@@ -12,11 +12,11 @@ class KAgentConfig:
 
     def __init__(self):
         if not kagent_url:
-            raise ValueError("KAGENT_URL is not set")
+            raise ValueError("KAGENT_URL environment variable is not set")
         if not kagent_name:
-            raise ValueError("KAGENT_NAME is not set")
+            raise ValueError("KAGENT_NAME environment variable is not set")
         if not kagent_namespace:
-            raise ValueError("KAGENT_NAMESPACE is not set")
+            raise ValueError("KAGENT_NAMESPACE environment variable is not set")
         self._url = kagent_url
         self._name = kagent_name
         self._namespace = kagent_namespace
