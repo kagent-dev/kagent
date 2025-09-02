@@ -245,10 +245,10 @@ func (h *CheckpointsHandler) HandlePutWrites(w ErrorResponseWriter, r *http.Requ
 
 	// Store checkpoint and writes atomically
 	if err := h.DatabaseService.StoreCheckpointWrites(writes); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to store checkpoint", err))
-		return
-	}
 
+	log.Info("Successfully stored checkpoint writes")
+	data := api.NewResponse(struct{}{}, "Successfully stored checkpoint writes", false)
+	RespondWithJSON(w, http.StatusOK, data)
 }
 
 // HandleDeleteThread handles DELETE /api/langgraph/checkpoints/{thread_id} requests
