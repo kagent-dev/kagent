@@ -106,9 +106,15 @@ func (a *adkApiTranslator) TranslateAgent(
 	agent *v1alpha2.Agent,
 ) (*AgentOutputs, error) {
 
+	err := a.validateAgent(ctx, agent, &tState{})
+	if err != nil {
+		return nil, err
+	}
+
 	switch agent.Spec.Type {
 	case v1alpha2.AgentType_Declarative:
-		cfg, card, mdd, err := a.translateInlineAgent(ctx, agent, &tState{})
+
+		cfg, card, mdd, err := a.translateInlineAgent(ctx, agent)
 		if err != nil {
 			return nil, err
 		}
@@ -144,6 +150,57 @@ func (a *adkApiTranslator) TranslateAgent(
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
+}
+
+func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) error {
+
+	agentRef := utils.GetObjectRef(agent)
+
+	if state.isVisited(agentRef) {
+		return fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentRef, agentRef)
+	}
+
+	if state.depth > MAX_DEPTH {
+		return fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentRef, agentRef)
+	}
+
+	if agent.Spec.Type != v1alpha2.AgentType_Declarative {
+		// We only need to validate loops in declarative agents
+		return nil
+	}
+
+	for _, tool := range agent.Spec.Declarative.Tools {
+		if tool.Type != v1alpha2.ToolProviderType_Agent {
+			continue
+		}
+
+		if tool.Agent == nil {
+			return fmt.Errorf("tool must have an agent reference")
+		}
+
+		agentRef := types.NamespacedName{
+			Namespace: agent.Namespace,
+			Name:      tool.Agent.Name,
+		}
+
+		if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
+			return fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+		}
+
+		toolAgent := &v1alpha2.Agent{}
+		err := a.kube.Get(ctx, agentRef, toolAgent)
+		if err != nil {
+			return err
+		}
+
+		err = a.validateAgent(ctx, toolAgent, state.with(agent))
+		if err != nil {
+			return err
+		}
+
+	}
+
+	return nil
 }
 
 func (a *adkApiTranslator) buildManifest(
@@ -359,7 +416,7 @@ func (a *adkApiTranslator) buildManifest(
 	return outputs, nil
 }
 
-func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, error) {
+func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, error) {
 
 	model, mdd, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Declarative.ModelConfig)
 	if err != nil {
@@ -409,14 +466,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
 			}
 
-			if state.isVisited(agentRef.String()) {
-				return nil, nil, nil, fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentRef, agentRef.String())
-			}
-
-			if state.depth > MAX_DEPTH {
-				return nil, nil, nil, fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentRef, agentRef.String())
-			}
-
 			// Translate a nested tool
 			toolAgent := &v1alpha2.Agent{}
 			err := a.kube.Get(ctx, agentRef, toolAgent)
@@ -424,17 +473,9 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				return nil, nil, nil, err
 			}
 
-			var toolAgentCfg *adk.AgentConfig
 			switch toolAgent.Spec.Type {
-			case v1alpha2.AgentType_Declarative:
-				toolAgentCfg, _, _, err = a.translateInlineAgent(ctx, toolAgent, state.with(agent))
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				cfg.Agents = append(cfg.Agents, *toolAgentCfg)
-			case v1alpha2.AgentType_BYO:
-				port := int32(8080)
-				url := fmt.Sprintf("http://%s.%s:%d", toolAgent.Name, toolAgent.Namespace, port)
+			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
+				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
 					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
 					Url:         url,

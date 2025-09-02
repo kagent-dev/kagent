@@ -22,6 +22,7 @@ from a2a.types import (
     TextPart,
 )
 from google.adk.runners import Runner
+from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override
 
@@ -167,6 +168,14 @@ class A2aAgentExecutor(AgentExecutor):
 
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
+
+        current_span = trace.get_current_span()
+        if run_args["user_id"]:
+            current_span.set_attribute("kagent.user_id", run_args["user_id"])
+        if context.task_id:
+            current_span.set_attribute("gen_ai.task.id", context.task_id)
+        if run_args["session_id"]:
+            current_span.set_attribute("gen_ai.converstation.id", run_args["session_id"])
 
         # create invocation context
         invocation_context = runner._new_invocation_context(
