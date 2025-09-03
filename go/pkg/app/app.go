@@ -89,8 +89,6 @@ func init() {
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
-
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 }
 
 type Config struct {
@@ -182,9 +180,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	flag.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	flag.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 
-	opts := zap.Options{
-		Development: true,
-	}
+	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
