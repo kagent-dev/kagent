@@ -65,20 +65,14 @@ spec:
             - -postgres-database-url
             - {{ .Values.database.postgres.url }}
             {{- end }}
-            {{- if .Values.registry }}
             - -image-registry
-            - {{ .Values.registry }}
-            {{- end }}
-            {{- if .Values.tag }}
-            - -image-tag
-            - {{ .Values.tag }}
-            {{- end }}
-            {{- if .Values.imagePullPolicy }}
-            - -image-pull-policy
-            - {{ .Values.imagePullPolicy }}
-            {{- end }}
+            - {{ .Values.controller.agentImage.registry | default .Values.registry  }}
             - -image-repository
             - {{ .Values.controller.agentImage.repository }}
+            - -image-tag
+            - {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version  }}
+            - -image-pull-policy
+            - {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.controller.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
