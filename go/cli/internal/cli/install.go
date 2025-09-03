@@ -234,7 +234,6 @@ func deleteCRDs(ctx context.Context) error {
 	crds := []string{
 		"agents.kagent.dev",
 		"modelconfigs.kagent.dev",
-		"teams.kagent.dev",
 		"toolservers.kagent.dev",
 	}
 
