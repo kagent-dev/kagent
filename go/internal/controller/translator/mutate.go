@@ -3,9 +3,6 @@
 package translator
 
 import (
-	"fmt"
-	"reflect"
-
 	"dario.cat/mergo"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -57,8 +54,7 @@ func MutateFuncFor(existing, desired client.Object) controllerutil.MutateFn {
 			return mutateDeployment(dpl, wantDpl)
 
 		default:
-			t := reflect.TypeOf(existing).String()
-			return fmt.Errorf("missing mutate implementation for resource type: %s", t)
+			return mergeWithOverride(existing, desired)
 		}
 		return nil
 	}

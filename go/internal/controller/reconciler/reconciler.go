@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -446,7 +447,7 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 		mutateFn := translator.MutateFuncFor(existing, desired)
 
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			_, createOrUpdateErr := controllerutil.CreateOrUpdate(ctx, a.kube, existing, mutateFn)
+			_, createOrUpdateErr := createOrUpdate(ctx, a.kube, existing, mutateFn)
 			return createOrUpdateErr
 		}); err != nil {
 			l.Error(err, "failed to configure desired")
@@ -468,6 +469,55 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 		return fmt.Errorf("failed to prune objects for %s: %w", owner.GetName(), err)
 	}
 
+	return nil
+}
+
+// modified version of controllerutil.CreateOrUpdate to support proto based objects like istio
+func createOrUpdate(ctx context.Context, c client.Client, obj client.Object, f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
+	key := client.ObjectKeyFromObject(obj)
+	if err := c.Get(ctx, key, obj); err != nil {
+		if !k8s_errors.IsNotFound(err) {
+			return controllerutil.OperationResultNone, err
+		}
+		if f != nil {
+			if err := mutate(f, key, obj); err != nil {
+				return controllerutil.OperationResultNone, err
+			}
+		}
+
+		if err := c.Create(ctx, obj); err != nil {
+			return controllerutil.OperationResultNone, err
+		}
+		return controllerutil.OperationResultCreated, nil
+	}
+
+	existing := obj.DeepCopyObject()
+	if f != nil {
+		if err := mutate(f, key, obj); err != nil {
+			return controllerutil.OperationResultNone, err
+		}
+	}
+
+	// special equality function to handle proto based crds
+	if reconcilerutils.ObjectsEqual(existing, obj) {
+		return controllerutil.OperationResultNone, nil
+	}
+
+	if err := c.Update(ctx, obj); err != nil {
+		return controllerutil.OperationResultNone, err
+	}
+
+	return controllerutil.OperationResultUpdated, nil
+}
+
+// mutate wraps a MutateFn and applies validation to its result.
+func mutate(f controllerutil.MutateFn, key client.ObjectKey, obj client.Object) error {
+	if err := f(); err != nil {
+		return err
+	}
+	if newKey := client.ObjectKeyFromObject(obj); key != newKey {
+		return fmt.Errorf("MutateFn cannot mutate object name and/or object namespace")
+	}
 	return nil
 }
 

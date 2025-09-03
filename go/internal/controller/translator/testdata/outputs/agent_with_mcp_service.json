@@ -42,7 +42,11 @@
   "manifest": [
     {
       "apiVersion": "v1",
-      "kind": "ServiceAccount",
+      "data": {
+        "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a math toolserver. Focus on solving mathematical problems step by step.\",\"http_tools\":[{\"params\":{\"url\":\"http://toolserver.test:8084/mcp\",\"headers\":{}},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"remote_agents\":null}"
+      },
+      "kind": "ConfigMap",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
@@ -65,11 +69,7 @@
     },
     {
       "apiVersion": "v1",
-      "data": {
-        "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a math toolserver. Focus on solving mathematical problems step by step.\",\"http_tools\":[{\"params\":{\"url\":\"http://toolserver.test:8084/mcp\",\"headers\":{}},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"remote_agents\":null}"
-      },
-      "kind": "ConfigMap",
+      "kind": "ServiceAccount",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
@@ -129,11 +129,13 @@
         },
         "template": {
           "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "13258764074340382693"
+            },
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "kagent": "agent",
-              "kagent.dev/config-hash": "13258764074340382693"
+              "kagent": "agent"
             }
           },
           "spec": {

@@ -32,7 +32,11 @@
   "manifest": [
     {
       "apiVersion": "v1",
-      "kind": "ServiceAccount",
+      "data": {
+        "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
+      },
+      "kind": "ConfigMap",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
@@ -55,11 +59,7 @@
     },
     {
       "apiVersion": "v1",
-      "data": {
-        "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
-      },
-      "kind": "ConfigMap",
+      "kind": "ServiceAccount",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
@@ -119,11 +119,13 @@
         },
         "template": {
           "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "2737405799465163407"
+            },
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "kagent": "anthropic-agent",
-              "kagent.dev/config-hash": "2737405799465163407"
+              "kagent": "anthropic-agent"
             }
           },
           "spec": {

@@ -37,7 +37,11 @@
   "manifest": [
     {
       "apiVersion": "v1",
-      "kind": "ServiceAccount",
+      "data": {
+        "agent-card.json": "{\"name\":\"parent_agent\",\"description\":\"\",\"url\":\"http://parent-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__specialist_agent\",\"url\":\"http://specialist-agent.test:8080\"}]}"
+      },
+      "kind": "ConfigMap",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
@@ -60,11 +64,7 @@
     },
     {
       "apiVersion": "v1",
-      "data": {
-        "agent-card.json": "{\"name\":\"parent_agent\",\"description\":\"\",\"url\":\"http://parent-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__specialist_agent\",\"url\":\"http://specialist-agent.test:8080\"}]}"
-      },
-      "kind": "ConfigMap",
+      "kind": "ServiceAccount",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
@@ -124,11 +124,13 @@
         },
         "template": {
           "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "12337125237270188692"
+            },
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "kagent": "parent-agent",
-              "kagent.dev/config-hash": "12337125237270188692"
+              "kagent": "parent-agent"
             }
           },
           "spec": {
