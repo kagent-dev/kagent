@@ -21,7 +21,7 @@ DEPLOYED COMPONENTS:
   - Engine: {{ include "kagent.fullname" . }}-engine (AI agent runtime)
   - UI: {{ include "kagent.fullname" . }}-ui (web interface)
 {{- if index .Values "kmcp" "enabled" }}
-  - KMCP Controller: {{ include "kagent.fullname" . }}-manager-controller (manages MCPServer resources)
+  - KMCP Controller: {{ include "kagent.fullname" . }}-{{ .Values.kmcp.nameOverride }}-manager-controller (manages MCPServer resources)
 {{- end }}
 
 ENABLED TOOLS:
