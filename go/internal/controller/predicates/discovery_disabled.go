@@ -22,6 +22,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
+const discoveryDisabledAnnotation = "kagent.dev/discovery-disabled"
+
 // DiscoveryDisabledPredicate filters out resources with the discovery disabled annotation set to true
 type DiscoveryDisabledPredicate struct {
 	predicate.Funcs
@@ -53,6 +55,6 @@ func isDiscoveryDisabled(obj client.Object) bool {
 		return false
 	}
 
-	discoveryDisabled, exists := annotations["kagent.dev/discovery-disabled"]
+	discoveryDisabled, exists := annotations[discoveryDisabledAnnotation]
 	return exists && discoveryDisabled == "true"
 }
