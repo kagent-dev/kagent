@@ -16,6 +16,7 @@ dependencies = [
   "opentelemetry-instrumentation-openai>= 0.44.3",
   "opentelemetry-instrumentation-anthropic>=0.44.0",
   "opentelemetry-instrumentation-httpx >= 0.52.0",
+  "opentelemetry-instrumentation-fastapi>=0.52.0",
 ]
 
 [tool.ruff]

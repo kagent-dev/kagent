@@ -26,8 +26,6 @@ def static(
     filepath: str = "/config",
     reload: Annotated[bool, typer.Option("--reload")] = False,
 ):
-    configure_tracing()
-
     app_cfg = KAgentConfig()
 
     with open(os.path.join(filepath, "config.json"), "r") as f:
@@ -40,8 +38,11 @@ def static(
 
     kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
 
+    server = kagent_app.build()
+    configure_tracing(server)
+
     uvicorn.run(
-        kagent_app.build(),
+        server,
         host=host,
         port=port,
         workers=workers,
@@ -57,7 +58,6 @@ def run(
     port: int = 8080,
     workers: int = 1,
 ):
-    configure_tracing()
     app_cfg = KAgentConfig()
 
     agent_loader = AgentLoader(agents_dir=working_dir)
@@ -67,8 +67,11 @@ def run(
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
     kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
+    server = kagent_app.build()
+    configure_tracing(server)
+
     uvicorn.run(
-        kagent_app.build(),
+        server,
         host=host,
         port=port,
         workers=workers,

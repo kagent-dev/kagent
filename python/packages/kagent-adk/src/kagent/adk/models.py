@@ -87,16 +87,15 @@ class AgentConfig(BaseModel):
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add stdio tools
                 mcp_toolsets.append(MCPToolset(connection_params=sse_tool.params, tool_filter=sse_tool.tools))
-        remote_agents: list[BaseAgent] = []
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
-                remote_agents.append(
-                    RemoteA2aAgent(
-                        name=remote_agent.name,
-                        agent_card=f"{remote_agent.url}/{AGENT_CARD_WELL_KNOWN_PATH}",
-                        description=remote_agent.description,
-                    )
+                remote_agent = RemoteA2aAgent(
+                    name=remote_agent.name,
+                    agent_card=f"{remote_agent.url}/{AGENT_CARD_WELL_KNOWN_PATH}",
+                    description=remote_agent.description,
                 )
+                mcp_toolsets.append(AgentTool(agent=remote_agent, skip_summarization=True))
+
         if self.model.type == "openai":
             model = LiteLlm(model=f"openai/{self.model.model}", base_url=self.model.base_url)
         elif self.model.type == "anthropic":
@@ -119,5 +118,4 @@ class AgentConfig(BaseModel):
             description=self.description,
             instruction=self.instruction,
             tools=mcp_toolsets,
-            sub_agents=remote_agents,
         )

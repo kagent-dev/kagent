@@ -1,10 +1,13 @@
 import logging
 import os
 
+from fastapi import FastAPI
 from opentelemetry import _logs, trace
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._events import EventLoggerProvider
 from opentelemetry.sdk._logs import LoggerProvider
@@ -14,7 +17,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 
-def configure():
+def configure(fastapi_app: FastAPI | None = None):
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
 
@@ -32,7 +35,9 @@ def configure():
             processor = BatchSpanProcessor(OTLPSpanExporter())
         tracer_provider.add_span_processor(processor)
         trace.set_tracer_provider(tracer_provider)
-
+        HTTPXClientInstrumentor().instrument()
+        if fastapi_app:
+            FastAPIInstrumentor().instrument_app(fastapi_app)
     # Configure logging if enabled
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")

@@ -5,7 +5,7 @@ import os
 from typing import Callable
 
 import httpx
-from a2a.server.apps import A2AStarletteApplication
+from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
@@ -81,7 +81,7 @@ class KAgentApp:
             request_context_builder=request_context_builder,
         )
 
-        a2a_app = A2AStarletteApplication(
+        a2a_app = A2AFastAPIApplication(
             agent_card=self.agent_card,
             http_handler=request_handler,
         )
