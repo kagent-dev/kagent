@@ -122,10 +122,10 @@ func (c *clientImpl) DeleteTask(taskID string) error {
 	return delete[Task](c.db, Clause{Key: "id", Value: taskID})
 }
 
-// DeleteSession deletes a session by name and user ID
+// DeleteSession deletes a session by id and user ID
 func (c *clientImpl) DeleteSession(sessionName string, userID string) error {
 	return delete[Session](c.db,
-		Clause{Key: "name", Value: sessionName},
+		Clause{Key: "id", Value: sessionName},
 		Clause{Key: "user_id", Value: userID})
 }
 
