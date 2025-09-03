@@ -31,7 +31,11 @@
   "manifest": [
     {
       "apiVersion": "v1",
-      "kind": "ServiceAccount",
+      "data": {
+        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
+      },
+      "kind": "ConfigMap",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
@@ -54,11 +58,7 @@
     },
     {
       "apiVersion": "v1",
-      "data": {
-        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
-      },
-      "kind": "ConfigMap",
+      "kind": "ServiceAccount",
       "metadata": {
         "creationTimestamp": null,
         "labels": {
@@ -118,11 +118,13 @@
         },
         "template": {
           "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "5492798879143754836"
+            },
             "creationTimestamp": null,
             "labels": {
               "app": "kagent",
-              "kagent": "ollama-agent",
-              "kagent.dev/config-hash": "5492798879143754836"
+              "kagent": "ollama-agent"
             }
           },
           "spec": {

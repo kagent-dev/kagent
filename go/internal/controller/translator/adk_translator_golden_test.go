@@ -119,7 +119,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 		}, agent)
 		require.NoError(t, err)
 
-		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel).TranslateAgent(ctx, agent)
+		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil).TranslateAgent(ctx, agent)
 		require.NoError(t, err)
 
 	default:
