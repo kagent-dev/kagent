@@ -200,13 +200,21 @@ class A2aAgentExecutor(AgentExecutor):
             )
         )
 
+        # Extract timeout configuration from runner
+        timeout = getattr(runner, 'timeout', 300)  # Default 5 minutes
+        
         task_result_aggregator = TaskResultAggregator()
-        async for adk_event in runner.run_async(**run_args):
-            for a2a_event in convert_event_to_a2a_events(
-                adk_event, invocation_context, context.task_id, context.context_id
-            ):
-                task_result_aggregator.process_event(a2a_event)
-                await event_queue.enqueue_event(a2a_event)
+        try:
+            async with asyncio.timeout(timeout):
+                async for adk_event in runner.run_async(**run_args):
+                    for a2a_event in convert_event_to_a2a_events(
+                        adk_event, invocation_context, context.task_id, context.context_id
+                    ):
+                        task_result_aggregator.process_event(a2a_event)
+                        await event_queue.enqueue_event(a2a_event)
+        except asyncio.TimeoutError:
+            logger.error(f"LLM call timed out after {timeout} seconds")
+            raise TimeoutError(f"LLM request exceeded configured timeout of {timeout} seconds")
 
         # publish the task result event - this is final
         if (
