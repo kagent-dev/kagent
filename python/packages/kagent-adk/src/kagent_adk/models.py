@@ -13,6 +13,8 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
 
+from ._litellm_headers import parse_headers_env
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,18 +100,22 @@ class AgentConfig(BaseModel):
                         description=remote_agent.description,
                     )
                 )
+        # Ensure LiteLLM clients include default headers if provided via en
+        # ClaudeLLM and GeminiLLM do not support extra_headers, DOTO - find a way to pass headers to them
+        extra_h=parse_headers_env()
+
         if self.model.type == "openai":
-            model = LiteLlm(model=f"openai/{self.model.model}", base_url=self.model.base_url)
+            model = LiteLlm(model=f"openai/{self.model.model}", base_url=self.model.base_url, extra_headers=extra_h)
         elif self.model.type == "anthropic":
-            model = LiteLlm(model=f"anthropic/{self.model.model}", base_url=self.model.base_url)
+            model = LiteLlm(model=f"anthropic/{self.model.model}", base_url=self.model.base_url, extra_headers=extra_h)
         elif self.model.type == "gemini_vertex_ai":
             model = GeminiLLM(model=self.model.model)
         elif self.model.type == "gemini_anthropic":
             model = ClaudeLLM(model=self.model.model)
         elif self.model.type == "ollama":
-            model = LiteLlm(model=f"ollama_chat/{self.model.model}")
+            model = LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_h)
         elif self.model.type == "azure_openai":
-            model = LiteLlm(model=f"azure/{self.model.model}")
+            model = LiteLlm(model=f"azure/{self.model.model}", extra_headers=extra_h)
         elif self.model.type == "gemini":
             model = self.model.model
         else:
