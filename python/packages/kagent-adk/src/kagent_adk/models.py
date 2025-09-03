@@ -4,7 +4,7 @@ from typing import Literal, Self, Union
 from google.adk.agents import Agent
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.llm_agent import ToolUnion
-from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent, AGENT_CARD_WELL_KNOWN_PATH
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
@@ -94,7 +94,7 @@ class AgentConfig(BaseModel):
                 remote_agents.append(
                     RemoteA2aAgent(
                         name=remote_agent.name,
-                        agent_card=remote_agent.url,
+                        agent_card=f"{remote_agent.url}/{AGENT_CARD_WELL_KNOWN_PATH}",
                         description=remote_agent.description,
                     )
                 )
