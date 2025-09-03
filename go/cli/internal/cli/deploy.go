@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -15,7 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -29,7 +27,7 @@ type DeployCfg struct {
 }
 
 // DeployCmd deploys an agent to Kubernetes
-func DeployCmd(cfg *DeployCfg) error {
+func DeployCmd(ctx context.Context, cfg *DeployCfg) error {
 	// Validate project directory
 	if cfg.ProjectDir == "" {
 		return fmt.Errorf("project directory is required")
@@ -58,29 +56,36 @@ func DeployCmd(cfg *DeployCfg) error {
 		return fmt.Errorf("failed to create Kubernetes client: %v", err)
 	}
 
-	// Handle secret creation or reference
+	// If namespace is not set, use default
+	if cfg.Config.Namespace == "" {
+		cfg.Config.Namespace = "default"
+	}
+
+	// Handle secret creation or reference to existing secret
 	var secretName string
 	if cfg.APIKeySecret != "" {
 		// Use existing secret
 		secretName = cfg.APIKeySecret
 		// Verify the secret exists
-		if err := verifySecretExists(k8sClient, cfg.Config.Namespace, secretName, apiKeyEnvVar); err != nil {
-			return fmt.Errorf("failed to verify secret '%s': %v", secretName, err)
+		if err := verifySecretExists(ctx, k8sClient, cfg.Config.Namespace, secretName, apiKeyEnvVar); err != nil {
+			return err
 		}
-		fmt.Printf("Using existing secret '%s' in namespace '%s'\n", secretName, cfg.Config.Namespace)
+		if cfg.Config.Verbose {
+			fmt.Printf("Using existing secret '%s' in namespace '%s'\n", secretName, cfg.Config.Namespace)
+		}
 	} else if cfg.APIKey != "" {
 		// Create new secret with provided API key
 		secretName = fmt.Sprintf("%s-%s", manifest.Name, strings.ToLower(manifest.ModelProvider))
-		if err := createSecret(k8sClient, cfg.Config.Namespace, secretName, apiKeyEnvVar, cfg.APIKey); err != nil {
-			return fmt.Errorf("failed to create secret: %v", err)
+		if err := createSecret(ctx, k8sClient, cfg.Config.Namespace, secretName, apiKeyEnvVar, cfg.APIKey, cfg.Config.Verbose); err != nil {
+			return err
 		}
 	} else {
 		return fmt.Errorf("either --api-key or --api-key-secret must be provided")
 	}
 
 	// Create the Agent CRD
-	if err := createAgentCRD(k8sClient, cfg, manifest, secretName, apiKeyEnvVar); err != nil {
-		return fmt.Errorf("failed to create Agent CRD: %v", err)
+	if err := createAgentCRD(ctx, k8sClient, cfg, manifest, secretName, apiKeyEnvVar, cfg.Config.Verbose); err != nil {
+		return err
 	}
 
 	fmt.Printf("Successfully deployed agent '%s' to namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
@@ -95,12 +100,10 @@ func loadManifest(projectDir string) (*common.AgentManifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load kagent.yaml: %v", err)
 	}
-
 	// Additional validation for deploy-specific requirements
 	if manifest.ModelProvider == "" {
 		return nil, fmt.Errorf("model provider is required in kagent.yaml")
 	}
-
 	return manifest, nil
 }
 
@@ -122,25 +125,13 @@ func getAPIKeyEnvVar(modelProvider string) string {
 
 // createKubernetesClient creates a Kubernetes client
 func createKubernetesClient() (client.Client, error) {
-	// Try to load from kubeconfig first
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		home := os.Getenv("HOME")
-		if home != "" {
-			kubeconfig = filepath.Join(home, ".kube", "config")
-		}
-	}
+	// Use the standard kubeconfig loading rules
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
 
-	var config *rest.Config
-	var err error
+	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 
-	if kubeconfig != "" && fileExists(kubeconfig) {
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-	} else {
-		// Try in-cluster config
-		config, err = rest.InClusterConfig()
-	}
-
+	config, err := clientConfig.ClientConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Kubernetes config: %v", err)
 	}
@@ -162,9 +153,9 @@ func createKubernetesClient() (client.Client, error) {
 }
 
 // verifySecretExists verifies that a secret exists and contains the required key
-func verifySecretExists(k8sClient client.Client, namespace, secretName, apiKeyEnvVar string) error {
+func verifySecretExists(ctx context.Context, k8sClient client.Client, namespace, secretName, apiKeyEnvVar string) error {
 	secret := &corev1.Secret{}
-	err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return fmt.Errorf("secret '%s' not found in namespace '%s'", secretName, namespace)
@@ -181,46 +172,47 @@ func verifySecretExists(k8sClient client.Client, namespace, secretName, apiKeyEn
 }
 
 // createSecret creates a Kubernetes secret with the API key
-func createSecret(k8sClient client.Client, namespace, secretName, apiKeyEnvVar, apiKeyValue string) error {
+func createSecret(ctx context.Context, k8sClient client.Client, namespace, secretName, apiKeyEnvVar, apiKeyValue string, verbose bool) error {
 	// Check if secret already exists
 	existingSecret := &corev1.Secret{}
-	err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: secretName}, existingSecret)
+	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, existingSecret)
 
-	if err == nil {
-		// Secret exists, update it
-		existingSecret.Data[apiKeyEnvVar] = []byte(apiKeyValue)
-		if err := k8sClient.Update(context.Background(), existingSecret); err != nil {
-			return fmt.Errorf("failed to update existing secret: %v", err)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create new secret
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: namespace,
+				},
+				Data: map[string][]byte{
+					apiKeyEnvVar: []byte(apiKeyValue),
+				},
+			}
+			if err := k8sClient.Create(ctx, secret); err != nil {
+				return fmt.Errorf("failed to create secret: %v", err)
+			}
+			if verbose {
+				fmt.Printf("Created secret '%s' in namespace '%s'\n", secretName, namespace)
+			}
+			return nil
 		}
-		fmt.Printf("Updated existing secret '%s' in namespace '%s'\n", secretName, namespace)
-		return nil
-	}
-
-	if !errors.IsNotFound(err) {
 		return fmt.Errorf("failed to check if secret exists: %v", err)
 	}
 
-	// Create new secret
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-		},
-		Data: map[string][]byte{
-			apiKeyEnvVar: []byte(apiKeyValue),
-		},
+	// Secret exists, update it
+	existingSecret.Data[apiKeyEnvVar] = []byte(apiKeyValue)
+	if err := k8sClient.Update(ctx, existingSecret); err != nil {
+		return fmt.Errorf("failed to update existing secret: %v", err)
 	}
-
-	if err := k8sClient.Create(context.Background(), secret); err != nil {
-		return fmt.Errorf("failed to create secret: %v", err)
+	if verbose {
+		fmt.Printf("Updated existing secret '%s' in namespace '%s'\n", secretName, namespace)
 	}
-
-	fmt.Printf("Created secret '%s' in namespace '%s'\n", secretName, namespace)
 	return nil
 }
 
 // createAgentCRD creates the Agent CRD
-func createAgentCRD(k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest, secretName, apiKeyEnvVar string) error {
+func createAgentCRD(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest, secretName, apiKeyEnvVar string, verbose bool) error {
 	// Determine image name
 	imageName := cfg.Image
 	if imageName == "" {
@@ -264,33 +256,29 @@ func createAgentCRD(k8sClient client.Client, cfg *DeployCfg, manifest *common.Ag
 
 	// Check if agent already exists
 	existingAgent := &v1alpha2.Agent{}
-	err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: cfg.Config.Namespace, Name: manifest.Name}, existingAgent)
+	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cfg.Config.Namespace, Name: manifest.Name}, existingAgent)
 
-	if err == nil {
-		// Agent exists, update it
-		existingAgent.Spec = agent.Spec
-		if err := k8sClient.Update(context.Background(), existingAgent); err != nil {
-			return fmt.Errorf("failed to update existing agent: %v", err)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Agent does not exist, create it
+			if err := k8sClient.Create(ctx, agent); err != nil {
+				return fmt.Errorf("failed to create agent: %v", err)
+			}
+			if verbose {
+				fmt.Printf("Created agent '%s' in namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
+			}
+			return nil
 		}
-		fmt.Printf("Updated existing agent '%s' in namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
-		return nil
-	}
-
-	if !errors.IsNotFound(err) {
 		return fmt.Errorf("failed to check if agent exists: %v", err)
 	}
 
-	// Create new agent
-	if err := k8sClient.Create(context.Background(), agent); err != nil {
-		return fmt.Errorf("failed to create agent: %v", err)
+	// Agent exists, update it
+	existingAgent.Spec = agent.Spec
+	if err := k8sClient.Update(ctx, existingAgent); err != nil {
+		return fmt.Errorf("failed to update existing agent: %v", err)
 	}
-
-	fmt.Printf("Created agent '%s' in namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
+	if verbose {
+		fmt.Printf("Updated existing agent '%s' in namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
+	}
 	return nil
-}
-
-// fileExists checks if a file exists
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }

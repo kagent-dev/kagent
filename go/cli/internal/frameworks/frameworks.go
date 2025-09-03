@@ -22,6 +22,6 @@ func NewGenerator(framework, language string) (Generator, error) {
 			return nil, fmt.Errorf("unsupported language '%s' for adk", language)
 		}
 	default:
-		return nil, fmt.Errorf("unsupported framework: %s", language)
+		return nil, fmt.Errorf("unsupported framework: %s", framework)
 	}
 }

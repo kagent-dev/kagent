@@ -27,7 +27,7 @@ func InitCmd(cfg *InitCfg) error {
 		return fmt.Errorf("unsupported framework: %s. Only 'adk' is supported", cfg.Framework)
 	}
 
-	if cfg.Framework == "adk" && cfg.Language != "python" {
+	if cfg.Language != "python" {
 		return fmt.Errorf("unsupported language: %s. Only 'python' is supported for ADK", cfg.Language)
 	}
 
@@ -40,11 +40,6 @@ func InitCmd(cfg *InitCfg) error {
 		if err := validateModelProvider(cfg.ModelProvider); err != nil {
 			return err
 		}
-	}
-
-	if cfg.ModelProvider == "" && cfg.ModelName == "" {
-		cfg.ModelProvider = string(v1alpha2.ModelProviderGemini)
-		cfg.ModelName = "gemini-2.0-flash"
 	}
 
 	// Get current working directory for project creation

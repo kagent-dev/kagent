@@ -100,13 +100,14 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 	}
 
 	fmt.Printf("✅ Successfully created %s project in %s\n", agentConfig.Framework, projectDir)
+	fmt.Printf("🤖 Model configuration for project: %s (%s)\n", agentConfig.ModelProvider, agentConfig.ModelName)
 	fmt.Printf("📁 Project structure:\n")
 	fmt.Printf("   %s/\n", agentConfig.Name)
 	fmt.Printf("   ├── %s/\n", agentConfig.Name)
 	fmt.Printf("   │   ├── __init__.py\n")
 	fmt.Printf("   │   ├── agent.py\n")
 	fmt.Printf("   │   └── agent-card.json\n")
-	fmt.Printf("   ├── agent.yaml\n")
+	fmt.Printf("   ├── %s\n", common.ManifestFileName)
 	fmt.Printf("   ├── pyproject.toml\n")
 	fmt.Printf("   ├── Dockerfile\n")
 	fmt.Printf("   └── README.md\n")
