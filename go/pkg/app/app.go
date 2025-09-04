@@ -157,12 +157,14 @@ type BootstrapConfig struct {
 	Manager manager.Manager
 }
 
+type CtrlManagerConfigFunc func(manager.Manager) error
+
 type ExtensionConfig struct {
 	Authenticator             auth.AuthProvider
 	Authorizer                auth.Authorizer
 	AgentPlugins              []translator.TranslatorPlugin
 	MCPServerPlugins          []transportadapter.TranslatorPlugin
-	ExtendedCtrlManagerConfig []func(manager.Manager) error
+	ExtendedCtrlManagerConfig []CtrlManagerConfigFunc
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
