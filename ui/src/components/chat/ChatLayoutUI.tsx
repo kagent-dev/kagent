@@ -38,7 +38,8 @@ export default function ChatLayoutUI({
           description: tool.description,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          deleted_at: ""
+          deleted_at: "",
+          group_kind: server.groupKind
         });
       });
     });
