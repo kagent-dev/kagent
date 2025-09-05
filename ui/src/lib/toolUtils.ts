@@ -56,16 +56,25 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
     }
   });
 
-  // Convert to Tool objects
-  const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => ({
-    type: "McpServer" as const,
-    mcpServer: {
-      name: serverNameRef,
-      apiGroup: "kagent.dev",
-      kind: "MCPServer",
-      toolNames: Array.from(toolNamesSet)
-    }
-  }));
+  // Convert to Tool objects - preserve original kind and apiGroup from the first tool of each server
+  const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => {
+    // Find the first tool from this server to get its kind and apiGroup
+    const originalTool = tools.find(tool => 
+      isMcpTool(tool) && tool.mcpServer?.name === serverNameRef
+    );
+    
+    const originalMcpServer = originalTool?.mcpServer;
+    
+    return {
+      type: "McpServer" as const,
+      mcpServer: {
+        name: serverNameRef,
+        apiGroup: originalMcpServer?.apiGroup || "kagent.dev",
+        kind: originalMcpServer?.kind || "MCPServer",
+        toolNames: Array.from(toolNamesSet)
+      }
+    };
+  });
 
   return {
     groupedTools: [...groupedMcpTools, ...nonMcpTools],
@@ -81,6 +90,28 @@ export const getToolIdentifier = (tool: Tool): string => {
     return `mcp-${mcpTool.mcpServer?.name || "No name"}`;
   }
   return `unknown-tool-${Math.random().toString(36).substring(7)}`;
+};
+
+/**
+ * Parse groupKind string to extract apiGroup and kind
+ * @param groupKind - String in format "kind.apiGroup" or just "kind"
+ * @returns Object with apiGroup and kind
+ */
+export const parseGroupKind = (groupKind: string): { apiGroup: string; kind: string } => {
+  // Handle null, undefined, or empty string
+  if (!groupKind || !groupKind.trim()) {
+    return { apiGroup: "kagent.dev", kind: "MCPServer" };
+  }
+  
+  const parts = groupKind.trim().split('.');
+  
+  if (parts.length === 1) {
+    const kind = parts[0];
+    return { apiGroup: "kagent.dev", kind };
+  }
+  const kind = parts[0];
+  const apiGroup = parts.slice(1).join('.');
+  return { apiGroup, kind };
 };
 
 export const getToolDisplayName = (tool: Tool): string => {
@@ -144,12 +175,20 @@ export const getToolResponseIdentifier = (tool: ToolsResponse | undefined | null
 
 // Convert DiscoveredTool to Tool for agent creation
 export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string): Tool => {
+  let { apiGroup, kind } = parseGroupKind(tool.group_kind);
+  
+  // Special handling for kagent-querydoc - must have empty apiGroup for Kubernetes Service
+  if (serverRef.toLocaleLowerCase().includes("kagent-querydoc")) {
+    apiGroup = "";
+    kind = "Service";
+  }
+  
   return {
     type: "McpServer",
     mcpServer: {
       name: serverRef,
-      apiGroup: "kagent.dev",
-      kind: "MCPServer",
+      apiGroup,
+      kind,
       toolNames: [tool.id]
     }
   };

@@ -185,6 +185,7 @@ export interface ToolsResponse {
   updated_at: string;
   deleted_at: string;
   description: string;
+  group_kind: string;
 }
 
 
