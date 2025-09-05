@@ -1,7 +1,7 @@
 import importlib.metadata
 
 from ._a2a import KAgentApp
-from .models import AgentConfig
+from .types import AgentConfig
 
 __version__ = importlib.metadata.version("kagent_adk")
 
