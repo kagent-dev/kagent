@@ -45,6 +45,7 @@ var defaultModelConfig = types.NamespacedName{
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
+	Router            *mux.Router
 	BindAddr          string
 	KubeClient        ctrl_client.Client
 	A2AHandler        a2a.A2AHandlerMux
@@ -70,7 +71,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 
 	return &HTTPServer{
 		config:        config,
-		router:        mux.NewRouter(),
+		router:        config.Router,
 		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer),
 		authenticator: config.Authenticator,
 	}, nil
