@@ -12,6 +12,9 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
 
+from .models import AzureOpenAI as OpenAIAzure
+from .models import OpenAI as OpenAINative
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,7 +100,7 @@ class AgentConfig(BaseModel):
                 mcp_toolsets.append(AgentTool(agent=remote_agent, skip_summarization=True))
 
         if self.model.type == "openai":
-            model = LiteLlm(model=f"openai/{self.model.model}", base_url=self.model.base_url)
+            model = OpenAINative(model=self.model.model, base_url=self.model.base_url, type="openai")
         elif self.model.type == "anthropic":
             model = LiteLlm(model=f"anthropic/{self.model.model}", base_url=self.model.base_url)
         elif self.model.type == "gemini_vertex_ai":
@@ -107,7 +110,7 @@ class AgentConfig(BaseModel):
         elif self.model.type == "ollama":
             model = LiteLlm(model=f"ollama_chat/{self.model.model}")
         elif self.model.type == "azure_openai":
-            model = LiteLlm(model=f"azure/{self.model.model}")
+            model = OpenAIAzure(model=self.model.model, type="azure_openai")
         elif self.model.type == "gemini":
             model = self.model.model
         else:
