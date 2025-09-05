@@ -69,7 +69,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/controller"
 	"github.com/kagent-dev/kagent/go/internal/goruntime"
 	kmcpv1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
-	kmcpcontroller "github.com/kagent-dev/kmcp/pkg/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -354,15 +353,6 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		cfg.DefaultModelConfig,
 		a2aReconciler,
 	)
-
-	if err = (&kmcpcontroller.MCPServerReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Plugins: extensionCfg.MCPServerPlugins,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
-		os.Exit(1)
-	}
 
 	if err := (&controller.ServiceController{
 		Scheme:     mgr.GetScheme(),
