@@ -20,13 +20,14 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
-	"github.com/kagent-dev/kmcp/pkg/controller/transportadapter"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kagent-dev/kmcp/pkg/controller/transportadapter"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
@@ -156,11 +157,14 @@ type BootstrapConfig struct {
 	Manager manager.Manager
 }
 
+type CtrlManagerConfigFunc func(manager.Manager) error
+
 type ExtensionConfig struct {
-	Authenticator    auth.AuthProvider
-	Authorizer       auth.Authorizer
-	AgentPlugins     []translator.TranslatorPlugin
-	MCPServerPlugins []transportadapter.TranslatorPlugin
+	Authenticator             auth.AuthProvider
+	Authorizer                auth.Authorizer
+	AgentPlugins              []translator.TranslatorPlugin
+	MCPServerPlugins          []transportadapter.TranslatorPlugin
+	ExtendedCtrlManagerConfig []CtrlManagerConfigFunc
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -401,6 +405,14 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		setupLog.Error(err, "unable to create controller", "controller", "Memory")
 		os.Exit(1)
 	}
+
+	for _, mgrCfgFunc := range extensionCfg.ExtendedCtrlManagerConfig {
+		if err := mgrCfgFunc(mgr); err != nil {
+			setupLog.Error(err, "error when processing extended controller manager configuration")
+			os.Exit(1)
+		}
+	}
+
 	// +kubebuilder:scaffold:builder
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")
