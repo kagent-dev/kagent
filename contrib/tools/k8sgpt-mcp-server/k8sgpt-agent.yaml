@@ -1,7 +1,7 @@
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
-  name: k8sgpt
+  name: k8sgpt-agent
   namespace: kagent
 spec:
   declarative:
