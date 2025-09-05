@@ -1,0 +1,13 @@
+## Official MCP Server for k8sgpt
+## https://github.com/k8sgpt-ai/k8sgpt
+## This file defines a RemoteMCPServer for k8sgpt using the MCP protocol.
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: kagent
+spec:
+  url: "http://k8sgpt-mcp-server:8089/mcp"
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  description: "k8sgpt is an AI-powered kubernetes troubleshooting tool"
