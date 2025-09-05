@@ -1,0 +1,19 @@
+{
+  "name": "{{.Name}}",
+  "description": "A {{.Name}} agent",
+  "url": "localhost:8080",
+  "version": "0.0.1",
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "{{.Name}}",
+      "name": "{{.Name}}",
+      "description": "A {{.Name}} agent",
+      "tags": ["{{.Name}}"]
+    }
+  ]
+}
