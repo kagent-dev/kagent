@@ -12,6 +12,14 @@ VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 
+KUBECONFIG_PERM ?= $(shell \
+  if [ "$$(uname -s | tr '[:upper:]' '[:lower:]')" = "darwin" ]; then \
+    stat -f "%Lp" ~/.kube/config; \
+  else \
+    stat -c "%a" ~/.kube/config; \
+  fi)
+
+
 # Docker buildx configuration
 BUILDKIT_VERSION = v0.23.0
 BUILDX_NO_DEFAULT_ATTESTATIONS=1
@@ -114,7 +122,7 @@ create-kind-cluster:
 .PHONY: use-kind-cluster
 use-kind-cluster:
 	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
-	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config
+	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
 	kubectl create namespace kagent || true
 	kubectl config set-context --current --namespace kagent || true
 
