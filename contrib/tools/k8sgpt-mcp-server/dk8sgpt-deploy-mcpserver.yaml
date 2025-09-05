@@ -1,0 +1,111 @@
+---
+# Source: k8sgpt/templates/sa.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+---
+# Source: k8sgpt/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: k8sgpt/templates/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+subjects:
+- kind: ServiceAccount
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+roleRef:
+  kind: ClusterRole
+  name: k8sgpt-mcp-server
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: k8sgpt/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+spec:
+  selector:
+    app.kubernetes.io/name: k8sgpt
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 8081
+      targetPort: 8081
+    - name: mcp
+      port: 8089
+      targetPort: 8089
+  type: ClusterIP
+---
+# Source: k8sgpt/templates/deployment.yaml
+# Note that even though we define the K8SGPT_MODEL and K8SGPT_BACKEND environment variables, they are not used since
+# we do not use the "explain" mode of the k8sgpt tool.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8sgpt-mcp-server
+  namespace: "kagent"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8sgpt
+      app.kubernetes.io/instance: k8sgpt-mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k8sgpt
+        app.kubernetes.io/instance: k8sgpt-mcp-server
+    spec:
+      serviceAccountName: k8sgpt-mcp-server
+      containers:
+      - name: k8sgpt-container
+        imagePullPolicy: Always
+        image: ghcr.io/k8sgpt-ai/k8sgpt:v0.4.24
+        ports:
+        - containerPort: 8080
+        - containerPort: 8089
+        args: ["serve", "--mcp", "-v","--mcp-http", "--mcp-port", "8089"]
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: "0.2"
+            memory: 156Mi
+        env:
+        - name: K8SGPT_MODEL # not used since we do not use the "explain" mode of the k8sgpt tool.
+          value: gpt-4.1-mini
+        - name: K8SGPT_BACKEND # not used since we do not use the "explain" mode of the k8sgpt tool.
+          value: openai
+        - name: XDG_CONFIG_HOME
+          value: /k8sgpt-config/
+        - name: XDG_CACHE_HOME
+          value: /k8sgpt-config/
+        volumeMounts:
+        - mountPath: /k8sgpt-config
+          name: config
+      volumes:
+      - emptyDir: {}
+        name: config
