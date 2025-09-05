@@ -185,10 +185,11 @@ def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionTool
                     "description": func_decl.description or "",
                 }
 
-                if func_decl.parameters:
-                    properties = {}
-                    required = []
+                # Always include parameters field, even if empty
+                properties = {}
+                required = []
 
+                if func_decl.parameters:
                     if func_decl.parameters.properties:
                         for prop_name, prop_schema in func_decl.parameters.properties.items():
                             value_dict = prop_schema.model_dump(exclude_none=True)
@@ -198,7 +199,7 @@ def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionTool
                     if func_decl.parameters.required:
                         required = func_decl.parameters.required
 
-                    function_def["parameters"] = {"type": "object", "properties": properties, "required": required}
+                function_def["parameters"] = {"type": "object", "properties": properties, "required": required}
 
                 # Create the tool param
                 openai_tool: ChatCompletionToolParam = {"type": "function", "function": function_def}

@@ -50,3 +50,8 @@ packages = ["src/kagent"]
 
 [tool.ruff]
 extend = "../../pyproject.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
