@@ -1,5 +1,14 @@
 import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
 
+
+// Constants for MCP server types and defaults
+const DEFAULT_API_GROUP = "kagent.dev";
+const DEFAULT_MCP_KIND = "MCPServer";
+const SERVICE_KIND = "Service";
+const QUERYDOC_SERVER_NAME = "kagent-querydoc";
+const TOOL_SERVER_NAME = "kagent-tool-server";
+const MCP_SERVER_TYPE = "McpServer" as const;
+
 export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: TypedLocalReference } => {
   if (!value || typeof value !== "object") return false;
   const obj = value as any;
@@ -66,11 +75,11 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
     const originalMcpServer = originalTool?.mcpServer;
     
     return {
-      type: "McpServer" as const,
+      type: MCP_SERVER_TYPE,
       mcpServer: {
         name: serverNameRef,
-        apiGroup: originalMcpServer?.apiGroup || "kagent.dev",
-        kind: originalMcpServer?.kind || "MCPServer",
+        apiGroup: originalMcpServer?.apiGroup || DEFAULT_API_GROUP,
+        kind: originalMcpServer?.kind || DEFAULT_MCP_KIND,
         toolNames: Array.from(toolNamesSet)
       }
     };
@@ -100,14 +109,14 @@ export const getToolIdentifier = (tool: Tool): string => {
 export const parseGroupKind = (groupKind: string): { apiGroup: string; kind: string } => {
   // Handle null, undefined, or empty string
   if (!groupKind || !groupKind.trim()) {
-    return { apiGroup: "kagent.dev", kind: "MCPServer" };
+    return { apiGroup: DEFAULT_API_GROUP, kind: DEFAULT_MCP_KIND };
   }
   
   const parts = groupKind.trim().split('.');
   
   if (parts.length === 1) {
     const kind = parts[0];
-    return { apiGroup: "kagent.dev", kind };
+    return { apiGroup: DEFAULT_API_GROUP, kind };
   }
   const kind = parts[0];
   const apiGroup = parts.slice(1).join('.');
@@ -157,7 +166,7 @@ export const getToolResponseDescription = (tool: ToolsResponse | undefined | nul
 export const getToolResponseCategory = (tool: ToolsResponse | undefined | null): string => {
   // Extract category from server reference or tool name
   if (!tool || typeof tool !== "object") return "Unknown";
-  if ((tool as ToolsResponse).server_name === 'kagent/kagent-tool-server') {
+  if ((tool as ToolsResponse).server_name === `kagent/${TOOL_SERVER_NAME}`) {
     const parts = (tool as ToolsResponse).id.split("_");
     if (parts.length > 1) {
       return parts[0];
@@ -178,13 +187,13 @@ export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string):
   let { apiGroup, kind } = parseGroupKind(tool.group_kind);
   
   // Special handling for kagent-querydoc - must have empty apiGroup for Kubernetes Service
-  if (serverRef.toLocaleLowerCase().includes("kagent-querydoc")) {
+  if (serverRef.toLocaleLowerCase().includes(QUERYDOC_SERVER_NAME)) {
     apiGroup = "";
-    kind = "Service";
+    kind = SERVICE_KIND;
   }
   
   return {
-    type: "McpServer",
+    type: MCP_SERVER_TYPE,
     mcpServer: {
       name: serverRef,
       apiGroup,
@@ -205,7 +214,7 @@ export const getDiscoveredToolDescription = (tool: DiscoveredTool): string => {
 
 export const getDiscoveredToolCategory = (tool: DiscoveredTool, serverRef: string): string => {
   // Extract category from server reference or tool name
-  if (serverRef.includes('kagent-tool-server')) {
+  if (serverRef.includes(TOOL_SERVER_NAME)) {
     const parts = tool.name.split("_");
     if (parts.length > 1) {
       return parts[0];
