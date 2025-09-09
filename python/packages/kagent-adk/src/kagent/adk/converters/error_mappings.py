@@ -36,19 +36,6 @@ NORMAL_COMPLETION_REASONS = {
 # Default error message when no specific mapping exists
 DEFAULT_ERROR_MESSAGE = "An error occurred during processing"
 
-
-def is_normal_completion(error_code: Optional[str]) -> bool:
-    """Check if the error code represents normal completion rather than an error.
-    
-    Args:
-        error_code: The error code to check
-        
-    Returns:
-        True if this is a normal completion reason, False otherwise
-    """
-    return error_code in NORMAL_COMPLETION_REASONS
-
-
 def get_error_message(error_code: Optional[str]) -> str:
     """Get a user-friendly error message for the given error code.
     
