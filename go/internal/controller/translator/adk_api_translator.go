@@ -607,7 +607,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		if model.Spec.AzureOpenAI.Endpoint != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  "AZURE_API_BASE",
+				Name:  "AZURE_OPENAI_ENDPOINT",
 				Value: model.Spec.AzureOpenAI.Endpoint,
 			})
 		}
