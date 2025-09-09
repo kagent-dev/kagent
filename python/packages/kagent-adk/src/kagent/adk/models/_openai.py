@@ -124,7 +124,7 @@ def _convert_content_to_openai_messages(
                     tool_message: ChatCompletionToolMessageParam = {
                         "role": "tool",
                         "tool_call_id": tool_call_id,
-                        "content": "Function call executed successfully.",
+                        "content": "No response available for this function call.",
                     }
                     tool_response_messages.append(tool_message)
 
