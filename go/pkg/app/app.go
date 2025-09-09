@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/kagent-dev/kmcp/pkg/controller/transportadapter"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
@@ -155,6 +156,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 type BootstrapConfig struct {
 	Ctx     context.Context
 	Manager manager.Manager
+	Router  *mux.Router
 }
 
 type CtrlManagerConfigFunc func(manager.Manager) error
@@ -315,10 +317,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 
 	dbClient := database.NewClient(dbManager)
-
+	router := mux.NewRouter()
 	extensionCfg, err := getExtensionConfig(BootstrapConfig{
 		Ctx:     ctx,
 		Manager: mgr,
+		Router:  router,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to get start config")
@@ -445,6 +448,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
+		Router:            router,
 		BindAddr:          cfg.HttpServerAddr,
 		KubeClient:        mgr.GetClient(),
 		A2AHandler:        a2aHandler,

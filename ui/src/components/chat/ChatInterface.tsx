@@ -141,6 +141,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setChatStatus("thinking");
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
+    setStreamingContent(""); // Reset streaming content for new message
 
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {

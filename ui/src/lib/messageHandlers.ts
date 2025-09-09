@@ -241,7 +241,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               }
             } else {
               handlers.setIsStreaming(true);
-              handlers.setStreamingContent(() => textContent);
+              handlers.setStreamingContent(prevContent => prevContent + textContent);
               if (handlers.setChatStatus) {
                 handlers.setChatStatus("generating_response");
               }
