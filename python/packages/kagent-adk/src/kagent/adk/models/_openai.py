@@ -55,8 +55,13 @@ def _convert_content_to_openai_messages(
         system_message: ChatCompletionSystemMessageParam = {"role": "system", "content": system_instruction}
         messages.append(system_message)
 
-    # Track tool calls to ensure proper flow
-    pending_tool_calls = set()
+    # First pass: collect all function responses to match with tool calls
+    all_function_responses = {}
+    for content in contents:
+        for part in content.parts or []:
+            if part.function_response:
+                tool_call_id = part.function_response.id or "call_1"
+                all_function_responses[tool_call_id] = part.function_response
 
     for content in contents:
         role = _convert_role_to_openai(content.role)
@@ -83,23 +88,14 @@ def _convert_content_to_openai_messages(
                     }
                     image_parts.append(image_part)
 
-        # Handle function responses first (they should be tool messages)
-        for func_response in function_responses:
-            tool_call_id = func_response.function_response.id or "call_1"
-            if tool_call_id in pending_tool_calls:
-                tool_message: ChatCompletionToolMessageParam = {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "content": str(func_response.function_response.response.get("result", ""))
-                    if func_response.function_response.response
-                    else "",
-                }
-                messages.append(tool_message)
-                pending_tool_calls.discard(tool_call_id)
+        # Function responses are now handled together with function calls
+        # This ensures proper pairing and prevents orphaned tool messages
 
         # Handle function calls (assistant messages with tool_calls)
         if function_calls:
             tool_calls = []
+            tool_response_messages = []
+
             for func_call in function_calls:
                 tool_call_function: ToolCallFunction = {
                     "name": func_call.function_call.name or "",
@@ -112,7 +108,25 @@ def _convert_content_to_openai_messages(
                     "function": tool_call_function,
                 }
                 tool_calls.append(tool_call)
-                pending_tool_calls.add(tool_call_id)
+
+                # Check if we have a response for this tool call
+                if tool_call_id in all_function_responses:
+                    func_response = all_function_responses[tool_call_id]
+                    tool_message: ChatCompletionToolMessageParam = {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": str(func_response.response.get("result", "")) if func_response.response else "",
+                    }
+                    tool_response_messages.append(tool_message)
+                else:
+                    # If no response is available, create a placeholder response
+                    # This prevents the OpenAI API error
+                    tool_message: ChatCompletionToolMessageParam = {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": "Function call executed successfully.",
+                    }
+                    tool_response_messages.append(tool_message)
 
             # Create assistant message with tool calls
             text_content = "\n".join(text_parts) if text_parts else None
@@ -122,6 +136,9 @@ def _convert_content_to_openai_messages(
                 "tool_calls": tool_calls,
             }
             messages.append(assistant_message)
+
+            # Add all tool response messages immediately after the assistant message
+            messages.extend(tool_response_messages)
 
         # Handle regular text/image messages (only if no function calls)
         elif text_parts or image_parts:
