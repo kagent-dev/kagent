@@ -28,7 +28,6 @@ from .part_converter import (
 # Constants
 
 ARTIFACT_ID_SEPARATOR = "-"
-DEFAULT_ERROR_MESSAGE = "An error occurred during processing"
 
 # Logger
 logger = logging.getLogger("kagent_adk." + __name__)
