@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Literal, Option
 from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+from google.genai.types import FunctionCall, FunctionResponse
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from openai.types.chat import (
     ChatCompletion,
@@ -27,7 +28,7 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 from openai.types.chat.chat_completion_message_tool_call_param import (
     Function as ToolCallFunction,
 )
-from openai.types.shared_params import FunctionDefinition
+from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
 
 if TYPE_CHECKING:
@@ -56,7 +57,7 @@ def _convert_content_to_openai_messages(
         messages.append(system_message)
 
     # First pass: collect all function responses to match with tool calls
-    all_function_responses = {}
+    all_function_responses: dict[str, FunctionResponse] = {}
     for content in contents:
         for part in content.parts or []:
             if part.function_response:
@@ -67,18 +68,18 @@ def _convert_content_to_openai_messages(
         role = _convert_role_to_openai(content.role)
 
         # Separate different types of parts
-        text_parts = []
-        function_calls = []
-        function_responses = []
+        text_parts: list[str] = []
+        function_calls: list[FunctionCall] = []
+        function_responses: list[FunctionResponse] = []
         image_parts = []
 
         for part in content.parts or []:
             if part.text:
                 text_parts.append(part.text)
             elif part.function_call:
-                function_calls.append(part)
+                function_calls.append(part.function_call)
             elif part.function_response:
-                function_responses.append(part)
+                function_responses.append(part.function_response)
             elif part.inline_data and part.inline_data.mime_type and part.inline_data.mime_type.startswith("image"):
                 if part.inline_data.data:
                     image_data = base64.b64encode(part.inline_data.data).decode()
@@ -98,43 +99,43 @@ def _convert_content_to_openai_messages(
 
             for func_call in function_calls:
                 tool_call_function: ToolCallFunction = {
-                    "name": func_call.function_call.name or "",
-                    "arguments": str(func_call.function_call.args) if func_call.function_call.args else "{}",
+                    "name": func_call.name or "",
+                    "arguments": json.dumps(func_call.args) if func_call.args else "{}",
                 }
-                tool_call_id = func_call.function_call.id or "call_1"
-                tool_call: ChatCompletionMessageToolCallParam = {
-                    "id": tool_call_id,
-                    "type": "function",
-                    "function": tool_call_function,
-                }
+                tool_call_id = func_call.id or "call_1"
+                tool_call = ChatCompletionMessageToolCallParam(
+                    id=tool_call_id,
+                    type="function",
+                    function=tool_call_function,
+                )
                 tool_calls.append(tool_call)
 
                 # Check if we have a response for this tool call
                 if tool_call_id in all_function_responses:
                     func_response = all_function_responses[tool_call_id]
-                    tool_message: ChatCompletionToolMessageParam = {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": str(func_response.response.get("result", "")) if func_response.response else "",
-                    }
+                    tool_message = ChatCompletionToolMessageParam(
+                        role="tool",
+                        tool_call_id=tool_call_id,
+                        content=str(func_response.response.get("result", "")) if func_response.response else "",
+                    )
                     tool_response_messages.append(tool_message)
                 else:
                     # If no response is available, create a placeholder response
                     # This prevents the OpenAI API error
-                    tool_message: ChatCompletionToolMessageParam = {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": "No response available for this function call.",
-                    }
+                    tool_message = ChatCompletionToolMessageParam(
+                        role="tool",
+                        tool_call_id=tool_call_id,
+                        content="No response available for this function call.",
+                    )
                     tool_response_messages.append(tool_message)
 
             # Create assistant message with tool calls
             text_content = "\n".join(text_parts) if text_parts else None
-            assistant_message: ChatCompletionAssistantMessageParam = {
-                "role": "assistant",
-                "content": text_content,
-                "tool_calls": tool_calls,
-            }
+            assistant_message = ChatCompletionAssistantMessageParam(
+                role="assistant",
+                content=text_content,
+                tool_calls=tool_calls,
+            )
             messages.append(assistant_message)
 
             # Add all tool response messages immediately after the assistant message
@@ -145,22 +146,22 @@ def _convert_content_to_openai_messages(
             if role == "user":
                 if image_parts and text_parts:
                     # Multi-modal content
-                    text_part: ChatCompletionContentPartTextParam = {"type": "text", "text": "\n".join(text_parts)}
+                    text_part = ChatCompletionContentPartTextParam(type="text", text="\n".join(text_parts))
                     content_parts = [text_part] + image_parts
-                    user_message: ChatCompletionUserMessageParam = {"role": "user", "content": content_parts}
+                    user_message = ChatCompletionUserMessageParam(role="user", content=content_parts)
                 elif image_parts:
                     # Image only
-                    user_message: ChatCompletionUserMessageParam = {"role": "user", "content": image_parts}
+                    user_message = ChatCompletionUserMessageParam(role="user", content=image_parts)
                 else:
                     # Text only
-                    user_message: ChatCompletionUserMessageParam = {"role": "user", "content": "\n".join(text_parts)}
+                    user_message = ChatCompletionUserMessageParam(role="user", content="\n".join(text_parts))
                 messages.append(user_message)
             elif role == "assistant":
                 # Assistant messages with text (no tool calls)
-                assistant_message: ChatCompletionAssistantMessageParam = {
-                    "role": "assistant",
-                    "content": "\n".join(text_parts),
-                }
+                assistant_message = ChatCompletionAssistantMessageParam(
+                    role="assistant",
+                    content="\n".join(text_parts),
+                )
                 messages.append(assistant_message)
 
     return messages
@@ -197,10 +198,10 @@ def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionTool
         if tool.function_declarations:
             for func_decl in tool.function_declarations:
                 # Build function definition
-                function_def: FunctionDefinition = {
-                    "name": func_decl.name or "",
-                    "description": func_decl.description or "",
-                }
+                function_def = FunctionDefinition(
+                    name=func_decl.name or "",
+                    description=func_decl.description or "",
+                )
 
                 # Always include parameters field, even if empty
                 properties = {}
@@ -219,7 +220,7 @@ def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionTool
                 function_def["parameters"] = {"type": "object", "properties": properties, "required": required}
 
                 # Create the tool param
-                openai_tool: ChatCompletionToolParam = {"type": "function", "function": function_def}
+                openai_tool = ChatCompletionToolParam(type="function", function=function_def)
                 openai_tools.append(openai_tool)
 
     return openai_tools

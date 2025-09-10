@@ -599,7 +599,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			return nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name: "AZURE_API_KEY",
+			Name: "AZURE_OPENAI_API_KEY",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{
