@@ -213,7 +213,7 @@ func GetList[T client.Object](ctx context.Context, cl client.Client, l T, option
 	for i := range objs {
 		typedObj, ok := objs[i].(T)
 		if !ok {
-			return ownedObjects, fmt.Errorf("error listing %T: %w", l, err)
+			return ownedObjects, fmt.Errorf("failed to assert object at index %d to type %T", i, l)
 		}
 		ownedObjects[typedObj.GetUID()] = typedObj
 	}
