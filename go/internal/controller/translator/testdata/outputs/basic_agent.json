@@ -32,11 +32,7 @@
   "manifest": [
     {
       "apiVersion": "v1",
-      "data": {
-        "agent-card.json": "{\"name\":\"basic_agent\",\"description\":\"\",\"url\":\"http://basic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
-      },
-      "kind": "ConfigMap",
+      "kind": "Secret",
       "metadata": {
         "labels": {
           "app": "kagent",
@@ -54,6 +50,10 @@
             "uid": ""
           }
         ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"name\":\"basic_agent\",\"description\":\"\",\"url\":\"http://basic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -213,10 +213,10 @@
             "serviceAccountName": "basic-agent",
             "volumes": [
               {
-                "configMap": {
-                  "name": "basic-agent"
-                },
-                "name": "config"
+                "name": "config",
+                "secret": {
+                  "secretName": "basic-agent"
+                }
               },
               {
                 "name": "kagent-token",

@@ -31,11 +31,7 @@
   "manifest": [
     {
       "apiVersion": "v1",
-      "data": {
-        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
-      },
-      "kind": "ConfigMap",
+      "kind": "Secret",
       "metadata": {
         "labels": {
           "app": "kagent",
@@ -53,6 +49,10 @@
             "uid": ""
           }
         ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -207,10 +207,10 @@
             "serviceAccountName": "ollama-agent",
             "volumes": [
               {
-                "configMap": {
-                  "name": "ollama-agent"
-                },
-                "name": "config"
+                "name": "config",
+                "secret": {
+                  "secretName": "ollama-agent"
+                }
               },
               {
                 "name": "kagent-token",

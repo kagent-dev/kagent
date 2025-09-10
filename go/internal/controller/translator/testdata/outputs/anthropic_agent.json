@@ -32,11 +32,7 @@
   "manifest": [
     {
       "apiVersion": "v1",
-      "data": {
-        "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
-      },
-      "kind": "ConfigMap",
+      "kind": "Secret",
       "metadata": {
         "labels": {
           "app": "kagent",
@@ -54,6 +50,10 @@
             "uid": ""
           }
         ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -213,10 +213,10 @@
             "serviceAccountName": "anthropic-agent",
             "volumes": [
               {
-                "configMap": {
-                  "name": "anthropic-agent"
-                },
-                "name": "config"
+                "name": "config",
+                "secret": {
+                  "secretName": "anthropic-agent"
+                }
               },
               {
                 "name": "kagent-token",
