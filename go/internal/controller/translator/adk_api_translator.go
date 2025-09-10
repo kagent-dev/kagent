@@ -162,6 +162,7 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 	ownedResources := []client.Object{
 		&appsv1.Deployment{},
 		&corev1.ConfigMap{},
+		&corev1.Secret{},
 		&corev1.Service{},
 		&corev1.ServiceAccount{},
 	}
@@ -231,8 +232,8 @@ func (a *adkApiTranslator) buildManifest(
 
 	// Optional config/card for Inline
 	var configHash uint64
-	var configVol []corev1.Volume
-	var configMounts []corev1.VolumeMount
+	var secretVol []corev1.Volume
+	var secretMounts []corev1.VolumeMount
 	var cfgJson string
 	var agentCard string
 	if cfg != nil && card != nil {
@@ -249,15 +250,15 @@ func (a *adkApiTranslator) buildManifest(
 		cfgJson = string(bCfg)
 		agentCard = string(bCard)
 
-		configVol = []corev1.Volume{{
+		secretVol = []corev1.Volume{{
 			Name: "config",
 			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: agent.Name},
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: agent.Name,
 				},
 			},
 		}}
-		configMounts = []corev1.VolumeMount{{Name: "config", MountPath: "/config"}}
+		secretMounts = []corev1.VolumeMount{{Name: "config", MountPath: "/config"}}
 	}
 
 	selectorLabels := map[string]string{
@@ -281,11 +282,11 @@ func (a *adkApiTranslator) buildManifest(
 		}
 	}
 
-	// ConfigMap
-	outputs.Manifest = append(outputs.Manifest, &corev1.ConfigMap{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
+	// Secret
+	outputs.Manifest = append(outputs.Manifest, &corev1.Secret{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 		ObjectMeta: objMeta(),
-		Data: map[string]string{
+		StringData: map[string]string{
 			"config.json":     cfgJson,
 			"agent-card.json": agentCard,
 		},
@@ -323,8 +324,8 @@ func (a *adkApiTranslator) buildManifest(
 	)
 
 	// Build Deployment
-	volumes := append(configVol, dep.Volumes...)
-	volumeMounts := append(configMounts, dep.VolumeMounts...)
+	volumes := append(secretVol, dep.Volumes...)
+	volumeMounts := append(secretMounts, dep.VolumeMounts...)
 
 	// Token volume
 	volumes = append(volumes, corev1.Volume{
