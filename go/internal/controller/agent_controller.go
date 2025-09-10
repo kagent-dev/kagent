@@ -62,7 +62,7 @@ func (r *AgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	build := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
@@ -75,7 +75,7 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	// Setup watches for secondary resources that are not owned by the Agent
-	build = build.Watches(
+	return build.Watches(
 		&v1alpha2.ModelConfig{},
 		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			requests := []reconcile.Request{}
