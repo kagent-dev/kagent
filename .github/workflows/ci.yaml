@@ -233,6 +233,8 @@ jobs:
           working-directory: go
 
   python-test:
+    env:
+      OPENAI_API_KEY: fake
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
