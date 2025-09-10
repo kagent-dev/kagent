@@ -6795,6 +6795,48 @@ spec:
                           required:
                           - name
                           type: object
+                        headersFrom:
+                          description: |-
+                            HeadersFrom specifies a list of configuration values to be added as
+                            headers to requests sent to the Tool from this agent. The value of
+                            each header is resolved from either a Secret or ConfigMap in the same
+                            namespace as the Agent. Headers specified here will override any
+                            headers of the same name/key specified on the tool.
+                          items:
+                            description: ValueRef represents a configuration value
+                            properties:
+                              name:
+                                type: string
+                              value:
+                                type: string
+                              valueFrom:
+                                description: ValueSource defines a source for configuration
+                                  values from a Secret or ConfigMap
+                                properties:
+                                  key:
+                                    description: The key of the ConfigMap or Secret.
+                                    type: string
+                                  name:
+                                    description: The name of the ConfigMap or Secret.
+                                    type: string
+                                  type:
+                                    enum:
+                                    - ConfigMap
+                                    - Secret
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                - type
+                                type: object
+                            required:
+                            - name
+                            type: object
+                            x-kubernetes-validations:
+                            - message: Exactly one of value or valueFrom must be specified
+                              rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                                && has(self.valueFrom))
+                          type: array
                         mcpServer:
                           properties:
                             apiGroup:

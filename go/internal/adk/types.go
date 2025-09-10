@@ -221,9 +221,10 @@ func ParseModel(bytes []byte) (Model, error) {
 }
 
 type RemoteAgentConfig struct {
-	Name        string `json:"name"`
-	Url         string `json:"url"`
-	Description string `json:"description,omitempty"`
+	Name        string            `json:"name"`
+	Url         string            `json:"url"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Description string            `json:"description,omitempty"`
 }
 
 type AgentConfig struct {

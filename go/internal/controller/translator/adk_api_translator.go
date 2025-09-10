@@ -479,12 +479,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}))
 	}
 
-	toolsByServer := make(map[v1alpha2.TypedLocalReference][]string)
 	for _, tool := range agent.Spec.Declarative.Tools {
 		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.McpServer != nil:
-			toolsByServer[tool.McpServer.TypedLocalReference] = append(toolsByServer[tool.McpServer.TypedLocalReference], tool.McpServer.ToolNames...)
+			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom)
+			if err != nil {
+				return nil, nil, nil, err
+			}
 		case tool.Agent != nil:
 
 			agentRef := types.NamespacedName{
@@ -506,9 +508,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			switch toolAgent.Spec.Type {
 			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
+				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
 					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
 					Url:         url,
+					Headers:     headers,
 					Description: toolAgent.Spec.Description,
 				})
 			default:
@@ -517,12 +525,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 
 		default:
 			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
-		}
-	}
-	for server, tools := range toolsByServer {
-		err := a.translateMCPServerTarget(ctx, cfg, server, tools, agent.Namespace)
-		if err != nil {
-			return nil, nil, nil, err
 		}
 	}
 
@@ -794,8 +796,8 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, toolServerRef v1alpha2.TypedLocalReference, toolNames []string, agentNamespace string) error {
-	gvk := toolServerRef.GroupKind()
+func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, toolServer *v1alpha2.McpServerTool, toolHeaders []v1alpha2.ValueRef) error {
+	gvk := toolServer.TypedLocalReference.GroupKind()
 
 	switch gvk {
 	case schema.GroupKind{
@@ -813,15 +815,19 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "MCPServer",
 	}:
 		mcpServer := &v1alpha1.MCPServer{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServerRef.Name}, mcpServer)
+		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.TypedLocalReference.Name}, mcpServer)
 		if err != nil {
 			return err
 		}
+
 		spec, err := ConvertMCPServerToRemoteMCPServer(mcpServer)
 		if err != nil {
 			return err
 		}
-		return a.translateRemoteMCPServerTarget(ctx, agent, spec, toolNames, agentNamespace)
+
+		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
+
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "RemoteMCPServer",
@@ -832,11 +838,14 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "RemoteMCPServer",
 	}:
 		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServerRef.Name}, remoteMcpServer)
+		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.TypedLocalReference.Name}, remoteMcpServer)
 		if err != nil {
 			return err
 		}
-		return a.translateRemoteMCPServerTarget(ctx, agent, &remoteMcpServer.Spec, toolNames, agentNamespace)
+
+		remoteMcpServer.Spec.HeadersFrom = append(remoteMcpServer.Spec.HeadersFrom, toolHeaders...)
+
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer.ToolNames)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "Service",
@@ -847,15 +856,19 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "Service",
 	}:
 		svc := &corev1.Service{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServerRef.Name}, svc)
+		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.TypedLocalReference.Name}, svc)
 		if err != nil {
 			return err
 		}
+
 		spec, err := ConvertServiceToRemoteMCPServer(svc)
 		if err != nil {
 			return err
 		}
-		return a.translateRemoteMCPServerTarget(ctx, agent, spec, toolNames, agentNamespace)
+
+		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
+
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames)
 
 	default:
 		return fmt.Errorf("unknown tool server type: %s", gvk)
@@ -919,7 +932,8 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 		Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
 	}, nil
 }
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string, agentNamespace string) error {
+
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string) error {
 	switch remoteMcpServer.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentNamespace)
