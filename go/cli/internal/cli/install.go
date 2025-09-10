@@ -71,6 +71,11 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 		return nil
 	}
 
+	if err := checkHelmAvailable(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return nil
+	}
+
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
 
@@ -102,6 +107,11 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward {
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
+		return nil
+	}
+
+	if err := checkHelmAvailable(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return nil
 	}
 
@@ -259,6 +269,12 @@ func deleteCRDs(ctx context.Context) error {
 }
 
 func UninstallCmd(ctx context.Context, cfg *config.Config) {
+	// Check if helm is available
+	if err := checkHelmAvailable(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
 	// First uninstall kagent
@@ -316,3 +332,12 @@ func UninstallCmd(ctx context.Context, cfg *config.Config) {
 	s.Stop()
 	fmt.Fprintln(os.Stdout, "\nkagent uninstalled successfully") //nolint:errcheck
 }
+
+func checkHelmAvailable() error {
+	_, err := exec.LookPath("helm")
+	if err != nil {
+		return fmt.Errorf("helm not found in PATH. Please install helm first: https://helm.sh/docs/intro/install/")
+	}
+	return nil
+}
+
