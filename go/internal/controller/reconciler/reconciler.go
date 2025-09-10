@@ -44,6 +44,7 @@ type KagentReconciler interface {
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
+	GetOwnedResourceTypes() []client.Object
 }
 
 type kagentReconciler struct {
@@ -416,7 +417,11 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 		return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
 
-	ownedObjects := map[types.UID]client.Object{} // TODO: We should lookup all objects that are actually owned by the controller to ensure that resources are correctly pruned over time
+	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, agent.UID, agent.Namespace, a.adkTranslator.GetOwnedResourceTypes())
+	if err != nil {
+		return err
+	}
+
 	if err := a.reconcileDesiredObjects(ctx, agent, agentOutputs.Manifest, ownedObjects); err != nil {
 		return fmt.Errorf("failed to reconcile owned objects: %v", err)
 	}
@@ -430,6 +435,16 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 	}
 
 	return nil
+}
+
+// GetOwnedResourceTypes returns all the resource types that may be owned by
+// controllers that are reconciled herein. At present only the agents controller
+// owns resources so this simply wraps a call to the ADK translator as that is
+// responsible for creating the manifests for an agent. If in future other
+// controllers start owning resources then this method should be updated to
+// return the distinct union of all owned resource types.
+func (r *kagentReconciler) GetOwnedResourceTypes() []client.Object {
+	return r.adkTranslator.GetOwnedResourceTypes()
 }
 
 // Function initially copied from https://github.com/open-telemetry/opentelemetry-operator/blob/e6d96f006f05cff0bc3808da1af69b6b636fbe88/internal/controllers/common.go#L141-L192

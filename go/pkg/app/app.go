@@ -42,6 +42,7 @@ import (
 
 	a2a_reconciler "github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
+	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	"github.com/kagent-dev/kagent/go/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 
@@ -381,8 +382,9 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 
 	if err = (&controller.AgentController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
+		Scheme:        mgr.GetScheme(),
+		Reconciler:    rcnclr,
+		AdkTranslator: apiTranslator,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Agent")
 		os.Exit(1)
@@ -406,6 +408,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Memory")
+		os.Exit(1)
+	}
+
+	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
+		setupLog.Error(err, "failed to setup indexes for owned resources")
 		os.Exit(1)
 	}
 

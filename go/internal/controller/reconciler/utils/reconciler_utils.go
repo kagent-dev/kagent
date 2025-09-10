@@ -1,10 +1,22 @@
 package utils
 
 import (
+	"context"
+	"fmt"
+	"reflect"
+
 	protoV2 "google.golang.org/protobuf/proto"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"reflect"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+)
+
+var (
+	ownerIndexKey = ".metadata.owner"
 )
 
 // returns true if "relevant" parts of obj1 and obj2 have equal:
@@ -124,4 +136,86 @@ func DeepEqual(val1, val2 interface{}) bool {
 		return protoV2.Equal(protoVal1, protoVal2)
 	}
 	return reflect.DeepEqual(val1, val2)
+}
+
+// SetupOwnerIndexes sets up caching and indexing of owned resources.
+func SetupOwnerIndexes(mgr ctrl.Manager, ownedTypes []client.Object) error {
+	for _, resource := range ownedTypes {
+		if err := mgr.GetFieldIndexer().IndexField(context.Background(), resource, ownerIndexKey, func(rawObj client.Object) []string {
+			owner := metav1.GetControllerOf(rawObj)
+			if owner == nil {
+				return nil
+			}
+
+			// This is an optimisation to avoid indexing every owned object,
+			// only those owned by an Agent will be indexed. It may need to be
+			// adjusted in future if other controllers start owning resources.
+			if owner.Kind != "Agent" {
+				return nil
+			}
+
+			return []string{string(owner.UID)}
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// FindOwnedObjects looks for objects in the given namespace that have an owner
+// reference. Note: this method assumes that an index has been setup for the
+// owner reference using `SetupOwnerIndexes`.
+func FindOwnedObjects(ctx context.Context, cl client.Client, uid types.UID, namespace string, objectTypes []client.Object) (map[types.UID]client.Object, error) {
+	ownedObjects := map[types.UID]client.Object{}
+	listOpts := []client.ListOption{
+		client.InNamespace(namespace),
+		client.MatchingFields{ownerIndexKey: string(uid)},
+	}
+
+	for _, objectType := range objectTypes {
+		objs, err := GetList(ctx, cl, objectType, listOpts...)
+		if err != nil {
+			return nil, err
+		}
+		for uid, object := range objs {
+			ownedObjects[uid] = object
+		}
+	}
+
+	return ownedObjects, nil
+}
+
+// GetList queries the Kubernetes API to list the requested resource, setting
+// the list l of type T.
+func GetList[T client.Object](ctx context.Context, cl client.Client, l T, options ...client.ListOption) (map[types.UID]client.Object, error) {
+	ownedObjects := map[types.UID]client.Object{}
+	gvk, err := apiutil.GVKForObject(l, cl.Scheme())
+	if err != nil {
+		return nil, err
+	}
+	gvk.Kind = fmt.Sprintf("%sList", gvk.Kind)
+	list, err := cl.Scheme().New(gvk)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list objects of type %s: %w", gvk.Kind, err)
+	}
+
+	objList := list.(client.ObjectList)
+
+	err = cl.List(ctx, objList, options...)
+	if err != nil {
+		return ownedObjects, fmt.Errorf("error listing %T: %w", l, err)
+	}
+	objs, err := meta.ExtractList(objList)
+	if err != nil {
+		return ownedObjects, fmt.Errorf("error listing %T: %w", l, err)
+	}
+	for i := range objs {
+		typedObj, ok := objs[i].(T)
+		if !ok {
+			return ownedObjects, fmt.Errorf("error listing %T: %w", l, err)
+		}
+		ownedObjects[typedObj.GetUID()] = typedObj
+	}
+	return ownedObjects, nil
 }

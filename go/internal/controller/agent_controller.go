@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,6 +36,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
+	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	v1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
@@ -46,8 +46,9 @@ var (
 
 // AgentController reconciles a Agent object
 type AgentController struct {
-	Scheme     *runtime.Scheme
-	Reconciler reconciler.KagentReconciler
+	Scheme        *runtime.Scheme
+	Reconciler    reconciler.KagentReconciler
+	AdkTranslator translator.AdkApiTranslator
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete
@@ -65,32 +66,36 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Owns(&appsv1.Deployment{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
-		Owns(&corev1.ConfigMap{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
-		Owns(&corev1.Service{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
-		Owns(&corev1.ServiceAccount{}, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{})).
-		Watches(
-			&v1alpha2.ModelConfig{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				requests := []reconcile.Request{}
+		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 
-				for _, agent := range r.findAgentsUsingModelConfig(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      agent.ObjectMeta.Name,
-							Namespace: agent.ObjectMeta.Namespace,
-						},
-					})
-				}
+	// Setup owns relationships for resources created by the Agent controller -
+	// for now ownership of agent resources is handled by the ADK translator
+	for _, ownedType := range r.AdkTranslator.GetOwnedResourceTypes() {
+		build = build.Owns(ownedType, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{}))
+	}
 
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		).
+	// Setup watches for secondary resources that are not owned by the Agent
+	build = build.Watches(
+		&v1alpha2.ModelConfig{},
+		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			requests := []reconcile.Request{}
+
+			for _, agent := range r.findAgentsUsingModelConfig(ctx, mgr.GetClient(), types.NamespacedName{
+				Name:      obj.GetName(),
+				Namespace: obj.GetNamespace(),
+			}) {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      agent.ObjectMeta.Name,
+						Namespace: agent.ObjectMeta.Namespace,
+					},
+				})
+			}
+
+			return requests
+		}),
+		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+	).
 		Watches(
 			&v1alpha2.RemoteMCPServer{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {

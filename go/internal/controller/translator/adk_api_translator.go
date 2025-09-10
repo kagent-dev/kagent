@@ -64,6 +64,7 @@ type AdkApiTranslator interface {
 		ctx context.Context,
 		agent *v1alpha2.Agent,
 	) (*AgentOutputs, error)
+	GetOwnedResourceTypes() []client.Object
 }
 
 type TranslatorPlugin = translator.TranslatorPlugin
@@ -152,6 +153,20 @@ func (a *adkApiTranslator) TranslateAgent(
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
+}
+
+// GetOwnedResourceTypes returns all the resource types that may be created for an agent.
+// Even though this method returns an array of client.Object, these are (empty)
+// example structs rather than actual resources.
+func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
+	ownedResources := []client.Object{
+		&appsv1.Deployment{},
+		&corev1.ConfigMap{},
+		&corev1.Service{},
+		&corev1.ServiceAccount{},
+	}
+
+	return ownedResources
 }
 
 func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) error {
