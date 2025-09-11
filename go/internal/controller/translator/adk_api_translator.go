@@ -541,6 +541,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	}
 
 	modelDeploymentData := &modelDeploymentData{}
+
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
 		if model.Spec.APIKeySecret != "" {
@@ -558,7 +559,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		openai := &adk.OpenAI{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
 			},
 		}
 		if model.Spec.OpenAI != nil {
@@ -587,7 +589,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		anthropic := &adk.Anthropic{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
 			},
 		}
 		if model.Spec.Anthropic != nil {
@@ -629,7 +632,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		azureOpenAI := &adk.AzureOpenAI{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.AzureOpenAI.DeploymentName,
+				Model:   model.Spec.AzureOpenAI.DeploymentName,
+				Headers: model.Spec.DefaultHeaders,
 			},
 		}
 		return azureOpenAI, modelDeploymentData, nil
@@ -669,7 +673,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		gemini := &adk.GeminiVertexAI{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
 			},
 		}
 		return gemini, modelDeploymentData, nil
@@ -705,7 +710,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		anthropic := &adk.GeminiAnthropic{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
 			},
 		}
 		return anthropic, modelDeploymentData, nil
@@ -719,7 +725,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		})
 		ollama := &adk.Ollama{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
 			},
 		}
 		return ollama, modelDeploymentData, nil
@@ -737,7 +744,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		})
 		gemini := &adk.Gemini{
 			BaseModel: adk.BaseModel{
-				Model: model.Spec.Model,
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
 			},
 		}
 		return gemini, modelDeploymentData, nil

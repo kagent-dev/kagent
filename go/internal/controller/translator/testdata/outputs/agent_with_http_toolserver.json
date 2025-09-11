@@ -35,6 +35,7 @@
     "instruction": "You are a math toolserver. Focus on solving mathematical problems step by step.",
     "model": {
       "base_url": "",
+      "headers": null,
       "model": "gpt-4o",
       "type": "openai"
     },
@@ -65,7 +66,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a math toolserver. Focus on solving mathematical problems step by step.\",\"http_tools\":[{\"params\":{\"url\":\"http://localhost:8084/mcp\",\"headers\":{},\"timeout\":30,\"sse_read_timeout\":300},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"remote_agents\":null}"
+        "config.json": "{\"model\":{\"base_url\":\"\",\"headers\":null,\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a math toolserver. Focus on solving mathematical problems step by step.\",\"http_tools\":[{\"params\":{\"url\":\"http://localhost:8084/mcp\",\"headers\":{},\"timeout\":30,\"sse_read_timeout\":300},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -129,7 +130,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "10933062834222764011"
+              "kagent.dev/config-hash": "10314297019995787100"
             },
             "labels": {
               "app": "kagent",
