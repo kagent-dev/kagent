@@ -6781,6 +6781,29 @@ spec:
                   systemMessage:
                     minLength: 1
                     type: string
+                    x-kubernetes-validations:
+                    - message: systemMessage and systemMessageFrom are mutually exclusive
+                      rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
+                  systemMessageFrom:
+                    description: SystemMessageFrom is a reference to a ConfigMap or
+                      Secret containing the system message.
+                    properties:
+                      key:
+                        description: The key of the ConfigMap or Secret.
+                        type: string
+                      name:
+                        description: The name of the ConfigMap or Secret.
+                        type: string
+                      type:
+                        enum:
+                        - ConfigMap
+                        - Secret
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - type
+                    type: object
                   tools:
                     items:
                       properties:
