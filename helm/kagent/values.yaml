@@ -171,6 +171,12 @@ providers:
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
+  gemini:
+    provider: Gemini
+    model: "gemini-1.5-pro"
+    apiKeySecretRef: kagent-gemini
+    apiKeySecretKey: GOOGLE_API_KEY
+    # apiKey: ""
 
 # ==============================================================================
 # BUILT-IN TOOLS
