@@ -4,54 +4,56 @@ kind: ClusterRole
 metadata:
   name: manager-role
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - kagent.dev
-  resources:
-  - agents
-  - memories
-  - modelconfigs
-  - remotemcpservers
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - kagent.dev
-  resources:
-  - agents/finalizers
-  - memories/finalizers
-  - modelconfigs/finalizers
-  - remotemcpservers/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - kagent.dev
-  resources:
-  - agents/status
-  - memories/status
-  - modelconfigs/status
-  - remotemcpservers/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - kagent.dev
-  resources:
-  - mcpservers
-  verbs:
-  - get
-  - list
-  - watch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - secrets
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - kagent.dev
+    resources:
+      - agents
+      - memories
+      - modelconfigs
+      - remotemcpservers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kagent.dev
+    resources:
+      - agents/finalizers
+      - memories/finalizers
+      - modelconfigs/finalizers
+      - remotemcpservers/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - kagent.dev
+    resources:
+      - agents/status
+      - memories/status
+      - modelconfigs/status
+      - remotemcpservers/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - kagent.dev
+    resources:
+      - mcpservers
+    verbs:
+      - get
+      - list
+      - watch
