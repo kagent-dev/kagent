@@ -541,7 +541,6 @@ func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1al
 	return agent.Spec.Declarative.SystemMessage, nil
 }
 
-
 const (
 	googleCredsVolumeName = "google-creds"
 )

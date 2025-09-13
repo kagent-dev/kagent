@@ -51,9 +51,8 @@ type AgentSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
-	// +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
-
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
