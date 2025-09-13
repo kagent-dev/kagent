@@ -538,7 +538,10 @@ func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1al
 	if agent.Spec.Declarative.SystemMessageFrom != nil {
 		return agent.Spec.Declarative.SystemMessageFrom.Resolve(ctx, a.kube, agent.Namespace)
 	}
-	return agent.Spec.Declarative.SystemMessage, nil
+	if agent.Spec.Declarative.SystemMessage != "" {
+		return agent.Spec.Declarative.SystemMessage, nil
+	}
+	return "", fmt.Errorf("at least one system message source (SystemMessage or SystemMessageFrom) must be specified")
 }
 
 const (
