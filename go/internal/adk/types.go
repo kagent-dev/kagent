@@ -37,8 +37,9 @@ type Model interface {
 }
 
 type BaseModel struct {
-	Type  string `json:"type"`
-	Model string `json:"model"`
+	Type    string            `json:"type"`
+	Model   string            `json:"model"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 type OpenAI struct {
@@ -61,6 +62,7 @@ func (o *OpenAI) MarshalJSON() ([]byte, error) {
 		"type":     ModelTypeOpenAI,
 		"model":    o.Model,
 		"base_url": o.BaseUrl,
+		"headers":  o.Headers,
 	})
 }
 
@@ -78,8 +80,9 @@ func (a *AzureOpenAI) GetType() string {
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeAzureOpenAI,
-		"model": a.Model,
+		"type":    ModelTypeAzureOpenAI,
+		"model":   a.Model,
+		"headers": a.Headers,
 	})
 }
 
@@ -93,6 +96,7 @@ func (a *Anthropic) MarshalJSON() ([]byte, error) {
 		"type":     ModelTypeAnthropic,
 		"model":    a.Model,
 		"base_url": a.BaseUrl,
+		"headers":  a.Headers,
 	})
 }
 
@@ -105,10 +109,10 @@ type GeminiVertexAI struct {
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGeminiVertexAI,
-		"model": g.Model,
+		"type":    ModelTypeGeminiVertexAI,
+		"model":   g.Model,
+		"headers": g.Headers,
 	})
 }
 
@@ -121,10 +125,10 @@ type GeminiAnthropic struct {
 }
 
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGeminiAnthropic,
-		"model": g.Model,
+		"type":    ModelTypeGeminiAnthropic,
+		"model":   g.Model,
+		"headers": g.Headers,
 	})
 }
 
@@ -138,8 +142,9 @@ type Ollama struct {
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeOllama,
-		"model": o.Model,
+		"type":    ModelTypeOllama,
+		"model":   o.Model,
+		"headers": o.Headers,
 	})
 }
 
@@ -152,10 +157,10 @@ type Gemini struct {
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGemini,
-		"model": g.Model,
+		"type":    ModelTypeGemini,
+		"model":   g.Model,
+		"headers": g.Headers,
 	})
 }
 
