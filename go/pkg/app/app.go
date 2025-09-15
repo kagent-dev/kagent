@@ -163,11 +163,10 @@ type BootstrapConfig struct {
 type CtrlManagerConfigFunc func(manager.Manager) error
 
 type ExtensionConfig struct {
-	Authenticator             auth.AuthProvider
-	Authorizer                auth.Authorizer
-	AgentPlugins              []translator.TranslatorPlugin
-	MCPServerPlugins          []transportadapter.TranslatorPlugin
-	ExtendedCtrlManagerConfig []CtrlManagerConfigFunc
+	Authenticator    auth.AuthProvider
+	Authorizer       auth.Authorizer
+	AgentPlugins     []translator.TranslatorPlugin
+	MCPServerPlugins []transportadapter.TranslatorPlugin
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -414,13 +413,6 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned resources")
 		os.Exit(1)
-	}
-
-	for _, mgrCfgFunc := range extensionCfg.ExtendedCtrlManagerConfig {
-		if err := mgrCfgFunc(mgr); err != nil {
-			setupLog.Error(err, "error when processing extended controller manager configuration")
-			os.Exit(1)
-		}
 	}
 
 	// +kubebuilder:scaffold:builder
