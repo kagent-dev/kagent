@@ -19,9 +19,7 @@ package app
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"flag"
-	"log"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -177,10 +175,6 @@ type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error
 func Start(getExtensionConfig GetExtensionConfig) {
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
-	//Additional config
-	var tolerationsJSON string
-	var podSecCtxJSON string
-	var containerSecCtxJSON string
 
 	// TODO setup signal handlers
 	ctx := context.Background()
@@ -190,36 +184,12 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	flag.StringVar(&translator.DefaultImageConfig.Tag, "image-tag", translator.DefaultImageConfig.Tag, "The tag to use for the image.")
 	flag.StringVar(&translator.DefaultImageConfig.PullPolicy, "image-pull-policy", translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
 	flag.StringVar(&translator.DefaultImageConfig.Repository, "image-repository", translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
-	// set flags for AdditionalConfig
-
-	flag.StringVar(&tolerationsJSON, "tolerations", "", "The tolerations to use for the agent pods.")
-	flag.StringVar(&podSecCtxJSON, "pod-security-context", "", "The pod security context to use for the agent pods.")
-	flag.StringVar(&containerSecCtxJSON, "container-security-context", "", "The container security context to use for the agent containers.")
 
 	opts := zap.Options{
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
-
-	// Parse AdditionalConfig into types
-	if tolerationsJSON != "" {
-		if err := json.Unmarshal([]byte(tolerationsJSON), &translator.DefaultAdditionalConfig.Tolerations); err != nil {
-			log.Fatalf("failed to parse tolerations: %v", err)
-		}
-	}
-
-	if podSecCtxJSON != "" {
-		if err := json.Unmarshal([]byte(podSecCtxJSON), &translator.DefaultAdditionalConfig.PodSecurityContext); err != nil {
-			log.Fatalf("failed to parse pod security context: %v", err)
-		}
-	}
-
-	if containerSecCtxJSON != "" {
-		if err := json.Unmarshal([]byte(containerSecCtxJSON), &translator.DefaultAdditionalConfig.ContainerSecurity); err != nil {
-			log.Fatalf("failed to parse container security context: %v", err)
-		}
-	}
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
 
