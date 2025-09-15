@@ -24,10 +24,6 @@ class KAgentSessionService(BaseSessionService):
         super().__init__()
         self.client = client
 
-    async def _get_user_id(self) -> str:
-        """Get the default user ID. Override this method to implement custom user ID logic."""
-        return "admin@kagent.dev"
-
     @override
     async def create_session(
         self,
