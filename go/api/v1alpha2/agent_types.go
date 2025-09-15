@@ -122,6 +122,12 @@ type SharedDeploymentSpec struct {
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// +optional
+  	Tolerations        []corev1.Toleration       `json:"tolerations,omitempty"`
+	// +optional
+  	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	// +optional
+ 	SecurityContext    *corev1.SecurityContext    `json:"securityContext,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type

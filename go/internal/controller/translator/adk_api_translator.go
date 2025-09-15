@@ -56,6 +56,18 @@ var DefaultImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/app",
 }
 
+type AdditionalConfig struct {
+	Tolerations        []corev1.Toleration        `json:"tolerations,omitempty"`
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	ContainerSecurity  *corev1.SecurityContext    `json:"containerSecurity,omitempty"`
+}
+
+var DefaultAdditionalConfig = AdditionalConfig{
+	Tolerations:        []corev1.Toleration{},
+	PodSecurityContext: nil,
+	ContainerSecurity:  nil,
+}
+
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
 
@@ -380,6 +392,10 @@ func (a *adkApiTranslator) buildManifest(
 				Spec: corev1.PodSpec{
 					ServiceAccountName: agent.Name,
 					ImagePullSecrets:   dep.ImagePullSecrets,
+					// Apply tolerations if specified
+					Tolerations: dep.Tolerations,
+					// Apply pod security context if specified
+					SecurityContext: dep.PodSecurityContext,
 					Containers: []corev1.Container{{
 						Name:            "kagent",
 						Image:           dep.Image,
@@ -407,6 +423,8 @@ func (a *adkApiTranslator) buildManifest(
 							PeriodSeconds:       15,
 						},
 						VolumeMounts: volumeMounts,
+						// Apply container security context if specified
+						SecurityContext: dep.ContainerSecurity,
 					}},
 					Volumes: volumes,
 				},
@@ -995,6 +1013,11 @@ type resolvedDeployment struct {
 	Labels           map[string]string
 	Annotations      map[string]string
 	Env              []corev1.EnvVar
+	//Additon for parsing SecurityContext , Toleration variables
+
+	Tolerations        []corev1.Toleration
+	PodSecurityContext *corev1.PodSecurityContext
+	ContainerSecurity  *corev1.SecurityContext
 }
 
 func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
@@ -1027,20 +1050,36 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	if spec.ImagePullPolicy != "" {
 		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
 	}
+	// Use env defaults if not set in spec
+	tolerations := DefaultAdditionalConfig.Tolerations
+	if len(spec.Tolerations) != 0 {
+		tolerations = spec.Tolerations
+	}
+	podSecurityContext := DefaultAdditionalConfig.PodSecurityContext
+	if spec.PodSecurityContext != nil {
+		podSecurityContext = spec.PodSecurityContext
+	}
+	containerSecurity := DefaultAdditionalConfig.ContainerSecurity
+	if spec.SecurityContext != nil {
+		containerSecurity = spec.SecurityContext
+	}
 
 	dep := &resolvedDeployment{
-		Image:            image,
-		Cmd:              cmd,
-		Args:             args,
-		Port:             port,
-		ImagePullPolicy:  imagePullPolicy,
-		Replicas:         spec.Replicas,
-		ImagePullSecrets: slices.Clone(spec.ImagePullSecrets),
-		Volumes:          append(slices.Clone(spec.Volumes), mdd.Volumes...),
-		VolumeMounts:     append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
-		Labels:           maps.Clone(spec.Labels),
-		Annotations:      maps.Clone(spec.Annotations),
-		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
+		Image:              image,
+		Cmd:                cmd,
+		Args:               args,
+		Port:               port,
+		ImagePullPolicy:    imagePullPolicy,
+		Replicas:           spec.Replicas,
+		ImagePullSecrets:   slices.Clone(spec.ImagePullSecrets),
+		Volumes:            append(slices.Clone(spec.Volumes), mdd.Volumes...),
+		VolumeMounts:       append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
+		Labels:             maps.Clone(spec.Labels),
+		Annotations:        maps.Clone(spec.Annotations),
+		Env:                append(slices.Clone(spec.Env), mdd.EnvVars...),
+		Tolerations:        tolerations,
+		PodSecurityContext: podSecurityContext,
+		ContainerSecurity:  containerSecurity,
 	}
 
 	// Set default replicas if not specified
@@ -1086,19 +1125,36 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 		replicas = ptr.To(int32(1))
 	}
 
+	// Use env defaults if not set in spec
+	tolerations := DefaultAdditionalConfig.Tolerations
+	if len(spec.Tolerations) != 0 {
+		tolerations = spec.Tolerations
+	}
+	podSecurityContext := DefaultAdditionalConfig.PodSecurityContext
+	if spec.PodSecurityContext != nil {
+		podSecurityContext = spec.PodSecurityContext
+	}
+	containerSecurity := DefaultAdditionalConfig.ContainerSecurity
+	if spec.SecurityContext != nil {
+		containerSecurity = spec.SecurityContext
+	}
+
 	dep := &resolvedDeployment{
-		Image:            image,
-		Cmd:              cmd,
-		Args:             args,
-		Port:             port,
-		ImagePullPolicy:  imagePullPolicy,
-		Replicas:         replicas,
-		ImagePullSecrets: slices.Clone(spec.ImagePullSecrets),
-		Volumes:          slices.Clone(spec.Volumes),
-		VolumeMounts:     slices.Clone(spec.VolumeMounts),
-		Labels:           maps.Clone(spec.Labels),
-		Annotations:      maps.Clone(spec.Annotations),
-		Env:              slices.Clone(spec.Env),
+		Image:              image,
+		Cmd:                cmd,
+		Args:               args,
+		Port:               port,
+		ImagePullPolicy:    imagePullPolicy,
+		Replicas:           replicas,
+		ImagePullSecrets:   slices.Clone(spec.ImagePullSecrets),
+		Volumes:            slices.Clone(spec.Volumes),
+		VolumeMounts:       slices.Clone(spec.VolumeMounts),
+		Labels:             maps.Clone(spec.Labels),
+		Annotations:        maps.Clone(spec.Annotations),
+		Env:                slices.Clone(spec.Env),
+		Tolerations:        tolerations,
+		PodSecurityContext: podSecurityContext,
+		ContainerSecurity:  containerSecurity,
 	}
 
 	return dep, nil

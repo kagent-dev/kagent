@@ -73,6 +73,20 @@ spec:
             - {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version  }}
             - -image-pull-policy
             - {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy }}
+            {{- if .Values.controller.tolerations }}
+            - -tolerations
+            - {{ .Values.controller.tolerations | toJson | quote }}
+            {{- end }}
+
+            {{- if .Values.controller.podSecurityContext }}
+            - -pod-security-context
+            - {{ .Values.controller.podSecurityContext | toJson | quote }}
+            {{- end }}
+
+            {{- if .Values.controller.securityContext }}
+            - -container-security-context
+            - {{ .Values.controller.securityContext | toJson | quote }}
+            {{- end }}
           securityContext:
             {{- toYaml .Values.controller.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
