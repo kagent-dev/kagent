@@ -414,7 +414,6 @@ func getUserID(r *http.Request) (string, error) {
 }
 
 func getUserIDOrAgentUser(r *http.Request) (string, error) {
-
 	principal, err := GetPrincipal(r)
 	if err != nil {
 		return "", err
@@ -425,7 +424,6 @@ func getUserIDOrAgentUser(r *http.Request) (string, error) {
 	} else if principal.Agent.ID != "" {
 		// grab the user id from the query param
 		return getUserID(r)
-
 	}
 	return "", fmt.Errorf("no user or agent in principal")
 }
