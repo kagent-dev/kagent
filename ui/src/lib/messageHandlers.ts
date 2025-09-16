@@ -534,7 +534,6 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   };
 
   const handleMessageEvent = (message: Message) => {
-    console.log(message);
     if (messageUtils.isA2ATask(message)) {
       handleA2ATask(message);
       return;
