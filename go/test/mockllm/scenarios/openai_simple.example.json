@@ -1,0 +1,56 @@
+{
+  "openai": [
+    {
+      "name": "simple-hello",
+      "request": {
+        "model": "gpt-4o-mini",
+        "messages": [
+          {"role": "user", "content": "Hello"}
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-123",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4o-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Hello! How can I help you today?"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "name": "streaming-response",
+      "stream": true,
+      "request": {
+        "model": "gpt-4o-mini",
+        "messages": [
+          {"role": "user", "content": "Tell me a joke"}
+        ],
+        "stream": true
+      },
+      "response": {
+        "id": "chatcmpl-456",
+        "object": "chat.completion.chunk",
+        "created": 1677652288,
+        "model": "gpt-4o-mini",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "Why don't scientists trust atoms? Because they make up everything!"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}
+

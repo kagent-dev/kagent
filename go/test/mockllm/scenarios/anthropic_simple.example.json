@@ -1,0 +1,53 @@
+{
+  "anthropic": [
+    {
+      "name": "simple-hello",
+      "request": {
+        "model": "claude-3-5-sonnet-20240620",
+        "max_tokens": 1000,
+        "messages": [
+          {"role": "user", "content": "Hello"}
+        ]
+      },
+      "response": {
+        "id": "msg_123",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello! How can I assist you today?"
+          }
+        ],
+        "model": "claude-3-5-sonnet-20240620",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 8
+        }
+      }
+    },
+    {
+      "name": "streaming-response",
+      "stream": true,
+      "request": {
+        "model": "claude-3-5-sonnet-20240620",
+        "max_tokens": 1000,
+        "messages": [
+          {"role": "user", "content": "Tell me a joke"}
+        ],
+        "stream": true
+      },
+      "response": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "Why don't scientists trust atoms? Because they make up everything!"
+        }
+      }
+    }
+  ]
+}
+
