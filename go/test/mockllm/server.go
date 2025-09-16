@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/kagent-dev/kagent/go/test/mockllm/providers/anthropic"
 	"github.com/kagent-dev/kagent/go/test/mockllm/providers/openai"
@@ -102,7 +104,7 @@ func LoadConfigFromDir(dir string) (Config, error) {
 func (s *Server) Start() (string, error) {
 	s.setupRoutes()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
 		return "", fmt.Errorf("failed to create listener: %w", err)
 	}
@@ -114,7 +116,28 @@ func (s *Server) Start() (string, error) {
 		}
 	}()
 
-	baseURL := fmt.Sprintf("http://%s", listener.Addr().String())
+	// Get the port from the listener address
+	addr := listener.Addr().String()
+	splitted := strings.Split(addr, ":")
+	port := splitted[len(splitted)-1]
+
+	if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
+		return err != nil
+	}, func() error {
+		resp, err := http.Get(fmt.Sprintf("http://%s/health", listener.Addr().String()))
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("health check failed: %d", resp.StatusCode)
+		}
+		return nil
+	}); err != nil {
+		return "", fmt.Errorf("failed to health check server: %w", err)
+	}
+
+	baseURL := fmt.Sprintf("http://%s:%s", "172.17.0.1", port)
 	return baseURL, nil
 }
 
@@ -185,7 +208,7 @@ func generateTLSConfig() *tls.Config {
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+		IPAddresses:           []net.IP{net.ParseIP("0.0.0.0")},
 		DNSNames:              []string{"localhost"},
 	}
 

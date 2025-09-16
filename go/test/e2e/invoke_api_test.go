@@ -4,12 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
+	"github.com/kagent-dev/kagent/go/test/mockllm"
 	"github.com/stretchr/testify/require"
-	"trpc.group/trpc-go/trpc-a2a-go/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -19,15 +27,108 @@ func a2aUrl(namespace, name string) string {
 		// if running locally on kind, do "kubectl port-forward -n kagent deployments/kagent-controller 8083"
 		kagentURL = "http://localhost:8083"
 	}
+
+	kagentURL = "http://172.22.255.0:8083"
 	// A2A URL format: <base_url>/<namespace>/<agent_name>
 	return kagentURL + "/api/a2a/" + namespace + "/" + name
 }
 
-func TestInvokeInlineAgent(t *testing.T) {
-	// Setup
-	a2aURL := a2aUrl("kagent", "k8s-agent")
+func modelConfig(baseURL string) *v1alpha2.ModelConfig {
+	return &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model-config",
+			Namespace: "kagent",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:           "gpt-4.1-mini",
+			APIKeySecret:    "kagent-openai",
+			APIKeySecretKey: "OPENAI_API_KEY",
+			Provider:        v1alpha2.ModelProviderOpenAI,
+			OpenAI: &v1alpha2.OpenAIConfig{
+				BaseURL: baseURL,
+			},
+		},
+	}
+}
 
-	a2aClient, err := client.NewA2AClient(a2aURL)
+func agent() *v1alpha2.Agent {
+	return &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "kagent",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				ModelConfig:   "test-model-config",
+				SystemMessage: "You are a test agent. The system prompt doesn't matter because we're using a mock server.",
+				Tools: []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_McpServer,
+						McpServer: &v1alpha2.McpServerTool{
+							TypedLocalReference: v1alpha2.TypedLocalReference{
+								ApiGroup: "kagent.dev",
+								Kind:     "RemoteMCPServer",
+								Name:     "kagent-tool-server",
+							},
+							ToolNames: []string{"k8s_get_resources"},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestInvokeInlineAgent(t *testing.T) {
+
+	server := mockllm.NewServer(mockllm.Config{})
+	baseURL, err := server.Start()
+	require.NoError(t, err)
+	defer server.Stop()
+
+	cfg, err := config.GetConfig()
+	require.NoError(t, err)
+
+	scheme := runtime.NewScheme()
+	err = v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	cli, err := client.New(cfg, client.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
+
+	err = cli.Create(t.Context(), modelConfig(baseURL+"/v1"))
+	require.NoError(t, err)
+	err = cli.Create(t.Context(), agent())
+	require.NoError(t, err)
+
+	defer func() {
+		cli.Delete(t.Context(), modelConfig(baseURL))
+		cli.Delete(t.Context(), agent())
+	}()
+
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=1m",
+		"agents.kagent.dev",
+		"test-agent",
+		"-n",
+		"kagent",
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	// Setup
+	a2aURL := a2aUrl("kagent", "test-agent")
+
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
 	require.NoError(t, err)
 
 	t.Run("sync_invocation", func(t *testing.T) {
@@ -86,7 +187,7 @@ func TestInvokeExternalAgent(t *testing.T) {
 	// Setup
 	a2aURL := a2aUrl("kagent", "kebab-agent")
 
-	a2aClient, err := client.NewA2AClient(a2aURL)
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
 	require.NoError(t, err)
 
 	t.Run("sync_invocation", func(t *testing.T) {
@@ -142,7 +243,7 @@ func TestInvokeExternalAgent(t *testing.T) {
 
 	t.Run("invocation with different user", func(t *testing.T) {
 
-		a2aClient, err := client.NewA2AClient(a2aURL, client.WithAPIKeyAuth("user@example.com", "x-user-id"))
+		a2aClient, err := a2aclient.NewA2AClient(a2aURL, a2aclient.WithAPIKeyAuth("user@example.com", "x-user-id"))
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
