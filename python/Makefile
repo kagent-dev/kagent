@@ -13,6 +13,10 @@ format:
 	uv run ruff format
 	uv run ruff check
 
+.PHONY: lint
+lint: 
+	uv run ruff format --diff
+
 .PHONY: test
 test: update
 	uv run pytest tests
