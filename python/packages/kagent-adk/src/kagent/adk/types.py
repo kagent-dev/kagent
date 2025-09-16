@@ -101,8 +101,7 @@ class AgentConfig(BaseModel):
 
                 if remote_agent.headers:
                     client = httpx.AsyncClient(
-                        headers=remote_agent.headers,
-                        timeout=httpx.Timeout(timeout=remote_agent.timeout)
+                        headers=remote_agent.headers, timeout=httpx.Timeout(timeout=remote_agent.timeout)
                     )
 
                 remote_a2a_agent = RemoteA2aAgent(
@@ -112,7 +111,9 @@ class AgentConfig(BaseModel):
                     httpx_client=client,
                 )
 
-                tools.append(AgentTool(agent=remote_a2a_agent, skip_summarization=True)) # Get headers from model config
+                tools.append(
+                    AgentTool(agent=remote_a2a_agent, skip_summarization=True)
+                )  # Get headers from model config
 
         extra_headers = self.model.headers or {}
 
