@@ -9,40 +9,6 @@ import { isMcpTool, isAgentTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
 /**
- * Converts a tool to AgentTool format
- * @param tool The tool to convert
- * @param allAgents List of all available agents to look up descriptions
- * @returns An AgentTool object, potentially augmented with description
- */
-function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
-  const typedTool = tool as Partial<Tool>;
-  if (isMcpTool(typedTool)) {
-    return tool as Tool;
-  } else if (isAgentTool(typedTool)) {
-    const foundAgent = allAgents.find(a => {
-      const aRef = k8sRefUtils.toRef(
-        a.agent.metadata.namespace || "",
-        a.agent.metadata.name,
-      )
-      return aRef === typedTool.agent.name
-    });
-    const description = foundAgent?.agent.spec.description;
-    return {
-      ...typedTool,
-      type: "Agent",
-      agent: {
-        ...typedTool.agent,
-        name: typedTool.agent.name,
-        description: description
-      }
-    } as Tool;
-  }
-
-  throw new Error(`Unknown tool type: ${tool}`);
-}
-
-
-/**
  * Converts AgentFormData to Agent format
  * @param agentFormData The form data to convert
  * @returns An Agent object

@@ -10,10 +10,9 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface AgentCardProps {
   agentResponse: AgentResponse;
-  id: number;
 }
 
-export function AgentCard({ id, agentResponse: { agent, model, modelProvider, deploymentReady, accepted } }: AgentCardProps) {
+export function AgentCard({ agentResponse: { agent, model, modelProvider, deploymentReady, accepted } }: AgentCardProps) {
   const router = useRouter();
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
