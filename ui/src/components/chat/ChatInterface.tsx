@@ -247,7 +247,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           }
         };
 
-        // Start timeout timer 
+        // Start timeout timer
         const startTimeout = () => {
           if (timeoutTimer) clearTimeout(timeoutTimer);
           timeoutTimer = setTimeout(handleTimeout, streamTimeout);
