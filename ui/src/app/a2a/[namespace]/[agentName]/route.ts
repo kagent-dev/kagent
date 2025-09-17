@@ -49,20 +49,39 @@ export async function POST(
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
     });
 
+    const KEEP_ALIVE_INTERVAL_MS = 30000; // 30 seconds
     const stream = new ReadableStream({
       start(controller) {
         const reader = backendResponse.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         let isClosed = false;
+        let keepAliveTimer: NodeJS.Timeout | null = null;
+
+        // Send keep-alive comment event and reschedule timer
+        const sendKeepAlive = () => {
+          if (!isClosed) {
+            controller.enqueue(new TextEncoder().encode(': keep-alive\n\n'));
+            resetKeepAliveTimer(); // Reschedule after sending keep-alive
+          }
+        };
+
+        // Keep-alive timer logic
+        const resetKeepAliveTimer = () => {
+          if (keepAliveTimer) clearTimeout(keepAliveTimer);
+          keepAliveTimer = setTimeout(sendKeepAlive, KEEP_ALIVE_INTERVAL_MS);
+        };
 
         const pump = (): Promise<void> => {
           return reader.read().then(({ done, value }): Promise<void> => {
             if (done) {
               if (!isClosed) {
+                if (keepAliveTimer) clearTimeout(keepAliveTimer);
                 controller.close();
                 isClosed = true;
+                console.log('A2A Proxy: Backend connection closed.');
               }
+
               return Promise.resolve();
             }
 
@@ -78,16 +97,21 @@ export async function POST(
                 const eventData = eventText + '\n\n';
                 if (!isClosed) {
                   controller.enqueue(new TextEncoder().encode(eventData));
+                  resetKeepAliveTimer(); // Reset keep-alive timer whenever data is sent
                 }
               }
             }
 
             return pump();
           }).catch(error => {
+            console.error('A2A Proxy: Error in stream pump:', error);
+            if (keepAliveTimer) clearTimeout(keepAliveTimer);
+            
             if (!isClosed) {
               controller.error(error);
               isClosed = true;
             }
+
             return Promise.resolve();
           });
         };
