@@ -57,17 +57,17 @@ To add a new test case:
 
 ### Run all golden tests:
 ```bash
-go test -run TestGoldenTranslator ./go/controller/translator/
+go test -run TestGoldenTranslator ./go/internal/controller/translator/
 ```
 
 ### Update golden files (regenerate expected outputs):
 ```bash
-UPDATE_GOLDEN=true go test -run TestGoldenTranslator ./go/controller/translator/
+UPDATE_GOLDEN=true go test -run TestGoldenTranslator ./go/internal/controller/translator/
 ```
 
 ### Run specific test:
 ```bash
-go test -run TestGoldenTranslator/basic_agent ./go/controller/translator/
+go test -run TestGoldenTranslator/basic_agent ./go/internal/controller/translator/
 ```
 
 ## Test Coverage
