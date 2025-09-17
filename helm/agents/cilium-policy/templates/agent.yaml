@@ -517,3 +517,6 @@ spec:
             - "I want to restrict traffic between pods in the same namespace, which policy should I use?"
             - "Can you create a Kubernetes NetworkPolicy for me?"
             - "What's the difference between CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy for securing my nodes?"
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}

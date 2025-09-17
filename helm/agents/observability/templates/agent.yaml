@@ -189,3 +189,6 @@ spec:
             - "What's the current resource utilization (CPU/memory) of nodes tagged with 'workload=critical'?"
             - "Show me Kubernetes events related to the 'database' StatefulSet along with its key performance metrics."
             - "Help me identify potential performance bottlenecks in my microservices deployment."
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}

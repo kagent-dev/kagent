@@ -28,7 +28,13 @@ service:
   type: ClusterIP
   port: 8000
 
-resources: {}
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
 
 # Deployment configuration - used to populate the ConfigMap template.
 # Add custom configuration values here as needed.

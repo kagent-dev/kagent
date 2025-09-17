@@ -198,3 +198,6 @@ spec:
             - "Monitor real-time traffic using cilium-dbg monitor"
             - "Check the health status of Cilium endpoints"
             - "Verify encryption status between pods"
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}
