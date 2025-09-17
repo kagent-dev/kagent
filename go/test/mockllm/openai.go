@@ -1,34 +1,27 @@
-package openai
+package mockllm
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
+	"strings"
 
 	"github.com/openai/openai-go"
 )
 
 // Provider handles OpenAI request/response mocking
-type Provider struct {
-	mocks []Mock
+type OpenAIProvider struct {
+	mocks []OpenAIMock
 }
 
-// Mock represents a single OpenAI request/response pair using SDK types
-type Mock struct {
-	Name     string
-	Request  openai.ChatCompletionNewParams // OpenAI SDK request type
-	Response openai.ChatCompletion          // openai.ChatCompletion or openai.ChatCompletionChunk
-	Stream   bool
-}
-
-// NewProvider creates a new OpenAI provider with the given mocks
-func NewProvider(mocks []Mock) *Provider {
-	return &Provider{mocks: mocks}
+// NewOpenAIProvider creates a new OpenAI OpenAIProvider with the given mocks
+func NewOpenAIProvider(mocks []OpenAIMock) *OpenAIProvider {
+	return &OpenAIProvider{mocks: mocks}
 }
 
 // Handle processes an OpenAI chat completion request
-func (p *Provider) Handle(w http.ResponseWriter, r *http.Request) {
+func (p *OpenAIProvider) Handle(w http.ResponseWriter, r *http.Request) {
 	// Parse the incoming request into SDK type
 	var requestBody openai.ChatCompletionNewParams
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
@@ -39,7 +32,7 @@ func (p *Provider) Handle(w http.ResponseWriter, r *http.Request) {
 	// Find a matching mock
 	mock := p.findMatchingMock(requestBody)
 	if mock == nil {
-		http.Error(w, "No matching mock found", http.StatusNotFound)
+		http.Error(w, "No matching mock found.", http.StatusNotFound)
 		return
 	}
 
@@ -52,9 +45,9 @@ func (p *Provider) Handle(w http.ResponseWriter, r *http.Request) {
 }
 
 // findMatchingMock finds the first mock that matches the request
-func (p *Provider) findMatchingMock(request openai.ChatCompletionNewParams) *Mock {
+func (p *OpenAIProvider) findMatchingMock(request openai.ChatCompletionNewParams) *OpenAIMock {
 	for _, mock := range p.mocks {
-		if p.requestsMatch(mock.Request, request) {
+		if p.requestsMatch(mock.Match, request) {
 			return &mock
 		}
 	}
@@ -62,14 +55,51 @@ func (p *Provider) findMatchingMock(request openai.ChatCompletionNewParams) *Moc
 }
 
 // requestsMatch checks if two requests are equivalent
-func (p *Provider) requestsMatch(expected, actual openai.ChatCompletionNewParams) bool {
+func (p *OpenAIProvider) requestsMatch(expected OpenAIRequestMatch, actual openai.ChatCompletionNewParams) bool {
 	// Simple deep equal comparison for now
 	// In the future, we could add more sophisticated matching
-	return reflect.DeepEqual(expected, actual)
+	switch expected.MatchType {
+	case MatchTypeExact:
+		// get Last message from actual
+		if len(actual.Messages) == 0 {
+			return false
+		}
+		lastMessage := actual.Messages[len(actual.Messages)-1]
+		// Check json is equal
+		jsonExpected, err := json.Marshal(expected.Message)
+		if err != nil {
+			return false
+		}
+		jsonActual, err := json.Marshal(lastMessage)
+		if err != nil {
+			return false
+		}
+		return bytes.Equal(jsonExpected, jsonActual)
+	case MatchTypeContains:
+		// Check if the last message contains the expected message
+		if len(actual.Messages) == 0 {
+			return false
+		}
+		lastMessage := actual.Messages[len(actual.Messages)-1]
+		if *lastMessage.GetRole() != *expected.Message.GetRole() {
+			return false
+		}
+		strExpected, ok := expected.Message.GetContent().AsAny().(*string)
+		if !ok {
+			return false
+		}
+		strActual, ok := lastMessage.GetContent().AsAny().(*string)
+		if !ok {
+			return false
+		}
+		return strings.Contains(*strActual, *strExpected)
+	default:
+		return false
+	}
 }
 
 // handleNonStreamingResponse sends a JSON response
-func (p *Provider) handleNonStreamingResponse(w http.ResponseWriter, response interface{}) {
+func (p *OpenAIProvider) handleNonStreamingResponse(w http.ResponseWriter, response interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -79,7 +109,7 @@ func (p *Provider) handleNonStreamingResponse(w http.ResponseWriter, response in
 }
 
 // handleStreamingResponse sends an SSE stream response
-func (p *Provider) handleStreamingResponse(w http.ResponseWriter, response interface{}) {
+func (p *OpenAIProvider) handleStreamingResponse(w http.ResponseWriter, response interface{}) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")

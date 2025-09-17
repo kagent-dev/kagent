@@ -1,4 +1,4 @@
-package mockllm
+package mockllm_test
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/kagent-dev/kagent/go/test/mockllm"
 	"github.com/openai/openai-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,23 +51,27 @@ func TestSimpleOpenAIMock(t *testing.T) {
 	}
 
 	// Convert to JSON and back to get SDK-compatible structure
-	var mock OpenAIMock
+	var mock mockllm.OpenAIMock
 	mock.Name = "test-response"
 	mock.Response = openaiResponse
 	mock.Stream = false
+	mock.Match = mockllm.OpenAIRequestMatch{
+		MatchType: mockllm.MatchTypeExact,
+		Message:   openaiRequest.Messages[len(openaiRequest.Messages)-1],
+	}
 
 	// Marshal and unmarshal the request to get it in the right format
 	reqBytes, err := json.Marshal(openaiRequest)
 	require.NoError(t, err)
-	err = json.Unmarshal(reqBytes, &mock.Request)
+	err = json.Unmarshal(reqBytes, &mock.Match)
 	require.NoError(t, err)
 
-	config := Config{
-		OpenAI: []OpenAIMock{mock},
+	config := mockllm.Config{
+		OpenAI: []mockllm.OpenAIMock{mock},
 	}
 
 	// Start server
-	server := NewServer(config)
+	server := mockllm.NewServer(config)
 	baseURL, err := server.Start()
 	require.NoError(t, err)
 	defer server.Stop()
@@ -127,22 +132,25 @@ func TestSimpleAnthropicMock(t *testing.T) {
 	}
 
 	// Convert to JSON and back to get SDK-compatible structure
-	var mock AnthropicMock
+	var mock mockllm.AnthropicMock
 	mock.Name = "test-response"
 	mock.Response = anthropicResponse
-
+	mock.Match = mockllm.AnthropicRequestMatch{
+		MatchType: mockllm.MatchTypeExact,
+		Message:   anthropicRequest.Messages[len(anthropicRequest.Messages)-1],
+	}
 	// Marshal and unmarshal the request to get it in the right format
 	reqBytes, err := json.Marshal(anthropicRequest)
 	require.NoError(t, err)
-	err = json.Unmarshal(reqBytes, &mock.Request)
+	err = json.Unmarshal(reqBytes, &mock.Match)
 	require.NoError(t, err)
 
-	config := Config{
-		Anthropic: []AnthropicMock{mock},
+	config := mockllm.Config{
+		Anthropic: []mockllm.AnthropicMock{mock},
 	}
 
 	// Start server
-	server := NewServer(config)
+	server := mockllm.NewServer(config)
 	baseURL, err := server.Start()
 	require.NoError(t, err)
 	defer server.Stop()
@@ -171,8 +179,8 @@ func TestSimpleAnthropicMock(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	config := Config{}
-	server := NewServer(config)
+	config := mockllm.Config{}
+	server := mockllm.NewServer(config)
 	baseURL, err := server.Start()
 	require.NoError(t, err)
 	defer server.Stop()

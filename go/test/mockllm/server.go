@@ -8,26 +8,21 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"k8s.io/client-go/util/retry"
-
-	"github.com/kagent-dev/kagent/go/test/mockllm/providers/anthropic"
-	"github.com/kagent-dev/kagent/go/test/mockllm/providers/openai"
 )
 
 // Server is the main mock LLM server
 type Server struct {
 	config            Config
-	openaiProvider    *openai.Provider
-	anthropicProvider *anthropic.Provider
+	openaiProvider    *OpenAIProvider
+	anthropicProvider *AnthropicProvider
 	router            *mux.Router
 	listener          net.Listener
 }
@@ -35,21 +30,21 @@ type Server struct {
 // NewServer creates a new mock LLM server with the given config
 func NewServer(config Config) *Server {
 	// Convert config to provider mocks
-	var openaiMocks []openai.Mock
+	var openaiMocks []OpenAIMock
 	for _, mock := range config.OpenAI {
-		openaiMocks = append(openaiMocks, openai.Mock{
+		openaiMocks = append(openaiMocks, OpenAIMock{
 			Name:     mock.Name,
-			Request:  mock.Request,
+			Match:    mock.Match,
 			Response: mock.Response,
 			Stream:   mock.Stream,
 		})
 	}
 
-	var anthropicMocks []anthropic.Mock
+	var anthropicMocks []AnthropicMock
 	for _, mock := range config.Anthropic {
-		anthropicMocks = append(anthropicMocks, anthropic.Mock{
+		anthropicMocks = append(anthropicMocks, AnthropicMock{
 			Name:     mock.Name,
-			Request:  mock.Request,
+			Match:    mock.Match,
 			Response: mock.Response,
 			Stream:   mock.Stream,
 		})
@@ -57,14 +52,14 @@ func NewServer(config Config) *Server {
 
 	return &Server{
 		config:            config,
-		openaiProvider:    openai.NewProvider(openaiMocks),
-		anthropicProvider: anthropic.NewProvider(anthropicMocks),
+		openaiProvider:    NewOpenAIProvider(openaiMocks),
+		anthropicProvider: NewAnthropicProvider(anthropicMocks),
 	}
 }
 
 // LoadConfigFromFile loads configuration from a JSON file
-func LoadConfigFromFile(path string) (Config, error) {
-	data, err := os.ReadFile(path)
+func LoadConfigFromFile(path string, filesys fs.ReadFileFS) (Config, error) {
+	data, err := filesys.ReadFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -75,29 +70,6 @@ func LoadConfigFromFile(path string) (Config, error) {
 	}
 
 	return config, nil
-}
-
-// LoadConfigFromDir loads all .json files from a directory and merges them
-func LoadConfigFromDir(dir string) (Config, error) {
-	var mergedConfig Config
-
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && filepath.Ext(path) == ".json" {
-			config, err := LoadConfigFromFile(path)
-			if err != nil {
-				return fmt.Errorf("error loading %s: %w", path, err)
-			}
-			// Merge configs
-			mergedConfig.OpenAI = append(mergedConfig.OpenAI, config.OpenAI...)
-			mergedConfig.Anthropic = append(mergedConfig.Anthropic, config.Anthropic...)
-		}
-		return nil
-	})
-
-	return mergedConfig, err
 }
 
 // Start starts the server on a random available port and returns the base URL
@@ -116,11 +88,6 @@ func (s *Server) Start() (string, error) {
 		}
 	}()
 
-	// Get the port from the listener address
-	addr := listener.Addr().String()
-	splitted := strings.Split(addr, ":")
-	port := splitted[len(splitted)-1]
-
 	if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
 		return err != nil
 	}, func() error {
@@ -137,7 +104,7 @@ func (s *Server) Start() (string, error) {
 		return "", fmt.Errorf("failed to health check server: %w", err)
 	}
 
-	baseURL := fmt.Sprintf("http://%s:%s", "172.17.0.1", port)
+	baseURL := fmt.Sprintf("http://%s", listener.Addr().String())
 	return baseURL, nil
 }
 

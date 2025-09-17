@@ -2,9 +2,12 @@ package e2e_test
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,14 +24,15 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
+//go:embed mocks
+var mocks embed.FS
+
 func a2aUrl(namespace, name string) string {
 	kagentURL := os.Getenv("KAGENT_URL")
 	if kagentURL == "" {
 		// if running locally on kind, do "kubectl port-forward -n kagent deployments/kagent-controller 8083"
 		kagentURL = "http://localhost:8083"
 	}
-
-	kagentURL = "http://172.22.255.0:8083"
 	// A2A URL format: <base_url>/<namespace>/<agent_name>
 	return kagentURL + "/api/a2a/" + namespace + "/" + name
 }
@@ -80,10 +84,28 @@ func agent() *v1alpha2.Agent {
 	}
 }
 
+func buildK8sURL(baseURL string) string {
+	// Get the port from the listener address
+	splitted := strings.Split(baseURL, ":")
+	port := splitted[len(splitted)-1]
+
+	localHost := "172.17.0.1"
+	if os.Getenv("KAGENT_LOCAL_HOST") != "" {
+		localHost = os.Getenv("KAGENT_LOCAL_HOST")
+	}
+
+	return fmt.Sprintf("http://%s:%s", localHost, port)
+
+}
+
 func TestInvokeInlineAgent(t *testing.T) {
 
-	server := mockllm.NewServer(mockllm.Config{})
+	mockllmCfg, err := mockllm.LoadConfigFromFile("mocks/invoke_inline_agent.json", mocks)
+	require.NoError(t, err)
+
+	server := mockllm.NewServer(mockllmCfg)
 	baseURL, err := server.Start()
+	baseURL = buildK8sURL(baseURL)
 	require.NoError(t, err)
 	defer server.Stop()
 
@@ -139,7 +161,7 @@ func TestInvokeInlineAgent(t *testing.T) {
 			Message: protocol.Message{
 				Kind:  protocol.KindMessage,
 				Role:  protocol.MessageRoleUser,
-				Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
+				Parts: []protocol.Part{protocol.NewTextPart("List all nodes in the cluster")},
 			},
 		})
 		require.NoError(t, err)
@@ -149,7 +171,7 @@ func TestInvokeInlineAgent(t *testing.T) {
 		text := a2a.ExtractText(taskResult.History[len(taskResult.History)-1])
 		jsn, err := json.Marshal(taskResult)
 		require.NoError(t, err)
-		require.Contains(t, text, "kube-scheduler-kagent-control-plane", string(jsn))
+		require.Contains(t, text, "kagent-control-plane", string(jsn))
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -160,7 +182,7 @@ func TestInvokeInlineAgent(t *testing.T) {
 			Message: protocol.Message{
 				Kind:  protocol.KindMessage,
 				Role:  protocol.MessageRoleUser,
-				Parts: []protocol.Part{protocol.NewTextPart("List all pods in the cluster")},
+				Parts: []protocol.Part{protocol.NewTextPart("List all nodes in the cluster")},
 			},
 		})
 		require.NoError(t, err)
@@ -179,7 +201,7 @@ func TestInvokeInlineAgent(t *testing.T) {
 		}
 		jsn, err := json.Marshal(resultList)
 		require.NoError(t, err)
-		require.Contains(t, string(jsn), "kube-scheduler-kagent-control-plane", string(jsn))
+		require.Contains(t, string(jsn), "kagent-control-plane", string(jsn))
 	})
 }
 
