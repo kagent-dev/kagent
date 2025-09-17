@@ -453,9 +453,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		return nil, nil, nil, err
 	}
 
+	systemMessage, err := a.resolveSystemMessage(ctx, agent)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	cfg := &adk.AgentConfig{
 		Description: agent.Spec.Description,
-		Instruction: agent.Spec.Declarative.SystemMessage,
+		Instruction: systemMessage,
 		Model:       model,
 	}
 	agentCard := &server.AgentCard{
@@ -527,6 +532,16 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 	}
 
 	return cfg, agentCard, mdd, nil
+}
+
+func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
+	if agent.Spec.Declarative.SystemMessageFrom != nil {
+		return agent.Spec.Declarative.SystemMessageFrom.Resolve(ctx, a.kube, agent.Namespace)
+	}
+	if agent.Spec.Declarative.SystemMessage != "" {
+		return agent.Spec.Declarative.SystemMessage, nil
+	}
+	return "", fmt.Errorf("at least one system message source (SystemMessage or SystemMessageFrom) must be specified")
 }
 
 const (

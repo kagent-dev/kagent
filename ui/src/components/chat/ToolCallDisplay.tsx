@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
-import { ADKMetadata, ProcessedToolResultData, ToolResponseData } from "@/lib/messageHandlers";
+import AgentCallDisplay from "@/components/chat/AgentCallDisplay";
+import { isAgentToolName } from "@/lib/utils";
+import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText } from "@/lib/messageHandlers";
 import { FunctionCall } from "@/types";
 
 interface ToolCallDisplayProps {
@@ -108,14 +110,8 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
       const partMetadata = part.metadata as ADKMetadata;
       if (partMetadata?.kagent_type === "function_response") {
         const data = part.data as unknown as ToolResponseData;
-        // Extract content from the result
-        const content = data.response?.result?.content || [];
-        const textContent = content.map((c: unknown) => {
-          if (typeof c === 'object' && c !== null && 'text' in c) {
-            return c.text || '';
-          }
-          return String(c);
-        }).join("");
+        // Extract normalized content from the result (supports string/object/array)
+        const textContent = normalizeToolResultToText(data);
         
         return [{
           call_id: data.id,
@@ -129,6 +125,7 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const content = textParts.map(part => (part as any).text).join("");
   
   try {
@@ -261,13 +258,23 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
   return (
     <div className="space-y-2">
       {currentDisplayableCalls.map(toolCall => (
-        <ToolDisplay
-          key={toolCall.id}
-          call={toolCall.call}
-          result={toolCall.result}
-          status={toolCall.status}
-          isError={toolCall.result?.is_error}
-        />
+        isAgentToolName(toolCall.call.name) ? (
+          <AgentCallDisplay
+            key={toolCall.id}
+            call={toolCall.call}
+            result={toolCall.result}
+            status={toolCall.status}
+            isError={toolCall.result?.is_error}
+          />
+        ) : (
+          <ToolDisplay
+            key={toolCall.id}
+            call={toolCall.call}
+            result={toolCall.result}
+            status={toolCall.status}
+            isError={toolCall.result?.is_error}
+          />
+        )
       ))}
     </div>
   );

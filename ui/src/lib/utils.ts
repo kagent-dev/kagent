@@ -143,8 +143,13 @@ export const messageUtils = {
   },
 };
 
+const NAMESPACE_SEPARATOR = "__NS__";
 export function convertToUserFriendlyName(name: string): string {
   if (!name) return "Unknown Source";
-  name = name.replace(/__NS__/g, "/");
+  name = name.replace(NAMESPACE_SEPARATOR, "/");
   return name.replace(/_/g, "-");
+}
+
+export function isAgentToolName(name: string | undefined): boolean {
+  return typeof name === "string" && name.includes(NAMESPACE_SEPARATOR);
 }

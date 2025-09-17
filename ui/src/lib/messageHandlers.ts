@@ -1,6 +1,6 @@
 import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
-import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
+import { convertToUserFriendlyName, messageUtils, isAgentToolName } from "@/lib/utils";
 import { TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
@@ -87,9 +87,7 @@ export interface ToolResponseData {
   name: string;
   response?: {
     isError?: boolean;
-    result?: {
-      content?: Array<{ text?: string } | unknown>;
-    };
+    result?: unknown;
   };
 }
 
@@ -107,6 +105,45 @@ export interface ProcessedToolResultData {
   is_error: boolean;
 }
 
+// Normalize various tool response result shapes into plain text
+export function normalizeToolResultToText(toolData: ToolResponseData): string {
+  const result = toolData.response?.result;
+
+  if (typeof result === "string") {
+    return result;
+  }
+
+  if (result && typeof result === "object") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyResult: any = result;
+    const content = anyResult?.content;
+    if (Array.isArray(content)) {
+      return content.map((c: unknown) => {
+        if (typeof c === "object" && c !== null && "text" in (c as Record<string, unknown>)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return ((c as any).text as string) || "";
+        }
+        try {
+          return typeof c === "string" ? c : JSON.stringify(c);
+        } catch {
+          return String(c);
+        }
+      }).join("");
+    }
+
+    if ("text" in anyResult && typeof anyResult.text === "string") {
+      return anyResult.text;
+    }
+
+    try {
+      return JSON.stringify(result);
+    } catch {
+      return String(result);
+    }
+  }
+
+  return "";
+}
 
 function isTextPart(part: Part): part is TextPart {
   return part.kind === "text";
@@ -179,6 +216,122 @@ export type MessageHandlers = {
 };
 
 export const createMessageHandlers = (handlers: MessageHandlers) => {
+  const appendMessage = (message: Message) => {
+    handlers.setMessages(prev => [...prev, message]);
+  };
+
+  const updateTokenStatsFromMetadata = (adkMetadata: ADKMetadata | undefined) => {
+    if (!adkMetadata?.kagent_usage_metadata) return;
+    const usage = adkMetadata.kagent_usage_metadata;
+    const tokenStats = {
+      total: usage.totalTokenCount || 0,
+      input: usage.promptTokenCount || 0,
+      output: usage.candidatesTokenCount || 0,
+    };
+    handlers.setTokenStats(prev => ({
+      total: Math.max(prev.total, tokenStats.total),
+      input: Math.max(prev.input, tokenStats.input),
+      output: Math.max(prev.output, tokenStats.output),
+    }));
+  };
+
+  const aggregatePartsToText = (parts: Part[]): string => {
+    return parts.map((part: Part) => {
+      if (isTextPart(part)) {
+        return part.text || "";
+      } else if (isDataPart(part)) {
+        try {
+          return JSON.stringify(part.data || "");
+        } catch {
+          return String(part.data);
+        }
+      } else if (part.kind === "file") {
+        return `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
+      }
+      return String(part);
+    }).join("");
+  };
+
+  const finalizeStreaming = () => {
+    handlers.setIsStreaming(false);
+    handlers.setStreamingContent(() => "");
+    if (handlers.setChatStatus) {
+      handlers.setChatStatus("ready");
+    }
+  };
+
+  const processFunctionCallPart = (
+    toolData: ToolCallData,
+    contextId: string | undefined,
+    taskId: string | undefined,
+    source: string,
+    options?: { setProcessingStatus?: boolean }
+  ) => {
+    if (options?.setProcessingStatus && handlers.setChatStatus) {
+      handlers.setChatStatus("processing_tools");
+    }
+    const toolCallContent: ProcessedToolCallData[] = [{
+      id: toolData.id,
+      name: toolData.name,
+      args: toolData.args || {}
+    }];
+    const convertedMessage = createMessage(
+      "",
+      source,
+      {
+        originalType: "ToolCallRequestEvent",
+        contextId,
+        taskId,
+        additionalMetadata: { toolCallData: toolCallContent }
+      }
+    );
+    appendMessage(convertedMessage);
+  };
+
+  const processFunctionResponsePart = (
+    toolData: ToolResponseData,
+    contextId: string | undefined,
+    taskId: string | undefined,
+    defaultSource: string,
+    includeDelegatedPlainMessage: boolean
+  ) => {
+    const textContent = normalizeToolResultToText(toolData);
+
+    if (isAgentToolName(toolData.name) && includeDelegatedPlainMessage) {
+      const delegatedSource = convertToUserFriendlyName(toolData.name);
+      const plainMessage = createMessage(
+        textContent,
+        delegatedSource,
+        {
+          originalType: "TextMessage",
+          contextId,
+          taskId
+        }
+      );
+      appendMessage(plainMessage);
+    }
+
+    const toolResultContent: ProcessedToolResultData[] = [{
+      call_id: toolData.id,
+      name: toolData.name,
+      content: textContent,
+      is_error: toolData.response?.isError || false
+    }];
+    const execEvent = createMessage(
+      "",
+      defaultSource,
+      {
+        originalType: "ToolCallExecutionEvent",
+        contextId,
+        taskId,
+        additionalMetadata: { toolResultData: toolResultContent }
+      }
+    );
+    appendMessage(execEvent);
+  };
+
+  const isUserMessage = (message: Message): boolean => message.role === "user";
+
   // Simple fallback source when metadata is not available
   const defaultAgentSource = handlers.agentContext 
     ? `${handlers.agentContext.namespace}/${handlers.agentContext.agentName.replace(/_/g, "-")}`
@@ -194,28 +347,14 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     try {
       const adkMetadata = getADKMetadata(statusUpdate);
 
-      if (adkMetadata?.kagent_usage_metadata) {
-        const usage = adkMetadata.kagent_usage_metadata;
-
-        const tokenStats = {
-          total: usage.totalTokenCount || 0,
-          input: usage.promptTokenCount || 0,
-          output: usage.candidatesTokenCount || 0,
-        };
-        // Update token stats cumulatively - each A2A event might have incremental usage
-        handlers.setTokenStats(prev => ({
-          total: Math.max(prev.total, tokenStats.total),
-          input: Math.max(prev.input, tokenStats.input),
-          output: Math.max(prev.output, tokenStats.output),
-        }));
-      }
+      updateTokenStatsFromMetadata(adkMetadata);
 
       // If the status update has a message, process it
       if (statusUpdate.status.message) {
         const message = statusUpdate.status.message;
 
         // Skip user messages to avoid duplicates (they're already shown immediately)
-        if (message.role === "user") {
+        if (isUserMessage(message)) {
           return;
         }
 
@@ -252,58 +391,14 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             const partMetadata = part.metadata as ADKMetadata | undefined;
 
             if (partMetadata?.kagent_type === "function_call") {
-              if (handlers.setChatStatus) {
-                handlers.setChatStatus("processing_tools");
-              }
-
               const toolData = data as unknown as ToolCallData;
-              const toolCallContent: ProcessedToolCallData[] = [{
-                id: toolData.id,
-                name: toolData.name,
-                args: toolData.args || {}
-              }];
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-              const convertedMessage = createMessage(
-                "",
-                source,
-                {
-                  originalType: "ToolCallRequestEvent",
-                  contextId: statusUpdate.contextId,
-                  taskId: statusUpdate.taskId,
-                  additionalMetadata: { toolCallData: toolCallContent }
-                }
-              );
-              handlers.setMessages(prevMessages => [...prevMessages, convertedMessage]);
+              processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true });
 
             } else if (partMetadata?.kagent_type === "function_response") {
               const toolData = data as unknown as ToolResponseData;
-              const content = toolData.response?.result?.content || [];
-              const textContent = content.map((c: unknown) => {
-                if (typeof c === 'object' && c !== null && 'text' in c) {
-                  return (c as { text?: string }).text || '';
-                }
-                return String(c);
-              }).join("");
-
-              const toolResultContent: ProcessedToolResultData[] = [{
-                call_id: toolData.id,
-                name: toolData.name,
-                content: textContent,
-                is_error: toolData.response?.isError || false
-              }];
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-              
-              const convertedMessage = createMessage(
-                "",
-                source,
-                {
-                  originalType: "ToolCallExecutionEvent",
-                  contextId: statusUpdate.contextId,
-                  taskId: statusUpdate.taskId,
-                  additionalMetadata: { toolResultData: toolResultContent }
-                }
-              );
-              handlers.setMessages(prevMessages => [...prevMessages, convertedMessage]);
+              processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, true);
             }
           }
         }
@@ -315,11 +410,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       }
 
       if (statusUpdate.final) {
-        handlers.setIsStreaming(false);
-        handlers.setStreamingContent(() => "");
-        if (handlers.setChatStatus) {
-          handlers.setChatStatus("ready");
-        }
+        finalizeStreaming();
       }
     } catch (error) {
       console.error("❌ Error in handleA2ATaskStatusUpdate:", error);
@@ -332,50 +423,73 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       adkMetadata = getADKMetadata(artifactUpdate.artifact);
     }
 
-    if (adkMetadata?.kagent_usage_metadata) {
-      const usage = adkMetadata.kagent_usage_metadata;
+    updateTokenStatsFromMetadata(adkMetadata);
 
-      const tokenStats = {
-        total: usage.totalTokenCount || 0,
-        input: usage.promptTokenCount || 0,
-        output: usage.candidatesTokenCount || 0,
-      };
-      // Update token stats cumulatively for final counts
-      handlers.setTokenStats(prev => ({
-        total: Math.max(prev.total, tokenStats.total),
-        input: Math.max(prev.input, tokenStats.input),
-        output: Math.max(prev.output, tokenStats.output),
-      }));
-    }
-
-    // Add artifact content as final message (artifacts are typically final responses)
-    const artifactText = artifactUpdate.artifact.parts.map((part: Part) => {
-      // Handle different part types from A2A SDK
+    // Add artifact content and convert tool parts to messages
+    let artifactText = "";
+    const convertedMessages: Message[] = [];
+    for (const part of artifactUpdate.artifact.parts) {
       if (isTextPart(part)) {
-        return part.text || "";
-      } else if (isDataPart(part)) {
-        return JSON.stringify(part.data || "");
-      } else if (part.kind === "file") {
-        return `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
+        artifactText += part.text || "";
+        continue;
       }
-      return String(part);
-    }).join("");
+      if (isDataPart(part)) {
+        const partMetadata = part.metadata as ADKMetadata | undefined;
+        const data = part.data;
+        const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+
+        if (partMetadata?.kagent_type === "function_call") {
+          const toolData = data as unknown as ToolCallData;
+          const toolCallContent: ProcessedToolCallData[] = [{ id: toolData.id, name: toolData.name, args: toolData.args || {} }];
+          const convertedMessage = createMessage("", source, { originalType: "ToolCallRequestEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolCallData: toolCallContent } });
+          convertedMessages.push(convertedMessage);
+          continue;
+        }
+
+        if (partMetadata?.kagent_type === "function_response") {
+          const toolData = data as unknown as ToolResponseData;
+          const textContent = normalizeToolResultToText(toolData);
+          const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false }];
+          const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
+          convertedMessages.push(convertedMessage);
+          continue;
+        }
+
+        try {
+          artifactText += JSON.stringify(data || "");
+        } catch {
+          artifactText += String(data);
+        }
+        continue;
+      }
+      if (part.kind === "file") {
+        artifactText += `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
+        continue;
+      }
+      artifactText += String(part);
+    }
 
     if (artifactUpdate.lastChunk) {
       handlers.setIsStreaming(false);
       handlers.setStreamingContent(() => "");
 
       const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-      const displayMessage = createMessage(
-        artifactText,
-        source,
-        {
-          originalType: "TextMessage",
-          contextId: artifactUpdate.contextId,
-          taskId: artifactUpdate.taskId
-        }
-      );
-      handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
+      if (artifactText) {
+        const displayMessage = createMessage(
+          artifactText,
+          source,
+          {
+            originalType: "TextMessage",
+            contextId: artifactUpdate.contextId,
+            taskId: artifactUpdate.taskId
+          }
+        );
+        handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
+      }
+
+      if (convertedMessages.length > 0) {
+        handlers.setMessages(prevMessages => [...prevMessages, ...convertedMessages]);
+      }
       
       // Add a tool call summary message to mark any pending tool calls as completed
       const summarySource = getSourceFromMetadata(adkMetadata, defaultAgentSource);
@@ -397,16 +511,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   };
 
   const handleA2AMessage = (message: Message) => {
-    const content = message.parts.map(part => {
-      if (isTextPart(part)) {
-        return part.text || "";
-      } else if (isDataPart(part)) {
-        return JSON.stringify(part.data || "");
-      } else if (part.kind === "file") {
-        return `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
-      }
-      return "";
-    }).join("");
+    const content = aggregatePartsToText(message.parts);
 
     if (message.role !== "user") {
       const source = getSourceFromMetadata(message.metadata as ADKMetadata, defaultAgentSource);
@@ -424,9 +529,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   };
 
   const handleOtherMessage = (message: Message) => {
-    handlers.setIsStreaming(false);
-    handlers.setStreamingContent(() => "");
-    handlers.setMessages(prevMessages => [...prevMessages, message]);
+    finalizeStreaming();
+    appendMessage(message);
   };
 
   const handleMessageEvent = (message: Message) => {

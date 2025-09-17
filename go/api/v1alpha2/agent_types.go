@@ -51,9 +51,14 @@ type AgentSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
-	// +kubebuilder:validation:MinLength=1
+	// SystemMessage is a string specifying the system message for the agent
+	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
+	// SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+	// +optional
+	SystemMessageFrom *ValueSource `json:"systemMessageFrom,omitempty"`
 	// The name of the model config to use.
 	// If not specified, the default value is "default-model-config".
 	// Must be in the same namespace as the Agent.

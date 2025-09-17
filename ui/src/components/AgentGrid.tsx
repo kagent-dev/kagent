@@ -15,7 +15,7 @@ export function AgentGrid({ agentResponse }: AgentGridProps) {
           item.agent.metadata.namespace || '',
           item.agent.metadata.name || '');
 
-        return <AgentCard key={agentRef} agentResponse={item} id={item.id} />
+        return <AgentCard key={agentRef} agentResponse={item} />
       })}
     </div>
   );

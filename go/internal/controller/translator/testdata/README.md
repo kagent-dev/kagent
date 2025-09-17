@@ -16,10 +16,10 @@ testdata/
 Each input file in `inputs/` is a YAML file with the following structure:
 
 ```yaml
-operation: translateAgent  # The operation to test: "translateAgent", "translateTeam", or "translateToolServer"
-targetObject: agent-name   # The name of the object to translate
-namespace: test           # The namespace where objects are located
-objects:                  # List of Kubernetes objects needed for the test
+operation: translateAgent # The operation to test: "translateAgent", "translateTeam", or "translateToolServer"
+targetObject: agent-name # The name of the object to translate
+namespace: test # The namespace where objects are located
+objects: # List of Kubernetes objects needed for the test
   - apiVersion: v1
     kind: Secret
     metadata:
@@ -42,6 +42,8 @@ objects:                  # List of Kubernetes objects needed for the test
 4. **anthropic_agent.yaml** - Agent using Anthropic Claude model
 5. **ollama_agent.yaml** - Agent using Ollama local model
 6. **agent_with_nested_agent.yaml** - Agent with nested agent tools
+7. **agent_with_system_message_from_configmap.yaml** - Agent with system message sourced from a ConfigMap
+8. **agent_with_system_message_from_secret.yaml** - Agent with system message sourced from a Secret
 
 ### Adding New Test Cases
 
@@ -56,18 +58,23 @@ To add a new test case:
 ## Running Tests
 
 ### Run all golden tests:
+
+From the `./go` directory:
+
 ```bash
-go test -run TestGoldenTranslator ./go/controller/translator/
+go test -run TestGoldenAdkTranslator ./internal/controller/translator/
 ```
 
 ### Update golden files (regenerate expected outputs):
+
 ```bash
-UPDATE_GOLDEN=true go test -run TestGoldenTranslator ./go/controller/translator/
+UPDATE_GOLDEN=true go test -run TestGoldenAdkTranslator ./internal/controller/translator/
 ```
 
 ### Run specific test:
+
 ```bash
-go test -run TestGoldenTranslator/basic_agent ./go/controller/translator/
+go test -run TestGoldenAdkTranslator/basic_agent ./internal/controller/translator/
 ```
 
 ## Test Coverage
@@ -77,11 +84,11 @@ The golden tests cover various scenarios:
 - **Model Providers**: OpenAI, Anthropic, Ollama
 - **Tools**: Builtin tools (with model client injection and API key injection), nested agent tools
 - **Memory**: Pinecone vector memory
-- **Configuration**: Various model parameters, environment variables, secrets
+- **Configuration**: Various model parameters, environment variables, secrets, system messages
 
 ## Notes
 
 - Golden files are automatically normalized to remove non-deterministic fields like IDs and timestamps
 - Tests use fake Kubernetes clients, so no actual cluster is needed
 - All sensitive data in test files uses dummy values
-- The tests focus on `TranslateGroupChatForAgent` functionality 
+- The tests focus on `TranslateGroupChatForAgent` functionality
