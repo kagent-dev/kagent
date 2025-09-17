@@ -1,18 +1,11 @@
 package mockllm
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"math/big"
 	"net"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/mux"
 	"k8s.io/client-go/util/retry"
@@ -36,7 +29,6 @@ func NewServer(config Config) *Server {
 			Name:     mock.Name,
 			Match:    mock.Match,
 			Response: mock.Response,
-			Stream:   mock.Stream,
 		})
 	}
 
@@ -46,7 +38,6 @@ func NewServer(config Config) *Server {
 			Name:     mock.Name,
 			Match:    mock.Match,
 			Response: mock.Response,
-			Stream:   mock.Stream,
 		})
 	}
 
@@ -155,84 +146,3 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 		"hint":   "Supported: /v1/chat/completions (OpenAI), /v1/messages (Anthropic)",
 	})
 }
-
-func generateTLSConfig() *tls.Config {
-	// Generate private key
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		panic(err)
-	}
-
-	// Create certificate template
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization: []string{"Mock Server"},
-			CommonName:   "localhost",
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		IPAddresses:           []net.IP{net.ParseIP("0.0.0.0")},
-		DNSNames:              []string{"localhost"},
-	}
-
-	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
-	if err != nil {
-		panic(err)
-	}
-
-	// Create TLS certificate
-	cert := tls.Certificate{
-		Certificate: [][]byte{certDER},
-		PrivateKey:  privateKey,
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-	}
-}
-
-// Example usage:
-//
-// func TestExample(t *testing.T) {
-//     config := mockllm.Config{
-//         OpenAI: []mockllm.OpenAIMock{
-//             {
-//                 Name: "simple-response",
-//                 Request: map[string]interface{}{
-//                     "model": "gpt-4o-mini",
-//                     "messages": []map[string]interface{}{
-//                         {"role": "user", "content": "Hello"},
-//                     },
-//                 },
-//                 Response: map[string]interface{}{
-//                     "id": "chatcmpl-123",
-//                     "object": "chat.completion",
-//                     "created": 1677652288,
-//                     "model": "gpt-4o-mini",
-//                     "choices": []map[string]interface{}{
-//                         {
-//                             "index": 0,
-//                             "message": map[string]interface{}{
-//                                 "role": "assistant",
-//                                 "content": "Hello! How can I help you today?",
-//                             },
-//                             "finish_reason": "stop",
-//                         },
-//                     },
-//                 },
-//             },
-//         },
-//     }
-//
-//     server := mockllm.NewServer(config)
-//     baseURL, err := server.Start()
-//     require.NoError(t, err)
-//     defer server.Stop()
-//
-//     // Use baseURL with OpenAI client...
-// }

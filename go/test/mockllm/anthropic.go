@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -46,13 +45,8 @@ func (p *AnthropicProvider) Handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No matching mock found", http.StatusNotFound)
 		return
 	}
+	p.handleNonStreamingResponse(w, mock.Response)
 
-	// Return the response
-	if mock.Stream {
-		p.handleStreamingResponse(w, mock.Response)
-	} else {
-		p.handleNonStreamingResponse(w, mock.Response)
-	}
 }
 
 // findMatchingMock finds the first mock that matches the request
@@ -69,7 +63,8 @@ func (p *AnthropicProvider) findMatchingMock(request anthropic.MessageNewParams)
 func (p *AnthropicProvider) requestsMatch(expected AnthropicRequestMatch, actual anthropic.MessageNewParams) bool {
 	// Simple deep equal comparison for now
 	// In the future, we could add more sophisticated matching
-	if expected.MatchType == MatchTypeExact {
+	switch expected.MatchType {
+	case MatchTypeExact:
 		// get Last message from actual
 		if len(actual.Messages) == 0 {
 			return false
@@ -85,8 +80,10 @@ func (p *AnthropicProvider) requestsMatch(expected AnthropicRequestMatch, actual
 			return false
 		}
 		return bytes.Equal(jsonExpected, jsonActual)
+	case MatchTypeContains:
+		panic("not implemented")
 	}
-	return reflect.DeepEqual(expected, actual)
+	return false
 }
 
 // handleNonStreamingResponse sends a JSON response

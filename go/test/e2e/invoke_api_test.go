@@ -37,7 +37,7 @@ func a2aUrl(namespace, name string) string {
 	return kagentURL + "/api/a2a/" + namespace + "/" + name
 }
 
-func modelConfig(baseURL string) *v1alpha2.ModelConfig {
+func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {
 	return &v1alpha2.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-model-config",
@@ -55,7 +55,7 @@ func modelConfig(baseURL string) *v1alpha2.ModelConfig {
 	}
 }
 
-func agent() *v1alpha2.Agent {
+func generateAgent() *v1alpha2.Agent {
 	return &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
@@ -121,14 +121,16 @@ func TestInvokeInlineAgent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = cli.Create(t.Context(), modelConfig(baseURL+"/v1"))
+	modelCfg := generateModelCfg(baseURL + "/v1")
+	err = cli.Create(t.Context(), modelCfg)
 	require.NoError(t, err)
-	err = cli.Create(t.Context(), agent())
+	agent := generateAgent()
+	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
 
 	defer func() {
-		cli.Delete(t.Context(), modelConfig(baseURL))
-		cli.Delete(t.Context(), agent())
+		cli.Delete(t.Context(), modelCfg)
+		cli.Delete(t.Context(), agent)
 	}()
 
 	args := []string{

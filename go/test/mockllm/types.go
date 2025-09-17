@@ -27,10 +27,9 @@ type OpenAIRequestMatch struct {
 
 // OpenAIMock maps an OpenAI request to a response using official SDK types
 type OpenAIMock struct {
-	Name     string                `json:"name"`             // identifier for this mock
-	Match    OpenAIRequestMatch    `json:"match"`            // Match type and value
-	Response openai.ChatCompletion `json:"response"`         // OpenAI response to return (ChatCompletion or ChatCompletionChunk)
-	Stream   bool                  `json:"stream,omitempty"` // whether this is a streaming response
+	Name     string                `json:"name"`     // identifier for this mock
+	Match    OpenAIRequestMatch    `json:"match"`    // Match type and value
+	Response openai.ChatCompletion `json:"response"` // OpenAI response to return (ChatCompletion or ChatCompletionChunk)
 }
 
 type AnthropicRequestMatch struct {
@@ -40,8 +39,7 @@ type AnthropicRequestMatch struct {
 
 // AnthropicMock maps an Anthropic request to a response using official SDK types
 type AnthropicMock struct {
-	Name     string                `json:"name"`             // identifier for this mock
-	Match    AnthropicRequestMatch `json:"match"`            // Match type and value
-	Response anthropic.Message     `json:"response"`         // Anthropic response to return (Message or streaming event)
-	Stream   bool                  `json:"stream,omitempty"` // whether this is a streaming response
+	Name     string                `json:"name"`     // identifier for this mock
+	Match    AnthropicRequestMatch `json:"match"`    // Match type and value
+	Response anthropic.Message     `json:"response"` // Anthropic response to return (Message or streaming event)
 }

@@ -37,11 +37,7 @@ func (p *OpenAIProvider) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return the response
-	if mock.Stream {
-		p.handleStreamingResponse(w, mock.Response)
-	} else {
-		p.handleNonStreamingResponse(w, mock.Response)
-	}
+	p.handleNonStreamingResponse(w, mock.Response)
 }
 
 // findMatchingMock finds the first mock that matches the request

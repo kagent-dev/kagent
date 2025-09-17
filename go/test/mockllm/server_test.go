@@ -54,7 +54,6 @@ func TestSimpleOpenAIMock(t *testing.T) {
 	var mock mockllm.OpenAIMock
 	mock.Name = "test-response"
 	mock.Response = openaiResponse
-	mock.Stream = false
 	mock.Match = mockllm.OpenAIRequestMatch{
 		MatchType: mockllm.MatchTypeExact,
 		Message:   openaiRequest.Messages[len(openaiRequest.Messages)-1],
