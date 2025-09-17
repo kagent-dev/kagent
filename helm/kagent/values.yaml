@@ -72,7 +72,7 @@ controller:
   streaming: # Streaming buffer size for A2A communication
     maxBufSize: 1Mi # 1024 * 1024
     initialBufSize: 4Ki # 4 * 1024
-    timeout: 60s # 60 seconds
+    timeout: 600s # 600 seconds
   # -- Namespaces the controller should watch.
   # If empty, the controller will watch ALL available namespaces.
   # @default -- [] (watches all available namespaces)
