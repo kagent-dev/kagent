@@ -95,26 +95,3 @@ func (p *AnthropicProvider) handleNonStreamingResponse(w http.ResponseWriter, re
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}
 }
-
-// handleStreamingResponse sends an SSE stream response (Anthropic format)
-func (p *AnthropicProvider) handleStreamingResponse(w http.ResponseWriter, response interface{}) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	// For now, just send the response as a single message_delta event
-	// In the future, we could support proper streaming with multiple events
-	responseBytes, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to marshal response: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(w, "event: message_start\ndata: {\"type\": \"message_start\"}\n\n")
-	fmt.Fprintf(w, "event: content_block_delta\ndata: %s\n\n", responseBytes)
-	fmt.Fprintf(w, "event: message_stop\ndata: {\"type\": \"message_stop\"}\n\n")
-
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}

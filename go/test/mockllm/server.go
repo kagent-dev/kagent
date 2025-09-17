@@ -86,7 +86,7 @@ func (s *Server) Start() (string, error) {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("health check failed: %d", resp.StatusCode)
 		}
@@ -128,7 +128,7 @@ func (s *Server) setupRoutes() {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
 		"status":    "healthy",
 		"service":   "mock-llm",
 		"openai":    len(s.config.OpenAI),
@@ -139,7 +139,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
 		"error":  "Endpoint not found",
 		"path":   r.URL.Path,
 		"method": r.Method,

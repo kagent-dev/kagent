@@ -73,7 +73,7 @@ func TestSimpleOpenAIMock(t *testing.T) {
 	server := mockllm.NewServer(config)
 	baseURL, err := server.Start()
 	require.NoError(t, err)
-	defer server.Stop()
+	defer server.Stop() //nolint:errcheck
 
 	// Make request
 	req, err := http.NewRequest("POST", baseURL+"/v1/chat/completions", bytes.NewReader(reqBytes))
@@ -84,7 +84,7 @@ func TestSimpleOpenAIMock(t *testing.T) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Check response
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -152,7 +152,7 @@ func TestSimpleAnthropicMock(t *testing.T) {
 	server := mockllm.NewServer(config)
 	baseURL, err := server.Start()
 	require.NoError(t, err)
-	defer server.Stop()
+	defer server.Stop() //nolint:errcheck
 
 	// Make request
 	req, err := http.NewRequest("POST", baseURL+"/v1/messages", bytes.NewReader(reqBytes))
@@ -164,7 +164,7 @@ func TestSimpleAnthropicMock(t *testing.T) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Check response
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -182,11 +182,11 @@ func TestHealthCheck(t *testing.T) {
 	server := mockllm.NewServer(config)
 	baseURL, err := server.Start()
 	require.NoError(t, err)
-	defer server.Stop()
+	defer server.Stop() //nolint:errcheck
 
 	resp, err := http.Get(baseURL + "/health")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 

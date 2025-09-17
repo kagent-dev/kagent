@@ -107,7 +107,7 @@ func TestInvokeInlineAgent(t *testing.T) {
 	baseURL, err := server.Start()
 	baseURL = buildK8sURL(baseURL)
 	require.NoError(t, err)
-	defer server.Stop()
+	defer server.Stop() //nolint:errcheck
 
 	cfg, err := config.GetConfig()
 	require.NoError(t, err)
@@ -129,8 +129,8 @@ func TestInvokeInlineAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	defer func() {
-		cli.Delete(t.Context(), modelCfg)
-		cli.Delete(t.Context(), agent)
+		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
+		cli.Delete(t.Context(), agent)    //nolint:errcheck
 	}()
 
 	args := []string{

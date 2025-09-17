@@ -103,25 +103,3 @@ func (p *OpenAIProvider) handleNonStreamingResponse(w http.ResponseWriter, respo
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}
 }
-
-// handleStreamingResponse sends an SSE stream response
-func (p *OpenAIProvider) handleStreamingResponse(w http.ResponseWriter, response interface{}) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	// For now, just send the response as a single chunk
-	// In the future, we could support proper streaming with multiple chunks
-	responseBytes, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to marshal response: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(w, "data: %s\n\n", responseBytes)
-	fmt.Fprintf(w, "data: [DONE]\n\n")
-
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
