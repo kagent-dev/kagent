@@ -28,31 +28,31 @@ func TestDiscoveryDisabledPredicate(t *testing.T) {
 	predicate := DiscoveryDisabledPredicate{}
 
 	tests := []struct {
-		name        string
-		annotations map[string]string
-		expected    bool
+		name     string
+		labels   map[string]string
+		expected bool
 	}{
 		{
-			name:        "no annotation - should process",
-			annotations: nil,
-			expected:    true,
+			name:     "no label - should process",
+			labels:   nil,
+			expected: true,
 		},
 		{
-			name:        "discovery disabled set to true - should not process",
-			annotations: map[string]string{"kagent.dev/discovery-disabled": "true"},
-			expected:    false,
+			name:     "discovery label set to disabled - should not process",
+			labels:   map[string]string{"kagent.dev/discovery": "disabled"},
+			expected: false,
 		},
 		{
-			name:        "discovery disabled set to false - should process",
-			annotations: map[string]string{"kagent.dev/discovery-disabled": "false"},
-			expected:    true,
+			name:     "discovery label set to enabled - should process",
+			labels:   map[string]string{"kagent.dev/discovery": "enabled"},
+			expected: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testObj := &unstructured.Unstructured{}
-			testObj.SetAnnotations(tt.annotations)
+			testObj.SetLabels(tt.labels)
 
 			// Test all event types with the same test cases
 			createEvent := event.CreateEvent{Object: testObj}
