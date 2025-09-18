@@ -44,6 +44,12 @@ objects:
               kind: RemoteMCPServer
               toolNames:
                 - k8s_get_resources
+            headersFrom:
+              - name: MATH
+                valueFrom:
+                  type: Secret
+                  name: math-secret
+                  key: math
   - apiVersion: kagent.dev/v1alpha2
     kind: RemoteMCPServer
     metadata:
