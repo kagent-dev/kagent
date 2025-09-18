@@ -110,13 +110,11 @@ func loadManifest(projectDir string) (*common.AgentManifest, error) {
 // getAPIKeyEnvVar returns the environment variable name for the given model provider
 func getAPIKeyEnvVar(modelProvider string) string {
 	switch modelProvider {
-	case string(v1alpha2.ModelProviderAnthropic):
+	case strings.ToLower(string(v1alpha2.ModelProviderAnthropic)):
 		return "ANTHROPIC_API_KEY"
-	case string(v1alpha2.ModelProviderOpenAI):
+	case strings.ToLower(string(v1alpha2.ModelProviderOpenAI)):
 		return "OPENAI_API_KEY"
-	case string(v1alpha2.ModelProviderAzureOpenAI):
-		return "AZURE_API_KEY"
-	case string(v1alpha2.ModelProviderGemini):
+	case strings.ToLower(string(v1alpha2.ModelProviderGemini)):
 		return "GOOGLE_API_KEY"
 	default:
 		return ""

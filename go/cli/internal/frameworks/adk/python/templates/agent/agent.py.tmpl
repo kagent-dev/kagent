@@ -42,31 +42,32 @@ async def check_prime(nums: list[int]) -> str:
     return "No prime numbers found." if not primes else f"{', '.join(str(num) for num in primes)} are prime numbers."
 
 
-# Create the appropriate model based on provider
-def create_model(provider: str, model_name: str):
-    """Create the appropriate model wrapper based on the provider."""
-    # Provider mapping for LiteLLM model prefixes
-    provider_mapping = {
-        "openai": "openai",
-        "anthropic": "anthropic",
-        "azureopenai": "azure"
-    }
-
-    # Handle special cases first
-    if provider.lower() == "gemini":
-        # For Gemini, use the model name directly
-        return model_name
-    elif provider.lower() in provider_mapping:
-        # Use LiteLLM with the appropriate prefix
-        prefix = provider_mapping[provider.lower()]
-        return LiteLlm(model=f"{prefix}/{model_name}")
-    else:
-        # For unknown providers, try using the model name directly
-        return model_name
+# Create model based on provider and model name
+{{if eq .ModelProvider "gemini"}}
+def create_model():
+    """Create a Gemini model instance."""
+    return "{{.ModelName}}"
+{{else if eq .ModelProvider "openai"}}
+def create_model():
+    """Create an OpenAI model instance using LiteLLM."""
+    return LiteLlm(model="openai/{{.ModelName}}")
+{{else if eq .ModelProvider "anthropic"}}
+def create_model():
+    """Create an Anthropic model instance using LiteLLM."""
+    return LiteLlm(model="anthropic/{{.ModelName}}")
+{{else if eq .ModelProvider "azureopenai"}}
+def create_model():
+    """Create an Azure OpenAI model instance using LiteLLM."""
+    return LiteLlm(model="azure/{{.ModelName}}")
+{{else}}
+def create_model():
+    """Create a custom model instance."""
+    return "{{.ModelName}}"
+{{end}}
 
 
 root_agent = Agent(
-    model=create_model("{{.ModelProvider}}", "{{.ModelName}}"),
+    model=create_model(),
     name="{{.Name}}_agent",
     description=("{{.Name}} agent."),
     instruction="""

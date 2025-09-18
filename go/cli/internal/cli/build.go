@@ -33,7 +33,7 @@ func BuildCmd(cfg *BuildCfg) error {
 	// Check if Dockerfile exists in project directory
 	dockerfilePath := filepath.Join(cfg.ProjectDir, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
-		return fmt.Errorf("Dockerfile not found in project directory: %s", dockerfilePath)
+		return fmt.Errorf("dockerfile not found in project directory: %s", dockerfilePath)
 	}
 
 	// Build the Docker image

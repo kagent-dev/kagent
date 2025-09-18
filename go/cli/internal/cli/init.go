@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
@@ -41,6 +42,9 @@ func InitCmd(cfg *InitCfg) error {
 			return err
 		}
 	}
+
+	// use lower case for model provider since the templates expect the model provider in lower case
+	cfg.ModelProvider = strings.ToLower(cfg.ModelProvider)
 
 	// Get current working directory for project creation
 	cwd, err := os.Getwd()
@@ -83,10 +87,9 @@ func validateModelProvider(provider string) error {
 	switch v1alpha2.ModelProvider(provider) {
 	case v1alpha2.ModelProviderOpenAI,
 		v1alpha2.ModelProviderAnthropic,
-		v1alpha2.ModelProviderAzureOpenAI,
 		v1alpha2.ModelProviderGemini:
 		return nil
 	default:
-		return fmt.Errorf("unsupported model provider: %s. Supported providers: OpenAI, Anthropic, AzureOpenAI, Gemini", provider)
+		return fmt.Errorf("unsupported model provider: %s. Supported providers: OpenAI, Anthropic, Gemini", provider)
 	}
 }
