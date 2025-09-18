@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/cli"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
+	"github.com/kagent-dev/kagent/go/cli/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -35,8 +36,8 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "kagent",
-		Short: "kagent is a CLI for kagent",
-		Long:  "kagent is a CLI for kagent",
+		Short: "kagent is a CLI and TUI for kagent",
+		Long:  "kagent is a CLI and TUI for kagent",
 		Run: func(cmd *cobra.Command, args []string) {
 			runInteractive()
 		},
@@ -398,46 +399,22 @@ func runInteractive() {
 	config.SetClient(shell, client)
 	shell.SetPrompt(config.BoldBlue("kagent >> "))
 
-	runCmd := &ishell.Cmd{
-		Name:    "run",
-		Aliases: []string{"r"},
-		Help:    "Run a kagent agent",
-		LongHelp: `Run a kagent agent.
-
-The available run types are:
-- chat: Start a chat with a kagent agent.
-
-Examples:
-- run chat [agent_name] -s [session_name]
-- run chat
-  `,
-	}
-
-	runCmd.AddCmd(&ishell.Cmd{
+	// interactive chat TUI command inside shell too
+	shell.AddCmd(&ishell.Cmd{
 		Name:    "chat",
-		Aliases: []string{"c"},
-		Help:    "Start a chat with a kagent agent.",
-		LongHelp: `Start a chat with a kagent agent.
-
-If no agent name is provided, then a list of available agents will be provided to select from.
-If no session name is provided, then a new session will be created and the chat will be associated with it.
-
-Examples:
-- chat [agent_name] -s [session_name]
-- chat [agent_name]
-- chat
-`,
+		Aliases: []string{"ui", "tui"},
+		Help:    "Open the kagent chat TUI",
 		Func: func(c *ishell.Context) {
 			if err := cli.CheckServerConnection(client); err != nil {
 				c.Println(err)
 				return
 			}
-			cli.ChatCmd(c)
-			c.SetPrompt(config.BoldBlue("kagent >> "))
+			cfg := config.GetCfg(c)
+			if err := tui.RunWorkspace(cfg, cfg.Client(), cfg.Verbose); err != nil {
+				c.Printf("TUI error: %v\n", err)
+			}
 		},
 	})
-
-	shell.AddCmd(runCmd)
 
 	getCmd := &ishell.Cmd{
 		Name:    "get",
