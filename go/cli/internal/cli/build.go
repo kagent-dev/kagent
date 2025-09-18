@@ -36,6 +36,11 @@ func BuildCmd(cfg *BuildCfg) error {
 		return fmt.Errorf("dockerfile not found in project directory: %s", dockerfilePath)
 	}
 
+	// Check if Docker is available and running
+	if err := checkDockerAvailability(); err != nil {
+		return fmt.Errorf("docker check failed: %v", err)
+	}
+
 	// Build the Docker image
 	if err := buildDockerImage(cfg); err != nil {
 		return fmt.Errorf("failed to build Docker image: %v", err)
@@ -43,6 +48,7 @@ func BuildCmd(cfg *BuildCfg) error {
 
 	// Push the image if requested
 	if cfg.Push {
+		// Docker availability is already checked above, but we could add another check here if needed
 		if err := pushDockerImage(cfg); err != nil {
 			return fmt.Errorf("failed to push Docker image: %v", err)
 		}
@@ -135,4 +141,27 @@ func getAgentNameFromManifest(projectDir string) string {
 	}
 
 	return manifest.Name
+}
+
+// checkDockerAvailability checks if Docker is installed and running
+func checkDockerAvailability() error {
+	// Check if docker command exists
+	if _, err := exec.LookPath("docker"); err != nil {
+		return fmt.Errorf("docker command not found in PATH. Please install Docker")
+	}
+
+	// Check if Docker daemon is running by running docker version
+	cmd := exec.Command("docker", "version", "--format", "{{.Server.Version}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("docker daemon is not running or not accessible. Please start Docker Desktop or Docker daemon")
+	}
+
+	// Check if we got a valid version string
+	version := strings.TrimSpace(string(output))
+	if version == "" {
+		return fmt.Errorf("docker daemon returned empty version. Docker may not be properly installed")
+	}
+
+	return nil
 }
