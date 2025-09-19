@@ -31,11 +31,10 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
   };
 
   const cardContent = (
-    <Card className={`group transition-colors ${
-      deploymentReady && accepted
-        ? 'cursor-pointer hover:border-violet-500' 
-        : 'border-gray-300'
-    }`}>
+    <Card className={`group transition-colors ${deploymentReady && accepted
+      ? 'cursor-pointer hover:border-violet-500'
+      : 'border-gray-300'
+      }`}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
         <CardTitle className="flex items-center gap-2">
           <KagentLogo className="h-5 w-5" />
@@ -52,34 +51,40 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
           )}
         </CardTitle>
         <div className="flex items-center space-x-2 invisible group-hover:visible">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handleEditClick} 
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleEditClick}
             aria-label="Edit Agent"
           >
             <Pencil className="h-4 w-4" />
           </Button>
-          <DeleteButton 
-            agentName={agent.metadata.name} 
-            namespace={agent.metadata.namespace || ''} 
+          <DeleteButton
+            agentName={agent.metadata.name}
+            namespace={agent.metadata.namespace || ''}
           />
         </div>
       </CardHeader>
-      <CardContent className="flex flex-col justify-between h-32">
+      <CardContent className="flex flex-col justify-between h-32 relative">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">{agent.spec.description}</p>
         <div className="mt-4 flex items-center text-xs text-muted-foreground">
           {isBYO && (
             <span title={byoImage}>Image: {byoImage}</span>
           )}
-          {isRemote && (
-            <Button variant="ghost" size="icon" className="text-muted-foreground" disabled={!deploymentReady || !accepted} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPreviewOpen(true); }}>
-              <Eye className="w-4 h-4" />
-            </Button>
-          )}
+
           {!isBYO && !isRemote && (
             <span>{modelProvider} ({model})</span>
           )}
+
+          {isRemote && (
+            <span>Remote</span>
+          )}
+        </div>
+
+        <div className="absolute bottom-4 right-6 flex items-center space-x-2 invisible group-hover:visible">
+          <Button variant="ghost" size="icon" className="text-muted-foreground" disabled={!deploymentReady || !accepted} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPreviewOpen(true); }}>
+            <Eye className="w-4 h-4" />
+          </Button>
         </div>
       </CardContent>
     </Card>
@@ -94,9 +99,9 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
       ) : (
         cardContent
       )}
-      {isRemote && (
-        <AgentCardPreview open={previewOpen} onOpenChange={setPreviewOpen} namespace={agent.metadata.namespace || ''} name={agent.metadata.name} />
-      )}
+
+      <AgentCardPreview open={previewOpen} onOpenChange={setPreviewOpen} namespace={agent.metadata.namespace || ''} name={agent.metadata.name} />
+
     </>
   );
 }

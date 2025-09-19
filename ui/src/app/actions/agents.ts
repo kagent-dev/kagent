@@ -211,8 +211,8 @@ export async function getAgents(): Promise<BaseResponse<AgentResponse[]>> {
  */
 export async function getAgentCard(namespace: string, name: string): Promise<BaseResponse<string>> {
   try {
-    const { data } = await fetchApi<BaseResponse<string>>(`/agents/${namespace}/${name}/card`);
-    return { message: "Successfully fetched agent card", data };
+    const data = await fetchApi<string>(`/a2a/${namespace}/${name}/.well-known/agent.json`);
+    return { message: "Successfully fetched agent card", data: JSON.stringify(data, null, 2)};
   } catch (error) {
     return createErrorResponse<string>(error, "Error getting agent card");
   }

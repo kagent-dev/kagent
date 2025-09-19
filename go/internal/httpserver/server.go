@@ -181,7 +181,6 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleUpdateAgent)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}/card", adaptHandler(s.handlers.Agents.HandleGetAgentCard)).Methods(http.MethodGet)
 
 	// Providers
 	s.router.HandleFunc(APIPathProviders+"/models", adaptHandler(s.handlers.Provider.HandleListSupportedModelProviders)).Methods(http.MethodGet)

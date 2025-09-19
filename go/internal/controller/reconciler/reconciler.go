@@ -593,7 +593,9 @@ func (a *kagentReconciler) reconcileRemoteAgent(agent *v1alpha2.Agent) (*transla
 		Manifest:  []client.Object{},
 		AgentCard: *agentCard,
 		RemoteConfig: &adk.RemoteAgentConfig{
-			Name:        agentCard.Name,
+			// Name must be a combination of namespace and name
+			// e.g. "namespace__NS__name"
+			Name:        utils.ConvertToPythonIdentifier(fmt.Sprintf("%s/%s", agent.Namespace, agentCard.Name)),
 			Url:         agentCard.URL,
 			Description: agentCard.Description,
 		},

@@ -167,49 +167,6 @@ func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// HandleGetAgentCard handles GET /api/agents/{namespace}/{name}/card by returning the stored AgentCard JSON
-// Note: Currently, we only store the AgentCard for remote agents so that users can see the latest agent card fetched.
-func (h *AgentsHandler) HandleGetAgentCard(w ErrorResponseWriter, r *http.Request) {
-
-	agentName, err := GetPathParam(r, "name")
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
-		return
-	}
-	agentNamespace, err := GetPathParam(r, "namespace")
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
-		return
-	}
-
-	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
-		w.RespondWithError(err)
-		return
-	}
-
-	// Ensure the agent exists in Kube (authz scope and 404 semantics)
-	agent := &v1alpha2.Agent{}
-	if err := h.KubeClient.Get(
-		r.Context(),
-		client.ObjectKey{Namespace: agentNamespace, Name: agentName},
-		agent,
-	); err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-		return
-	}
-
-	// Load from DB and return stored AgentCard JSON only
-	agentID := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
-	dbAgent, err := h.DatabaseService.GetAgent(agentID)
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Agent card not found", err))
-		return
-	}
-
-	data := api.NewResponse(dbAgent.AgentCard, "Successfully retrieved agent card", false)
-	RespondWithJSON(w, http.StatusOK, data)
-}
-
 // HandleCreateAgent handles POST /api/agents requests using database
 func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "create-db")
