@@ -24,6 +24,7 @@
     <a href='https://codespaces.new/kagent-dev/kagent'>
       <img src='https://github.com/codespaces/badge.svg' alt='Open in Github Codespaces' style='max-width: 100%;' height="20">
     </a>
+    <a href="https://www.bestpractices.dev/projects/10723"><img src="https://www.bestpractices.dev/projects/10723/badge"></a>
   </div>
 </div>
 
