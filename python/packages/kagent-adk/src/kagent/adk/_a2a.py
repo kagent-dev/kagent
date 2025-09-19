@@ -2,7 +2,7 @@
 import faulthandler
 import logging
 import os
-from typing import Callable
+from typing import Callable, Optional
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
@@ -13,6 +13,12 @@ from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.apps.app import App
+from google.adk.auth.auth_credential import AuthCredential
+from google.adk.tools.mcp_tool import MCPTool
+from google.adk.tools.tool_context import ToolContext
+from google.adk.tools.base_tool import BaseTool
+from google.adk.plugins.base_plugin import BasePlugin
 from google.genai import types
 
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
@@ -40,7 +46,31 @@ def thread_dump(request: Request) -> PlainTextResponse:
 
 kagent_url_override = os.getenv("KAGENT_URL")
 
+class TokenPropagationTool(McpTool):
+    def __init__(self, other : McpTool):
+        super().__init__(mcp_tool=other._mcp_tool, mcp_session_manager=other._mcp_session_manager)
 
+    async def _get_headers(
+        self, tool_context: ToolContext, credential: AuthCredential
+    ) -> Optional[dict[str, str]]:
+        return super()._get_headers(tool_context, credential)
+
+class TokenPropagationPlugin(BasePlugin):
+    def __init__(self):
+        super().__init__()
+
+
+    async def before_tool_callback(
+        self,
+        *,
+        tool: BaseTool,
+        tool_args: dict[str, Any],
+        tool_context: ToolContext,
+    ) -> Optional[dict]:
+        # if tool is mcp tool, propagate headers
+        if isinstance(tool, McpTool):
+            return await TokenPropagationTool(tool).run_async(args=tool_args, tool_context=tool_context)
+        return None
 class KAgentApp:
     def __init__(
         self,
@@ -53,6 +83,7 @@ class KAgentApp:
         self.kagent_url = kagent_url
         self.app_name = app_name
         self.agent_card = agent_card
+        self.plugins = []
 
     def build(self) -> FastAPI:
         token_service = KAgentTokenService(self.app_name)
@@ -61,10 +92,11 @@ class KAgentApp:
         )
         session_service = KAgentSessionService(http_client)
 
+        app = App(name=self.app_name, root_agent=self.root_agent, plugins = self.plugins)
+
         def create_runner() -> Runner:
             return Runner(
-                agent=self.root_agent,
-                app_name=self.app_name,
+                app=app,
                 session_service=session_service,
             )
 
