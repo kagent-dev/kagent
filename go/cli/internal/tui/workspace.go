@@ -284,7 +284,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if h == 0 {
 				h = 24
 			}
-			m.sessions.SetSize(30, h)
+			m.sessions.SetSize(w, h)
 		}
 		if len(msg.sessions) > 0 {
 			m.sessions.Select(0)
@@ -501,7 +501,7 @@ func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 		if err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		var payload struct {
 			Data struct {
 				Events []struct {

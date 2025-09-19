@@ -341,10 +341,6 @@ Examples:
 
 }
 
-const (
-	portForwardKey = "[port-forward]"
-)
-
 func runInteractive() {
 	cfg, err := config.Get()
 	if err != nil {
