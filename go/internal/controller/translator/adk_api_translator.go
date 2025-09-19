@@ -146,6 +146,11 @@ func (a *adkApiTranslator) TranslateAgent(
 			DefaultOutputModes: []string{"text"},
 		}
 		return a.buildManifest(ctx, agent, dep, nil, agentCard)
+
+	case v1alpha2.AgentType_Remote:
+		// Remote agents are handled entirely in the reconciler. Just return nil here
+		// as this is called from the HTTP API to validate the agent.
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
