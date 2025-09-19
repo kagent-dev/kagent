@@ -635,7 +635,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		if model.Spec.AzureOpenAI.APIVersion != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  "AZURE_OPENAI_API_VERSION",
+				Name:  "OPENAI_API_VERSION",
 				Value: model.Spec.AzureOpenAI.APIVersion,
 			})
 		}
