@@ -1,110 +1,138 @@
 ## Mock LLM Server Design
 
-This document specifies a new, test-focused mock LLM server for end-to-end tests. It defines a structured scenario engine and protocol adapters for OpenAI and Anthropic chat/completions APIs, including streaming and tool invocation flows.
+This document describes the current implementation of a simple mock LLM server for end-to-end tests. It provides basic request/response mocking for OpenAI and Anthropic APIs using their official SDK types.
 
 ### Goals
 - Support OpenAI Chat Completions API and Anthropic Messages API request/response schemas.
-- Configurable behavior via in-code builders or JSON scenario files (bound to Go structs; no separate JSON Schema file).
-- Deterministic, multi-turn conversations with optional tool/function call steps.
-- Support both non-streaming and streaming responses (SSE) for each provider.
-- Simple to plug into tests and assert deterministic outputs without network calls.
+- Simple configuration using Go structs with official SDK types.
+- Deterministic responses for testing without network calls.
+- Minimal setup for basic testing scenarios.
 
-### Non-Goals
-- Production-grade proxy or rate limiting.
-- Full schema validation beyond what is needed for tests.
+### Current Implementation Status
+- ✅ Basic OpenAI Chat Completions API support (non-streaming)
+- ✅ Basic Anthropic Messages API support (non-streaming)
+- ✅ Simple exact and contains matching
+- ✅ In-memory configuration using Go structs
+- ✅ Tool/function calls
+- ✅ JSON configuration files
+- ❌ Streaming responses (not implemented)
+- ❌ Complex scenario engine (not implemented)
 
 ### High-Level Architecture
-- Router: mounts provider-specific endpoints matching real APIs to minimize client-side conditionals.
-- Scenario Engine: selects a deterministic scripted response (or stream) based on a `Scenario` definition.
-- Provider Adapters: normalize request envelopes into a canonical internal request model and render a provider-correct response from the selected scenario step.
-- Matchers: choose scenario steps by request attributes (model, messages, tools, tool results, metadata tags, etc.).
-- Response Emitters: support one-shot JSON and SSE streaming line-by-line.
+The current implementation uses a simplified architecture:
+- **Server**: HTTP server with Gorilla mux router that handles provider-specific endpoints
+- **Provider Handlers**: Separate handlers for OpenAI and Anthropic that process requests and return mocked responses
+- **Simple Matching**: Basic matching logic that compares incoming requests against predefined mocks
+- **Direct SDK Integration**: Uses official OpenAI and Anthropic SDK types directly
 
-### Key Types (internal)
-- `Scenario` (collection): named scenario with ordered `Steps` and optional `variables`.
-- `Step` (atomic): describes the expected input matcher and the produced output.
-  - `Match`: constraints for routing (provider, path), model, stream flag, messages predicate, tool call presence, tool result presence, optional custom headers.
-  - `Produce`: either `NonStreaming` or `Streaming` response instructions.
-  - `SideEffects`: optional assertions or counters, headers to echo, custom status codes.
-- `CanonicalRequest`: provider-agnostic view: `model`, `messages[]`, `tools[]`, `toolCalls[]`, `stream`, `extra`.
-- `CanonicalResponse`: provider-agnostic: `content[]`, `toolCalls[]`, `usage`, `finishReason`, `streamChunks[]`.
+### Key Types
+Current implementation uses these core types:
+
+#### Configuration
+- `Config`: Root configuration containing arrays of OpenAI and Anthropic mocks
+- `OpenAIMock`: Maps OpenAI requests to responses using official SDK types
+- `AnthropicMock`: Maps Anthropic requests to responses using official SDK types
+
+#### Matching
+- `MatchType`: Enum for matching strategies (`exact`, `contains`)
+- `OpenAIRequestMatch`: Defines how to match OpenAI requests (match type + message)
+- `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message)
 
 ### Provider Coverage
-- OpenAI Chat Completions
-  - Endpoint: `POST /v1/chat/completions`
-  - Auth: `Authorization: Bearer <token>` (presence-only check for tests)
-  - Streaming: SSE events with `data: {"id":..., "choices":[{"delta":...}]}` and terminal `data: [DONE]`
-  - Tool calls: function/tool call objects in `choices[].message.tool_calls[]` and in stream via `delta.tool_calls[]`
 
-- Anthropic Messages API (Claude)
-  - Endpoint: `POST /v1/messages`
-  - Auth: `x-api-key` (presence-only check)
-  - Headers: `anthropic-version` required
-  - Streaming: SSE events with `event: ...` and JSON payload lines per SDK docs
-  - Tool use: `content` blocks with `type: "tool_use"` and `tool_result` handling
+#### OpenAI Chat Completions
+- **Endpoint**: `POST /v1/chat/completions`
+- **Auth**: `Authorization: Bearer <token>` (presence check only)
+- **Request Type**: `openai.ChatCompletionNewParams`
+- **Response Type**: `openai.ChatCompletion`
+- **Matching**: Exact or contains matching on the last message in the conversation
 
-References: OpenAI Go SDK `openai-go` and Anthropic Go SDK `anthropic-sdk-go` for shapes and stream semantics.
+#### Anthropic Messages API
+- **Endpoint**: `POST /v1/messages`
+- **Auth**: `x-api-key` (presence check only)
+- **Headers**: `anthropic-version` required
+- **Request Type**: `anthropic.MessageNewParams`
+- **Response Type**: `anthropic.Message`
+- **Matching**: Exact matching on the last message in the conversation (contains not implemented)
 
 ### Configuration
-Two ways to configure scenarios:
-1) In-code builder (for brevity in tests):
-   - Fluent API: `NewScenario("name").Expect(OpenAI()).WithModel("gpt-4o").WithMessages(...).Then().RespondWithText("hello").AsStream(...).Build()`
-2) JSON scenario file(s):
-   - Located under `go/test/mockllm/scenarios/*.json`.
-   - Loaded at server start (env var `MOCKLLM_SCENARIOS` can point to a file or directory). Multiple files merge by scenario name.
-   - JSON is unmarshaled directly into Go structs defined in `types.go`.
+Currently only supports in-code configuration:
+
+```go
+config := mockllm.Config{
+    OpenAI: []mockllm.OpenAIMock{
+        {
+            Name: "simple-response",
+            Match: mockllm.OpenAIRequestMatch{
+                MatchType: mockllm.MatchTypeExact,
+                Message: /* openai.ChatCompletionMessageParamUnion */,
+            },
+            Response: /* openai.ChatCompletion */,
+        },
+    },
+    Anthropic: []mockllm.AnthropicMock{
+        {
+            Name: "simple-response",
+            Match: mockllm.AnthropicRequestMatch{
+                MatchType: mockllm.MatchTypeExact,
+                Message: /* anthropic.MessageParam */,
+            },
+            Response: /* anthropic.Message */,
+        },
+    },
+}
+```
 
 ### Matching Algorithm
-- Normalize incoming request into `CanonicalRequest`.
-- Iterate scenarios in priority order, then steps in order:
-  - Check `provider` and `path` match.
-  - Check `model` equality or regex.
-  - Check `stream` flag.
-  - Check `messages` predicate (exact, contains, or regex on user/assistant/tool content).
-  - Check tool/tool-call expectations (by name, arguments presence).
-  - First match wins; mark step consumed if `consume: true` (default) to enable multi-turn progression.
+Simple linear search through mocks:
+1. Parse incoming request into appropriate SDK type
+2. Iterate through provider-specific mocks in order
+3. For each mock, check if the match criteria are met:
+   - **Exact**: JSON comparison of the last message
+   - **Contains**: String contains check on message content (OpenAI only)
+4. Return the response from the first matching mock
+5. Return 404 if no match found
 
 ### Response Generation
-- For non-streaming: build a provider-correct JSON using the adapter from the `CanonicalResponse` data in the step.
-- For streaming: emit SSE lines defined either as explicit `chunks[]` or auto-chunked from `text` and `toolCalls` using a provider-specific template. Always finish with provider’s terminal event (`[DONE]` for OpenAI, `event: message_stop` for Anthropic).
-- Include optional `usage` when provided.
-
-### Error Injection & Timings
-- Each step can specify `latency_ms` to sleep before responding.
-- Steps can specify forced errors (HTTP code + body) to test client error paths.
-- Steps can omit a match to act as a default (catch-all) for a provider/path.
-
-### Tool/Function Calls
-- Steps can produce tool calls:
-  - OpenAI: `tool_calls: [{ id, type: "function", function: { name, arguments } }]`
-  - Anthropic: content blocks with `type: "tool_use"` including `id`, `name`, `input`.
-- Steps can require the next request to include tool results, which the matcher validates:
-  - OpenAI: user/assistant messages with `tool` role and `tool_call_id` or messages array `tool` role as per latest schema.
-  - Anthropic: `tool_result` content blocks with `tool_use_id`.
+- All responses are non-streaming JSON
+- Uses official SDK response types directly
+- No transformation or adaptation layer
+- Standard HTTP headers (`Content-Type: application/json`)
 
 ### Files and Layout
-- `server.go` — minimal HTTP server scaffold that wires routes and delegates to the engine.
-- `types.go` — Go structs for scenarios, steps, matchers, and canonical request/response.
-- `engine/` — scenarios, matching, canonical normalization interfaces (implementation to follow).
-- `providers/openai` — adapter + streaming templates (implementation to follow).
-- `providers/anthropic` — adapter + streaming templates (implementation to follow).
-- `scenarios/` — JSON examples checked into repo for tests.
-
-### Example Scenario (JSON)
-An example lives in `scenarios/openai_tool_calls.example.json`. JSON files are parsed into the Go structs in `types.go`.
+Current implementation consists of:
+- `server.go` — HTTP server setup, routing, and lifecycle management
+- `types.go` — Core configuration types using official SDK types
+- `openai.go` — OpenAI provider handler and matching logic
+- `anthropic.go` — Anthropic provider handler and matching logic
+- `server_test.go` — Basic integration tests
 
 ### Running in Tests
-- Start server on random free port with in-memory scenarios or JSON loaded from testdata.
-- Return base URL and teardown function to the test.
-- Provide helpers to push scenario steps and to reset/inspect counters.
+```go
+config := mockllm.Config{/* mocks */}
+server := mockllm.NewServer(config)
+baseURL, err := server.Start() // Starts on random port
+defer server.Stop()
 
-### SDK Schema References
-- Anthropic Go SDK: `anthropic-sdk-go` repository. See message creation and streaming event shapes. Link: [anthropic-sdk-go](https://github.com/anthropics/anthropic-sdk-go)
-- OpenAI Go SDK: `openai-go` repository. See chat completions and streaming deltas. Link: [openai-go](https://github.com/openai/openai-go)
+// Use baseURL for API calls in tests
+```
 
-### Open Questions
-- Do we need Azure OpenAI compatibility in this iteration? (Out of scope unless requested.)
-- Should we support image or file inputs? (Not planned initially.)
-- Do we need to validate tokens beyond presence? (Currently presence-only.)
+### SDK Dependencies
+- **OpenAI Go SDK**: `github.com/openai/openai-go`
+- **Anthropic Go SDK**: `github.com/anthropics/anthropic-sdk-go`
+- **HTTP Router**: `github.com/gorilla/mux`
+
+### Limitations of Current Implementation
+1. **No Streaming**: Only supports non-streaming responses
+2. **Simple Matching**: Only last message matching, no complex predicates
+5. **No Multi-turn**: No stateful conversation tracking
+6. **Limited Error Handling**: Basic error responses only
+7. **No Latency Simulation**: No timing controls
+
+### Potential Future Enhancements (Not Implemented)
+The original design document outlined more sophisticated features that could be added:
+- Streaming response support
+- Complex matching predicates
+- Error injection and latency simulation
 
 
