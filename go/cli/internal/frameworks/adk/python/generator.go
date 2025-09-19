@@ -25,7 +25,7 @@ func NewPythonGenerator() *PythonGenerator {
 }
 
 // Generate creates a new Python ADK project
-func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProvider, modelName, description string, verbose bool) error {
+func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProvider, modelName, description string, verbose bool, kagentVersion string) error {
 	// Create the main project directory structure
 	subDir := filepath.Join(projectDir, agentName)
 	if err := os.MkdirAll(subDir, 0755); err != nil {
@@ -50,6 +50,7 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 		Instruction:   instruction,
 		ModelProvider: modelProvider,
 		ModelName:     modelName,
+		KagentVersion: kagentVersion,
 	}
 
 	// Use the base generator to create the project

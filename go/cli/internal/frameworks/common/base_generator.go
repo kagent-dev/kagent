@@ -19,6 +19,7 @@ type AgentConfig struct {
 	ModelName     string
 	Framework     string
 	Language      string
+	KagentVersion string
 }
 
 // BaseGenerator provides common functionality for all project generators

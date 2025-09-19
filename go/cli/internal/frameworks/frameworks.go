@@ -8,7 +8,7 @@ import (
 
 // Generator interface for project generation
 type Generator interface {
-	Generate(projectDir, agentName, instruction, modelProvider, modelName, description string, verbose bool) error
+	Generate(projectDir, agentName, instruction, modelProvider, modelName, description string, verbose bool, kagentVersion string) error
 }
 
 // NewGenerator creates a new generator for the specified framework and language

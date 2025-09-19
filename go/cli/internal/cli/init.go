@@ -9,6 +9,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/frameworks"
+	"github.com/kagent-dev/kagent/go/internal/version"
 )
 
 type InitCfg struct {
@@ -74,8 +75,11 @@ func InitCmd(cfg *InitCfg) error {
 		instruction = string(content)
 	}
 
+	// Get the kagent version
+	kagentVersion := version.Version
+
 	// Generate the project
-	if err := generator.Generate(projectDir, cfg.AgentName, instruction, cfg.ModelProvider, cfg.ModelName, cfg.Description, cfg.Config.Verbose); err != nil {
+	if err := generator.Generate(projectDir, cfg.AgentName, instruction, cfg.ModelProvider, cfg.ModelName, cfg.Description, cfg.Config.Verbose, kagentVersion); err != nil {
 		return fmt.Errorf("failed to generate project: %v", err)
 	}
 

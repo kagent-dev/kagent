@@ -1,6 +1,6 @@
 ARG DOCKER_REGISTRY=ghcr.io
 # TODO: use latest tag once it is available
-ARG VERSION=0.6.7
+ARG VERSION={{.KagentVersion}}
 FROM $DOCKER_REGISTRY/kagent-dev/kagent/kagent-adk:$VERSION
 
 WORKDIR /app
