@@ -34,10 +34,6 @@ type a2aEventMsg struct {
 
 type streamDoneMsg struct{}
 
-type submitTaskMsg struct {
-	Text string
-}
-
 type chatModel struct {
 	agentRef  string
 	sessionID string

@@ -6,8 +6,6 @@ type KeyMap struct {
 	Quit     key.Binding
 	Sessions key.Binding
 	Agents   key.Binding
-
-	pageBindings []key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
