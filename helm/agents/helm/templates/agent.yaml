@@ -224,3 +224,6 @@ spec:
             - "The latest upgrade of the 'api-gateway' release failed. Can you help identify the problem?"
             - "How do I check the rendered Kubernetes manifests for the 'web-server' release without deploying them?"
             - "The pods managed by the 'message-broker' Helm release are frequently restarting. What should I investigate?"
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}

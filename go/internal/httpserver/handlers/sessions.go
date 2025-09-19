@@ -46,7 +46,7 @@ func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *ht
 	}
 	log = log.WithValues("agentName", agentName)
 
-	userID, err := GetUserID(r)
+	userID, err := getUserIDOrAgentUser(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -104,7 +104,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	userID, err := GetUserID(r)
+	userID, err := getUserIDOrAgentUser(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -168,7 +168,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := GetUserID(r)
+	userID, err := getUserIDOrAgentUser(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -398,9 +398,32 @@ func getUserID(r *http.Request) (string, error) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		log.Info("Missing user_id parameter in request")
+	}
+
+	// if not in query param, check header
+	if userID == "" {
+		userID = r.Header.Get("X-User-ID")
+	}
+	if userID == "" {
+		log.Info("Missing X-User-ID header in request")
 		return "", fmt.Errorf("user_id is required")
 	}
 
 	log.V(2).Info("Retrieved user_id from request", "userID", userID)
 	return userID, nil
+}
+
+func getUserIDOrAgentUser(r *http.Request) (string, error) {
+	principal, err := GetPrincipal(r)
+	if err != nil {
+		return "", err
+	}
+
+	if principal.User.ID != "" {
+		return principal.User.ID, nil
+	} else if principal.Agent.ID != "" {
+		// grab the user id from the query param
+		return getUserID(r)
+	}
+	return "", fmt.Errorf("no user or agent in principal")
 }

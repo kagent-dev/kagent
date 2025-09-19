@@ -300,3 +300,6 @@ spec:
             - "The sidecar injection is not working for pods in 'app-ns'. What should I check?"
             - "query_documentation for best practices on Istio performance tuning."
             - "Describe the Istio ingress gateway pods in 'istio-system' namespace."
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}

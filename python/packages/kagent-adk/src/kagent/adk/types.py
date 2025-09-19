@@ -1,10 +1,12 @@
+import httpx
 import logging
-from typing import Literal, Self, Union
+
+from typing import Literal, Any, Union
 
 from google.adk.agents import Agent
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.llm_agent import ToolUnion
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, RemoteA2aAgent
+from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
@@ -31,6 +33,8 @@ class SseMcpServerConfig(BaseModel):
 class RemoteAgentConfig(BaseModel):
     name: str
     url: str
+    headers: dict[str, Any] | None = None
+    timeout: float = DEFAULT_TIMEOUT
     description: str = ""
 
 
@@ -77,29 +81,38 @@ class AgentConfig(BaseModel):
     )
     description: str
     instruction: str
-    http_tools: list[HttpMcpServerConfig] | None = None  # tools, always MCP
-    sse_tools: list[SseMcpServerConfig] | None = None  # tools, always MCP
+    http_tools: list[HttpMcpServerConfig] | None = None  # Streamable HTTP MCP tools
+    sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
 
     def to_agent(self, name: str) -> Agent:
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
-        mcp_toolsets: list[ToolUnion] = []
+        tools: list[ToolUnion] = []
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
-                mcp_toolsets.append(MCPToolset(connection_params=http_tool.params, tool_filter=http_tool.tools))
+                tools.append(MCPToolset(connection_params=http_tool.params, tool_filter=http_tool.tools))
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add stdio tools
-                mcp_toolsets.append(MCPToolset(connection_params=sse_tool.params, tool_filter=sse_tool.tools))
+                tools.append(MCPToolset(connection_params=sse_tool.params, tool_filter=sse_tool.tools))
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
-                remote_agent = RemoteA2aAgent(
+                client = None
+
+                if remote_agent.headers:
+                    client = httpx.AsyncClient(
+                        headers=remote_agent.headers, timeout=httpx.Timeout(timeout=remote_agent.timeout)
+                    )
+
+                remote_a2a_agent = RemoteA2aAgent(
                     name=remote_agent.name,
                     agent_card=f"{remote_agent.url}/{AGENT_CARD_WELL_KNOWN_PATH}",
                     description=remote_agent.description,
+                    httpx_client=client,
                 )
-                mcp_toolsets.append(
-                    AgentTool(agent=remote_agent, skip_summarization=True)
+
+                tools.append(
+                    AgentTool(agent=remote_a2a_agent, skip_summarization=True)
                 )  # Get headers from model config
 
         extra_headers = self.model.headers or {}
@@ -127,5 +140,5 @@ class AgentConfig(BaseModel):
             model=model,
             description=self.description,
             instruction=self.instruction,
-            tools=mcp_toolsets,
+            tools=tools,
         )

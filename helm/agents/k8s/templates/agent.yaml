@@ -182,3 +182,6 @@ spec:
             - "Check for RBAC misconfigurations."
             - "Audit my network policies."
             - "Identify potential security vulnerabilities in my cluster."
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}

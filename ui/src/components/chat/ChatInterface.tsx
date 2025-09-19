@@ -225,32 +225,57 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           message: a2aMessage,
           metadata: {}
         };
-        const stream = await kagentA2AClient.sendMessageStream(selectedNamespace, selectedAgentName, sendParams);
+        const stream = await kagentA2AClient.sendMessageStream(
+          selectedNamespace,
+          selectedAgentName,
+          sendParams,
+          abortControllerRef.current?.signal
+        );
 
         let lastEventTime = Date.now();
-        const streamTimeout = 60000;
-
-        for await (const event of stream) {
-          lastEventTime = Date.now();
-
-          try {
-            handleMessageEvent(event);
-          } catch (error) {
-            console.error("❌ Event that caused error:", event);
+        let timeoutTimer: NodeJS.Timeout | null = null;
+        let streamActive = true;
+        const streamTimeout = 600000; // 10 minutes
+        
+        // Timeout handler
+        const handleTimeout = () => {
+          if (streamActive) {
+            console.error("⏰ Stream timeout - no events received for 10 minutes");
+            toast.error("⏰ Stream timed out - no events received for 10 minutes");
+            streamActive = false;
+            if (abortControllerRef.current) abortControllerRef.current.abort();
           }
+        };
 
-          // Check if we should stop streaming due to cancellation
-          if (abortControllerRef.current?.signal.aborted) {
-            break;
-          }
+        // Start timeout timer
+        const startTimeout = () => {
+          if (timeoutTimer) clearTimeout(timeoutTimer);
+          timeoutTimer = setTimeout(handleTimeout, streamTimeout);
+        };
+        startTimeout();
 
-          // Timeout check (in case stream hangs)
-          if (Date.now() - lastEventTime > streamTimeout) {
-            console.warn("⏰ Stream timeout - no events received for 30 seconds");
-            break;
+        try {
+          for await (const event of stream) {
+            lastEventTime = Date.now();
+            startTimeout(); // Reset timeout after every event
+
+            try {
+              handleMessageEvent(event);
+            } catch (error) {
+              console.error("❌ Event that caused error:", event);
+            }
+
+            // Check if we should stop streaming due to cancellation
+            if (abortControllerRef.current?.signal.aborted) {
+              console.info("Stream aborted");
+              streamActive = false;
+              break;
+            }
           }
+        } finally {
+          streamActive = false;
+          if (timeoutTimer) clearTimeout(timeoutTimer);
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         if (error.name === "AbortError") {
           toast.info("Request cancelled");

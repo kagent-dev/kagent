@@ -9,6 +9,13 @@ objects:
       namespace: test
     data:
       api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: agent-secret
+      namespace: test
+    data:
+      foo: c3VwM3JzM2NyM3Q=  # base64 encoded "sup3rs3cr3t"
   - apiVersion: kagent.dev/v1alpha2
     kind: ModelConfig
     metadata:
@@ -45,3 +52,9 @@ objects:
         tools:
           - agent:
               name: specialist-agent
+            headersFrom:
+              - name: FOO
+                valueFrom:
+                  type: Secret
+                  name: agent-secret
+                  key: foo

@@ -178,6 +178,11 @@ build-img-versions:
 	@echo app=$(APP_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
 
+.PHONY: lint
+lint:
+	make -C go lint
+	make -C python lint
+
 .PHONY: push
 push: push-controller push-ui push-app push-kagent-adk
 
