@@ -387,8 +387,8 @@ func (a *adkApiTranslator) buildManifest(
 						Command:         cmd,
 						Args:            dep.Args,
 						Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
-						Resources: *dep.Resources,
-						Env: env,
+						Resources:       dep.Resources,
+						Env:             env,
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")},
@@ -993,13 +993,13 @@ type resolvedDeployment struct {
 	Labels           map[string]string
 	Annotations      map[string]string
 	Env              []corev1.EnvVar
-	Resources        *corev1.ResourceRequirements
+	Resources        corev1.ResourceRequirements
 }
 
-// setDefaultResources sets default resource requirements if not specified
-func setDefaultResources(dep *resolvedDeployment) {
-	if dep.Resources == nil {
-		dep.Resources = &corev1.ResourceRequirements{
+// getDefaultResources sets default resource requirements if not specified
+func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequirements {
+	if spec == nil {
+		return corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("100m"),
 				corev1.ResourceMemory: resource.MustParse("384Mi"),
@@ -1010,6 +1010,7 @@ func setDefaultResources(dep *resolvedDeployment) {
 			},
 		}
 	}
+	return *spec
 }
 
 func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
@@ -1056,11 +1057,8 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		Labels:           maps.Clone(spec.Labels),
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
-		Resources:        spec.Resources,
+		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
 	}
-
-	// Set default resources if not specified
-	setDefaultResources(dep)
 
 	// Set default replicas if not specified
 	if dep.Replicas == nil {
@@ -1118,11 +1116,8 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 		Labels:           maps.Clone(spec.Labels),
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              slices.Clone(spec.Env),
-		Resources:        spec.Resources,
+		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
 	}
-
-	// Set default resources if not specified
-	setDefaultResources(dep)
 
 	return dep, nil
 }

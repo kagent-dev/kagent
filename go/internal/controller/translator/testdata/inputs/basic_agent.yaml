@@ -34,4 +34,12 @@ objects:
         description: A basic test agent
         systemMessage: You are a helpful assistant.
         modelConfig: basic-model
+        deployment:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 684Mi
+            limits:
+              cpu: 3000m
+              memory: 2Gi
         tools: [] 
