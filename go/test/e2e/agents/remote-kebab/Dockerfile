@@ -16,8 +16,8 @@ COPY uv.lock .
 RUN uv pip install --system -e .
 
 # Copy application code
-COPY app.py .
+COPY agent.py .
 
 EXPOSE 8080
 
-CMD ["python", "app.py"]
+CMD ["uvicorn", "agent:a2a_app", "--host", "0.0.0.0", "--port", "8080"]
