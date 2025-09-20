@@ -2,7 +2,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, override
+from typing import Any, Union, override
 
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
@@ -19,17 +19,22 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from crewai import Crew
+from pydantic import BaseModel
+
+from crewai import Crew, Flow
 from crewai.events import (
     AgentExecutionCompletedEvent,
+    AgentExecutionStartedEvent,
+    MethodExecutionFinishedEvent,
+    MethodExecutionStartedEvent,
     TaskCompletedEvent,
     TaskStartedEvent,
     ToolUsageFinishedEvent,
+    ToolUsageStartedEvent,
     crewai_event_bus,
 )
-from pydantic import BaseModel
-
 from kagent.core.a2a import (
+    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
     A2A_DATA_PART_METADATA_TYPE_KEY,
     get_kagent_metadata_key,
@@ -46,7 +51,7 @@ class CrewAIAgentExecutor(AgentExecutor):
     def __init__(
         self,
         *,
-        crew: Crew,
+        crew: Union[Crew, Flow],
         app_name: str,
         config: CrewAIAgentExecutorConfig | None = None,
     ):
@@ -103,8 +108,9 @@ class CrewAIAgentExecutor(AgentExecutor):
         def _enqueue_event(event: Any):
             asyncio.run_coroutine_threadsafe(event_queue.enqueue_event(event), loop)
 
+        # We do not care if it's a Crew or Flow kicking off because what matters is tasks, agents, and tools
         with crewai_event_bus.scoped_handlers():
-
+            # NOTE: The task related listeners are just for simple logging purposes, the actual output is shown in the agent listener to avoid repeated content
             @crewai_event_bus.on(TaskStartedEvent)
             def on_task_started(source: Any, event: TaskStartedEvent):
                 _enqueue_event(
@@ -116,7 +122,54 @@ class CrewAIAgentExecutor(AgentExecutor):
                             message=Message(
                                 message_id=str(uuid.uuid4()),
                                 role=Role.agent,
-                                parts=[Part(TextPart(text=f"Task started: {event.task.description}"))],
+                                parts=[Part(TextPart(text=f"Task started: {event.task.name}"))],
+                            ),
+                        ),
+                        context_id=context.context_id,
+                        final=False,
+                        metadata={"app_name": self.app_name, "session_id": context.context_id},
+                    )
+                )
+
+            @crewai_event_bus.on(TaskCompletedEvent)
+            def on_task_completed(source: Any, event: TaskCompletedEvent):
+                if event.output:
+                    _enqueue_event(
+                        TaskStatusUpdateEvent(
+                            task_id=context.task_id,
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                message=Message(
+                                    message_id=str(uuid.uuid4()),
+                                    role=Role.agent,
+                                    parts=[Part(TextPart(text=f"Task completed: {event.task.name}\n"))],
+                                ),
+                            ),
+                            context_id=context.context_id,
+                            final=False,
+                            metadata={"app_name": self.app_name, "session_id": context.context_id},
+                        )
+                    )
+
+            @crewai_event_bus.on(AgentExecutionStartedEvent)
+            def on_agent_execution_started(source: Any, event: AgentExecutionStartedEvent):
+                _enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.working,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[
+                                    Part(
+                                        TextPart(
+                                            text=f"Agent {event.agent_id} started working on task: {event.task_prompt}"
+                                        )
+                                    )
+                                ],
                             ),
                         ),
                         context_id=context.context_id,
@@ -145,6 +198,42 @@ class CrewAIAgentExecutor(AgentExecutor):
                             metadata={"app_name": self.app_name, "session_id": context.context_id},
                         )
                     )
+
+            # Unlike langgraph tool usage message is not part of assistant message
+            @crewai_event_bus.on(ToolUsageStartedEvent)
+            def on_tool_usage_started(source: Any, event: ToolUsageStartedEvent):
+                _enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.working,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[
+                                    Part(
+                                        DataPart(
+                                            data={
+                                                "id": event.tool_class,
+                                                "name": event.tool_name,
+                                                "args": event.tool_args,
+                                            },
+                                            metadata={
+                                                get_kagent_metadata_key(
+                                                    A2A_DATA_PART_METADATA_TYPE_KEY
+                                                ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
+                                            },
+                                        )
+                                    )
+                                ],
+                            ),
+                        ),
+                        context_id=context.context_id,
+                        final=False,
+                        metadata={"app_name": self.app_name, "session_id": context.context_id},
+                    )
+                )
 
             @crewai_event_bus.on(ToolUsageFinishedEvent)
             def on_tool_usage_finished(source: Any, event: ToolUsageFinishedEvent):
@@ -181,32 +270,57 @@ class CrewAIAgentExecutor(AgentExecutor):
                     )
                 )
 
-            @crewai_event_bus.on(TaskCompletedEvent)
-            def on_task_completed(source: Any, event: TaskCompletedEvent):
-                if event.output:
-                    _enqueue_event(
-                        TaskStatusUpdateEvent(
-                            task_id=context.task_id,
-                            status=TaskStatus(
-                                state=TaskState.working,
-                                timestamp=datetime.now(timezone.utc).isoformat(),
-                                message=Message(
-                                    message_id=str(uuid.uuid4()),
-                                    role=Role.agent,
-                                    parts=[
-                                        Part(
-                                            TextPart(
-                                                text=f"Task completed: {event.task.description}\nOutput:\n{event.output}"
-                                            )
+            @crewai_event_bus.on(MethodExecutionStartedEvent)
+            def on_method_execution_started(source: Any, event: MethodExecutionStartedEvent):
+                _enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.working,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[
+                                    Part(
+                                        TextPart(
+                                            text=f"Method {event.method_name} from flow {event.flow_name} started execution."
                                         )
-                                    ],
-                                ),
+                                    )
+                                ],
                             ),
-                            context_id=context.context_id,
-                            final=False,
-                            metadata={"app_name": self.app_name, "session_id": context.context_id},
-                        )
+                        ),
+                        context_id=context.context_id,
+                        final=False,
+                        metadata={"app_name": self.app_name, "session_id": context.context_id},
                     )
+                )
+
+            @crewai_event_bus.on(MethodExecutionFinishedEvent)
+            def on_method_execution_finished(source: Any, event: MethodExecutionFinishedEvent):
+                _enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.working,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[
+                                    Part(
+                                        TextPart(
+                                            text=f"Method {event.method_name} from flow {event.flow_name} finished execution."
+                                        )
+                                    )
+                                ],
+                            ),
+                        ),
+                        context_id=context.context_id,
+                        final=False,
+                        metadata={"app_name": self.app_name, "session_id": context.context_id},
+                    )
+                )
 
             try:
                 inputs = None
@@ -221,11 +335,15 @@ class CrewAIAgentExecutor(AgentExecutor):
                     user_input = context.get_user_input()
                     inputs = {"input": user_input} if user_input else {}
 
-                # Run crew.kickoff in a separate thread to avoid blocking the event loop
-                # result = await asyncio.to_thread(self._crew.kickoff, inputs=inputs)
-                result = await self._crew.kickoff_async(inputs=inputs)
-
-                # NOTE: If multiple kickoffs with inputs: List then we can call kickoff_for_each(inputs: List) -> results: List
+                # Handle Flow vs Crew differently
+                if isinstance(self._crew, Flow):
+                    # For Flows, create a new instance for each execution to avoid state issues
+                    flow_class = type(self._crew)
+                    flow_instance = flow_class()
+                    result = await flow_instance.kickoff_async(inputs=inputs)
+                else:
+                    # For Crews, use the existing instance
+                    result = await self._crew.kickoff_async(inputs=inputs)
 
                 # Send final result
                 await event_queue.enqueue_event(

@@ -1,16 +1,15 @@
 import faulthandler
 import logging
+from typing import Union
 
 import httpx
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
-
-# from .types import CrewConfig
-from crewai import Crew
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
+from crewai import Crew, Flow
 from kagent.core import KAgentConfig
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
@@ -36,7 +35,7 @@ class KAgentApp:
     def __init__(
         self,
         *,
-        crew: Crew,
+        crew: Union[Crew, Flow],
         agent_card: AgentCard,
         config: KAgentConfig = KAgentConfig(),
         executor_config: CrewAIAgentExecutorConfig | None = None,
