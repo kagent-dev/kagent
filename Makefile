@@ -89,12 +89,36 @@ print-tools-versions:
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 	@echo "KMCP Version : $(KMCP_VERSION)"
 
-# Check if OPENAI_API_KEY is set
-check-openai-key:
-	@if [ -z "$(OPENAI_API_KEY)" ]; then \
-		echo "Error: OPENAI_API_KEY environment variable is not set"; \
-		echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
-		exit 1; \
+# Check if the appropriate API key is set based on the model provider
+check-api-key:
+	@if [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "openAI" ]; then \
+		if [ -z "$(OPENAI_API_KEY)" ]; then \
+			echo "Error: OPENAI_API_KEY environment variable is not set for OpenAI provider"; \
+			echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "anthropic" ]; then \
+		if [ -z "$(ANTHROPIC_API_KEY)" ]; then \
+			echo "Error: ANTHROPIC_API_KEY environment variable is not set for Anthropic provider"; \
+			echo "Please set it with: export ANTHROPIC_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "azureOpenAI" ]; then \
+		if [ -z "$(AZUREOPENAI_API_KEY)" ]; then \
+			echo "Error: AZUREOPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
+			echo "Please set it with: export AZUREOPENAI_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "gemini" ]; then \
+		if [ -z "$(GOOGLE_API_KEY)" ]; then \
+			echo "Error: GOOGLE_API_KEY environment variable is not set for Gemini provider"; \
+			echo "Please set it with: export GOOGLE_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "ollama" ]; then \
+		echo "Note: Ollama provider does not require an API key"; \
+	else \
+		echo "Warning: Unknown model provider '$(KAGENT_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
 	fi
 
 .PHONY: buildx-create
@@ -262,7 +286,7 @@ helm-version: helm-cleanup helm-agents helm-tools
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent
 
 .PHONY: helm-install-provider
-helm-install-provider: helm-version check-openai-key
+helm-install-provider: helm-version check-api-key
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
