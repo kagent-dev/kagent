@@ -34,17 +34,24 @@ It follows the standard CrewAI project structure and developer experience, allow
    kubectl create secret generic kagent-google -n kagent \
      --from-literal=GOOGLE_API_KEY=$GOOGLE_API_KEY \
      --dry-run=client -o yaml | kubectl apply -f -
+   <<<<<<< HEAD
+   ```
 
-   kubectl create secret generic kagent-serper -n kagent \
+=======
+
+> > > > > > > 2ad8248 (feat: provide example crewai research agent)
+> > > > > > > kubectl create secret generic kagent-serper -n kagent \
+
      --from-literal=SERPER_API_KEY=$SERPER_API_KEY \
      --dry-run=client -o yaml | kubectl apply -f -
-   ```
+
+````
 
 4. **Deploy the agent**:
 
-   ```bash
-   kubectl apply -f agent.yaml
-   ```
+```bash
+kubectl apply -f agent.yaml
+````
 
 ## Local Development
 
