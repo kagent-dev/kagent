@@ -65,3 +65,26 @@ The system uses the same REST API endpoints as the ADK integration:
 ## Deployment
 
 Use the same deployment pattern as kagent-adk samples with Docker and Kubernetes.
+
+## Tracing (OpenTelemetry)
+
+KAgentApp now initializes OpenTelemetry tracing/logging when enabled via environment variables. This instruments FastAPI, httpx, and GenAI SDKs (OpenAI/Anthropic) so BYO LangGraph agents emit spans and (optionally) logs.
+
+Set these variables in the process environment where your LangGraph app runs:
+
+- OTEL_TRACING_ENABLED=true
+- OTEL_EXPORTER_OTLP_ENDPOINT=http://<otel-collector-host>:4317
+- Optional logs:
+  - OTEL_LOGGING_ENABLED=true
+  - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://<otel-collector-host>:4317
+
+Quick local validation (Jaeger):
+
+- Start a local Jaeger/OTEL collector from repo root:
+  - make otel-local  # Jaeger UI at http://localhost:16686, OTLP gRPC on 4317
+- In your LangGraph app shell:
+  - export OTEL_TRACING_ENABLED=true
+  - export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+  - (optional) export OTEL_LOGGING_ENABLED=true
+  - (optional) export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://localhost:4317
+- Run your LangGraph agent and send a request; spans should appear in Jaeger.
