@@ -33,3 +33,7 @@ audit: build
 .PHONY: basic-langchain-sample
 basic-langchain-sample:
 	docker build . -f samples/langgraph/currency/Dockerfile --tag localhost:5001/langgraph-currency:latest --push
+
+.PHONY: research-crew-sample
+research-crew-sample:
+	docker build . -f samples/crewai/research-crew/Dockerfile --tag localhost:5001/research-crew:latest --push
