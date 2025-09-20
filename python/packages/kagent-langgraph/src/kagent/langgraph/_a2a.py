@@ -14,7 +14,7 @@ from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
-from kagent.core import KAgentConfig
+from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 from langgraph.graph.state import CompiledStateGraph
 
@@ -121,5 +121,9 @@ class KAgentApp:
 
         # Add A2A routes
         a2a_app.add_routes_to_app(app)
+
+        # Initialize OpenTelemetry tracing/logging if enabled via env vars
+        # This instruments FastAPI, httpx, and GenAI SDKs (OpenAI/Anthropic)
+        configure_tracing(app)
 
         return app

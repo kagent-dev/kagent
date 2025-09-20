@@ -28,8 +28,10 @@ def main():
     host = os.getenv("HOST", "0.0.0.0")
     logger.info(f"Starting server on {host}:{port}")
 
+    server = app.build()
+
     uvicorn.run(
-        app.build(),
+        server,
         host=host,
         port=port,
         log_level="info",
