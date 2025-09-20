@@ -64,11 +64,16 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	agentRef := utils.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
-	deploymentReady := false
-	for _, condition := range agent.Status.Conditions {
-		if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
-			deploymentReady = true
-			break
+	deploymentReady := true
+	if agent.Spec.Type != v1alpha2.AgentType_Remote {
+		// for non-remote agents, we need to check the deployment conditions to see if the deployment is ready
+		deploymentReady = false
+
+		for _, condition := range agent.Status.Conditions {
+			if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
+				deploymentReady = true
+				break
+			}
 		}
 	}
 

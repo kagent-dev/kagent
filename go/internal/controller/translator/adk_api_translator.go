@@ -2,9 +2,6 @@ package translator
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -150,6 +147,10 @@ func (a *adkApiTranslator) TranslateAgent(
 		}
 		return a.buildManifest(ctx, agent, dep, nil, agentCard)
 
+	case v1alpha2.AgentType_Remote:
+		// Remote agents are handled entirely in the reconciler. Just return nil here
+		// as this is called from the HTTP API to validate the agent.
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
@@ -237,18 +238,12 @@ func (a *adkApiTranslator) buildManifest(
 	var cfgJson string
 	var agentCard string
 	if cfg != nil && card != nil {
-		bCfg, err := json.Marshal(cfg)
-		if err != nil {
-			return nil, err
-		}
-		bCard, err := json.Marshal(card)
-		if err != nil {
-			return nil, err
-		}
-		configHash = computeConfigHash(bCfg, bCard)
+		var err error
 
-		cfgJson = string(bCfg)
-		agentCard = string(bCard)
+		cfgJson, agentCard, configHash, err = utils.ComputeConfig(cfg, card)
+		if err != nil {
+			return nil, err
+		}
 
 		secretVol = []corev1.Volume{{
 			Name: "config",
@@ -514,6 +509,9 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					Headers:     headers,
 					Description: toolAgent.Spec.Description,
 				})
+			case v1alpha2.AgentType_Remote:
+				// Skip remote agents during translation - they will be handled during reconciliation
+				continue
 			default:
 				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
 			}
@@ -963,14 +961,6 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 }
 
 // Helper functions
-
-func computeConfigHash(config, card []byte) uint64 {
-	hasher := sha256.New()
-	hasher.Write(config)
-	hasher.Write(card)
-	hash := hasher.Sum(nil)
-	return binary.BigEndian.Uint64(hash[:8])
-}
 
 func collectOtelEnvFromProcess() []corev1.EnvVar {
 	envVars := slices.Collect(utils.Map(

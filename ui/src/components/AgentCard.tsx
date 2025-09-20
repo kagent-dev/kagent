@@ -5,8 +5,10 @@ import { DeleteButton } from "@/components/DeleteAgentButton";
 import KagentLogo from "@/components/kagent-logo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Eye, Pencil } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { useState } from "react";
+import { AgentCardPreview } from "@/components/AgentCardPreview";
 
 interface AgentCardProps {
   agentResponse: AgentResponse;
@@ -14,10 +16,12 @@ interface AgentCardProps {
 
 export function AgentCard({ agentResponse: { agent, model, modelProvider, deploymentReady, accepted } }: AgentCardProps) {
   const router = useRouter();
+  const [previewOpen, setPreviewOpen] = useState(false);
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
     agent.metadata.name || '');
   const isBYO = agent.spec?.type === "BYO";
+  const isRemote = agent.spec?.type === "Remote";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
 
   const handleEditClick = (e: React.MouseEvent) => {
@@ -27,11 +31,10 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
   };
 
   const cardContent = (
-    <Card className={`group transition-colors ${
-      deploymentReady && accepted
-        ? 'cursor-pointer hover:border-violet-500' 
-        : 'border-gray-300'
-    }`}>
+    <Card className={`group transition-colors ${deploymentReady && accepted
+      ? 'cursor-pointer hover:border-violet-500'
+      : 'border-gray-300'
+      }`}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
         <CardTitle className="flex items-center gap-2">
           <KagentLogo className="h-5 w-5" />
@@ -48,38 +51,57 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
           )}
         </CardTitle>
         <div className="flex items-center space-x-2 invisible group-hover:visible">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handleEditClick} 
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleEditClick}
             aria-label="Edit Agent"
           >
             <Pencil className="h-4 w-4" />
           </Button>
-          <DeleteButton 
-            agentName={agent.metadata.name} 
-            namespace={agent.metadata.namespace || ''} 
+          <DeleteButton
+            agentName={agent.metadata.name}
+            namespace={agent.metadata.namespace || ''}
           />
         </div>
       </CardHeader>
-      <CardContent className="flex flex-col justify-between h-32">
+      <CardContent className="flex flex-col justify-between h-32 relative">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">{agent.spec.description}</p>
         <div className="mt-4 flex items-center text-xs text-muted-foreground">
-          {isBYO ? (
+          {isBYO && (
             <span title={byoImage}>Image: {byoImage}</span>
-          ) : (
+          )}
+
+          {!isBYO && !isRemote && (
             <span>{modelProvider} ({model})</span>
           )}
+
+          {isRemote && (
+            <span>Remote</span>
+          )}
+        </div>
+
+        <div className="absolute bottom-4 right-6 flex items-center space-x-2 invisible group-hover:visible">
+          <Button variant="ghost" size="icon" className="text-muted-foreground" disabled={!deploymentReady || !accepted} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPreviewOpen(true); }}>
+            <Eye className="w-4 h-4" />
+          </Button>
         </div>
       </CardContent>
     </Card>
   );
 
-  return deploymentReady && accepted ? (
-    <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
-      {cardContent}
-    </Link>
-  ) : (
-    cardContent
+  return (
+    <>
+      {deploymentReady && accepted ? (
+        <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
+          {cardContent}
+        </Link>
+      ) : (
+        cardContent
+      )}
+
+      <AgentCardPreview open={previewOpen} onOpenChange={setPreviewOpen} namespace={agent.metadata.namespace || ''} name={agent.metadata.name} />
+
+    </>
   );
 }

@@ -227,6 +227,31 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
+var _ sql.Scanner = &RemoteAgentConfig{}
+
+func (r *RemoteAgentConfig) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Name        string `json:"name"`
+		Url         string `json:"url"`
+		Description string `json:"description,omitempty"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	r.Name = tmp.Name
+	r.Url = tmp.Url
+	r.Description = tmp.Description
+	return nil
+}
+
+func (a *RemoteAgentConfig) Scan(value interface{}) error {
+	return json.Unmarshal(value.([]byte), a)
+}
+
+func (a RemoteAgentConfig) Value() (driver.Value, error) {
+	return json.Marshal(a)
+}
+
 type AgentConfig struct {
 	Model        Model                 `json:"model"`
 	Description  string                `json:"description"`

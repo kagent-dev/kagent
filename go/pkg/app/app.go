@@ -334,7 +334,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		extensionCfg.AgentPlugins,
 	)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, extensionCfg.Authenticator)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, extensionCfg.Authenticator, dbClient)
 
 	a2aReconciler := a2a_reconciler.NewReconciler(
 		a2aHandler,

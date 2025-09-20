@@ -340,4 +340,3 @@ func checkHelmAvailable() error {
 	}
 	return nil
 }
-

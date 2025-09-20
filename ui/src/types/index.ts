@@ -212,11 +212,12 @@ export interface McpServerTool extends TypedLocalReference {
   toolNames: string[];
 }
 
-export type AgentType = "Declarative" | "BYO";
+export type AgentType = "Declarative" | "BYO" | "Remote";
 export interface AgentSpec {
   type: AgentType;
   declarative?: DeclarativeAgentSpec;
   byo?: BYOAgentSpec;
+  remote?: RemoteAgentSpec;
   description: string;
 }
 
@@ -231,6 +232,10 @@ export interface DeclarativeAgentSpec {
 
 export interface BYOAgentSpec {
   deployment: BYODeploymentSpec;
+}
+
+export interface RemoteAgentSpec {
+  discoveryUrl: string;
 }
 
 export interface BYODeploymentSpec {

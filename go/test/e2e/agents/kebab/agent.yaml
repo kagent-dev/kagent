@@ -2,6 +2,7 @@ apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
   name: kebab-agent
+  namespace: kagent
 spec:
   description: This agent is a kebab.
   type: BYO

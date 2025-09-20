@@ -2,8 +2,11 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
 	"sync"
 
@@ -18,6 +21,7 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/database"
@@ -131,35 +135,38 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		ObservedGeneration: agent.Generation,
 	})
 
-	deployedCondition := metav1.Condition{
-		Type:               v1alpha2.AgentConditionTypeReady,
-		Status:             metav1.ConditionUnknown,
-		ObservedGeneration: agent.Generation,
-	}
-
-	// Check if the deployment exists
-	deployment := &appsv1.Deployment{}
-	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
-		deployedCondition.Status = metav1.ConditionUnknown
-		deployedCondition.Reason = "DeploymentNotFound"
-		deployedCondition.Message = err.Error()
-	} else {
-		replicas := int32(1)
-		if deployment.Spec.Replicas != nil {
-			replicas = *deployment.Spec.Replicas
+	// Remote agents don't have a deployment, so we do not add a deployment condition.
+	if agent.Spec.Type != v1alpha2.AgentType_Remote {
+		deployedCondition := metav1.Condition{
+			Type:               v1alpha2.AgentConditionTypeReady,
+			Status:             metav1.ConditionUnknown,
+			ObservedGeneration: agent.Generation,
 		}
-		if deployment.Status.AvailableReplicas == replicas {
-			deployedCondition.Status = metav1.ConditionTrue
-			deployedCondition.Reason = "DeploymentReady"
-			deployedCondition.Message = "Deployment is ready"
+
+		// Check if the deployment exists
+		deployment := &appsv1.Deployment{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
+			deployedCondition.Status = metav1.ConditionUnknown
+			deployedCondition.Reason = "DeploymentNotFound"
+			deployedCondition.Message = err.Error()
 		} else {
-			deployedCondition.Status = metav1.ConditionFalse
-			deployedCondition.Reason = "DeploymentNotReady"
-			deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+			replicas := int32(1)
+			if deployment.Spec.Replicas != nil {
+				replicas = *deployment.Spec.Replicas
+			}
+			if deployment.Status.AvailableReplicas == replicas {
+				deployedCondition.Status = metav1.ConditionTrue
+				deployedCondition.Reason = "DeploymentReady"
+				deployedCondition.Message = "Deployment is ready"
+			} else {
+				deployedCondition.Status = metav1.ConditionFalse
+				deployedCondition.Reason = "DeploymentNotReady"
+				deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+			}
 		}
-	}
 
-	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+		conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+	}
 
 	// update the status if it has changed or the generation has changed
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
@@ -412,9 +419,29 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 }
 
 func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) error {
-	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
-	if err != nil {
-		return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
+	var agentOutputs *translator.AgentOutputs
+	var err error
+
+	switch agent.Spec.Type {
+	case v1alpha2.AgentType_Remote:
+		// Remote agents are handled entirely in the reconciler
+		agentOutputs, err = a.reconcileRemoteAgent(agent)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile remote agent %s/%s: %v", agent.Namespace, agent.Name, err)
+		}
+	default:
+		agentOutputs, err = a.adkTranslator.TranslateAgent(ctx, agent)
+		if err != nil {
+			return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
+		}
+
+		// Declarative agents may have remote agent as tools, so we add them to the config
+		if agent.Spec.Type == v1alpha2.AgentType_Declarative {
+			// After translation, add any available remote agent tools
+			if err := a.reconcileDeclarativeAgent(ctx, agent, agentOutputs); err != nil {
+				return fmt.Errorf("failed to add remote agent tools for %s/%s: %v", agent.Namespace, agent.Name, err)
+			}
+		}
 	}
 
 	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, agent.UID, agent.Namespace, a.adkTranslator.GetOwnedResourceTypes())
@@ -536,6 +563,45 @@ func mutate(f controllerutil.MutateFn, key client.ObjectKey, obj client.Object) 
 	return nil
 }
 
+// reconcileRemoteAgent handles fetching the agent card + config for remote agents
+func (a *kagentReconciler) reconcileRemoteAgent(agent *v1alpha2.Agent) (*translator.AgentOutputs, error) {
+	// Fetch the agent card details from the URL
+	agentCard := &server.AgentCard{}
+
+	agentCardURL := utils.GetAgentCardURL(agent.Spec.Remote.DiscoveryURL)
+	resp, err := http.Get(agentCardURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch agent card (%s): %w", agentCardURL, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read agent card body: %w", err)
+	}
+
+	err = json.Unmarshal(body, agentCard)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent card: %w", err)
+	}
+
+	// Sanitize the agent card's name to be a valid agent name, this allows it to be used used as a tool
+	agentCard.Name = utils.ConvertToValidAgentName(agentCard.Name)
+
+	// Remote agents don't need any Kubernetes manifests
+	return &translator.AgentOutputs{
+		Manifest:  []client.Object{},
+		AgentCard: *agentCard,
+		RemoteConfig: &adk.RemoteAgentConfig{
+			// Name must be a combination of namespace and name
+			// e.g. "namespace__NS__name"
+			Name:        utils.ConvertToPythonIdentifier(fmt.Sprintf("%s/%s", agent.Namespace, agentCard.Name)),
+			Url:         agentCard.URL,
+			Description: agentCard.Description,
+		},
+	}, nil
+}
+
 func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.UID]client.Object) error {
 	// Pruning owned objects in the cluster which are not should not be present after the reconciliation.
 	pruneErrs := []error{}
@@ -563,10 +629,21 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	defer a.upsertLock.Unlock()
 
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+
+	// Marshal remote agent's AgentCard to store in DB
+	var serializedCard string
+	if agent.Spec.Type == v1alpha2.AgentType_Remote && agentOutputs != nil {
+		if cardBytes, err := json.Marshal(agentOutputs.AgentCard); err == nil {
+			serializedCard = string(cardBytes)
+		}
+	}
+
 	dbAgent := &database.Agent{
-		ID:     id,
-		Type:   string(agent.Spec.Type),
-		Config: agentOutputs.Config,
+		ID:           id,
+		Type:         string(agent.Spec.Type),
+		Config:       agentOutputs.Config,
+		RemoteConfig: agentOutputs.RemoteConfig,
+		AgentCard:    serializedCard,
 	}
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {
@@ -684,4 +761,109 @@ func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {
 		Name:        tool.ID,
 		Description: tool.Description,
 	}, nil
+}
+
+// reconcileDeclarativeAgent is an extra steps for declarative agents which use remote agents as tools
+// It adds them to the agent config if they are available in the database and updates the config hash in the deployment
+func (a *kagentReconciler) reconcileDeclarativeAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *translator.AgentOutputs) error {
+	// Only declarative agents can have tools
+	if agent.Spec.Type != v1alpha2.AgentType_Declarative {
+		return fmt.Errorf("agent %s is not a declarative agent", agent.Name)
+	}
+
+	// Only add remote agents if we have a config to modify
+	if agentOutputs.Config == nil {
+		agentOutputs.Config = &adk.AgentConfig{}
+	}
+
+	configChanged := false
+
+	// Find all remote agents used as tools
+	for _, tool := range agent.Spec.Declarative.Tools {
+		if tool.Type != v1alpha2.ToolProviderType_Agent || tool.Agent == nil {
+			continue
+		}
+
+		// Get the referenced agent
+		agentRef := types.NamespacedName{
+			Namespace: agent.Namespace,
+			Name:      tool.Agent.Name,
+		}
+
+		toolAgent := &v1alpha2.Agent{}
+		err := a.kube.Get(ctx, agentRef, toolAgent)
+		if err != nil {
+			return fmt.Errorf("failed to get tool agent %s: %w", agentRef, err)
+		}
+
+		// If it's a remote agent, add the remote server based on the remote agent's config from database
+		if toolAgent.Spec.Type == v1alpha2.AgentType_Remote {
+			remoteAgentID := utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent))
+			dbAgent, err := a.dbClient.GetAgent(remoteAgentID)
+			if err != nil {
+				// Remote agent not yet reconciled - skip for now, will be retried when remote agent gets reconciled
+				reconcileLog.Info("Remote agent not yet available in database, will be added when remote agent is reconciled",
+					"remoteAgent", remoteAgentID, "parentAgent", utils.GetObjectRef(agent))
+				continue
+			}
+
+			if dbAgent.RemoteConfig == nil {
+				// Remote agent exists but has no config - this shouldn't happen but let's be defensive
+				reconcileLog.Info("Remote agent has no remote config in database, will be added when remote agent is reconciled",
+					"remoteAgent", remoteAgentID, "parentAgent", utils.GetObjectRef(agent))
+				continue
+			}
+
+			// Add the remote agent to the config
+			agentOutputs.Config.RemoteAgents = append(agentOutputs.Config.RemoteAgents, *dbAgent.RemoteConfig)
+			configChanged = true
+		}
+	}
+
+	// If the config has changed (added remote agents), we need to update the config hash in the deployment and secret
+	if configChanged {
+		// Find the deployment and secret in the manifest
+		var deployment *appsv1.Deployment
+		var configSecret *corev1.Secret
+		reconcileLog.Info("Finding deployment and secret in manifest", "agent", utils.GetObjectRef(agent), "manifest", agentOutputs.Manifest)
+		for _, obj := range agentOutputs.Manifest {
+			switch o := obj.(type) {
+			case *appsv1.Deployment:
+				if o.GetName() != agent.Name || o.GetNamespace() != agent.Namespace {
+					continue
+				}
+				deployment = o
+			case *corev1.Secret:
+				if o.GetName() != agent.Name || o.GetNamespace() != agent.Namespace {
+					continue
+				}
+				configSecret = o
+			}
+		}
+
+		if deployment == nil {
+			return fmt.Errorf("no deployment found in agent outputs")
+		}
+		if configSecret == nil {
+			return fmt.Errorf("no config secret found in agent outputs")
+		}
+
+		// Recalculate config hash with updated config (similar to translation)
+		cfgJson, agentCard, configHash, err := utils.ComputeConfig(agentOutputs.Config, &agentOutputs.AgentCard)
+		if err != nil {
+			return fmt.Errorf("failed to compute config hash: %w", err)
+		}
+
+		// Update the secret with the new config
+		configSecret.StringData["config.json"] = cfgJson
+		configSecret.StringData["agent-card.json"] = agentCard
+
+		// Update the deployment's pod template annotation
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = make(map[string]string)
+		}
+		deployment.Spec.Template.Annotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+	}
+
+	return nil
 }

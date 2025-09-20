@@ -150,3 +150,28 @@ func ConvertToKubernetesIdentifier(name string) string {
 	name = strings.ReplaceAll(name, "__NS__", "/")
 	return strings.ReplaceAll(name, "_", "-")
 }
+
+// Convert to valid agent name by replacing invalid characters with underscores
+func ConvertToValidAgentName(name string) string {
+	if name == "" {
+		return ""
+	}
+
+	var b strings.Builder
+
+	// Ensure first character is valid
+	first := rune(name[0])
+	if !unicode.IsLetter(first) && first != '_' {
+		b.WriteRune('_')
+	}
+
+	for _, r := range name {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+
+	return b.String()
+}

@@ -83,6 +83,7 @@ func (a *a2aReconciler) ReconcileAgent(
 		agentRef,
 		client,
 		cardCopy,
+		agent.Spec.Type,
 	)
 }
 
