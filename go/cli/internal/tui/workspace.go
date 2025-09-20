@@ -224,34 +224,15 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderDetails()
 		return m, m.loadSessions()
 	case wsAgentsLoadedMsg:
-		if msg.err != nil || len(msg.agents) == 0 {
-			m.details.WriteString(fmt.Sprintf("Error: no agents available: %v", msg.err))
+		if msg.err != nil {
+			m.details.WriteString(fmt.Sprintf("Error: failed to load agents: %v", msg.err))
 			return m, nil
 		}
-		// Sort agents by creation timestamp (newest first)
+		// Sort and store agents for later; do not auto-open chooser or auto-select.
 		statelib.SortAgentsNewestFirst(msg.agents)
 		m.agents = msg.agents
-		if len(msg.agents) == 1 {
-			a := msg.agents[0]
-			m.agent = &a
-			m.agentRef = utils.ConvertToKubernetesIdentifier(a.ID)
-			m.renderDetails()
-			return m, m.loadSessions()
-		}
-		// open agent chooser dialog
-		items := make([]list.Item, 0, len(msg.agents))
-		for _, a := range msg.agents {
-			items = append(items, wsAgentItem{a: a})
-		}
-		open := dialogs.OpenMsg{Model: dialogs.NewAgentChooser(items, func(it list.Item) tea.Cmd {
-			return func() tea.Msg {
-				if wi, ok := it.(wsAgentItem); ok {
-					return agentChosenMsg{agent: wi.a}
-				}
-				return nil
-			}
-		})}
-		return m, func() tea.Msg { return open }
+		// Keep welcome screen visible until user presses Ctrl+A
+		return m, nil
 	case loadAgentMsg:
 		if msg.err != nil {
 			m.details.WriteString(fmt.Sprintf("Error: %v", msg.err))
@@ -302,11 +283,12 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.chat != nil {
 			m.chat.SetInputVisible(true)
 		}
-		cmds := []tea.Cmd{m.startChat(true), m.resize(), m.fetchSessionHistoryCmd(m.current.ID)}
-		return m, tea.Batch(cmds...)
+		return m, m.startChat(true)
 	case sessionHistoryLoadedMsg:
 		if m.chat != nil && len(msg.items) > 0 {
-			for _, raw := range msg.items {
+			// Events are returned newest-first (DESC). Render oldest-first for natural reading order.
+			for i := len(msg.items) - 1; i >= 0; i-- {
+				raw := msg.items[i]
 				m.chat.AppendEventJSON(raw)
 			}
 		}
@@ -445,6 +427,14 @@ func (m *workspaceModel) resize() tea.Cmd {
 	if m.width == 0 || m.height == 0 {
 		return nil
 	}
+	// Compute available height excluding header and footer, to avoid clipping
+	headerLines := lineCount(renderTitle(m.width))
+	helpView := m.help.View(m.keys)
+	footerLines := lineCount(helpView)
+	availableHeight := m.height - headerLines - footerLines
+	if availableHeight < 1 {
+		availableHeight = 1
+	}
 	sidebarWidth := 30
 	detailsWidth := 0
 	if m.showDetails {
@@ -455,10 +445,10 @@ func (m *workspaceModel) resize() tea.Cmd {
 		centerWidth = 20
 	}
 
-	m.sessions.SetSize(sidebarWidth, m.height)
+	m.sessions.SetSize(sidebarWidth, availableHeight)
 	if m.chat != nil {
 		// send adjusted size to chat
-		_, cmd := m.chat.Update(tea.WindowSizeMsg{Width: centerWidth, Height: m.height})
+		_, cmd := m.chat.Update(tea.WindowSizeMsg{Width: centerWidth, Height: availableHeight})
 		return cmd
 	}
 	return nil
@@ -584,23 +574,43 @@ func (m *workspaceModel) View() string {
 	}
 
 	// Center
-	centerWidth := m.width - sidebarWidth - detailsWidth
+	// Use full width if left sidebar isn't rendered
+	hasLeft := m.agent != nil && len(m.sessions.Items()) > 0
+	centerWidth := m.width - detailsWidth
+	if hasLeft {
+		centerWidth -= sidebarWidth
+	}
 	centerStyled := lipgloss.NewStyle().Width(centerWidth).Render(func() string {
 		if m.agent == nil {
 			// Start page: show instructions to select an agent
+			boxWidth := centerWidth - 4
+			if boxWidth > 72 {
+				boxWidth = 72
+			}
+			if boxWidth < 40 {
+				boxWidth = max(20, centerWidth-4)
+			}
 			box := lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(theme.ColorBorder).
-				Padding(1, 2).
-				Width(centerWidth - 4).Render(
+				Padding(1, 1).
+				MaxWidth(boxWidth).Render(
 				lipgloss.JoinVertical(lipgloss.Center,
-					lipgloss.NewStyle().Bold(true).Render("Welcome to kagent"),
+					lipgloss.NewStyle().Bold(true).Render("Welcome to kagent!"),
 					"",
-					"Press Ctrl+A to choose an agent to get started.",
+					lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("Use CTRL+A to select an agent and get started."),
 					"",
-					"After selecting an agent:",
-					"  - Use Ctrl+N to create a new session",
-					"  - Or select an existing session from the left pane",
+					lipgloss.NewStyle().Foreground(theme.ColorPrimary).Render(`
+    ████████████▄
+  ████████████████▄
+███               █▄
+███    ██   ██    ██
+▀██               ██
+  ▀███████████████`),
+					"",
+					"",
+					lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("Website: https://kagent.dev"),
+					lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("Discord: http://bit.ly/kagentdiscord"),
 				),
 			)
 			return lipgloss.Place(centerWidth, m.height-6, lipgloss.Center, lipgloss.Center, box)
@@ -610,11 +620,18 @@ func (m *workspaceModel) View() string {
 		}
 		if m.agent != nil && len(m.sessions.Items()) == 0 {
 			// Agent selected but no sessions yet
+			boxWidth := centerWidth - 4
+			if boxWidth > 72 {
+				boxWidth = 72
+			}
+			if boxWidth < 40 {
+				boxWidth = max(20, centerWidth-4)
+			}
 			box := lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(theme.ColorBorder).
 				Padding(1, 2).
-				Width(centerWidth - 4).
+				MaxWidth(boxWidth).
 				Render(
 					lipgloss.JoinVertical(lipgloss.Left,
 						lipgloss.NewStyle().Bold(true).Render("No sessions yet"),

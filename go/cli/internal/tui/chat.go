@@ -350,6 +350,32 @@ func (m *chatModel) SetInputVisible(visible bool) {
 
 // AppendEventJSON appends an event JSON blob by extracting text fields.
 func (m *chatModel) AppendEventJSON(eventJSON string) {
+	// Prefer typed decode for known event shape
+	var he historyEvent
+	if err := json.Unmarshal([]byte(eventJSON), &he); err == nil {
+		// Determine role: prefer content.role, fallback to author
+		role := strings.ToLower(he.Content.Role)
+		if role == "" {
+			role = strings.ToLower(he.Author)
+		}
+		label := theme.AgentStyle().Render("Agent:")
+		if strings.Contains(role, "user") {
+			label = theme.UserStyle().Render("User:")
+		}
+		// Collect text from parts
+		parts := make([]string, 0, len(he.Content.Parts))
+		for _, p := range he.Content.Parts {
+			if t := strings.TrimSpace(p.Text); t != "" {
+				parts = append(parts, t)
+			}
+		}
+		if len(parts) > 0 {
+			m.appendLine(label + "\n" + strings.Join(parts, ""))
+			return
+		}
+	}
+
+	// Fallback: generic JSON walker for unknown shapes
 	var v any
 	if err := json.Unmarshal([]byte(eventJSON), &v); err != nil {
 		return
@@ -374,6 +400,18 @@ func max(a, b int) int {
 // JSON helpers now provided by util package
 
 type tickMsg time.Time
+
+// historyEvent represents the stored session event payload.
+// Only fields we need are modeled; unknown fields are ignored by json.Unmarshal.
+type historyEvent struct {
+	Content struct {
+		Parts []struct {
+			Text string `json:"text"`
+		} `json:"parts"`
+		Role string `json:"role"`
+	} `json:"content"`
+	Author string `json:"author"`
+}
 
 func (m *chatModel) tick() tea.Cmd {
 	if !m.working {
