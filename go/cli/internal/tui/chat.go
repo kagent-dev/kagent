@@ -250,12 +250,6 @@ func (m *chatModel) appendEvent(ev protocol.StreamingMessageEvent) {
 		m.appendError(err)
 		return
 	}
-	switch ev.Result.(type) {
-	case *protocol.TaskStatusUpdateEvent:
-		m.appendTaskStatusUpdate(ev.Result.(*protocol.TaskStatusUpdateEvent))
-	default: //ignore
-
-	}
 	var v any
 	if err := json.Unmarshal(b, &v); err == nil {
 		// Handle status-update for progress and tool call summaries
