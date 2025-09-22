@@ -505,13 +505,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				return nil, nil, nil, err
 			}
 
+			headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
 			switch toolAgent.Spec.Type {
 			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
-				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
-				if err != nil {
-					return nil, nil, nil, err
-				}
 
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
 					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
@@ -520,8 +521,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					Description: toolAgent.Spec.Description,
 				})
 			case v1alpha2.AgentType_Remote:
-				// Skip remote agents during translation - they will be handled during reconciliation
-				continue
+				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
+					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
+					Url:         agent.Spec.Remote.DiscoveryURL,
+					Headers:     headers,
+					Description: toolAgent.Spec.Description,
+				})
 			default:
 				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
 			}

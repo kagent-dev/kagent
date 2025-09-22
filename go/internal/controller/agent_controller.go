@@ -158,33 +158,6 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
-		Watches(
-			&v1alpha2.Agent{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				requests := []reconcile.Request{}
-
-				agent := obj.(*v1alpha2.Agent)
-				// Only watch for Remote agents that might be used as tools
-				if agent.Spec.Type != v1alpha2.AgentType_Remote {
-					return requests
-				}
-
-				for _, dependentAgent := range r.findAgentsUsingRemoteAgent(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      dependentAgent.ObjectMeta.Name,
-							Namespace: dependentAgent.ObjectMeta.Namespace,
-						},
-					})
-				}
-
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		).
 		Named("agent").
 		Complete(r)
 }
@@ -335,42 +308,6 @@ func (r *AgentController) findAgentsUsingModelConfig(ctx context.Context, cl cli
 			agents = append(agents, agent)
 		}
 
-	}
-
-	return agents
-}
-
-func (r *AgentController) findAgentsUsingRemoteAgent(ctx context.Context, cl client.Client, remoteAgentRef types.NamespacedName) []*v1alpha2.Agent {
-	var agents []*v1alpha2.Agent
-
-	var agentsList v1alpha2.AgentList
-	if err := cl.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		agentControllerLog.Error(err, "failed to list Agents in order to reconcile Remote Agent update")
-		return agents
-	}
-
-	for i := range agentsList.Items {
-		agent := &agentsList.Items[i]
-
-		// Only declarative agents can use tools
-		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
-			continue
-		}
-
-		// Check if this agent uses the remote agent as a tool
-		for _, tool := range agent.Spec.Declarative.Tools {
-			if tool.Type != v1alpha2.ToolProviderType_Agent || tool.Agent == nil {
-				continue
-			}
-
-			if tool.Agent.Name == remoteAgentRef.Name {
-				agents = append(agents, agent)
-				break // Found it, no need to check other tools
-			}
-		}
 	}
 
 	return agents
