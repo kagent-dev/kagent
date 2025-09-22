@@ -56,23 +56,23 @@ This document provides a self-assessment of the kagent project following the gui
 
 ## Overview
 
-kagent is a Kubernetes native framework for building AI agents. It provides a comprehensive platform that makes it easy to build, deploy, and manage AI agents in Kubernetes environments, offering declarative configuration, extensible tooling, and observability features.
+Kagent is an innovative AI agent platform designed specifically for Kubernetes environments. It empowers developers and operations teams to create intelligent, autonomous agents that can monitor, manage, and automate complex Kubernetes workloads using the power of large language models (LLMs).
 
 ### Background
 
-kagent addresses the growing need for AI-powered automation in cloud-native environments. As organizations increasingly adopt Kubernetes for orchestration, there's a need for intelligent agents that can understand, monitor, and operate within these complex distributed systems. kagent provides a framework that bridges AI capabilities with Kubernetes-native operations, enabling organizations to build sophisticated AI agents for tasks like cluster management, troubleshooting, and automated operations.
+kagent addresses the growing need for AI-powered automation in cloud-native environments. As organizations increasingly adopt Kubernetes for orchestration, there's a need for intelligent agents that can understand, monitor, and operate within these complex distributed systems. kagent provides the tools and framework to bring AI to your Kubernetes infrastructure.
 
 ### Actors
 
-**Controller**: The Kubernetes controller that watches kagent custom resources (Agents, ModelConfigs, ToolServers, Memory) and creates the necessary resources to run the agents. It manages the lifecycle of AI agents and their dependencies.
+**Controller**: The Kubernetes controller that watches kagent custom resources and creates the necessary resources to run the agents. It manages the lifecycle of AI agents and their dependencies.
 
-**UI**: A web-based user interface that allows users to manage agents, view execution logs, configure tools, and monitor agent performance. It provides both administrative and operational views.
-
-**Engine**: The runtime engine that executes AI agents using the Agent Development Kit (ADK). It handles agent execution, tool invocation, and session management.
+**Engine**: The runtime engine that is responsible for running the agent's conversation loop. It is built on top of the ADK framework. It handles agent execution and tool invocation and session management.
 
 **CLI**: A command-line interface that enables developers and operators to interact with kagent resources, deploy agents, and manage configurations programmatically.
 
-**Agents**: AI-powered entities that perform specific tasks within the Kubernetes environment. They can access tools, maintain memory, and interact with various Kubernetes resources and external systems.
+**UI**: A web-based user interface that allows users to manage agents, view execution logs, configure tools, and monitor agent performance.
+
+**Agents**: AI-powered entities that perform specific tasks within the Kubernetes environment. They can access tools, and interact with various Kubernetes resources and external systems.
 
 **MCP Servers**: Model Context Protocol servers that provide tools and capabilities to agents. These include built-in tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana, and Cilium operations.
 
@@ -80,18 +80,14 @@ kagent addresses the growing need for AI-powered automation in cloud-native envi
 
 **Agent Deployment**: The controller receives agent specifications via Kubernetes custom resources, validates configurations, creates necessary resources (deployments, services, secrets), and manages the agent lifecycle. Security checks include RBAC validation and resource quota enforcement.
 
-**Tool Execution**: Agents invoke tools through MCP servers to perform operations like querying Kubernetes APIs, accessing monitoring data, or modifying cluster resources. Security controls include authentication, authorization checks, and audit logging.
-
-**Memory Operations**: Agents store and retrieve contextual information through the memory system backed by vector databases (Qdrant). Data is encrypted at rest and access is controlled through session-based authentication.
+**Tool Execution**: Agents invoke tools through MCP servers to perform operations like querying Kubernetes APIs, accessing monitoring data, or modifying cluster resources.
 
 **Model Communication**: Agents communicate with various LLM providers (OpenAI, Anthropic, Azure OpenAI, Google Vertex AI, Ollama) through configured model providers. API keys and credentials are securely managed through Kubernetes secrets.
-
-**Session Management**: The system maintains agent sessions with authentication and authorization context, ensuring proper isolation between different users and agents.
 
 ### Goals
 
 - **Kubernetes-Native AI Agents**: Provide a framework for building AI agents that operate naturally within Kubernetes environments with full integration of Kubernetes security models.
-- **Secure Multi-Tenancy**: Enable multiple users and teams to deploy and manage their own agents with proper isolation and access controls.
+- **Secure Multi-Tenancy**: Enable multiple users and teams to deploy and manage their own agents with proper isolation and access controls. This is not yet implemented, but is on the project roadmap.
 - **Extensible Tool Ecosystem**: Offer a secure and extensible system for agents to access various tools and services while maintaining proper authorization boundaries.
 - **Observable Operations**: Provide comprehensive observability for agent operations, including audit trails, performance metrics, and security events.
 - **Declarative Configuration**: Enable infrastructure-as-code practices for agent deployment and management with version control and review processes.
@@ -100,8 +96,6 @@ kagent addresses the growing need for AI-powered automation in cloud-native envi
 
 - **Direct Cluster Administration**: kagent does not replace Kubernetes RBAC or cluster security policies; it operates within existing security boundaries.
 - **LLM Model Hosting**: kagent does not host or provide LLM models; it integrates with external model providers.
-- **General-Purpose Computing Platform**: kagent is specifically designed for AI agent workloads and is not intended as a general application platform.
-- **Real-Time System Guarantees**: kagent does not provide hard real-time guarantees for agent operations or tool executions.
 
 ## Self-Assessment Use
 
@@ -115,11 +109,7 @@ This document provides the CNCF TAG-Security with an initial understanding of ka
 
 ### Critical
 
-- **Authentication System**: Implements a pluggable authentication system with support for various authentication providers. Currently includes UnsecureAuthenticator for development and A2AAuthenticator for agent-to-agent communication. The system supports session-based authentication with proper principal management.
-
-- **Authorization Framework**: Provides a comprehensive authorization system with role-based access control. The Authorizer interface enables fine-grained permission checks for different operations (get, create, update, delete) on various resources.
-
-- **Kubernetes RBAC Integration**: Leverages Kubernetes native RBAC for controlling access to cluster resources. Agents operate within defined service accounts with specific permissions, ensuring principle of least privilege.
+- **Authentication System**: Currently includes UnsecureAuthenticator for development and A2AAuthenticator for agent-to-agent communication. https://github.com/kagent-dev/kagent/issues/476 is on the roadmap to create a more extensible authentication and authorization system.
 
 - **Secret Management**: Integrates with Kubernetes secret management for storing sensitive data like API keys, credentials, and configuration data. Secrets are automatically mounted into agent containers and accessed through secure channels.
 
@@ -132,10 +122,6 @@ This document provides the CNCF TAG-Security with an initial understanding of ka
 - **Network Policies**: Support for Kubernetes network policies to control communication between agents, tools, and external services.
 
 - **Resource Quotas**: Integration with Kubernetes resource quotas and limits to prevent resource exhaustion attacks and ensure fair resource allocation.
-
-- **TLS Encryption**: All communication between components uses TLS encryption, including agent-to-controller, UI-to-backend, and external API communications.
-
-- **Input Validation**: Comprehensive input validation for all API endpoints, configuration files, and user inputs to prevent injection attacks and malformed data processing.
 
 - **Session Isolation**: Proper session isolation ensures that different users and agents cannot access each other's data or operations.
 
@@ -169,19 +155,24 @@ In the future, kagent intends to build and maintain compliance with several indu
 
 - **Automated Testing**: Comprehensive test suite including unit tests, integration tests, and end-to-end tests. Tests are automatically run on all pull requests and must pass before merging.
 
-- **Vulnerability Scanning**: Container images are automatically scanned for vulnerabilities using Trivy. High and critical vulnerabilities block the release process until resolved.
+- **Vulnerability Scanning**: Container images are automatically scanned for vulnerabilities using Trivy. High and critical vulnerabilities are reported to the dev team.
 
 - **Dependency Management**: Regular dependency updates and security scanning of dependencies. Go modules, Python packages, and npm packages are monitored for known vulnerabilities.
 
 - **Static Code Analysis**: Automated linting for Go code to identify potential security issues and maintain code quality.
 
-- **Signed Commits**: The project requires signed commits and is evaluating requirements for commit signing.
+- **Signed Commits**: The project requires signed commits.
 
 ### Communication Channels
 
-- **Internal**: Team members communicate through Discord (#core-contrib channel), GitHub discussions, and regular community meetings.
-- **Inbound**: Users can communicate with the team through GitHub issues, Discord community channels, and the [kagent-vulnerability-reports@googlegroups.com](kagent-vulnerability-reports@googlegroups.com) security email for vulnerability reports.
-- **Outbound**: The team communicates with users through GitHub releases, documentation updates, Discord announcements, and community meetings.
+|   |  |
+| - | - |
+| Documentation | https://kagent-dev/docs |
+| Contributing | https://github.com/kagent-dev/kagent/blob/main/CONTRIBUTION.md |
+| Slack | https://cloud-native.slack.com/archives/C08ETST0076 |
+| Discord | https://discord.com/invite/Fu3k65f2k3 |
+| Community meetings | https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20 |
+| | |
 
 ### Ecosystem
 
@@ -191,15 +182,15 @@ kagent operates within the cloud-native ecosystem as a Kubernetes-native applica
 - **Helm**: Deployment and management through Helm charts
 - **Prometheus/Grafana**: Observability and monitoring integration
 - **OpenTelemetry**: Distributed tracing and observability
-- **Vector Databases**: Integration with Qdrant for agent memory storage
-- **LLM Providers**: Secure integration with major AI model providers
+- **Istio**: Integration with Istio Service Mesh APIs
+- **LLM Providers**: Secure integration with major AI model providers (OpenAI, Azure OpenAI, Anthropic, Google Vertex AI, Ollama, and custom models)
 - **MCP Ecosystem**: Extensible tool system through Model Context Protocol
 
 ## Security Issue Resolution
 
 ### Responsible Disclosure Process
 
-- **Reporting**: Security vulnerabilities should be reported to kagent-vulnerability-reports@googlegroups.com. This private Google group ensures confidential handling of security issues.
+- **Reporting**: See [SECURITY.md](/SECURITY.md) for details about reporting practices.
 
 - **Response Process**: The kagent team evaluates vulnerability reports for severity level, impact on kagent code, and potential dependencies on third-party code. The team strives to keep vulnerability information private on a need-to-know basis during the remediation process.
 
@@ -215,8 +206,6 @@ kagent operates within the cloud-native ecosystem as a Kubernetes-native applica
 
 - **Patching**: Security fixes are prioritized and released through regular release channels or emergency patches for critical issues. Patches are thoroughly tested before release.
 
-- **Post-Incident Review**: After resolution, the team conducts post-incident reviews to identify process improvements and prevent similar issues.
-
 ## Appendix
 
 ### Known Issues Over Time
@@ -227,19 +216,30 @@ As of the time of this assessment, no critical security vulnerabilities have bee
 
 kagent is working toward OpenSSF Best Practices certification. That work is tracked by [https://github.com/kagent-dev/community/issues/9](https://github.com/kagent-dev/community/issues/9).
 
+The badge is visible in the [project README](/README.md)
+
 ### Case Studies
 
-1. **Kubernetes Troubleshooting Agent**: A large enterprise uses kagent to deploy AI agents that automatically diagnose and resolve common Kubernetes issues. The agents operate with limited RBAC permissions and provide detailed audit logs of their actions.
+1. **Amdocs: Telecommunications Infrastructure Automation**
+Amdocs, a leading provider of software and services to communications and media companies, has deployed kagent to manage their complex telecommunications infrastructure running on Kubernetes. Their implementation focuses on a mechanism to detect malicious users. kagent provides an environment to coordinate custom MCP servers that help with troubleshooting issues in the platform.
 
-2. **Multi-Tenant Development Platform**: A platform company uses kagent to provide AI-powered assistance to their development teams. Each team has isolated agents with access only to their namespace resources, demonstrating the multi-tenancy capabilities.
+2. **Au10tix: Identity Verification Platform Security**
 
-3. **Automated Operations Agent**: An organization uses kagent to deploy agents that monitor cluster health and perform automated scaling decisions. The agents integrate with Prometheus for metrics and use secure tool access patterns for cluster modifications.
+  Au10tix, specializing in identity verification and fraud prevention, leverages kagent to enhance the security and reliability of their Kubernetes-based identity verification platform:
+
+
+
+   **Security Implementation**: Au10tix has deployed kagent with custom authentication providers that integrate with their existing identity management systems. Agents are configured with fine-grained authorization policies that align with their zero-trust security model.
+
+   **Use Case**: AI agents continuously monitor their identity verification pipelines for anomalies, automatically scaling resources based on verification load patterns, and detecting potential fraud patterns in real-time processing. The agents use kagent's secure tool ecosystem to interact with their machine learning pipelines and compliance reporting systems.
+
+   **Security Benefits**: The implementation ensures that all agent actions are logged and auditable for compliance with financial services regulations (KYC/AML). Session isolation prevents agents from accessing sensitive verification data across different customer contexts, while maintaining high availability for critical identity verification services.
+
+3. **Krateo: Cloud-Native Platform Engineering**
+
+Krateo, focused on cloud-native platform solutions, uses kagent to automate and secure their internal development platform and customer deployments. kagent integrates with the teams they already have, and the AI reasoning is transparent, to make debugging issues easier.
 
 ### Related Projects / Vendors
 
 - **Kubernetes Operators**: While Kubernetes operators provide automation, kagent adds AI-powered decision making and natural language interfaces.
-- **Traditional Monitoring Tools**: Unlike passive monitoring tools, kagent enables active, intelligent responses to system conditions.
 - **AI/ML Platforms**: kagent focuses specifically on operational AI agents rather than model training or general ML workloads.
-- **Automation Frameworks**: kagent provides higher-level, AI-driven automation compared to traditional scripting or workflow automation tools.
-
-The key differentiator is kagent's focus on AI-powered, Kubernetes-native agents that can understand context, make intelligent decisions, and operate safely within existing security boundaries.
