@@ -13,7 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/theme"
-	jsonutil "github.com/kagent-dev/kagent/go/cli/internal/tui/util"
+	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -244,81 +244,60 @@ func (m *chatModel) appendUser(text string) {
 }
 
 func (m *chatModel) appendEvent(ev protocol.StreamingMessageEvent) {
-	// Extract human-friendly text from the event payload; fallback to compact JSON
-	b, err := ev.MarshalJSON()
-	if err != nil {
-		m.appendError(err)
-		return
-	}
-	var v any
-	if err := json.Unmarshal(b, &v); err == nil {
-		// Handle status-update for progress and tool call summaries
-		if kind := jsonutil.GetString(v, "kind"); kind == "status-update" {
-			state := jsonutil.GetString(jsonutil.GetMap(v, "status"), "state")
-			switch state {
-			case "working":
-				m.setWorking(jsonutil.GetString(jsonutil.GetMap(v, "status"), "timestamp"))
-				// Summarize function/tool calls
-				if msgMap := jsonutil.GetMap(jsonutil.GetMap(v, "status"), "message"); msgMap != nil {
-					for _, p := range jsonutil.GetArray(msgMap, "parts") {
-						pm, _ := p.(map[string]any)
-						meta := jsonutil.GetMap(pm, "metadata")
-						ktype := jsonutil.GetString(meta, "kagent_type")
-						if ktype == "function_call" || ktype == "tool_call" {
-							data := jsonutil.GetMap(pm, "data")
-							name := jsonutil.GetString(data, "name")
-							args := jsonutil.GetMap(data, "args")
-							argsStr := jsonutil.CompactJSON(args)
-							m.appendLine(theme.ToolStyle().Render("→ Calling ") + name + " " + argsStr)
-						}
-						if ktype == "function_result" || ktype == "tool_result" {
-							data := jsonutil.GetMap(pm, "data")
-							name := jsonutil.GetString(data, "name")
-							m.appendLine(theme.ToolStyle().Render("← Result from ") + name)
-						}
-					}
-				}
-			case "completed":
-				m.working = false
-				m.updateStatus()
+	switch res := ev.Result.(type) {
+	case *protocol.TaskStatusUpdateEvent:
+		if res.Final {
+			m.working = false
+			m.updateStatus()
+		} else {
+			// Timestamp is RFC3339 string; parse to time for consistent elapsed display
+			if ts, err := time.Parse(time.RFC3339Nano, res.Status.Timestamp); err == nil {
+				m.setWorkingTime(ts)
+			} else {
+				m.setWorkingTime(time.Time{})
 			}
-			// Only render final response text when final=true or when state completed
-			final := jsonutil.GetBool(v, "final")
-			if final || state == "completed" {
-				parts := make([]string, 0, 8)
-				// Prefer text from status.message.parts
-				if msgMap := jsonutil.GetMap(jsonutil.GetMap(v, "status"), "message"); msgMap != nil {
-					for _, p := range jsonutil.GetArray(msgMap, "parts") {
-						pm, _ := p.(map[string]any)
-						if t := jsonutil.GetString(pm, "kind"); t == "text" {
-							if s := jsonutil.GetString(pm, "text"); strings.TrimSpace(s) != "" {
-								parts = append(parts, s)
-							}
-						}
-					}
-				}
-				if len(parts) == 0 {
-					// fallback to any nested text fields
-					jsonutil.CollectTextFields(v, &parts)
-				}
-				text := strings.Join(parts, "")
+		}
+		if res.Status.Message != nil {
+			if res.Final {
+				text := extractTextFromMessage(*res.Status.Message)
 				if strings.TrimSpace(text) != "" {
 					m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
 				}
 			}
-			return
 		}
-		// Non-status events: render only text parts if present
-		parts := make([]string, 0, 4)
-		jsonutil.CollectTextFields(v, &parts)
-		text := strings.Join(parts, "")
+	case *protocol.TaskArtifactUpdateEvent:
+		// Render artifact content when the last chunk arrives
+		if res.LastChunk != nil && *res.LastChunk {
+			text := extractTextFromParts(res.Artifact.Parts)
+			if strings.TrimSpace(text) != "" {
+				m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
+			}
+		}
+	case *protocol.Message:
+		text := extractTextFromMessage(*res)
 		if strings.TrimSpace(text) != "" {
-			m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
-			return
+			style := theme.UserStyle()
+			if res.Role == protocol.MessageRoleAgent {
+				style = theme.AgentStyle()
+			}
+			m.appendLine(style.Render(fmt.Sprintf("%s:", res.Role)) + "\n" + text)
 		}
-	}
-	if m.verbose {
-		m.appendLine(theme.AgentStyle().Render("Agent (raw):") + "\n" + string(b))
+
+	case *protocol.Task:
+		// Show the last message in the task history
+		if len(res.History) > 0 {
+			last := res.History[len(res.History)-1]
+			text := extractTextFromMessage(last)
+			if strings.TrimSpace(text) != "" {
+				m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
+			}
+		}
+	default:
+		if m.verbose {
+			if b, err := ev.MarshalJSON(); err == nil {
+				m.appendLine(theme.AgentStyle().Render("Agent (raw):") + "\n" + string(b))
+			}
+		}
 	}
 }
 
@@ -348,44 +327,28 @@ func (m *chatModel) SetInputVisible(visible bool) {
 	m.showInput = visible
 }
 
-// AppendEventJSON appends an event JSON blob by extracting text fields.
-func (m *chatModel) AppendEventJSON(eventJSON string) {
-	// Prefer typed decode for known event shape
-	var he historyEvent
-	if err := json.Unmarshal([]byte(eventJSON), &he); err == nil {
-		// Determine role: prefer content.role, fallback to author
-		role := strings.ToLower(he.Content.Role)
-		if role == "" {
-			role = strings.ToLower(he.Author)
-		}
-		label := theme.AgentStyle().Render("Agent:")
-		if strings.Contains(role, "user") {
-			label = theme.UserStyle().Render("User:")
-		}
-		// Collect text from parts
-		parts := make([]string, 0, len(he.Content.Parts))
-		for _, p := range he.Content.Parts {
-			if t := strings.TrimSpace(p.Text); t != "" {
-				parts = append(parts, t)
-			}
-		}
-		if len(parts) > 0 {
-			m.appendLine(label + "\n" + strings.Join(parts, ""))
-			return
-		}
-	}
+// extractTextFromMessage concatenates all text parts from a protocol.Message.
+func extractTextFromMessage(msg protocol.Message) string {
+	return a2a.ExtractText(msg)
+}
 
-	// Fallback: generic JSON walker for unknown shapes
-	var v any
-	if err := json.Unmarshal([]byte(eventJSON), &v); err != nil {
-		return
+// extractTextFromParts concatenates text from a slice of protocol.Part, stringifying non-text when reasonable.
+func extractTextFromParts(parts []protocol.Part) string {
+	b := strings.Builder{}
+	for _, p := range parts {
+		if tp, ok := p.(*protocol.TextPart); ok {
+			b.WriteString(tp.Text)
+			continue
+		}
+
+		if dp, ok := p.(*protocol.DataPart); ok {
+			if jp, err := json.Marshal(dp.Data); err == nil {
+				b.WriteString(string(jp))
+			}
+			continue
+		}
 	}
-	parts := make([]string, 0, 8)
-	jsonutil.CollectTextFields(v, &parts)
-	text := strings.Join(parts, "")
-	if strings.TrimSpace(text) != "" {
-		m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
-	}
+	return b.String()
 }
 
 // styles now provided by theme package
@@ -397,21 +360,7 @@ func max(a, b int) int {
 	return b
 }
 
-// JSON helpers now provided by util package
-
 type tickMsg time.Time
-
-// historyEvent represents the stored session event payload.
-// Only fields we need are modeled; unknown fields are ignored by json.Unmarshal.
-type historyEvent struct {
-	Content struct {
-		Parts []struct {
-			Text string `json:"text"`
-		} `json:"parts"`
-		Role string `json:"role"`
-	} `json:"content"`
-	Author string `json:"author"`
-}
 
 func (m *chatModel) tick() tea.Cmd {
 	if !m.working {
@@ -420,10 +369,10 @@ func (m *chatModel) tick() tea.Cmd {
 	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m *chatModel) setWorking(ts string) {
+func (m *chatModel) setWorkingTime(ts time.Time) {
 	if !m.working {
-		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-			m.workStart = t
+		if !ts.IsZero() {
+			m.workStart = ts
 		} else {
 			m.workStart = time.Now()
 		}

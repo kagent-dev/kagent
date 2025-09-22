@@ -54,7 +54,7 @@ type loadAgentMsg struct {
 }
 type sessionSelectedMsg struct{ session *api.Session }
 type sessionHistoryLoadedMsg struct {
-	items []string
+	items []*protocol.Task
 	err   error
 }
 type agentChosenMsg struct{ agent api.AgentResponse }
@@ -281,10 +281,23 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.startChat(true)
 	case sessionHistoryLoadedMsg:
 		if m.chat != nil && len(msg.items) > 0 {
-			// Events are returned newest-first (DESC). Render oldest-first for natural reading order.
-			for i := len(msg.items) - 1; i >= 0; i-- {
-				raw := msg.items[i]
-				m.chat.AppendEventJSON(raw)
+			// Track message IDs we've already rendered to avoid duplicates across tasks/histories
+			seen := make(map[string]struct{}, 128)
+			// Render each task's history oldest-first
+			for _, task := range msg.items {
+				if task == nil || len(task.History) == 0 {
+					continue
+				}
+				for _, mmsg := range task.History {
+					if mmsg.MessageID != "" {
+						if _, ok := seen[mmsg.MessageID]; ok {
+							continue
+						}
+						seen[mmsg.MessageID] = struct{}{}
+					}
+					ev := protocol.StreamingMessageEvent{Result: &mmsg}
+					m.chat.appendEvent(ev)
+				}
 			}
 		}
 		return m, nil
@@ -480,28 +493,19 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 
 func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		// Build URL: /api/sessions/{session_id}?user_id=<id>
-		url := fmt.Sprintf("%s/api/sessions/%s?user_id=%s", m.cfg.KAgentURL, sessionID, "admin@kagent.dev")
-		resp, err := http.Get(url) //nolint:gosec
+		tasksURL := fmt.Sprintf("%s/api/sessions/%s/tasks?user_id=%s", m.cfg.KAgentURL, sessionID, "admin@kagent.dev")
+		resp, err := http.Get(tasksURL) //nolint:gosec
 		if err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
 		}
 		defer resp.Body.Close() //nolint:errcheck
 		var payload struct {
-			Data struct {
-				Events []struct {
-					Data string `json:"data"`
-				} `json:"events"`
-			} `json:"data"`
+			Data []*protocol.Task `json:"data"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
 		}
-		items := make([]string, 0, len(payload.Data.Events))
-		for _, e := range payload.Data.Events {
-			items = append(items, e.Data)
-		}
-		return sessionHistoryLoadedMsg{items: items, err: nil}
+		return sessionHistoryLoadedMsg{items: payload.Data, err: nil}
 	}
 }
 
