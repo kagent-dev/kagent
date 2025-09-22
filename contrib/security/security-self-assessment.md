@@ -224,19 +224,9 @@ The badge is visible in the [project README](/README.md)
 Amdocs, a leading provider of software and services to communications and media companies, has deployed kagent to manage their complex telecommunications infrastructure running on Kubernetes. Their implementation focuses on a mechanism to detect malicious users. kagent provides an environment to coordinate custom MCP servers that help with troubleshooting issues in the platform.
 
 2. **Au10tix: Identity Verification Platform Security**
-
-  Au10tix, specializing in identity verification and fraud prevention, leverages kagent to enhance the security and reliability of their Kubernetes-based identity verification platform:
-
-
-
-   **Security Implementation**: Au10tix has deployed kagent with custom authentication providers that integrate with their existing identity management systems. Agents are configured with fine-grained authorization policies that align with their zero-trust security model.
-
-   **Use Case**: AI agents continuously monitor their identity verification pipelines for anomalies, automatically scaling resources based on verification load patterns, and detecting potential fraud patterns in real-time processing. The agents use kagent's secure tool ecosystem to interact with their machine learning pipelines and compliance reporting systems.
-
-   **Security Benefits**: The implementation ensures that all agent actions are logged and auditable for compliance with financial services regulations (KYC/AML). Session isolation prevents agents from accessing sensitive verification data across different customer contexts, while maintaining high availability for critical identity verification services.
+Au10tix, specializing in identity verification and fraud prevention, leverages kagent to enhance the security and reliability of their Kubernetes-based identity verification platform.
 
 3. **Krateo: Cloud-Native Platform Engineering**
-
 Krateo, focused on cloud-native platform solutions, uses kagent to automate and secure their internal development platform and customer deployments. kagent integrates with the teams they already have, and the AI reasoning is transparent, to make debugging issues easier.
 
 ### Related Projects / Vendors
