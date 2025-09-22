@@ -1,5 +1,7 @@
 # kagent Security Self-Assessment
 
+This document provides a self-assessment of the kagent project following the guidelines outlined by the [CNCF TAG Security and Compliance group](https://tag-security.cncf.io/community/assessments/guide/self-assessment/#self-assessment). The purpose is to evaluate kagent's current security posture and alignment with best practices, ensuring that it is suitable for adoption at a CNCF incubation level.
+
 ## Table of Contents
 
 - [Metadata](#metadata)
@@ -36,17 +38,17 @@
 
 |   |  |
 | - | - |
-| September 19, 2025 | Initial Draft _(Sam Heilbron, Lin Sun)_  |
+| September 22, 2025 | Initial Draft _(Sam Heilbron)_  |
 |  |  |
 
 ### Security Links
 
 |   |  |
 | - | - |
-| Software         | [kagent Repository](https://github.com/kagent-dev/kagent) |
-| Security Policy                  | [SECURITY.md](SECURITY.md)              |
-| Security Provider |  No. kagent is designed to facilitate security and compliance validation, but it should not be considered a security provider.  |
-| Languages        | Go, Python, TypeScript/JavaScript |
+| Software | [kagent Repository](https://github.com/kagent-dev/kagent) |
+| Security Policy | [SECURITY.md](SECURITY.md) |
+| Security Provider | No. kagent is designed to facilitate security and compliance validation, but it should not be considered a security provider. |
+| Languages | Go, Python, TypeScript/JavaScript |
 | Security Insights | See [Project Compliance > Future State](#future-state) |
 | Security File | See [Project Compliance > Future State](#future-state) |
 | Cosign pub-key | See [Project Compliance > Future State](#future-state) |
