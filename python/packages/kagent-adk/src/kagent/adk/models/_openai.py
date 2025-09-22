@@ -395,7 +395,7 @@ class AzureOpenAI(BaseOpenAI):
     @cached_property
     def _client(self) -> AsyncAzureOpenAI:
         """Get the Azure OpenAI client."""
-        api_version = self.api_version or os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+        api_version = self.api_version or os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
         azure_endpoint = self.azure_endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
         api_key = self.api_key or os.environ.get("AZURE_OPENAI_API_KEY")
 

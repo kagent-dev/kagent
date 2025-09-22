@@ -209,7 +209,124 @@ func main() {
 
 	getCmd.AddCommand(getSessionCmd, getAgentCmd, getToolCmd)
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd)
+	initCfg := &cli.InitCfg{
+		Config: cfg,
+	}
+
+	initCmd := &cobra.Command{
+		Use:   "init [framework] [language] [agent-name]",
+		Short: "Initialize a new agent project",
+		Long: `Initialize a new agent project using the specified framework and language.
+
+You can customize the root agent instructions using the --instruction-file flag.
+You can select a specific model using --model-provider and --model-name flags.
+If no custom instruction file is provided, a default dice-rolling instruction will be used.
+If no model is specified, the agent will need to be configured later.
+
+Examples:
+  kagent init adk python dice
+  kagent init adk python dice --instruction-file instructions.md
+  kagent init adk python dice --model-provider Gemini --model-name gemini-2.0-flash`,
+		Args: cobra.ExactArgs(3),
+		Run: func(cmd *cobra.Command, args []string) {
+			initCfg.Framework = args[0]
+			initCfg.Language = args[1]
+			initCfg.AgentName = args[2]
+
+			if err := cli.InitCmd(initCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+		Example: `kagent init adk python dice`,
+	}
+
+	// Add flags for custom instructions and model selection
+	initCmd.Flags().StringVar(&initCfg.InstructionFile, "instruction-file", "", "Path to file containing custom instructions for the root agent")
+	initCmd.Flags().StringVar(&initCfg.ModelProvider, "model-provider", "Gemini", "Model provider (OpenAI, Anthropic, Gemini)")
+	initCmd.Flags().StringVar(&initCfg.ModelName, "model-name", "gemini-2.0-flash", "Model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.0-flash)")
+	initCmd.Flags().StringVar(&initCfg.Description, "description", "", "Description for the agent")
+
+	buildCfg := &cli.BuildCfg{
+		Config: cfg,
+	}
+
+	buildCmd := &cobra.Command{
+		Use:   "build [project-directory]",
+		Short: "Build a Docker image for an agent project",
+		Long: `Build a Docker image for an agent project created with the init command.
+
+This command will look for a Dockerfile in the specified project directory and build
+a Docker image using docker build. The image can optionally be pushed to a registry.
+
+Image naming:
+- If --image is provided, it will be used as the full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)
+- Otherwise, defaults to localhost:5001/{agentName}:latest where agentName is loaded from kagent.yaml
+
+Examples:
+  kagent build ./my-agent
+  kagent build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0
+  kagent build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0 --push`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			buildCfg.ProjectDir = args[0]
+
+			if err := cli.BuildCmd(buildCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+		Example: `kagent build ./my-agent`,
+	}
+
+	// Add flags for build command
+	buildCmd.Flags().StringVar(&buildCfg.Image, "image", "", "Full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)")
+	buildCmd.Flags().BoolVar(&buildCfg.Push, "push", false, "Push the image to the registry")
+
+	deployCfg := &cli.DeployCfg{
+		Config: cfg,
+	}
+
+	deployCmd := &cobra.Command{
+		Use:   "deploy [project-directory]",
+		Short: "Deploy an agent to Kubernetes",
+		Long: `Deploy an agent to Kubernetes.
+
+This command will read the kagent.yaml file from the specified project directory,
+create or reference a Kubernetes secret with the API key, and create an Agent CRD.
+
+The command will:
+1. Load the agent configuration from kagent.yaml
+2. Either create a new secret with the provided API key or verify an existing secret
+3. Create an Agent CRD with the appropriate configuration
+
+API Key Options:
+  --api-key: Convenience option to create a new secret with the provided API key
+  --api-key-secret: Canonical way to reference an existing secret by name
+
+Examples:
+  kagent deploy ./my-agent --api-key-secret "my-existing-secret"
+  kagent deploy ./my-agent --api-key "your-api-key-here" --image "myregistry/myagent:v1.0"
+  kagent deploy ./my-agent --api-key-secret "my-secret" --namespace "my-namespace"`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			deployCfg.ProjectDir = args[0]
+
+			if err := cli.DeployCmd(ctx, deployCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+		Example: `kagent deploy ./my-agent --api-key-secret "my-existing-secret"`,
+	}
+
+	// Add flags for deploy command
+	deployCmd.Flags().StringVarP(&deployCfg.Image, "image", "i", "", "Image to use (defaults to localhost:5001/{agentName}:latest)")
+	deployCmd.Flags().StringVar(&deployCfg.APIKey, "api-key", "", "API key for the model provider (convenience option to create secret)")
+	deployCmd.Flags().StringVar(&deployCfg.APIKeySecret, "api-key-secret", "", "Name of existing secret containing API key")
+	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "", "Kubernetes namespace to deploy to")
+
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd)
 
 	// Initialize config
 	if err := config.Init(); err != nil {
