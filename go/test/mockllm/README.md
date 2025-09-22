@@ -56,7 +56,6 @@ Current implementation uses these core types:
 - **Matching**: Exact matching on the last message in the conversation (contains not implemented)
 
 ### Configuration
-Currently only supports in-code configuration:
 
 ```go
 config := mockllm.Config{
@@ -80,6 +79,62 @@ config := mockllm.Config{
             Response: /* anthropic.Message */,
         },
     },
+}
+```
+
+```json
+{
+  "openai": [
+    {
+      "name": "initial_request",
+      "match": {
+        "match_type": "exact",
+        "message" : {
+          "content": "List all nodes in the cluster",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                ...
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "k8s_get_resources_response",
+      "match": {
+        "match_type": "contains",
+        "message" : {
+          "content": "kagent-control-plane",
+          "role": "tool",
+          "tool_call_id": "call_1"
+        }
+      },
+      "response": {
+        "id": "call_1",
+        "object": "chat.completion.tool_message",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          ...
+        ]
+      }
+    }
+  ]
 }
 ```
 
