@@ -26,7 +26,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"k8s.io/utils/ptr"
 )
 
@@ -36,8 +35,6 @@ func TestToolServersHandler(t *testing.T) {
 	err := v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
-	require.NoError(t, err)
-	err = kmcp.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	setupHandler := func() (*handlers.ToolServersHandler, ctrl_client.Client, *database_fake.InMemoryFakeClient, *mockErrorResponseWriter) {
@@ -224,13 +221,13 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "MCPServer",
-				MCPServer: &kmcp.MCPServer{
+				MCPServer: &v1alpha2.MCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-stdio-toolserver",
 						Namespace: "default",
 					},
-					Spec: kmcp.MCPServerSpec{
-						Deployment: kmcp.MCPServerDeployment{
+					Spec: v1alpha2.MCPServerSpec{
+						Deployment: v1alpha2.MCPServerDeployment{
 							Image: "my-mcp-server:latest",
 							Port:  8080,
 							Cmd:   "/usr/local/bin/my-mcp-server",
@@ -239,8 +236,8 @@ func TestToolServersHandler(t *testing.T) {
 								"LOG_LEVEL": "info",
 							},
 						},
-						TransportType:  kmcp.TransportTypeStdio,
-						StdioTransport: &kmcp.StdioTransport{},
+						TransportType:  v1alpha2.TransportTypeStdio,
+						StdioTransport: &v1alpha2.StdioTransport{},
 					},
 				},
 			}
@@ -254,14 +251,14 @@ func TestToolServersHandler(t *testing.T) {
 
 			require.Equal(t, http.StatusCreated, responseRecorder.Code)
 
-			var toolServer api.StandardResponse[kmcp.MCPServer]
+			var toolServer api.StandardResponse[v1alpha2.MCPServer]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &toolServer)
 			require.NoError(t, err)
 			assert.Equal(t, "test-stdio-toolserver", toolServer.Data.Name)
 			assert.Equal(t, "default", toolServer.Data.Namespace)
 			assert.Equal(t, "my-mcp-server:latest", toolServer.Data.Spec.Deployment.Image)
 			assert.Equal(t, uint16(8080), toolServer.Data.Spec.Deployment.Port)
-			assert.Equal(t, kmcp.TransportTypeStdio, toolServer.Data.Spec.TransportType)
+			assert.Equal(t, v1alpha2.TransportTypeStdio, toolServer.Data.Spec.TransportType)
 		})
 
 		t.Run("Success_DefaultNamespace", func(t *testing.T) {

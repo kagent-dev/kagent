@@ -31,10 +31,9 @@ func main() {
 	authenticator := &auth.UnsecureAuthenticator{}
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
 		return &app.ExtensionConfig{
-			Authenticator:    authenticator,
-			Authorizer:       authorizer,
-			AgentPlugins:     nil,
-			MCPServerPlugins: nil,
+			Authenticator: authenticator,
+			Authorizer:    authorizer,
+			AgentPlugins:  nil,
 		}, nil
 	})
 }

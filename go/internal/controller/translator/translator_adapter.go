@@ -25,7 +25,7 @@ const (
 	transportAdapterContainerImage = "ghcr.io/agentgateway/agentgateway:0.7.4-musl"
 	defaultDebiainContainerImage   = "ghcr.io/astral-sh/uv:debian"
 	defaultNodeContainerImage      = "node:24-alpine3.21"
-	mcpServerConfigHashAnnotation  = "kmcp.kagent.dev/mcpserver-config-hash"
+	mcpServerConfigHashAnnotation  = "kagent.dev/mcpserver-config-hash"
 )
 
 // Translator is the interface for translating MCPServer objects to TransportAdapter objects.
