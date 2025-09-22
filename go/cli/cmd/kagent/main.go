@@ -117,14 +117,6 @@ func main() {
 		Short: "Print the kagent version",
 		Long:  `Print the kagent version`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(ctx, cfg)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-					return
-				}
-				defer pf.Stop()
-			}
 			cli.VersionCmd(cfg)
 		},
 	}
@@ -557,10 +549,6 @@ Example:
 		Aliases: []string{"v"},
 		Help:    "Print the kagent version.",
 		Func: func(c *ishell.Context) {
-			if err := cli.CheckServerConnection(client); err != nil {
-				c.Println(err)
-				return
-			}
 			cli.VersionCmd(cfg)
 			c.SetPrompt(config.BoldBlue("kagent >> "))
 		},
