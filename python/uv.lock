@@ -3426,9 +3426,9 @@ wheels = [
 ]
 
 [[package]]
-name = "peom-flow"
+name = "poem-flow"
 version = "0.1.0"
-source = { editable = "samples/crewai/peom_flow" }
+source = { editable = "samples/crewai/poem_flow" }
 dependencies = [
     { name = "crewai" },
     { name = "crewai-tools" },
