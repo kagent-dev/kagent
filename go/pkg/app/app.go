@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/kagent-dev/kmcp/pkg/controller/transportadapter"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
@@ -70,7 +69,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/controller"
 	"github.com/kagent-dev/kagent/go/internal/goruntime"
 	kmcpv1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
-	kmcpcontroller "github.com/kagent-dev/kmcp/pkg/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -163,10 +161,9 @@ type BootstrapConfig struct {
 type CtrlManagerConfigFunc func(manager.Manager) error
 
 type ExtensionConfig struct {
-	Authenticator    auth.AuthProvider
-	Authorizer       auth.Authorizer
-	AgentPlugins     []translator.TranslatorPlugin
-	MCPServerPlugins []transportadapter.TranslatorPlugin
+	Authenticator auth.AuthProvider
+	Authorizer    auth.Authorizer
+	AgentPlugins  []translator.TranslatorPlugin
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -355,10 +352,9 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		a2aReconciler,
 	)
 
-	if err = (&kmcpcontroller.MCPServerReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Plugins: extensionCfg.MCPServerPlugins,
+	if err = (&controller.MCPServerController{
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
 		os.Exit(1)
@@ -372,7 +368,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	if err := (&controller.MCPServerController{
+	if err := (&controller.MCPServerToolController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {

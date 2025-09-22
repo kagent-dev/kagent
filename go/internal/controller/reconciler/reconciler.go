@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler/status"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,7 +24,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
-	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	mcp_client "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -44,6 +44,7 @@ type KagentReconciler interface {
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) error
 	GetOwnedResourceTypes() []client.Object
 }
 
@@ -270,7 +271,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 }
 
 func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {
-	mcpServer := &v1alpha1.MCPServer{}
+	mcpServer := &v1alpha2.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the mcp server is deleted
@@ -305,6 +306,45 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 	}
 
 	return nil
+}
+
+func (a *kagentReconciler) ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) error {
+	mcpServer := &v1alpha2.MCPServer{}
+	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
+		if k8s_errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	t := translator.NewTransportAdapterTranslator(a.kube.Scheme())
+	outputs, err := t.TranslateTransportAdapterOutputs(ctx, mcpServer)
+	if err != nil {
+		reconcileLog.Error(err, "Failed to translate MCPServer outputs", "mcpServer", req.NamespacedName)
+		// Reconcile status with error
+		if statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, err); statusErr != nil {
+			reconcileLog.Error(statusErr, "Failed to reconcile MCPServer status", "mcpServer", req.NamespacedName)
+		}
+		return err
+	}
+
+	// upsert the outputs which include the mcp server deployment, svc, sa and configmap
+	// containing the config for the transport adapter
+	var reconcileErr error
+	for _, output := range outputs {
+		if err := reconcilerutils.UpsertOutput(ctx, a.kube, output); err != nil {
+			reconcileLog.Error(err, "Failed to upsert output", "mcpServer", req.NamespacedName, "output", output.GetObjectKind().GroupVersionKind())
+			reconcileErr = err
+			break
+		}
+	}
+
+	if statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, reconcileErr); statusErr != nil {
+		reconcileLog.Error(statusErr, "Failed to reconcile MCPServer status", "mcpServer", req.NamespacedName)
+		return statusErr
+	}
+
+	return reconcileErr
 }
 
 func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {

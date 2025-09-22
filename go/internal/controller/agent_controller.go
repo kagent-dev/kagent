@@ -37,7 +37,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
-	v1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 var (
@@ -117,7 +116,7 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 		).
 		Watches(
-			&v1alpha1.MCPServer{},
+			&v1alpha2.MCPServer{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
