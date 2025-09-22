@@ -34,7 +34,7 @@ It follows the standard CrewAI project structure and developer experience, allow
    kubectl create secret generic kagent-google -n kagent \
      --from-literal=GOOGLE_API_KEY=$GOOGLE_API_KEY \
      --dry-run=client -o yaml | kubectl apply -f -
-   
+
    kubectl create secret generic kagent-serper -n kagent \
      --from-literal=SERPER_API_KEY=$SERPER_API_KEY \
      --dry-run=client -o yaml | kubectl apply -f -
@@ -80,24 +80,12 @@ It follows the standard CrewAI project structure and developer experience, allow
    uv run research-crew
    ```
 
-## Architecture
-
-This agent demonstrates:
-
-- **Multi-Agent Crew**: Coordinated research team with specialized roles
-- **CrewAI Integration**: Native CrewAI framework with KAgent compatibility
-- **A2A Protocol**: Compatible with KAgent's agent-to-agent communication
-- **Tool Integration**: Web search and research capabilities
-- **Task Orchestration**: Sequential and collaborative task execution
-
-The crew maintains state and coordinates between multiple agents to perform comprehensive research tasks.
-
 ## Configuration
 
 The agent can be configured via environment variables:
 
 - `OPENAI_API_KEY`: Required for LLM access
-- `SERPER_API_KEY`: Required for web search functionality  
+- `SERPER_API_KEY`: Required for web search functionality
 - `KAGENT_URL`: KAgent server URL (default: http://localhost:8080)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)

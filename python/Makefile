@@ -38,6 +38,6 @@ basic-langchain-sample:
 research-crew-sample:
 	docker build . -f samples/crewai/research-crew/Dockerfile --tag localhost:5001/research-crew:latest --push
 
-.PHONY: peom-flow-sample
-peom-flow-sample:
-	docker build . -f samples/crewai/peom_flow/Dockerfile --tag localhost:5001/peom-flow:latest --push
+.PHONY: poem-flow-sample
+poem-flow-sample:
+	docker build . -f samples/crewai/poem_flow/Dockerfile --tag localhost:5001/poem-flow:latest --push

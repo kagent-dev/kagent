@@ -1,7 +1,7 @@
 [project]
-name = "peom_flow"
+name = "poem_flow"
 version = "0.1.0"
-description = "peom-flow using crewAI"
+description = "poem-flow using crewAI"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,9 +11,9 @@ dependencies = [
 ]
 
 [project.scripts]
-kickoff = "peom_flow.main:kickoff"
-run_crew = "peom_flow.main:kickoff"
-plot = "peom_flow.main:plot"
+kickoff = "poem_flow.main:kickoff"
+run_crew = "poem_flow.main:kickoff"
+plot = "poem_flow.main:plot"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

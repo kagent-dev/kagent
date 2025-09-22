@@ -36,4 +36,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the application
-CMD ["uv", "run", "samples/crewai/peom_flow/src/peom_flow/main.py"]
+CMD ["uv", "run", "samples/crewai/poem_flow/src/poem_flow/main.py"]

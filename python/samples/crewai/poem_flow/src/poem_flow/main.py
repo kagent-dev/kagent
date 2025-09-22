@@ -10,7 +10,7 @@ from kagent.core import configure_tracing
 from kagent.crewai import KAgentApp
 from pydantic import BaseModel
 
-from peom_flow.crews.poem_crew.poem_crew import PoemCrew
+from poem_flow.crews.poem_crew.poem_crew import PoemCrew
 
 os.makedirs("output", exist_ok=True)
 
