@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -17,7 +18,6 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/dialogs"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/keys"
-	statelib "github.com/kagent-dev/kagent/go/cli/internal/tui/state"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
@@ -156,13 +156,6 @@ func (m *workspaceModel) loadAgents() tea.Cmd {
 	}
 }
 
-type wsAgentItem struct{ a api.AgentResponse }
-
-func (i wsAgentItem) Title() string       { return i.a.Agent.Name }
-func (i wsAgentItem) Namespace() string   { return i.a.Agent.Namespace }
-func (i wsAgentItem) Description() string { return i.a.Agent.Spec.Description }
-func (i wsAgentItem) FilterValue() string { return i.a.ID }
-
 func (m *workspaceModel) loadSessions() tea.Cmd {
 	return func() tea.Msg {
 		resp, err := m.client.Session.ListSessions(context.Background())
@@ -229,7 +222,9 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Sort and store agents for later; do not auto-open chooser or auto-select.
-		statelib.SortAgentsNewestFirst(msg.agents)
+		sort.SliceStable(msg.agents, func(i, j int) bool {
+			return utils.GetObjectRef(msg.agents[i].Agent) < utils.GetObjectRef(msg.agents[j].Agent)
+		})
 		m.agents = msg.agents
 		// Keep welcome screen visible until user presses Ctrl+A
 		return m, nil
@@ -249,7 +244,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadSessions()
 	case loadSessionsMsg:
 		// Sort sessions by UpdatedAt then CreatedAt (newest first)
-		statelib.SortSessionsNewestFirst(msg.sessions)
+		sortSessions(msg.sessions)
 		items := make([]list.Item, 0, len(msg.sessions))
 		for _, s := range msg.sessions {
 			items = append(items, sessionListItem{s: s})
@@ -325,14 +320,14 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.agents) == 0 {
 				return m, m.loadAgents()
 			}
-			items := make([]list.Item, 0, len(m.agents))
+			items := make([]*dialogs.AgentItem, 0, len(m.agents))
 			for _, a := range m.agents {
-				items = append(items, wsAgentItem{a: a})
+				items = append(items, &dialogs.AgentItem{AgentResponse: a})
 			}
 			open := dialogs.OpenMsg{Model: dialogs.NewAgentChooser(items, func(it list.Item) tea.Cmd {
 				return func() tea.Msg {
-					if wi, ok := it.(wsAgentItem); ok {
-						return agentChosenMsg{agent: wi.a}
+					if wi, ok := it.(*dialogs.AgentItem); ok {
+						return agentChosenMsg{agent: wi.AgentResponse}
 					}
 					return nil
 				}
@@ -376,9 +371,9 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.agentList, cmd = m.agentList.Update(msg)
 		if km, ok := msg.(tea.KeyMsg); ok && km.String() == "enter" {
-			if it, ok := m.agentList.SelectedItem().(wsAgentItem); ok {
+			if it, ok := m.agentList.SelectedItem().(*dialogs.AgentItem); ok {
 				m.choosingAgent = false
-				a := it.a
+				a := it.AgentResponse
 				m.agent = &a
 				m.agentRef = utils.ConvertToKubernetesIdentifier(a.ID)
 				// Clear current session and chat when switching agents
@@ -734,4 +729,16 @@ func lineCount(s string) int {
 		}
 	}
 	return n
+}
+
+// sortSessions sorts sessions by UpdatedAt then CreatedAt descending.
+func sortSessions(sessions []*api.Session) {
+	sort.Slice(sessions, func(i, j int) bool {
+		ui := sessions[i].UpdatedAt
+		uj := sessions[j].UpdatedAt
+		if !ui.Equal(uj) {
+			return ui.After(uj)
+		}
+		return sessions[i].CreatedAt.After(sessions[j].CreatedAt)
+	})
 }

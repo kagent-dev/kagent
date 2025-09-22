@@ -6,20 +6,26 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/theme"
+	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
 
-type AgentItem interface{ list.Item }
+type AgentItem struct{ api.AgentResponse }
+
+func (i AgentItem) Title() string       { return i.Agent.Name }
+func (i AgentItem) Namespace() string   { return i.Agent.Namespace }
+func (i AgentItem) Description() string { return i.Agent.Spec.Description }
+func (i AgentItem) FilterValue() string { return i.ID }
 
 type AgentChooser struct {
 	id      string
-	items   []list.Item
+	items   []*AgentItem
 	rows    []table.Row
 	columns []table.Column
 	table   table.Model
 	onOK    func(item list.Item) tea.Cmd
 }
 
-func NewAgentChooser(items []list.Item, onOK func(item list.Item) tea.Cmd) *AgentChooser {
+func NewAgentChooser(items []*AgentItem, onOK func(item list.Item) tea.Cmd) *AgentChooser {
 	ac := &AgentChooser{
 		id:    "agent_chooser",
 		items: items,
@@ -67,21 +73,12 @@ func (a *AgentChooser) buildColumns(innerWidth int) []table.Column {
 	return columns
 }
 
-func (a *AgentChooser) buildRows(items []list.Item) []table.Row {
+func (a *AgentChooser) buildRows(items []*AgentItem) []table.Row {
 	rows := make([]table.Row, 0, len(items))
 	for _, it := range items {
-		title := ""
-		namespace := ""
-		desc := ""
-		if td, ok := it.(interface {
-			Title() string
-			Namespace() string
-			Description() string
-		}); ok {
-			title = td.Title()
-			namespace = td.Namespace()
-			desc = td.Description()
-		}
+		title := it.Title()
+		namespace := it.Namespace()
+		desc := it.Description()
 		rows = append(rows, table.Row{title, namespace, desc})
 	}
 	return rows
