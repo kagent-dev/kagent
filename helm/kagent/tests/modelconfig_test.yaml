@@ -41,7 +41,7 @@ tests:
           value: "Anthropic"
       - equal:
           path: spec.model
-          value: "claude-3-sonnet-20240229"
+          value: "claude-3-5-haiku-20241022"
       - equal:
           path: spec.apiKeySecret
           value: kagent-anthropic
