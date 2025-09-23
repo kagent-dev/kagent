@@ -48,17 +48,16 @@ ENV PATH=$PATH:/.kagent/python/bin:/.kagent/python/.venv/bin
 COPY --chown=python:pythongroup pyproject.toml  .
 COPY --chown=python:pythongroup .python-version .
 COPY --chown=python:pythongroup uv.lock .
-COPY --chown=python:pythongroup packages packages
+COPY --chown=python:pythongroup packages/kagent-adk packages/kagent-adk
+COPY --chown=python:pythongroup packages/kagent-core packages/kagent-core
 COPY --chown=python:pythongroup README.md .
 
 ARG VERSION
 
-# Install dependencies
-RUN echo "Installing dependencies..."                   \
+# Install only kagent-adk package and its dependencies
+RUN echo "Installing kagent-adk package..."             \
     && uv venv --python=python$TOOLS_PYTHON_VERSION     \
-    && uv version ${VERSION%%-*} --package kagent-adk       \
-    && uv sync --locked --refresh                       \
-    && uv build --package kagent-adk                    \
+    && uv lock && uv sync --package kagent-adk \
     && uv cache prune
 
 WORKDIR /app
