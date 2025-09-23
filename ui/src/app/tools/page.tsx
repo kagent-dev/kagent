@@ -160,7 +160,7 @@ export default function ToolsPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Tools Library</h1>
         <Link href="/servers" className="text-blue-600 hover:text-blue-800 text-sm">
-          Manage tool servers →
+          Manage MCP servers →
         </Link>
       </div>
 
@@ -178,7 +178,7 @@ export default function ToolsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input 
-            placeholder="Search tools by name, description or server..." 
+            placeholder="Search tools by name, description or MCP server..." 
             value={searchTerm} 
             onChange={(e) => setSearchTerm(e.target.value)} 
             className="pl-10" 
@@ -305,7 +305,7 @@ export default function ToolsPage() {
             <Link href="/servers">
               <Button className="bg-blue-500 hover:bg-blue-600 text-white">
                 <Server className="h-4 w-4 mr-2" />
-                Manage Servers
+                Manage MCP Servers
               </Button>
             </Link>
           )}
