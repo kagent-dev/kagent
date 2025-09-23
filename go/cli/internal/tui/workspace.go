@@ -467,7 +467,9 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 		return nil
 	}
 	a2aURL := fmt.Sprintf("%s/api/a2a/%s", m.cfg.KAgentURL, m.agentRef)
-	client, err := a2aclient.NewA2AClient(a2aURL)
+	client, err := a2aclient.NewA2AClient(a2aURL,
+		a2aclient.WithTimeout(m.cfg.Timeout),
+	)
 	if err != nil {
 		m.details.WriteString("\nA2A error\n")
 		return nil
