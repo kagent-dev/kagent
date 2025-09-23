@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
@@ -116,7 +117,7 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 		).
 		Watches(
-			&v1alpha2.MCPServer{},
+			&v1alpha1.MCPServer{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 

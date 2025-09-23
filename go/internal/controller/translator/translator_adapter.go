@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator/labels"
 )
 
@@ -32,7 +32,7 @@ const (
 type Translator interface {
 	TranslateTransportAdapterOutputs(
 		ctx context.Context,
-		server *v1alpha2.MCPServer,
+		server *v1alpha1.MCPServer,
 	) ([]client.Object, error)
 }
 
@@ -48,7 +48,7 @@ func NewTransportAdapterTranslator(scheme *runtime.Scheme) Translator {
 
 func (t *transportAdapterTranslator) TranslateTransportAdapterOutputs(
 	ctx context.Context,
-	server *v1alpha2.MCPServer,
+	server *v1alpha1.MCPServer,
 ) ([]client.Object, error) {
 	serviceAccount, err := t.translateTransportAdapterServiceAccount(server)
 	if err != nil {
@@ -75,7 +75,7 @@ func (t *transportAdapterTranslator) TranslateTransportAdapterOutputs(
 }
 
 func (t *transportAdapterTranslator) translateTransportAdapterDeployment(
-	server *v1alpha2.MCPServer,
+	server *v1alpha1.MCPServer,
 ) (*appsv1.Deployment, error) {
 	image := server.Spec.Deployment.Image
 	if image == "" && server.Spec.Deployment.Cmd == "uvx" {
@@ -99,7 +99,7 @@ func (t *transportAdapterTranslator) translateTransportAdapterDeployment(
 
 	var template corev1.PodSpec
 	switch server.Spec.TransportType {
-	case v1alpha2.TransportTypeStdio:
+	case v1alpha1.TransportTypeStdio:
 		// copy the binary into the container when running with stdio
 		template = corev1.PodSpec{
 			ServiceAccountName: server.Name,
@@ -160,7 +160,7 @@ func (t *transportAdapterTranslator) translateTransportAdapterDeployment(
 				},
 			}, volumes...),
 		}
-	case v1alpha2.TransportTypeHTTP:
+	case v1alpha1.TransportTypeHTTP:
 		var cmd []string
 		if server.Spec.Deployment.Cmd != "" {
 			cmd = []string{server.Spec.Deployment.Cmd}
@@ -257,7 +257,7 @@ func (t *transportAdapterTranslator) addMCPServerConfigHashAnnotation(
 }
 
 func (t *transportAdapterTranslator) translateTransportAdapterServiceAccount(
-	server *v1alpha2.MCPServer,
+	server *v1alpha1.MCPServer,
 ) (*corev1.ServiceAccount, error) {
 	serviceAccount := &corev1.ServiceAccount{
 		TypeMeta: metav1.TypeMeta{
@@ -298,7 +298,7 @@ func (t *transportAdapterTranslator) createSecretEnvFrom(
 
 // createVolumes creates volumes from the MCPServer deployment spec
 func (t *transportAdapterTranslator) createVolumes(
-	deployment v1alpha2.MCPServerDeployment,
+	deployment v1alpha1.MCPServerDeployment,
 ) []corev1.Volume {
 	volumes := make([]corev1.Volume, 0)
 
@@ -328,7 +328,7 @@ func (t *transportAdapterTranslator) createVolumes(
 
 // createVolumeMounts creates volume mounts from the MCPServer deployment spec
 func (t *transportAdapterTranslator) createVolumeMounts(
-	deployment v1alpha2.MCPServerDeployment,
+	deployment v1alpha1.MCPServerDeployment,
 ) []corev1.VolumeMount {
 	volumeMounts := make([]corev1.VolumeMount, 0)
 
@@ -369,7 +369,7 @@ func convertEnvVars(env map[string]string) []corev1.EnvVar {
 }
 
 func (t *transportAdapterTranslator) translateTransportAdapterService(
-	server *v1alpha2.MCPServer,
+	server *v1alpha1.MCPServer,
 ) (*corev1.Service, error) {
 	port := server.Spec.Deployment.Port
 	if port == 0 {
@@ -404,7 +404,7 @@ func (t *transportAdapterTranslator) translateTransportAdapterService(
 }
 
 func (t *transportAdapterTranslator) translateTransportAdapterConfigAsYAML(
-	server *v1alpha2.MCPServer,
+	server *v1alpha1.MCPServer,
 ) (string, error) {
 	config, err := t.translateTransportAdapterConfig(server)
 	if err != nil {
@@ -420,7 +420,7 @@ func (t *transportAdapterTranslator) translateTransportAdapterConfigAsYAML(
 }
 
 func (t *transportAdapterTranslator) translateTransportAdapterConfigMap(
-	server *v1alpha2.MCPServer,
+	server *v1alpha1.MCPServer,
 ) (*corev1.ConfigMap, error) {
 	configYaml, err := t.translateTransportAdapterConfigAsYAML(server)
 	if err != nil {
@@ -444,7 +444,7 @@ func (t *transportAdapterTranslator) translateTransportAdapterConfigMap(
 	return configMap, controllerutil.SetOwnerReference(server, configMap, t.scheme)
 }
 
-func (t *transportAdapterTranslator) translateTransportAdapterConfig(server *v1alpha2.MCPServer) (*LocalConfig, error) {
+func (t *transportAdapterTranslator) translateTransportAdapterConfig(server *v1alpha1.MCPServer) (*LocalConfig, error) {
 	mcpTarget := MCPTarget{
 		Name: server.Name,
 	}
@@ -455,13 +455,13 @@ func (t *transportAdapterTranslator) translateTransportAdapterConfig(server *v1a
 	}
 
 	switch server.Spec.TransportType {
-	case v1alpha2.TransportTypeStdio:
+	case v1alpha1.TransportTypeStdio:
 		mcpTarget.Stdio = &StdioTargetSpec{
 			Cmd:  server.Spec.Deployment.Cmd,
 			Args: server.Spec.Deployment.Args,
 			Env:  server.Spec.Deployment.Env,
 		}
-	case v1alpha2.TransportTypeHTTP:
+	case v1alpha1.TransportTypeHTTP:
 		httpTransportConfig := server.Spec.HTTPTransport
 		if httpTransportConfig == nil || httpTransportConfig.TargetPort == 0 {
 			return nil, fmt.Errorf("HTTP transport requires a target port")

@@ -20,10 +20,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/internal/controller/predicates"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -56,7 +56,7 @@ func (r *MCPServerToolController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha2.MCPServer{}, builder.WithPredicates(
+		For(&v1alpha1.MCPServer{}, builder.WithPredicates(
 			predicate.GenerationChangedPredicate{},
 			predicates.DiscoveryDisabledPredicate{},
 		)).

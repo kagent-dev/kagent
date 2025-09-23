@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/utils"
@@ -818,7 +819,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Group: "kagent.dev",
 		Kind:  "MCPServer",
 	}:
-		mcpServer := &v1alpha2.MCPServer{}
+		mcpServer := &v1alpha1.MCPServer{}
 		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.Name}, mcpServer)
 		if err != nil {
 			return err
@@ -926,7 +927,7 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 	}, nil
 }
 
-func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha2.MCPServer) (*v1alpha2.RemoteMCPServerSpec, error) {
+func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2.RemoteMCPServerSpec, error) {
 	if mcpServer.Spec.Deployment.Port == 0 {
 		return nil, fmt.Errorf("cannot determine port for MCP server %s", mcpServer.Name)
 	}

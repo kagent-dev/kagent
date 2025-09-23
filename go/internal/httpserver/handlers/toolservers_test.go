@@ -19,6 +19,7 @@ import (
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
@@ -221,13 +222,13 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "MCPServer",
-				MCPServer: &v1alpha2.MCPServer{
+				MCPServer: &v1alpha1.MCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-stdio-toolserver",
 						Namespace: "default",
 					},
-					Spec: v1alpha2.MCPServerSpec{
-						Deployment: v1alpha2.MCPServerDeployment{
+					Spec: v1alpha1.MCPServerSpec{
+						Deployment: v1alpha1.MCPServerDeployment{
 							Image: "my-mcp-server:latest",
 							Port:  8080,
 							Cmd:   "/usr/local/bin/my-mcp-server",
@@ -236,8 +237,8 @@ func TestToolServersHandler(t *testing.T) {
 								"LOG_LEVEL": "info",
 							},
 						},
-						TransportType:  v1alpha2.TransportTypeStdio,
-						StdioTransport: &v1alpha2.StdioTransport{},
+						TransportType:  v1alpha1.TransportTypeStdio,
+						StdioTransport: &v1alpha1.StdioTransport{},
 					},
 				},
 			}
@@ -251,14 +252,14 @@ func TestToolServersHandler(t *testing.T) {
 
 			require.Equal(t, http.StatusCreated, responseRecorder.Code)
 
-			var toolServer api.StandardResponse[v1alpha2.MCPServer]
+			var toolServer api.StandardResponse[v1alpha1.MCPServer]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &toolServer)
 			require.NoError(t, err)
 			assert.Equal(t, "test-stdio-toolserver", toolServer.Data.Name)
 			assert.Equal(t, "default", toolServer.Data.Namespace)
 			assert.Equal(t, "my-mcp-server:latest", toolServer.Data.Spec.Deployment.Image)
 			assert.Equal(t, uint16(8080), toolServer.Data.Spec.Deployment.Port)
-			assert.Equal(t, v1alpha2.TransportTypeStdio, toolServer.Data.Spec.TransportType)
+			assert.Equal(t, v1alpha1.TransportTypeStdio, toolServer.Data.Spec.TransportType)
 		})
 
 		t.Run("Success_DefaultNamespace", func(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
@@ -271,7 +272,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 }
 
 func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {
-	mcpServer := &v1alpha2.MCPServer{}
+	mcpServer := &v1alpha1.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
 		if k8s_errors.IsNotFound(err) {
 			// Delete from DB if the mcp server is deleted
@@ -309,7 +310,7 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 }
 
 func (a *kagentReconciler) ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) (bool, error) {
-	mcpServer := &v1alpha2.MCPServer{}
+	mcpServer := &v1alpha1.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
 		if k8s_errors.IsNotFound(err) {
 			return false, nil
