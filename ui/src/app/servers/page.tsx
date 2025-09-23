@@ -115,15 +115,15 @@ export default function ServersPage() {
     <div className="mt-12 mx-auto max-w-6xl px-6">
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold">Tool Servers</h1>
+          <h1 className="text-2xl font-bold">MCP Servers</h1>
           <Link href="/tools" className="text-blue-600 hover:text-blue-800 text-sm">
-            View Tools Library →
+            View Tools →
           </Link>
         </div>
         {servers.length > 0 && (
           <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
-            Add Server
+            Add MCP Server
           </Button>
         )}
       </div>
@@ -180,7 +180,7 @@ export default function ServersPage() {
                              }}
                            >
                              <Trash2 className="h-4 w-4 mr-2" />
-                             Remove Server
+                             Remove MCP Server
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -212,7 +212,7 @@ export default function ServersPage() {
                           ))}
                       </div>
                     ) : (
-                      <div className="text-center p-4 text-sm text-muted-foreground">No tools available for this server.</div>
+                      <div className="text-center p-4 text-sm text-muted-foreground">No tools available for this MCP server.</div>
                     )}
                   </div>
                 )}
@@ -223,11 +223,11 @@ export default function ServersPage() {
       ) : (
         <div className="flex flex-col items-center justify-center h-[300px] text-center p-4 border rounded-lg bg-secondary/5">
           <Server className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
-          <h3 className="font-medium text-lg">No servers connected</h3>
-          <p className="text-muted-foreground mt-1 mb-4">Add a tool server to discover and use tools.</p>
+          <h3 className="font-medium text-lg">No MCP servers connected</h3>
+          <p className="text-muted-foreground mt-1 mb-4">Add an MCP server to discover and use tools.</p>
           <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
-            Add Server
+            Add MCP Server
           </Button>
         </div>
       )}
@@ -247,8 +247,8 @@ export default function ServersPage() {
             setShowConfirmDelete(null);
           }
         }}
-        title="Delete Server"
-        description="Are you sure you want to delete this server? This will also delete all associated tools and cannot be undone."
+        title="Delete MCP Server"
+        description="Are you sure you want to delete this MCP server? This will also delete all associated tools and cannot be undone."
         onConfirm={() => showConfirmDelete !== null && handleDeleteServer(showConfirmDelete)}
       />
     </div>

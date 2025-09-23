@@ -67,7 +67,7 @@ jobs:
       - name: Install Kagent
         id: install-kagent
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: fake
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-

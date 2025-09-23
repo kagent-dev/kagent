@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	kagentclient "github.com/kagent-dev/kagent/go/pkg/client"
 
@@ -12,10 +13,11 @@ import (
 )
 
 type Config struct {
-	KAgentURL    string `mapstructure:"kagent_url"`
-	Namespace    string `mapstructure:"namespace"`
-	OutputFormat string `mapstructure:"output_format"`
-	Verbose      bool   `mapstructure:"verbose"`
+	KAgentURL    string        `mapstructure:"kagent_url"`
+	Namespace    string        `mapstructure:"namespace"`
+	OutputFormat string        `mapstructure:"output_format"`
+	Verbose      bool          `mapstructure:"verbose"`
+	Timeout      time.Duration `mapstructure:"timeout"`
 }
 
 func (c *Config) Client() *kagentclient.ClientSet {
@@ -44,7 +46,7 @@ func Init() error {
 	viper.SetDefault("kagent_url", "http://localhost:8083")
 	viper.SetDefault("output_format", "table")
 	viper.SetDefault("namespace", "kagent")
-
+	viper.SetDefault("timeout", 300*time.Second)
 	viper.MustBindEnv("USER_ID")
 
 	if err := viper.ReadInConfig(); err != nil {

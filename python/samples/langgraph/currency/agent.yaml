@@ -14,3 +14,18 @@ spec:
             secretKeyRef:
               name: kagent-google
               key: GOOGLE_API_KEY
+        # Enable OpenTelemetry tracing, make sure to set this according to your environment
+        - name: OTEL_TRACING_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://jaeger-collector.jaeger.svc.cluster.local:4317"
+        - name: LANGSMITH_TRACING
+          value: "true"
+        - name: LANGSMITH_OTEL_ENABLED
+          value: "true"
+        - name: LANGSMITH_ENDPOINT
+          value: "http://jaeger-collector.jaeger.svc.cluster.local:4317"
+        - name: LANGSMITH_API_KEY
+          value: "langsmith-api-key"
+        - name: LANGSMITH_WORKSPACE_ID
+          value: "kagent-langgraph"

@@ -17,6 +17,7 @@ dependencies = [
   "opentelemetry-instrumentation-anthropic>=0.44.0",
   "opentelemetry-instrumentation-httpx >= 0.52.0",
   "opentelemetry-instrumentation-fastapi>=0.52.0",
+  "opentelemetry-instrumentation-google-generativeai>=0.47.3",
 ]
 
 [tool.ruff]

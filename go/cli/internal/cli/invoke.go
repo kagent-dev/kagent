@@ -68,7 +68,7 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 	var err error
 	if cfg.URLOverride != "" {
 
-		a2aClient, err = a2aclient.NewA2AClient(cfg.URLOverride)
+		a2aClient, err = a2aclient.NewA2AClient(cfg.URLOverride, a2aclient.WithTimeout(cfg.Config.Timeout))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
 			return
@@ -80,7 +80,7 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		}
 
 		a2aURL := fmt.Sprintf("%s/api/a2a/%s/%s", cfg.Config.KAgentURL, cfg.Config.Namespace, cfg.Agent)
-		a2aClient, err = a2aclient.NewA2AClient(a2aURL)
+		a2aClient, err = a2aclient.NewA2AClient(a2aURL, a2aclient.WithTimeout(cfg.Config.Timeout))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
 			return

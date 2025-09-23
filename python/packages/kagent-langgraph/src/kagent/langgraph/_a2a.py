@@ -14,7 +14,7 @@ from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
-from kagent.core import KAgentConfig
+from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 from langgraph.graph.state import CompiledStateGraph
 
@@ -53,6 +53,7 @@ class KAgentApp:
         agent_card: AgentCard,
         config: KAgentConfig,
         executor_config: LangGraphAgentExecutorConfig | None = None,
+        tracing: bool = True,
     ):
         """Initialize the KAgent application.
 
@@ -61,6 +62,7 @@ class KAgentApp:
             agent_card: Agent card configuration for A2A protocol
             config: KAgent configuration
             executor_config: Optional executor configuration
+            tracing: Enable OpenTelemetry tracing/logging via kagent.core.tracing
 
         """
         self._graph = graph
@@ -68,6 +70,7 @@ class KAgentApp:
         self.config = config
 
         self.executor_config = executor_config or LangGraphAgentExecutorConfig()
+        self._enable_tracing = tracing
 
     def build(self) -> FastAPI:
         """Build the FastAPI application with A2A integration.
@@ -114,6 +117,14 @@ class KAgentApp:
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
         )
+
+        # Configure tracing/instrumentation if enabled
+        if self._enable_tracing:
+            try:
+                configure_tracing(app)
+                logger.info("Tracing configured for KAgent LangGraph app")
+            except Exception:
+                logger.exception("Failed to configure tracing")
 
         # Add health check and debugging routes
         app.add_route("/health", methods=["GET"], route=health_check)

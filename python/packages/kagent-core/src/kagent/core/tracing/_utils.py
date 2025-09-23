@@ -7,6 +7,7 @@ from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._events import EventLoggerProvider
@@ -29,6 +30,7 @@ def configure(fastapi_app: FastAPI | None = None):
         tracer_provider = TracerProvider(resource=resource)
         # Check new env var first, fall back to old one for backward compatibility
         trace_endpoint = os.getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        logging.info("Trace endpoint: %s", trace_endpoint or "<default>")
         if trace_endpoint:
             processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=trace_endpoint))
         else:
@@ -65,3 +67,4 @@ def configure(fastapi_app: FastAPI | None = None):
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
         OpenAIInstrumentor().instrument()
         AnthropicInstrumentor().instrument()
+        GoogleGenerativeAiInstrumentor().instrument()

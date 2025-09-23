@@ -80,7 +80,23 @@ class LangGraphAgentExecutor(AgentExecutor):
             "configurable": {
                 "thread_id": session_id,
                 "app_name": self.app_name,
-            }
+            },
+            "project_name": self.app_name,
+            "run_name": "kagent-langgraph-exec",
+            "tags": [
+                "kagent",
+                "langgraph",
+                f"app:{self.app_name}",
+                f"task:{context.task_id}",
+                f"context:{context.context_id}",
+                f"session:{session_id}",
+            ],
+            "metadata": {
+                "kagent_app_name": self.app_name,
+                "a2a_context_id": context.context_id,
+                "a2a_task_id": context.task_id,
+                "a2a_request_id": getattr(context, "request_id", None),
+            },
         }
 
     async def _stream_graph_events(
