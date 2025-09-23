@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -88,8 +89,15 @@ func buildK8sURL(baseURL string) string {
 	// Get the port from the listener address
 	splitted := strings.Split(baseURL, ":")
 	port := splitted[len(splitted)-1]
+	// Check local OS and use the correct local host
+	var localHost string
+	switch runtime.GOOS {
+	case "darwin":
+		localHost = "host.docker.internal"
+	case "linux":
+		localHost = "172.17.0.1"
+	}
 
-	localHost := "172.17.0.1"
 	if os.Getenv("KAGENT_LOCAL_HOST") != "" {
 		localHost = os.Getenv("KAGENT_LOCAL_HOST")
 	}
@@ -112,7 +120,7 @@ func TestInvokeInlineAgent(t *testing.T) {
 	cfg, err := config.GetConfig()
 	require.NoError(t, err)
 
-	scheme := runtime.NewScheme()
+	scheme := k8s_runtime.NewScheme()
 	err = v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
 
