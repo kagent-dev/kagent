@@ -9,8 +9,7 @@ description = "CrewAI integration for KAgent with A2A server support"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-  "crewai>=0.40.0",
-  "crewai-tools>=0.4.0",
+  "crewai[tools]>=0.193.2,<1.0.0",
   "httpx>=0.25.0",
   "fastapi>=0.100.0",
   "pydantic>=2.0.0",

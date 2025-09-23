@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
 from crewai import Crew, Flow
-from kagent.core import KAgentConfig
+from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
 from ._executor import CrewAIAgentExecutor, CrewAIAgentExecutorConfig
@@ -39,11 +39,13 @@ class KAgentApp:
         agent_card: AgentCard,
         config: KAgentConfig = KAgentConfig(),
         executor_config: CrewAIAgentExecutorConfig | None = None,
+        tracing: bool = True,
     ):
         self._crew = crew
         self.agent_card = AgentCard.model_validate(agent_card)
         self.config = config
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
+        self.tracing = tracing
 
     def build(self) -> FastAPI:
         http_client = httpx.AsyncClient(base_url=self.config.url)
@@ -73,6 +75,9 @@ class KAgentApp:
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
         )
+
+        if self.tracing:
+            configure_tracing(app)
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)

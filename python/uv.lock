@@ -512,7 +512,7 @@ wheels = [
 
 [[package]]
 name = "crewai"
-version = "0.193.0"
+version = "0.193.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "appdirs" },
@@ -542,9 +542,14 @@ dependencies = [
     { name = "tomli-w" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6c/b6/1cda0ac51f03e6f44f04290c8eae7e67002deea9955b8061716d5bcd32f6/crewai-0.193.0.tar.gz", hash = "sha256:3453305472ef10a3dfa56880876bc1775beef58dfbe566c0ad89bfbb2b9178bd", size = 6562614, upload-time = "2025-09-19T18:59:31.389Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/ac/329d62f5abfb24ffb096c041469ba24190feca1d5651084d5c332939b33f/crewai-0.193.2.tar.gz", hash = "sha256:239f1d299bbf493e76778434f6476604b585e1f228e2c75d39983a39a1522275", size = 6563484, upload-time = "2025-09-20T21:09:16.553Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/2d/5b55e09d3cb7dc5e1d77a05a0063f0e497c7888953b3f47c8a4a03cc5e34/crewai-0.193.0-py3-none-any.whl", hash = "sha256:de217f0e392624a51cf382336462afd31098e844f25820c3c22df83b3a48daf2", size = 430655, upload-time = "2025-09-19T18:59:29.443Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/81/699782ddfe3c18f6954355f4ec53d73d9c88a88bc5433f590163549a0fbf/crewai-0.193.2-py3-none-any.whl", hash = "sha256:cad4d6a5f32e902a390ca3fc84698839e7720c1ae7acdba002da9a18405a01c8", size = 431559, upload-time = "2025-09-20T21:09:08.676Z" },
+]
+
+[package.optional-dependencies]
+tools = [
+    { name = "crewai-tools" },
 ]
 
 [[package]]
@@ -1786,8 +1791,7 @@ version = "0.1.0"
 source = { editable = "packages/kagent-crewai" }
 dependencies = [
     { name = "a2a-sdk" },
-    { name = "crewai" },
-    { name = "crewai-tools" },
+    { name = "crewai", extra = ["tools"] },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "kagent-core" },
@@ -1808,8 +1812,7 @@ dev = [
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.3.1" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "crewai", specifier = ">=0.40.0" },
-    { name = "crewai-tools", specifier = ">=0.4.0" },
+    { name = "crewai", extras = ["tools"], specifier = ">=0.193.2,<1.0.0" },
     { name = "fastapi", specifier = ">=0.100.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "kagent-core", editable = "packages/kagent-core" },
@@ -2832,23 +2835,6 @@ wheels = [
 ]
 
 [[package]]
-name = "poem-flow"
-version = "0.1.0"
-source = { editable = "samples/crewai/poem_flow" }
-dependencies = [
-    { name = "crewai" },
-    { name = "crewai-tools" },
-    { name = "kagent-crewai" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "crewai" },
-    { name = "crewai-tools" },
-    { name = "kagent-crewai", editable = "packages/kagent-crewai" },
-]
-
-[[package]]
 name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2950,6 +2936,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
+name = "poem-flow"
+version = "0.1.0"
+source = { editable = "samples/crewai/poem_flow" }
+dependencies = [
+    { name = "crewai", extra = ["tools"] },
+    { name = "kagent-crewai" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "crewai", extras = ["tools"], specifier = ">=0.193.2,<1.0.0" },
+    { name = "kagent-crewai", editable = "packages/kagent-crewai" },
 ]
 
 [[package]]
@@ -3543,15 +3544,13 @@ name = "research-crew"
 version = "0.1.0"
 source = { editable = "samples/crewai/research-crew" }
 dependencies = [
-    { name = "crewai" },
-    { name = "crewai-tools" },
+    { name = "crewai", extra = ["tools"] },
     { name = "kagent-crewai" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "crewai" },
-    { name = "crewai-tools" },
+    { name = "crewai", extras = ["tools"], specifier = ">=0.193.2,<1.0.0" },
     { name = "kagent-crewai", editable = "packages/kagent-crewai" },
 ]
 
