@@ -164,36 +164,6 @@ func TestInvokeExternalAgent(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, text, "kebab for user@example.com", string(jsn))
 	})
-
-	t.Run("invocation with mcp server tool", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		msg, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
-			Message: protocol.Message{
-				Kind:  protocol.KindMessage,
-				Role:  protocol.MessageRoleUser,
-				Parts: []protocol.Part{protocol.NewTextPart("add 3 and 5")},
-			},
-		})
-		require.NoError(t, err)
-
-		resultList := []protocol.StreamingMessageEvent{}
-		var text string
-		for event := range msg {
-			msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
-			if !ok {
-				continue
-			}
-			if msgResult.Status.Message != nil {
-				text += a2a.ExtractText(*msgResult.Status.Message)
-			}
-			resultList = append(resultList, event)
-		}
-		jsn, err := json.Marshal(resultList)
-		require.NoError(t, err)
-		require.Contains(t, string(jsn), "8", string(jsn))
-	})
 }
 
 func TestInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {

@@ -362,7 +362,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
+		setupLog.Error(err, "unable to create controller", "controller", "MCPServerToolDiscovery")
 		os.Exit(1)
 	}
 
