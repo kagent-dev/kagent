@@ -7,7 +7,7 @@ WORKDIR /app
 COPY  {{.Name}}/ {{.Name}}/
 COPY  pyproject.toml pyproject.toml
 COPY  README.md README.md
-COPY  .python-version .python-versiong
+COPY  .python-version .python-version
 
 RUN uv sync
 
