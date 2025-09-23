@@ -46,27 +46,27 @@ export default function ChatLayoutUI({
     return tools;
   }, [allTools]);
 
-  const refreshSessions = async () => {
-    setIsLoadingSessions(true);
-    try {
-      const sessionsResponse = await getSessionsForAgent(namespace, agentName);
-      if (!sessionsResponse.error && sessionsResponse.data) {
-        setSessions(sessionsResponse.data);
-      } else {
-        console.log(`No sessions found for agent ${agentName}`);
-        setSessions([]);
-      }
-    } catch (error) {
-      toast.error(`Failed to load sessions: ${error}`);
-      setSessions([]);
-    } finally {
-      setIsLoadingSessions(false);
-    }
-  };
-
+  
   useEffect(() => {
+    const refreshSessions = async () => {
+      setIsLoadingSessions(true);
+      try {
+        const sessionsResponse = await getSessionsForAgent(namespace, agentName);
+        if (!sessionsResponse.error && sessionsResponse.data) {
+          setSessions(sessionsResponse.data);
+        } else {
+          console.log(`No sessions found for agent ${agentName}`);
+          setSessions([]);
+        }
+      } catch (error) {
+        toast.error(`Failed to load sessions: ${error}`);
+        setSessions([]);
+      } finally {
+        setIsLoadingSessions(false);
+      }
+    };
     refreshSessions();
-  }, [agentName]);
+  }, [agentName, namespace]);
 
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,7 +89,7 @@ export default function ChatLayoutUI({
     return () => {
       window.removeEventListener('new-session-created', handleNewSession);
     };
-  }, [agentName]);
+  }, [agentName, namespace]);
 
   return (
     <>

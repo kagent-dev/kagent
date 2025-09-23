@@ -147,7 +147,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   replicas: agent.spec?.byo?.deployment?.replicas !== undefined ? String(agent.spec?.byo?.deployment?.replicas) : "",
                   imagePullPolicy: agent.spec?.byo?.deployment?.imagePullPolicy || "",
                   imagePullSecrets: (agent.spec?.byo?.deployment?.imagePullSecrets || []).map((s: { name: string }) => s.name).concat((agent.spec?.byo?.deployment?.imagePullSecrets || []).length === 0 ? [""] : []),
-                  envPairs: (agent.spec?.byo?.deployment?.env || []).map((e: any) => (
+                  envPairs: (agent.spec?.byo?.deployment?.env || []).map((e: EnvVar) => (
                     e?.valueFrom?.secretKeyRef
                       ? { name: e.name || "", isSecret: true, secretName: e.valueFrom.secretKeyRef.name || "", secretKey: e.valueFrom.secretKeyRef.key || "", optional: e.valueFrom.secretKeyRef.optional }
                       : { name: e.name || "", value: e.value || "", isSecret: false }

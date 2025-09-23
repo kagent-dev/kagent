@@ -131,10 +131,7 @@ export async function POST(
   }
 }
 
-export async function OPTIONS(
-  request: NextRequest,
-  { params }: { params: Promise<{ namespace: string; agentName: string }> }
-) {
+export async function OPTIONS() {
   return new Response(null, {
     status: 200,
     headers: {

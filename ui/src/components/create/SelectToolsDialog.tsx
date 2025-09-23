@@ -153,7 +153,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       return getToolResponseDisplayName(a.tool).localeCompare(getToolResponseDisplayName(b.tool));
     });
     
-    sortedTools.forEach(({ tool, server }) => {
+    sortedTools.forEach(({ tool }) => {
       const category = getToolResponseCategory(tool);
       if (!groups[category]) {
         groups[category] = [];

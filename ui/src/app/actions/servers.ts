@@ -31,7 +31,7 @@ export async function getServers(): Promise<BaseResponse<ToolServerResponse[]>> 
  */
 export async function deleteServer(serverName: string): Promise<BaseResponse<void>> {
   try {
-    const response = await fetchApi<BaseResponse<void>>(`/toolservers/${serverName}`, {
+    await fetchApi<BaseResponse<void>>(`/toolservers/${serverName}`, {
       method: "DELETE",
     });
 

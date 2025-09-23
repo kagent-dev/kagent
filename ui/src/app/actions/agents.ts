@@ -5,7 +5,7 @@ import { Agent, AgentResponse, Tool } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { isMcpTool, isAgentTool } from "@/lib/toolUtils";
+import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
 /**
@@ -23,7 +23,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
   const convertTools = (tools: Tool[]) =>
     tools.map((tool) => {
       if (isMcpTool(tool)) {
-        const mcpServer = (tool as Tool).mcpServer;
+        const mcpServer = tool.mcpServer;
         if (!mcpServer) {
           throw new Error("MCP server not found");
         }
@@ -51,8 +51,8 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         } as Tool;
       }
 
-      if ((tool as any).agent) {
-        const agentObj = (tool as any).agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
+      if (tool.type === "Agent") {
+        const agentObj = tool.agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
         const refOrName = agentObj.ref || agentObj.name || "";
         const nameOnly = k8sRefUtils.isValidRef(refOrName) ? k8sRefUtils.fromRef(refOrName).name : refOrName;
         return {
@@ -62,7 +62,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
             kind: agentObj.kind || "Agent",
             apiGroup: agentObj.apiGroup || "kagent.dev",
           },
-        } as unknown as Tool;
+        } as Tool;
       }
 
       console.warn("Unknown tool type:", tool);

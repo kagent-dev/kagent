@@ -215,22 +215,6 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     setEnvPairs(updatedPairs);
   };
 
-  const formatArgs = (): string[] => {
-    const args: string[] = [];
-
-    if (commandPrefix.trim()) {
-      args.push(...commandPrefix.trim().split(/\s+/));
-    }
-
-    if (packageName.trim()) {
-      args.push(packageName.trim());
-    }
-
-    argPairs.filter((arg) => arg.value.trim() !== "").forEach((arg) => args.push(arg.value.trim()));
-
-    return args;
-  };
-
   const formatEnvVars = (): Record<string, string> => {
     const envVars: Record<string, string> = {};
     envPairs.forEach((pair) => {
@@ -352,6 +336,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
             parsedHeaders = JSON.parse(headers);
           } catch (e) {
             setError("Headers must be valid JSON");
+            console.error(`❌ Error parsing headers: ${e}`);
             setIsSubmitting(false);
             return;
           }

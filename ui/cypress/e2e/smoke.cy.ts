@@ -50,6 +50,6 @@ describe('Main page', () => {
 
     cy.wait(1000)
     cy.visit('/servers')
-    cy.contains('h1', 'Tool Servers').should('be.visible');
+    cy.contains('h1', 'MCP Servers').should('be.visible');
   })
 })
