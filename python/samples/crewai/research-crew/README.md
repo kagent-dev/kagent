@@ -54,14 +54,14 @@ It follows the standard CrewAI project structure and developer experience, allow
 
    ```bash
    cd ../../..  # Go to /kagent/python
-   uv sync --all-extras --all-groups
+   uv sync --all-extras
    ```
 
 2. **Set environment variables**:
 
    ```bash
    export KAGENT_URL=http://localhost:8080
-   export OPENAI_API_KEY="sk-..."
+   export GEMINI_API_KEY="sk-..."
    export SERPER_API_KEY="..."
    ```
 

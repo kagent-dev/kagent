@@ -1,7 +1,7 @@
 ### STAGE 1: base image
 ARG DOCKER_REGISTRY=ghcr.io
 ARG VERSION=latest
-FROM python:3.13-slim
+FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim
 
 WORKDIR /app
 
@@ -9,9 +9,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
-
-# Install uv for fast Python package management
-RUN pip install uv
 
 # Copy project files
 COPY samples samples
@@ -22,11 +19,13 @@ COPY .python-version .python-version
 COPY uv.lock uv.lock
 
 # Install dependencies
-RUN uv sync --locked --no-dev
+RUN uv venv && uv sync --locked --no-dev --package kagent-crewai
+# Install the research-crew package itself in editable mode
+RUN uv pip install -e samples/crewai/research-crew
 
 # Set environment variables
-ENV PYTHONPATH=/app/src
 ENV PORT=8080
+ENV VIRTUAL_ENV=/app/.venv
 
 # Expose port
 EXPOSE 8080

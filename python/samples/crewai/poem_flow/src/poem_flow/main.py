@@ -6,7 +6,6 @@ from random import randint
 
 import uvicorn
 from crewai.flow import Flow, listen, start
-from kagent.core import configure_tracing
 from kagent.crewai import KAgentApp
 from pydantic import BaseModel
 
@@ -55,6 +54,7 @@ def plot():
     poem_flow.plot()
 
 
+# To integrate with Kagent, just replace the kickoff above with the KAgentApp code below
 def main():
     """Main entry point to run the KAgent CrewAI server."""
     with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
@@ -63,7 +63,6 @@ def main():
     app = KAgentApp(crew=PoemFlow(), agent_card=agent_card)
 
     server = app.build()
-    configure_tracing(server)
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
