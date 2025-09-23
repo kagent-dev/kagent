@@ -93,6 +93,92 @@ helm uninstall kagent-crds --namespace kagent
 
 **Note**: Uninstalling the CRDs chart will delete all custom resources of those types across all namespaces.
 
+## Observability Configuration
+
+Kagent supports OpenTelemetry tracing and logging for comprehensive observability:
+
+### Enable Tracing
+
+```bash
+# Basic tracing setup
+helm install kagent ./helm/kagent/ --namespace kagent \
+  --set providers.openAI.apiKey=your-openai-api-key \
+  --set otel.tracing.enabled=true \
+  --set otel.tracing.exporter.otlp.endpoint=http://your-collector:4317
+
+# With custom timeout and insecure connection
+helm install kagent ./helm/kagent/ --namespace kagent \
+  --set providers.openAI.apiKey=your-openai-api-key \
+  --set otel.tracing.enabled=true \
+  --set otel.tracing.exporter.otlp.endpoint=http://your-collector:4317 \
+  --set otel.tracing.exporter.otlp.timeout=30 \
+  --set otel.tracing.exporter.otlp.insecure=true
+```
+
+### Enable Logging
+
+```bash
+# Enable correlated logging with traces
+helm install kagent ./helm/kagent/ --namespace kagent \
+  --set providers.openAI.apiKey=your-openai-api-key \
+  --set otel.logging.enabled=true \
+  --set otel.logging.exporter.otlp.endpoint=http://your-collector:4317
+```
+
+### Complete Observability Setup
+
+```bash
+# Enable both tracing and logging
+helm install kagent ./helm/kagent/ --namespace kagent \
+  --set providers.openAI.apiKey=your-openai-api-key \
+  --set otel.tracing.enabled=true \
+  --set otel.tracing.exporter.otlp.endpoint=http://your-collector:4317 \
+  --set otel.logging.enabled=true \
+  --set otel.logging.exporter.otlp.endpoint=http://your-collector:4317
+```
+
+### Values Configuration
+
+You can also configure observability via values.yaml:
+
+```yaml
+otel:
+  tracing:
+    enabled: true
+    exporter:
+      otlp:
+        endpoint: http://your-collector:4317
+        timeout: 15
+        insecure: true
+  logging:
+    enabled: true
+    exporter:
+      otlp:
+        endpoint: http://your-collector:4317
+        timeout: 15
+        insecure: true
+```
+
+### Local Development with Jaeger
+
+```bash
+# Start local Jaeger/OTEL collector (from repo root)
+make otel-local  # Jaeger UI at http://localhost:16686
+
+# Install with local collector
+helm install kagent ./helm/kagent/ --namespace kagent \
+  --set providers.openAI.apiKey=your-openai-api-key \
+  --set otel.tracing.enabled=true \
+  --set otel.tracing.exporter.otlp.endpoint=http://localhost:4317
+```
+
+### What Gets Instrumented
+
+- **A2A Communication**: End-to-end spans for agent-to-agent calls
+- **GenAI SDKs**: OpenAI, Anthropic, and other LLM provider calls
+- **HTTP Requests**: FastAPI and HTTPX instrumentation
+- **Application Logs**: Correlated with TraceID/SpanID for debugging
+
 ## Why Separate CRDs?
 
 Helm has a limitation where CRDs are installed but not removed during uninstallation. 

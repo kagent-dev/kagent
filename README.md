@@ -54,7 +54,7 @@ The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/do
 - **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/kagent/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
 - **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana,  Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
 - **Memory**: Using the [memory](https://kagent.dev/docs/kagent/concepts/memory), your agents can always have access to the latest and most up-to-date information.
-- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
+- **Observability**: Kagent supports [OpenTelemetry tracing and logging](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools. Enable via Helm values or environment variables for comprehensive observability including A2A spans and correlated logs.
 
 ## Core Principles
 
@@ -83,6 +83,50 @@ Kagent has 4 core components:
 ## Roadmap
 
 `kagent` is currently in active development. You can check out the full roadmap in the project Kanban board [here](https://github.com/orgs/kagent-dev/projects/3).
+
+## Observability & Monitoring
+
+Kagent provides comprehensive observability through OpenTelemetry tracing and logging:
+
+### Quick Setup with Helm
+
+Enable tracing and logging when installing Kagent:
+
+```bash
+# Install with OpenTelemetry tracing enabled
+helm install kagent ./helm/kagent/ --namespace kagent \
+  --set providers.openAI.apiKey=your-openai-api-key \
+  --set otel.tracing.enabled=true \
+  --set otel.tracing.exporter.otlp.endpoint=http://your-collector:4317
+
+# Enable both tracing and logging
+helm install kagent ./helm/kagent/ --namespace kagent \
+  --set providers.openAI.apiKey=your-openai-api-key \
+  --set otel.tracing.enabled=true \
+  --set otel.tracing.exporter.otlp.endpoint=http://your-collector:4317 \
+  --set otel.logging.enabled=true \
+  --set otel.logging.exporter.otlp.endpoint=http://your-collector:4317
+```
+
+### What You Get
+
+- **End-to-End A2A Spans**: Distributed traces spanning client→server agent communication
+- **Correlated Logs**: Application logs with TraceID/SpanID for correlation with traces
+- **GenAI Instrumentation**: Automatic tracing of OpenAI, Anthropic, and other LLM calls
+- **FastAPI & HTTPX Spans**: Complete request/response tracing
+
+### Local Testing
+
+```bash
+# Start local Jaeger/OTEL collector
+make otel-local  # Jaeger UI at http://localhost:16686
+
+# Install with local collector
+helm install kagent ./helm/kagent/ --namespace kagent \
+  --set providers.openAI.apiKey=your-openai-api-key \
+  --set otel.tracing.enabled=true \
+  --set otel.tracing.exporter.otlp.endpoint=http://localhost:4317
+```
 
 ## Local development
 
