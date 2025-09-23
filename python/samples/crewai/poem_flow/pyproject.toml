@@ -6,22 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "kagent-crewai",
-<<<<<<< HEAD
     "crewai[tools]>=0.193.2,<1.0.0"
-=======
-    "crewai",
-    "crewai-tools"
->>>>>>> dabd983 (fix: cleanup naming and readme)
 ]
-
-[project.scripts]
-kickoff = "poem_flow.main:kickoff"
-run_crew = "poem_flow.main:kickoff"
-plot = "poem_flow.main:plot"
-<<<<<<< HEAD
-poem_flow = "poem_flow.main:main"
-=======
->>>>>>> dabd983 (fix: cleanup naming and readme)
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
