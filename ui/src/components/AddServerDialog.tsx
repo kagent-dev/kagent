@@ -461,7 +461,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
         <DialogHeader className="px-6 pt-6 pb-2 border-b flex-shrink-0">
-          <DialogTitle>Add Tool Server</DialogTitle>
+          <DialogTitle>Add MCP Server</DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6">
