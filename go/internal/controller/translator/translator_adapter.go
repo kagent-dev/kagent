@@ -23,7 +23,7 @@ import (
 
 const (
 	transportAdapterContainerImage = "ghcr.io/agentgateway/agentgateway:0.7.4-musl"
-	defaultDebiainContainerImage   = "ghcr.io/astral-sh/uv:debian"
+	defaultDebianContainerImage    = "ghcr.io/astral-sh/uv:debian"
 	defaultNodeContainerImage      = "node:24-alpine3.21"
 	mcpServerConfigHashAnnotation  = "kagent.dev/mcpserver-config-hash"
 )
@@ -79,7 +79,7 @@ func (t *transportAdapterTranslator) translateTransportAdapterDeployment(
 ) (*appsv1.Deployment, error) {
 	image := server.Spec.Deployment.Image
 	if image == "" && server.Spec.Deployment.Cmd == "uvx" {
-		image = defaultDebiainContainerImage
+		image = defaultDebianContainerImage
 	}
 	if image == "" && server.Spec.Deployment.Cmd == "npx" {
 		image = defaultNodeContainerImage
@@ -253,7 +253,7 @@ func (t *transportAdapterTranslator) addMCPServerConfigHashAnnotation(
 	if deployment.Spec.Template.Annotations == nil {
 		deployment.Spec.Template.Annotations = make(map[string]string)
 	}
-	deployment.Spec.Template.Annotations["kmcp.kagent.dev/mcpserver-config-hash"] = truncatedHash
+	deployment.Spec.Template.Annotations[mcpServerConfigHashAnnotation] = truncatedHash
 }
 
 func (t *transportAdapterTranslator) translateTransportAdapterServiceAccount(
