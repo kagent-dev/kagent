@@ -81,6 +81,8 @@ jobs:
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
           make push-test-agent
+          make apply-add-numbers-agent
+          kubectl wait --for=condition=Ready  mcpservers.kagent.dev -n kagent --all --timeout=60s
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests

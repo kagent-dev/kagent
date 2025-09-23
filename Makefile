@@ -112,6 +112,12 @@ push-test-agent: build-kagent-adk
 	$(DOCKER_BUILDER) build --push --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) --build-arg VERSION=$(VERSION) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 
+# Applies manifests for a declarative agent with a MCP server tool used for testing purposes
+.PHONY: apply-add-numbers-agent
+apply-add-numbers-agent:
+	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/manifests/everything-mcp-server.yaml
+	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/manifests/add-numbers-agent.yaml
+
 .PHONY: create-kind-cluster
 create-kind-cluster:
 	bash ./scripts/kind/setup-kind.sh

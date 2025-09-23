@@ -12,7 +12,7 @@ import (
 )
 
 // ReconcileMCPServerStatus reconciles the status of an MCPServer based on the deployment state
-func ReconcileMCPServerStatus(ctx context.Context, kube client.Client, mcpServer *v1alpha2.MCPServer, reconcileErr error) error {
+func ReconcileMCPServerStatus(ctx context.Context, kube client.Client, mcpServer *v1alpha2.MCPServer, reconcileErr error) (bool, error) {
 	// Set Accepted condition based on reconcile error
 	setAcceptedCondition(mcpServer, reconcileErr)
 
@@ -23,10 +23,10 @@ func ReconcileMCPServerStatus(ctx context.Context, kube client.Client, mcpServer
 	setProgrammedCondition(mcpServer, reconcileErr == nil)
 
 	// Set Ready condition based on deployment status
-	checkReadyCondition(ctx, kube, mcpServer)
+	shouldRequeue := checkReadyCondition(ctx, kube, mcpServer)
 
 	// Update the status if it has changed
-	return updateMCPServerStatus(ctx, kube, mcpServer)
+	return shouldRequeue, updateMCPServerStatus(ctx, kube, mcpServer)
 }
 
 // setAcceptedCondition sets the Accepted condition on the MCPServer
@@ -69,7 +69,8 @@ func setProgrammedCondition(mcpServer *v1alpha2.MCPServer, programmed bool) {
 }
 
 // checkReadyCondition checks if the MCPServer is ready by examining the deployment status
-func checkReadyCondition(ctx context.Context, kube client.Client, mcpServer *v1alpha2.MCPServer) {
+// returns true if the deployment is not ready and request should be requeued
+func checkReadyCondition(ctx context.Context, kube client.Client, mcpServer *v1alpha2.MCPServer) bool {
 	deployment := &appsv1.Deployment{}
 	deploymentName := mcpServer.Name
 	if err := kube.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: mcpServer.Namespace}, deployment); err != nil {
@@ -83,7 +84,7 @@ func checkReadyCondition(ctx context.Context, kube client.Client, mcpServer *v1a
 				fmt.Sprintf("Error getting deployment: %s", err.Error()),
 			)
 		}
-		return
+		return false
 	}
 
 	if deployment.Status.AvailableReplicas > 0 && deployment.Status.AvailableReplicas == deployment.Status.Replicas {
@@ -97,7 +98,9 @@ func checkReadyCondition(ctx context.Context, kube client.Client, mcpServer *v1a
 		message := fmt.Sprintf("Deployment not ready: %d/%d replicas available",
 			deployment.Status.AvailableReplicas, deployment.Status.Replicas)
 		setReadyCondition(mcpServer, false, v1alpha2.MCPServerReasonNotAvailable, message)
+		return true
 	}
+	return false
 }
 
 // setReadyCondition sets the Ready condition on the MCPServer

@@ -44,7 +44,7 @@ type KagentReconciler interface {
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) (bool, error)
 	GetOwnedResourceTypes() []client.Object
 }
 
@@ -308,24 +308,24 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 	return nil
 }
 
-func (a *kagentReconciler) ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) error {
+func (a *kagentReconciler) ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) (bool, error) {
 	mcpServer := &v1alpha2.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
 		if k8s_errors.IsNotFound(err) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 
 	t := translator.NewTransportAdapterTranslator(a.kube.Scheme())
 	outputs, err := t.TranslateTransportAdapterOutputs(ctx, mcpServer)
 	if err != nil {
 		reconcileLog.Error(err, "Failed to translate MCPServer outputs", "mcpServer", req.NamespacedName)
-		// Reconcile status with error
-		if statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, err); statusErr != nil {
+		shouldRequeue, statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, err)
+		if statusErr != nil {
 			reconcileLog.Error(statusErr, "Failed to reconcile MCPServer status", "mcpServer", req.NamespacedName)
 		}
-		return err
+		return shouldRequeue, statusErr
 	}
 
 	// upsert the outputs which include the mcp server deployment, svc, sa and configmap
@@ -339,12 +339,12 @@ func (a *kagentReconciler) ReconcileKagentMCPServerDeployment(ctx context.Contex
 		}
 	}
 
-	if statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, reconcileErr); statusErr != nil {
+	shouldRequeue, statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, reconcileErr)
+	if statusErr != nil {
 		reconcileLog.Error(statusErr, "Failed to reconcile MCPServer status", "mcpServer", req.NamespacedName)
-		return statusErr
 	}
 
-	return reconcileErr
+	return shouldRequeue, reconcileErr
 }
 
 func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {

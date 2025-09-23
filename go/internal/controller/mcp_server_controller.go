@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
@@ -51,7 +52,11 @@ type MCPServerController struct {
 func (r *MCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
-	return ctrl.Result{}, r.Reconciler.ReconcileKagentMCPServerDeployment(ctx, req)
+	shouldRequeue, err := r.Reconciler.ReconcileKagentMCPServerDeployment(ctx, req)
+	if shouldRequeue {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+	return ctrl.Result{}, err
 }
 
 // SetupWithManager sets up the controller with the Manager.
