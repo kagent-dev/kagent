@@ -12,15 +12,15 @@ export async function getServers(): Promise<BaseResponse<ToolServerResponse[]>> 
     const response = await fetchApi<BaseResponse<ToolServerResponse[]>>(`/toolservers`);
 
     if (!response) {
-      throw new Error("Failed to get tool servers");
+      throw new Error("Failed to get MCP servers");
     }
 
     return {
-      message: "Tool servers fetched successfully",
+      message: "MCP servers fetched successfully",
       data: response.data,
     };  
   } catch (error) {
-    return createErrorResponse<ToolServerResponse[]>(error, "Error getting tool servers");
+    return createErrorResponse<ToolServerResponse[]>(error, "Error getting MCP servers");
   }
 }
 
@@ -36,10 +36,10 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
     });
 
     return {
-      message: "Tool server deleted successfully",
+      message: "MCP server deleted successfully",
     };
   } catch (error) {
-    return createErrorResponse<void>(error, "Error deleting tool server");
+    return createErrorResponse<void>(error, "Error deleting MCP server");
   }
 }
 
@@ -50,7 +50,6 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
  */
 export async function createServer(serverData: ToolServerCreateRequest): Promise<BaseResponse<RemoteMCPServer | MCPServer>> {
   try {
-    console.log('Creating server with data:', JSON.stringify(serverData, null, 2));
     const response = await fetchApi<BaseResponse<RemoteMCPServer | MCPServer>>("/toolservers", {
       method: "POST",
       headers: {
@@ -61,6 +60,6 @@ export async function createServer(serverData: ToolServerCreateRequest): Promise
     
     return response;
   } catch (error) {
-    return createErrorResponse<RemoteMCPServer | MCPServer>(error, "Error creating tool server");
+    return createErrorResponse<RemoteMCPServer | MCPServer>(error, "Error creating MCP server");
   }
 }
