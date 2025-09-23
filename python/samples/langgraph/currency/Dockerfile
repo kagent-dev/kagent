@@ -1,7 +1,7 @@
 ### STAGE 1: base image
 ARG DOCKER_REGISTRY=ghcr.io
 ARG VERSION=latest
-FROM python:3.13-slim
+FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim
 
 WORKDIR /app
 
@@ -9,9 +9,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
-
-# Install uv for fast Python package management
-RUN pip install uv
 
 # Copy project files
 COPY samples samples

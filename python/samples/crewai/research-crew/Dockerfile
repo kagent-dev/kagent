@@ -20,8 +20,6 @@ COPY uv.lock uv.lock
 
 # Install dependencies
 RUN uv venv && uv sync --locked --no-dev --package kagent-crewai
-# Install the research-crew package itself in editable mode
-RUN uv pip install -e samples/crewai/research-crew
 
 # Set environment variables
 ENV PORT=8080
