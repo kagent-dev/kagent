@@ -37,5 +37,7 @@ nodes:
   - role: control-plane
 # Example of port mappings for the control-plane node
 #    extraPortMappings:
-#      - containerPort: 30950
-#        hostPort: 30950
+#      - containerPort: 30884
+#        hostPort: 30884
+#      - containerPort: 30885
+#        hostPort: 30885

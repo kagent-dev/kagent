@@ -27,7 +27,9 @@ BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
 DOCKER_BUILDER ?= docker buildx
 DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
+
 KIND_CLUSTER_NAME ?= kagent
+KIND_IMAGE_VERSION ?= 1.34.0
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
@@ -57,9 +59,8 @@ LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSIO
 #tools versions
 TOOLS_UV_VERSION ?= 0.8.4
 TOOLS_BUN_VERSION ?= 1.2.19
-TOOLS_NODE_VERSION ?= 22.18.0
+TOOLS_NODE_VERSION ?= 22.19.0
 TOOLS_PYTHON_VERSION ?= 3.13
-TOOLS_KIND_IMAGE_VERSION ?= 1.33.2
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
