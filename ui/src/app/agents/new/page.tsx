@@ -31,6 +31,7 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
+  remoteDiscoveryUrl?: string;
 }
 
 interface AgentPageContentProps {
@@ -70,6 +71,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     byoImage: string;
     byoCmd: string;
     byoArgs: string;
+    // Remote
+    remoteDiscoveryUrl: string;
     replicas: string;
     imagePullPolicy: string;
     imagePullSecrets: string[];
@@ -90,6 +93,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
+    remoteDiscoveryUrl: "",
     replicas: "",
     imagePullPolicy: "",
     imagePullSecrets: [""],
@@ -133,8 +137,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
+                  remoteDiscoveryUrl: "",
                 }));
-              } else {
+              } else if (agent.spec.type === "BYO") {
                 setState(prev => ({
                   ...prev,
                   ...baseUpdates,
@@ -152,9 +157,26 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       ? { name: e.name || "", isSecret: true, secretName: e.valueFrom.secretKeyRef.name || "", secretKey: e.valueFrom.secretKeyRef.key || "", optional: e.valueFrom.secretKeyRef.optional }
                       : { name: e.name || "", value: e.value || "", isSecret: false }
                   )).concat((agent.spec?.byo?.deployment?.env || []).length === 0 ? [{ name: "", value: "", isSecret: false }] : []),
+                  remoteDiscoveryUrl: "",
+                }));
+              } else if (agent.spec.type === "Remote") {
+                setState(prev => ({
+                  ...prev,
+                  ...baseUpdates,
+                  systemPrompt: "",
+                  selectedModel: null,
+                  selectedTools: [],
+                  byoImage: "",
+                  byoCmd: "",
+                  byoArgs: "",
+                  replicas: "",
+                  imagePullPolicy: "",
+                  imagePullSecrets: [""],
+                  envPairs: [{ name: "", value: "", isSecret: false }],
+                  remoteDiscoveryUrl: agent.spec?.remote?.discoveryUrl || "",
                 }));
               }
-              
+
             } catch (extractError) {
               console.error("Error extracting assistant data:", extractError);
               toast.error("Failed to extract agent data");
@@ -184,6 +206,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       modelName: state.selectedModel?.ref || "",
       tools: state.selectedTools,
       byoImage: state.byoImage,
+      remoteDiscoveryUrl: state.remoteDiscoveryUrl,
     };
 
     const newErrors = validateAgentData(formData);
@@ -205,6 +228,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       case 'systemPrompt': formData.systemPrompt = value; break;
       case 'model': formData.modelName = value; break;
       case 'tools': formData.tools = value; break;
+      case 'remoteDiscoveryUrl': (formData as any).remoteDiscoveryUrl = value; break;
     }
 
     const fieldErrors = validateAgentData(formData);
@@ -269,6 +293,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             return { name, value: ev.value ?? "" } as EnvVar;
           })
           .filter((e): e is EnvVar => e !== null),
+        // Remote
+        remoteDiscoveryUrl: state.remoteDiscoveryUrl || "",
       };
 
       let result;
@@ -352,7 +378,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <div>
                   <Label className="text-base mb-2 block font-bold">Agent Type</Label>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    Choose declarative (uses a model) or BYO (bring your own containerized agent).
+                    Choose Declarative (uses a model), BYO (bring your own containerized agent), or Remote (reference an external agent).
                   </p>
                   <Select
                     value={state.agentType}
@@ -368,6 +394,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     <SelectContent>
                       <SelectItem value="Declarative">Declarative</SelectItem>
                       <SelectItem value="BYO">BYO</SelectItem>
+                      <SelectItem value="Remote">Remote</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -553,6 +580,24 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     </div>
 
                     
+                  </div>
+                )}
+                {state.agentType === "Remote" && (
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-sm mb-2 block">Discovery URL</Label>
+                      <p className="text-xs mb-2 block text-muted-foreground">
+                        The URL of the agent server to use for the remote agent. The agent card will be inferred from the well known path.
+                      </p>
+                      <Input
+                        value={state.remoteDiscoveryUrl}
+                        onChange={(e) => setState(prev => ({ ...prev, remoteDiscoveryUrl: e.target.value }))}
+                        onBlur={() => validateField('remoteDiscoveryUrl', state.remoteDiscoveryUrl)}
+                        placeholder={`https://remote-agent.example.com/`}
+                        disabled={state.isSubmitting || state.isLoading}
+                      />
+                      {state.errors.remoteDiscoveryUrl && <p className="text-red-500 text-sm mt-1">{state.errors.remoteDiscoveryUrl}</p>}
+                    </div>
                   </div>
                 )}
               </CardContent>

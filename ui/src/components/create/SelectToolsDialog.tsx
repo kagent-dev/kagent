@@ -113,7 +113,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   // Filter tools based on search and category selections
   const filteredAvailableItems = useMemo(() => {
-    const searchLower = searchTerm.toLowerCase();
+    const searchLower = (searchTerm || "").toLowerCase();
 
     // Flatten all tools from all servers
     const allTools: Array<{ tool: ToolsResponse; server: ToolsResponse }> = [];
@@ -137,7 +137,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     const agentCategorySelected = selectedCategories.size === 0 || selectedCategories.has("Agents");
     const agents = agentCategorySelected ? availableAgents.filter(agentResp => {
         const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name).toLowerCase();
-        const agentDesc = agentResp.agent.spec.description.toLowerCase();
+        const agentDesc = (agentResp.agent.spec.description || "").toLowerCase();
         return agentRef.includes(searchLower) || agentDesc.includes(searchLower);
       })
     : [];

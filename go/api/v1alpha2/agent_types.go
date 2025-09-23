@@ -29,20 +29,21 @@ import (
 )
 
 // AgentType represents the agent type
-// +kubebuilder:validation:Enum=Declarative;BYO
+// +kubebuilder:validation:Enum=Declarative;BYO;Remote
 type AgentType string
 
 const (
 	AgentType_Declarative AgentType = "Declarative"
 	AgentType_BYO         AgentType = "BYO"
+	AgentType_Remote      AgentType = "Remote"
 )
 
 // AgentSpec defines the desired state of Agent.
 // +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
-// +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
-// +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, or byo must be specified if type is BYO",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo))"
+// +kubebuilder:validation:XValidation:message="type must be either Declarative, BYO, or Remote",rule="self.type == 'Declarative' || self.type == 'BYO' || self.type == 'Remote'"
+// +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, or byo must be specified if type is BYO, or remote must be specified if type is Remote",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo)) || (self.type == 'Remote' && has(self.remote))"
 type AgentSpec struct {
-	// +kubebuilder:validation:Enum=Declarative;BYO
+	// +kubebuilder:validation:Enum=Declarative;BYO;Remote
 	// +kubebuilder:default=Declarative
 	Type AgentType `json:"type"`
 
@@ -50,6 +51,8 @@ type AgentSpec struct {
 	BYO *BYOAgentSpec `json:"byo,omitempty"`
 	// +optional
 	Declarative *DeclarativeAgentSpec `json:"declarative,omitempty"`
+	// +optional
+	Remote *RemoteAgentSpec `json:"remote,omitempty"`
 
 	// +optional
 	Description string `json:"description,omitempty"`
@@ -109,6 +112,13 @@ type ByoDeploymentSpec struct {
 	Args []string `json:"args,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
+}
+
+type RemoteAgentSpec struct {
+	// DiscoveryURL is the URL of the agent server.
+	// The Agent Card is infered from the well known path.
+	// +kubebuilder:validation:MinLength=1
+	DiscoveryURL string `json:"discoveryUrl,omitempty"`
 }
 
 type SharedDeploymentSpec struct {

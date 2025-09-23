@@ -2,8 +2,11 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
 	"sync"
 
@@ -18,6 +21,7 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/database"
@@ -131,35 +135,38 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		ObservedGeneration: agent.Generation,
 	})
 
-	deployedCondition := metav1.Condition{
-		Type:               v1alpha2.AgentConditionTypeReady,
-		Status:             metav1.ConditionUnknown,
-		ObservedGeneration: agent.Generation,
-	}
-
-	// Check if the deployment exists
-	deployment := &appsv1.Deployment{}
-	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
-		deployedCondition.Status = metav1.ConditionUnknown
-		deployedCondition.Reason = "DeploymentNotFound"
-		deployedCondition.Message = err.Error()
-	} else {
-		replicas := int32(1)
-		if deployment.Spec.Replicas != nil {
-			replicas = *deployment.Spec.Replicas
+	// Remote agents don't have a deployment, so we do not add a deployment condition.
+	if agent.Spec.Type != v1alpha2.AgentType_Remote {
+		deployedCondition := metav1.Condition{
+			Type:               v1alpha2.AgentConditionTypeReady,
+			Status:             metav1.ConditionUnknown,
+			ObservedGeneration: agent.Generation,
 		}
-		if deployment.Status.AvailableReplicas == replicas {
-			deployedCondition.Status = metav1.ConditionTrue
-			deployedCondition.Reason = "DeploymentReady"
-			deployedCondition.Message = "Deployment is ready"
+
+		// Check if the deployment exists
+		deployment := &appsv1.Deployment{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
+			deployedCondition.Status = metav1.ConditionUnknown
+			deployedCondition.Reason = "DeploymentNotFound"
+			deployedCondition.Message = err.Error()
 		} else {
-			deployedCondition.Status = metav1.ConditionFalse
-			deployedCondition.Reason = "DeploymentNotReady"
-			deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+			replicas := int32(1)
+			if deployment.Spec.Replicas != nil {
+				replicas = *deployment.Spec.Replicas
+			}
+			if deployment.Status.AvailableReplicas == replicas {
+				deployedCondition.Status = metav1.ConditionTrue
+				deployedCondition.Reason = "DeploymentReady"
+				deployedCondition.Message = "Deployment is ready"
+			} else {
+				deployedCondition.Status = metav1.ConditionFalse
+				deployedCondition.Reason = "DeploymentNotReady"
+				deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+			}
 		}
-	}
 
-	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+		conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+	}
 
 	// update the status if it has changed or the generation has changed
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
@@ -412,9 +419,21 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 }
 
 func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) error {
-	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
-	if err != nil {
-		return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
+	var agentOutputs *translator.AgentOutputs
+	var err error
+
+	switch agent.Spec.Type {
+	case v1alpha2.AgentType_Remote:
+		// Remote agents are handled entirely in the reconciler
+		agentOutputs, err = a.reconcileRemoteAgent(agent)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile remote agent %s/%s: %v", agent.Namespace, agent.Name, err)
+		}
+	default:
+		agentOutputs, err = a.adkTranslator.TranslateAgent(ctx, agent)
+		if err != nil {
+			return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
+		}
 	}
 
 	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, agent.UID, agent.Namespace, a.adkTranslator.GetOwnedResourceTypes())
@@ -536,6 +555,45 @@ func mutate(f controllerutil.MutateFn, key client.ObjectKey, obj client.Object) 
 	return nil
 }
 
+// reconcileRemoteAgent handles fetching the agent card + config for remote agents
+func (a *kagentReconciler) reconcileRemoteAgent(agent *v1alpha2.Agent) (*translator.AgentOutputs, error) {
+	// Fetch the agent card details from the URL
+	agentCard := &server.AgentCard{}
+
+	agentCardURL := utils.GetAgentCardURL(agent.Spec.Remote.DiscoveryURL)
+	resp, err := http.Get(agentCardURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch agent card (%s): %w", agentCardURL, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read agent card body: %w", err)
+	}
+
+	err = json.Unmarshal(body, agentCard)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent card: %w", err)
+	}
+
+	// Sanitize the agent card's name to be a valid agent name, this allows it to be used used as a tool
+	agentCard.Name = utils.ConvertToValidAgentName(agentCard.Name)
+
+	// Remote agents don't need any Kubernetes manifests
+	return &translator.AgentOutputs{
+		Manifest:  []client.Object{},
+		AgentCard: *agentCard,
+		RemoteConfig: &adk.RemoteAgentConfig{
+			// Name must be a combination of namespace and name
+			// e.g. "namespace__NS__name"
+			Name:        utils.ConvertToPythonIdentifier(fmt.Sprintf("%s/%s", agent.Namespace, agentCard.Name)),
+			Url:         agentCard.URL,
+			Description: agentCard.Description,
+		},
+	}, nil
+}
+
 func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.UID]client.Object) error {
 	// Pruning owned objects in the cluster which are not should not be present after the reconciliation.
 	pruneErrs := []error{}
@@ -563,10 +621,21 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	defer a.upsertLock.Unlock()
 
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+
+	// Marshal remote agent's AgentCard to store in DB
+	var serializedCard string
+	if agent.Spec.Type == v1alpha2.AgentType_Remote && agentOutputs != nil {
+		if cardBytes, err := json.Marshal(agentOutputs.AgentCard); err == nil {
+			serializedCard = string(cardBytes)
+		}
+	}
+
 	dbAgent := &database.Agent{
-		ID:     id,
-		Type:   string(agent.Spec.Type),
-		Config: agentOutputs.Config,
+		ID:           id,
+		Type:         string(agent.Spec.Type),
+		Config:       agentOutputs.Config,
+		RemoteConfig: agentOutputs.RemoteConfig,
+		AgentCard:    serializedCard,
 	}
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {

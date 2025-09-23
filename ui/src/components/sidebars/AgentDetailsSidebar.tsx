@@ -28,6 +28,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   const router = useRouter();
 
   const selectedTeam = currentAgent;
+  const isRemote = selectedTeam?.agent.spec.type === "Remote";
 
   // Fetch agents for looking up agent tool descriptions
   useEffect(() => {
@@ -223,7 +224,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             <SidebarGroup>
               <div className="flex items-center justify-between px-2 mb-1">
                 <SidebarGroupLabel className="font-bold mb-0 p-0">
-                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
+                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {!isRemote && `(${selectedTeam?.model})`}
                 </SidebarGroupLabel>
                 <Button
                   variant="ghost"

@@ -6899,7 +6899,8 @@ spec:
                       If not specified, the default value is true.
                     type: boolean
                   systemMessage:
-                    minLength: 1
+                    description: SystemMessage is a string specifying the system message
+                      for the agent
                     type: string
                   systemMessageFrom:
                     description: SystemMessageFrom is a reference to a ConfigMap or
@@ -7025,14 +7026,25 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              remote:
+                properties:
+                  discoveryUrl:
+                    description: |-
+                      DiscoveryURL is the URL of the agent server.
+                      The Agent Card is infered from the well known path.
+                    minLength: 1
+                    type: string
+                type: object
               type:
                 allOf:
                 - enum:
                   - Declarative
                   - BYO
+                  - Remote
                 - enum:
                   - Declarative
                   - BYO
+                  - Remote
                 default: Declarative
                 description: AgentType represents the agent type
                 type: string
@@ -7042,12 +7054,14 @@ spec:
             x-kubernetes-validations:
             - message: type must be specified
               rule: has(self.type)
-            - message: type must be either Declarative or BYO
-              rule: self.type == 'Declarative' || self.type == 'BYO'
+            - message: type must be either Declarative, BYO, or Remote
+              rule: self.type == 'Declarative' || self.type == 'BYO' || self.type
+                == 'Remote'
             - message: declarative must be specified if type is Declarative, or byo
-                must be specified if type is BYO
+                must be specified if type is BYO, or remote must be specified if type
+                is Remote
               rule: (self.type == 'Declarative' && has(self.declarative)) || (self.type
-                == 'BYO' && has(self.byo))
+                == 'BYO' && has(self.byo)) || (self.type == 'Remote' && has(self.remote))
           status:
             description: AgentStatus defines the observed state of Agent.
             properties:

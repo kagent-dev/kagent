@@ -12,8 +12,9 @@ import (
 type AgentOutputs struct {
 	Manifest []client.Object `json:"manifest,omitempty"`
 
-	Config    *adk.AgentConfig `json:"config,omitempty"`
-	AgentCard server.AgentCard `json:"agentCard"`
+	Config       *adk.AgentConfig       `json:"config,omitempty"`
+	RemoteConfig *adk.RemoteAgentConfig `json:"remoteConfig,omitempty"`
+	AgentCard    server.AgentCard       `json:"agentCard"`
 }
 
 type TranslatorPlugin func(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error

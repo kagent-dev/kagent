@@ -16,6 +16,7 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
+  remoteDiscoveryUrl?: string;
 }
 
 export interface AgentFormData {
@@ -31,6 +32,8 @@ export interface AgentFormData {
   byoImage?: string;
   byoCmd?: string;
   byoArgs?: string[];
+  // Remote fields
+  remoteDiscoveryUrl?: string;
   // Shared deployment optional fields
   replicas?: number;
   imagePullSecrets?: Array<{ name: string }>;
@@ -160,6 +163,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } else if (type === "BYO") {
       if (!data.byoImage || data.byoImage.trim() === "") {
         errors.model = "Container image is required";
+      }
+    } else if (type === "Remote") {
+      if (!data.remoteDiscoveryUrl || data.remoteDiscoveryUrl.trim() === "") {
+        errors.remoteDiscoveryUrl = "Discovery URL is required";
       }
     }
 

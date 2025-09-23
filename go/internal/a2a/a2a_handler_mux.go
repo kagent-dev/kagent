@@ -6,11 +6,14 @@ import (
 	"sync"
 
 	"github.com/gorilla/mux"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
+	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
 )
 
 // A2AHandlerMux is an interface that defines methods for adding, getting, and removing agentic task handlers.
@@ -19,6 +22,7 @@ type A2AHandlerMux interface {
 		agentRef string,
 		client *client.A2AClient,
 		card server.AgentCard,
+		agentType v1alpha2.AgentType,
 	) error
 	RemoveAgentHandler(
 		agentRef string,
@@ -31,15 +35,17 @@ type handlerMux struct {
 	lock           sync.RWMutex
 	basePathPrefix string
 	authenticator  auth.AuthProvider
+	dbClient       database.Client
 }
 
 var _ A2AHandlerMux = &handlerMux{}
 
-func NewA2AHttpMux(pathPrefix string, authenticator auth.AuthProvider) *handlerMux {
+func NewA2AHttpMux(pathPrefix string, authenticator auth.AuthProvider, dbClient database.Client) *handlerMux {
 	return &handlerMux{
 		handlers:       make(map[string]http.Handler),
 		basePathPrefix: pathPrefix,
 		authenticator:  authenticator,
+		dbClient:       dbClient,
 	}
 }
 
@@ -47,8 +53,16 @@ func (a *handlerMux) SetAgentHandler(
 	agentRef string,
 	client *client.A2AClient,
 	card server.AgentCard,
+	agentType v1alpha2.AgentType,
 ) error {
-	srv, err := server.NewA2AServer(card, NewPassthroughManager(client), server.WithMiddleWare(authimpl.NewA2AAuthenticator(a.authenticator)))
+	var manager taskmanager.TaskManager
+	if agentType == v1alpha2.AgentType_Remote {
+		manager = NewRecordingManager(client, a.dbClient, agentRef)
+	} else {
+		manager = NewPassthroughManager(client)
+	}
+
+	srv, err := server.NewA2AServer(card, manager, server.WithMiddleWare(authimpl.NewA2AAuthenticator(a.authenticator)))
 	if err != nil {
 		return fmt.Errorf("failed to create A2A server: %w", err)
 	}

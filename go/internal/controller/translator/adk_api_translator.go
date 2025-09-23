@@ -2,9 +2,6 @@ package translator
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -150,6 +147,10 @@ func (a *adkApiTranslator) TranslateAgent(
 		}
 		return a.buildManifest(ctx, agent, dep, nil, agentCard)
 
+	case v1alpha2.AgentType_Remote:
+		// Remote agents are handled entirely in the reconciler. Just return nil here
+		// as this is called from the HTTP API to validate the agent.
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
@@ -237,18 +238,12 @@ func (a *adkApiTranslator) buildManifest(
 	var cfgJson string
 	var agentCard string
 	if cfg != nil && card != nil {
-		bCfg, err := json.Marshal(cfg)
-		if err != nil {
-			return nil, err
-		}
-		bCard, err := json.Marshal(card)
-		if err != nil {
-			return nil, err
-		}
-		configHash = computeConfigHash(bCfg, bCard)
+		var err error
 
-		cfgJson = string(bCfg)
-		agentCard = string(bCard)
+		cfgJson, agentCard, configHash, err = utils.ComputeConfig(cfg, card)
+		if err != nil {
+			return nil, err
+		}
 
 		secretVol = []corev1.Volume{{
 			Name: "config",
@@ -500,17 +495,25 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				return nil, nil, nil, err
 			}
 
+			headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
 			switch toolAgent.Spec.Type {
 			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
-				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
-				if err != nil {
-					return nil, nil, nil, err
-				}
 
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
 					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
 					Url:         url,
+					Headers:     headers,
+					Description: toolAgent.Spec.Description,
+				})
+			case v1alpha2.AgentType_Remote:
+				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
+					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
+					Url:         agent.Spec.Remote.DiscoveryURL,
 					Headers:     headers,
 					Description: toolAgent.Spec.Description,
 				})
@@ -963,14 +966,6 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 }
 
 // Helper functions
-
-func computeConfigHash(config, card []byte) uint64 {
-	hasher := sha256.New()
-	hasher.Write(config)
-	hasher.Write(card)
-	hash := hasher.Sum(nil)
-	return binary.BigEndian.Uint64(hash[:8])
-}
 
 func collectOtelEnvFromProcess() []corev1.EnvVar {
 	envVars := slices.Collect(utils.Map(
