@@ -24,15 +24,22 @@ ENV GIT_LFS_SKIP_SMUDGE=1
 
 ENV UV_LINK_MODE=copy
 ENV UV_COMPILE_BYTECODE=1
+ENV UV_COMPILE_BYTECODE_TIMEOUT=300
+ENV UV_PROJECT_ENVIRONMENT=/.kagent/python/.venv
+ENV UV_SYSTEM_PYTHON=1
+ENV UV_NO_PROGRESS=1
 
 ENV UV_CACHE_DIR=/.kagent/python/.cache/uv
+ENV UV_TOOL_DIR=/.kagent/python/.cache/uv/tools
+ENV UV_PYTHON_DOWNLOADS_DIR=/.kagent/python/.cache/uv/python
 
-RUN addgroup -g 1001 pythongroup                       && \
+RUN addgroup -g 1001 pythongroup                           && \
     adduser  -u 1001 -G pythongroup -s /bin/bash -D python -h /.kagent/python/  && \
     mkdir    -p /.kagent/python/bin                        && \
     mkdir    -p /.kagent/python/downloads                  && \
     mkdir    -p /.kagent/python/.cache/uv                  && \
-    chown    -vR 1001:1001 /.kagent
+    chown    -vR 1001:1001 /.kagent                        && \
+    chmod    755 /.kagent/python/.cache
 
 USER python
 WORKDIR /.kagent/python
@@ -45,6 +52,7 @@ WORKDIR /.kagent/python
 
 ENV PATH=$PATH:/.kagent/python/bin:/.kagent/python/.venv/bin
 
+# Copy dependency files first for better layer caching
 COPY --chown=python:pythongroup pyproject.toml  .
 COPY --chown=python:pythongroup .python-version .
 COPY --chown=python:pythongroup uv.lock .
@@ -54,12 +62,12 @@ COPY --chown=python:pythongroup README.md .
 ARG VERSION
 
 # Install dependencies
-RUN echo "Installing dependencies..."                   \
-    && uv venv --python=python$TOOLS_PYTHON_VERSION     \
-    && uv version ${VERSION%%-*} --package kagent-adk       \
-    && uv sync --locked --refresh                       \
-    && uv build --package kagent-adk                    \
-    && uv cache prune
+RUN --mount=type=cache,target=/.kagent/python/.cache/uv,uid=1001,gid=1001 \
+    echo "Creating virtual environment and installing dependencies..."    \
+    && uv venv --python=python$TOOLS_PYTHON_VERSION                       \
+    && uv version ${VERSION%%-*} --package kagent-adk                     \
+    && uv sync  --locked --refresh                                        \
+    && uv build --package kagent-adk
 
 WORKDIR /app
 
