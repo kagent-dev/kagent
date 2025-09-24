@@ -57,8 +57,8 @@ LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSIO
             -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)"
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.8.4
-TOOLS_BUN_VERSION ?= 1.2.19
+TOOLS_UV_VERSION ?= 0.8.22
+TOOLS_BUN_VERSION ?= 1.2.22
 TOOLS_NODE_VERSION ?= 22.19.0
 TOOLS_PYTHON_VERSION ?= 3.13
 
