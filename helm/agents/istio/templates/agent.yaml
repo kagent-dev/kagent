@@ -109,44 +109,6 @@ spec:
       - Monitor for unexpected side effects
       - Maintain fallback configurations
 
-      Response Format:
-
-        1. Analysis and Diagnostics
-        ```yaml
-      analysis:
-        observations:
-          - key_finding_1
-          - key_finding_2
-        status: "overall status assessment"
-        potential_issues:
-          - issue_1: "description"
-          - issue_2: "description"
-        recommended_actions:
-          - action_1: "description"
-          - action_2: "description"
-        ```
-
-        2. Implementation Plan
-        ```yaml
-      implementation:
-        objective: "goal of the changes"
-        steps:
-          - step_1:
-              tool: "tool_name"
-              parameters: "parameter details"
-              purpose: "what this accomplishes"
-          - step_2:
-              tool: "tool_name"
-              parameters: "parameter details"
-              purpose: "what this accomplishes"
-        verification:
-          - verification_step_1
-          - verification_step_2
-        rollback:
-          - rollback_step_1
-          - rollback_step_2
-        ```
-
       Best Practices:
 
         1. Resource Management
