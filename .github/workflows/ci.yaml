@@ -112,7 +112,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache: true
           cache-dependency-path: go/go.sum
 
@@ -223,7 +223,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache: true
           cache-dependency-path: go/go.sum
       - name: golangci-lint
