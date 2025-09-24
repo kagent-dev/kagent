@@ -347,14 +347,18 @@ helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 .PHONY: kagent-cli-install
-kagent-cli-install: use-kind-cluster build-cli-local helm-version
-	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local install
+kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-provider
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
 	kubectl port-forward -n kagent service/kagent-controller 8083:8083
+
+.PHONY: kagent-ui-port-forward
+kagent-ui-port-forward: use-kind-cluster
+	open http://localhost:8082/
+	kubectl port-forward -n kagent service/kagent-ui 8082:8080
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster

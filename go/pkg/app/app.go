@@ -182,6 +182,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	flag.StringVar(&translator.DefaultImageConfig.Registry, "image-registry", translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	flag.StringVar(&translator.DefaultImageConfig.Tag, "image-tag", translator.DefaultImageConfig.Tag, "The tag to use for the image.")
 	flag.StringVar(&translator.DefaultImageConfig.PullPolicy, "image-pull-policy", translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
+	flag.StringVar(&translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	flag.StringVar(&translator.DefaultImageConfig.Repository, "image-repository", translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 
 	opts := zap.Options{

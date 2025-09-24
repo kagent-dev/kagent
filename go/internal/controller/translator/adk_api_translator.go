@@ -46,6 +46,7 @@ type ImageConfig struct {
 	Registry   string `json:"registry,omitempty"`
 	Tag        string `json:"tag,omitempty"`
 	PullPolicy string `json:"pullPolicy,omitempty"`
+	PullSecret string `json:"pullSecret,omitempty"`
 	Repository string `json:"repository,omitempty"`
 }
 
@@ -53,6 +54,7 @@ var DefaultImageConfig = ImageConfig{
 	Registry:   "cr.kagent.dev",
 	Tag:        version.Get().Version,
 	PullPolicy: string(corev1.PullIfNotPresent),
+	PullSecret: "",
 	Repository: "kagent-dev/kagent/app",
 }
 
@@ -1071,6 +1073,10 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
 	if spec.ImagePullPolicy != "" {
 		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
+	}
+
+	if DefaultImageConfig.PullSecret != "" {
+		spec.ImagePullSecrets = append(spec.ImagePullSecrets, corev1.LocalObjectReference{Name: DefaultImageConfig.PullSecret})
 	}
 
 	dep := &resolvedDeployment{
