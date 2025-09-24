@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
@@ -94,7 +93,7 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 
 	// Use A2A client to send message
 	if cfg.Stream {
-		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, cfg.Config.Timeout)
 		defer cancel()
 
 		result, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
@@ -111,7 +110,7 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		}
 		StreamA2AEvents(result, cfg.Config.Verbose)
 	} else {
-		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, cfg.Config.Timeout)
 		defer cancel()
 
 		result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{

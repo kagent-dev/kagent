@@ -41,6 +41,16 @@ func WithUserID(userID string) ClientOption {
 	}
 }
 
+// WithTimeout sets a custom timeout for HTTP requests
+func WithTimeout(timeout time.Duration) ClientOption {
+	return func(c *BaseClient) {
+		if c.HTTPClient == nil {
+			c.HTTPClient = &http.Client{}
+		}
+		c.HTTPClient.Timeout = timeout
+	}
+}
+
 // BaseClient contains the shared HTTP functionality used by all sub-clients
 type BaseClient struct {
 	BaseURL    string
@@ -59,7 +69,7 @@ func NewBaseClient(baseURL string, options ...ClientOption) *BaseClient {
 	}
 
 	if client.HTTPClient == nil {
-		client.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+		client.HTTPClient = &http.Client{Timeout: 300 * time.Second} // 5 minutes default
 	}
 
 	return client

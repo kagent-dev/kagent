@@ -21,7 +21,9 @@ type Config struct {
 }
 
 func (c *Config) Client() *kagentclient.ClientSet {
-	return kagentclient.New(c.KAgentURL, kagentclient.WithUserID("admin@kagent.dev"))
+	return kagentclient.New(c.KAgentURL, 
+		kagentclient.WithUserID("admin@kagent.dev"),
+		kagentclient.WithTimeout(c.Timeout))
 }
 
 func Init() error {
@@ -46,7 +48,7 @@ func Init() error {
 	viper.SetDefault("kagent_url", "http://localhost:8083")
 	viper.SetDefault("output_format", "table")
 	viper.SetDefault("namespace", "kagent")
-	viper.SetDefault("timeout", 300*time.Second)
+	viper.SetDefault("timeout", 600*time.Second)
 	viper.MustBindEnv("USER_ID")
 
 	if err := viper.ReadInConfig(); err != nil {
