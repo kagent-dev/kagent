@@ -302,7 +302,7 @@ func TestInvokeExternalAgent(t *testing.T) {
 func TestInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 	a2aURL := a2aUrl("kagent", "add-numbers-agent")
 
-	a2aClient, err := client.NewA2AClient(a2aURL)
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
 	require.NoError(t, err)
 
 	t.Run("sync_invocation", func(t *testing.T) {
