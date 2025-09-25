@@ -123,7 +123,7 @@ This document provides the CNCF TAG-Security with an initial understanding of ka
 
 - **Resource Quotas**: Integration with Kubernetes resource quotas and limits to prevent resource exhaustion attacks and ensure fair resource allocation.
 
-- **Session Isolation**: Proper session isolation ensures that different users and agents cannot access each other's data or operations.
+- **Session Isolation**: Session isolation ensures that different users and agents cannot access each other's data or operations.  [https://github.com/kagent-dev/kagent/issues/476](https://github.com/kagent-dev/kagent/issues/476) is on the roadmap to properly support session isolation.
 
 ## Project Compliance
 
@@ -167,7 +167,7 @@ In the future, kagent intends to build and maintain compliance with several indu
 
 |   |  |
 | - | - |
-| Documentation | https://kagent-dev/docs |
+| Documentation | https://kagent.dev/docs/kagent |
 | Contributing | https://github.com/kagent-dev/kagent/blob/main/CONTRIBUTION.md |
 | Slack | https://cloud-native.slack.com/archives/C08ETST0076 |
 | Discord | https://discord.com/invite/Fu3k65f2k3 |
