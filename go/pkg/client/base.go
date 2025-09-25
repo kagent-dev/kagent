@@ -69,7 +69,7 @@ func NewBaseClient(baseURL string, options ...ClientOption) *BaseClient {
 	}
 
 	if client.HTTPClient == nil {
-		client.HTTPClient = &http.Client{Timeout: 300 * time.Second} // 5 minutes default
+		client.HTTPClient = &http.Client{Timeout: 150 * time.Second} // 2.5 minutes default
 	}
 
 	return client
