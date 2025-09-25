@@ -25,7 +25,7 @@ test: update
 build: update format
 
 .PHONY: audit
-audit: update build
+audit: build
 	#check pip-audit is installed
 	uv run pip-audit --version || uv pip install pip-audit
 	uv run pip-audit

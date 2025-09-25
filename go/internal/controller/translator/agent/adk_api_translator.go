@@ -227,7 +227,7 @@ func (a *adkApiTranslator) buildManifest(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
 	dep *resolvedDeployment,
-	cfg *adk.AgentConfig, // nil for BYO
+	cfg *adk.AgentConfig,   // nil for BYO
 	card *server.AgentCard, // nil for BYO
 ) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
@@ -1076,7 +1076,11 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	}
 
 	if DefaultImageConfig.PullSecret != "" {
-		spec.ImagePullSecrets = append(spec.ImagePullSecrets, corev1.LocalObjectReference{Name: DefaultImageConfig.PullSecret})
+		// Only append if not already present
+		alreadyPresent := a.checkPullSecretAlreadyPresent(spec)
+		if !alreadyPresent {
+			spec.ImagePullSecrets = append(spec.ImagePullSecrets, corev1.LocalObjectReference{Name: DefaultImageConfig.PullSecret})
+		}
 	}
 
 	dep := &resolvedDeployment{
@@ -1101,6 +1105,17 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	}
 
 	return dep, nil
+}
+
+func (a *adkApiTranslator) checkPullSecretAlreadyPresent(spec v1alpha2.DeclarativeDeploymentSpec) bool {
+	alreadyPresent := false
+	for _, secret := range spec.ImagePullSecrets {
+		if secret.Name == DefaultImageConfig.PullSecret {
+			alreadyPresent = true
+			break
+		}
+	}
+	return alreadyPresent
 }
 
 func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
