@@ -42,6 +42,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	mcp_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/mcp"
 	"github.com/kagent-dev/kagent/go/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 
@@ -159,9 +160,10 @@ type BootstrapConfig struct {
 type CtrlManagerConfigFunc func(manager.Manager) error
 
 type ExtensionConfig struct {
-	Authenticator auth.AuthProvider
-	Authorizer    auth.Authorizer
-	AgentPlugins  []agent_translator.TranslatorPlugin
+	Authenticator    auth.AuthProvider
+	Authorizer       auth.Authorizer
+	AgentPlugins     []agent_translator.TranslatorPlugin
+	MCPServerPlugins []mcp_translator.TranslatorPlugin
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -342,8 +344,14 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		extensionCfg.Authenticator,
 	)
 
+	mcpTranslator := mcp_translator.NewTransportAdapterTranslator(
+		mgr.GetScheme(),
+		extensionCfg.MCPServerPlugins,
+	)
+
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
+		mcpTranslator,
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,

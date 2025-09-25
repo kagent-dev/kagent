@@ -53,6 +53,7 @@ type KagentReconciler interface {
 
 type kagentReconciler struct {
 	adkTranslator agent_translator.AdkApiTranslator
+	mcpTranslator mcp_translator.Translator
 	a2aReconciler a2a.A2AReconciler
 
 	kube     client.Client
@@ -66,6 +67,7 @@ type kagentReconciler struct {
 
 func NewKagentReconciler(
 	translator agent_translator.AdkApiTranslator,
+	mcpTranslator mcp_translator.Translator,
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
@@ -73,6 +75,7 @@ func NewKagentReconciler(
 ) KagentReconciler {
 	return &kagentReconciler{
 		adkTranslator:      translator,
+		mcpTranslator:      mcpTranslator,
 		kube:               kube,
 		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
@@ -320,8 +323,7 @@ func (a *kagentReconciler) ReconcileKagentMCPServerDeployment(ctx context.Contex
 		return false, err
 	}
 
-	t := mcp_translator.NewTransportAdapterTranslator(a.kube.Scheme())
-	outputs, err := t.TranslateTransportAdapterOutputs(ctx, mcpServer)
+	outputs, err := a.mcpTranslator.TranslateTransportAdapterOutputs(ctx, mcpServer)
 	if err != nil {
 		reconcileLog.Error(err, "Failed to translate MCPServer outputs", "mcpServer", req.NamespacedName)
 		shouldRequeue, statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, err)
