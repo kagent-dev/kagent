@@ -176,15 +176,27 @@ In the future, kagent intends to build and maintain compliance with several indu
 
 ### Ecosystem
 
-kagent operates within the cloud-native ecosystem as a Kubernetes-native application. It integrates with:
+kagent operates within the cloud-native ecosystem as a Kubernetes-native application. It integrates with other technologies in this ecosystem in two ways:
+
+- Natively in the product
+- [Tools](https://github.com/kagent-dev/tools) that are available, but optional
+
+Native integration:
 
 - **Kubernetes**: Native integration with Kubernetes APIs, RBAC, and resource management
 - **Helm**: Deployment and management through Helm charts
-- **Prometheus/Grafana**: Observability and monitoring integration
 - **OpenTelemetry**: Distributed tracing and observability
-- **Istio**: Integration with Istio Service Mesh APIs
 - **LLM Providers**: Secure integration with major AI model providers (OpenAI, Azure OpenAI, Anthropic, Google Vertex AI, Ollama, and custom models)
 - **MCP Ecosystem**: Extensible tool system through Model Context Protocol
+- **Prometheus**: Expose prometheus metrics for observability
+
+Optional tooling:
+
+- **Grafana**: Observability and monitoring integration
+- **Istio**: Integration with Istio Service Mesh APIs
+- **Argo**: Integration with Argo Rollouts
+- **Cilium**: Integration through specialized agents for eBPF-based networking
+
 
 ## Security Issue Resolution
 
