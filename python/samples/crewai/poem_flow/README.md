@@ -4,6 +4,8 @@ This sample demonstrates how to use the `kagent-crewai` toolkit to run a CrewAI 
 
 This example is generated directly from the `crewai create flow poem_flow` command.
 
+If you wish to use the memory persistence integration with KAgent, edit `poem_flow.py` and set `@persist()` on the flow or methods you want to persist.
+
 ## Quick Start
 
 1. **Build the agent image**:
@@ -47,7 +49,7 @@ When interacting with the agent, you do not need to provide any input because th
 
    ```bash
    export KAGENT_URL=http://localhost:8080
-   export GEMINI_API_KEY="sk-..."
+   export GEMINI_API_KEY="..."
    ```
 
 3. **Run the agent server**:
