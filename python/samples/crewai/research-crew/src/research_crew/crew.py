@@ -50,4 +50,6 @@ class ResearchCrew:
             tasks=self.tasks,
             process=Process.sequential,
             verbose=True,
+            # NOTE: python/packages/kagent-crewai/src/kagent/crewai/_memory.pyUncomment this line to enable long term memory across agents in the same session
+            # memory=True,
         )

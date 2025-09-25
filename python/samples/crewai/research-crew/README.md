@@ -4,6 +4,8 @@ This sample demonstrates how to use the `kagent-crewai` toolkit to run a CrewAI 
 
 It follows the standard CrewAI project structure and developer experience, allowing you to define your agents and tasks in Python.
 
+If you wish to use the memory persistence integration with KAgent, edit `crew.py` and set `memory=True` when creating the crew.
+
 ## Features
 
 - Research crew with multiple specialized agents
@@ -57,7 +59,7 @@ kubectl apply -f agent.yaml
 
    ```bash
    export KAGENT_URL=http://localhost:8080
-   export GEMINI_API_KEY="sk-..."
+   export OPENAI_API_KEY="sk-..."
    export SERPER_API_KEY="..."
    ```
 
