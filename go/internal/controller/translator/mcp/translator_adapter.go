@@ -29,6 +29,8 @@ const (
 	mcpServerConfigHashAnnotation  = "kagent.dev/mcpserver-config-hash"
 )
 
+var mcpProtocol string = "kgateway.dev/mcp"
+
 // Translator is the interface for translating MCPServer objects to TransportAdapter objects.
 type Translator interface {
 	TranslateTransportAdapterOutputs(
@@ -401,6 +403,7 @@ func (t *transportAdapterTranslator) translateTransportAdapterService(
 				TargetPort: intstr.IntOrString{
 					IntVal: int32(port),
 				},
+				AppProtocol: &mcpProtocol,
 			}},
 			Selector: map[string]string{
 				labels.AppName:     server.Name,
