@@ -135,9 +135,13 @@ build-all: buildx-create
 	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: push-test-agent
-push-test-agent: build-kagent-adk
+push-test-agent: buildx-create build-kagent-adk
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY) $(DOCKER_REPO)/kagent-adk:$(VERSION)"
-	$(DOCKER_BUILDER) build --push --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) --build-arg DOCKER_REPO=$(DOCKER_REPO) --build-arg VERSION=$(VERSION) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		--build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+		--build-arg DOCKER_REPO=$(DOCKER_REPO)	\
+		--build-arg VERSION=$(VERSION) \
+		-t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 
 .PHONY: create-kind-cluster

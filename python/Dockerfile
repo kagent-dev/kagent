@@ -24,30 +24,34 @@ ENV GIT_LFS_SKIP_SMUDGE=1
 
 ENV UV_LINK_MODE=copy
 ENV UV_COMPILE_BYTECODE=1
-ENV UV_COMPILE_BYTECODE_TIMEOUT=360
-ENV UV_PROJECT_ENVIRONMENT=/.kagent/python/.venv
+ENV UV_COMPILE_BYTECODE_TIMEOUT=300
 ENV UV_SYSTEM_PYTHON=1
 ENV UV_NO_PROGRESS=1
 ENV UV_HTTP_TIMEOUT=60
 ENV UV_CONCURRENT_DOWNLOADS=10
 
-ENV UV_CACHE_DIR=/.kagent/python/.cache/uv
-ENV UV_TOOL_DIR=/.kagent/python/.cache/uv/tools
-ENV UV_PYTHON_DOWNLOADS_DIR=/.kagent/python/.cache/uv/python
+# Configure the Python directories
+ENV UV_CACHE_DIR=/.kagent/cache
+ENV UV_TOOL_DIR=/.kagent/python/tools
+ENV UV_PYTHON_DOWNLOADS_DIR=/.kagent/python/downloads
+ENV UV_PROJECT_ENVIRONMENT=/.kagent/python/.venv
+
+ENV UV_PYTHON_INSTALL_DIR=/python
+ENV UV_PYTHON_PREFERENCE=only-managed
 
 RUN addgroup -g 1001 pythongroup                           && \
     adduser  -u 1001 -G pythongroup -s /bin/bash -D python -h /.kagent/python/  && \
-    mkdir    -p /.kagent/python/bin                        && \
-    mkdir    -p /.kagent/python/downloads                  && \
-    mkdir    -p /.kagent/python/.cache/uv                  && \
-    chown    -vR 1001:1001 /.kagent                        && \
-    chmod    755 /.kagent/python/.cache
+    mkdir    -p $UV_PYTHON_DOWNLOADS_DIR                   && \
+    mkdir    -p $UV_TOOL_DIR                               && \
+    mkdir    -p $UV_CACHE_DIR                              && \
+    mkdir    -p /python                                    && \
+    chown    -vR 1001:1001 /.kagent /python
 
 USER python
 WORKDIR /.kagent/python
 
 ### STAGE 3: final
-FROM python-os AS final
+FROM python-os AS builder
 ARG TOOLS_PYTHON_VERSION
 
 WORKDIR /.kagent/python
@@ -63,14 +67,28 @@ COPY --chown=python:pythongroup README.md .
 
 ARG VERSION
 
-# Install dependencies
-RUN --mount=type=cache,target=/.kagent/python/.cache/uv,uid=1001,gid=1001 \
-    echo "Creating virtual environment and installing dependencies..."    \
-    && uv venv --python=python$TOOLS_PYTHON_VERSION                       \
-    && uv version ${VERSION%%-*} --package kagent-adk                     \
-    && uv sync  --locked --refresh                                        \
-    && uv build --package kagent-adk
+# Install dependencies - make sure /.kagent/python/.venv/bin in path and not in cache mount
+RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
+    echo "Creating virtual environment and installing dependencies..."        \
+    && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
+    && uv version ${VERSION%%-*} --package kagent-adk                         \
+    && uv sync  --locked --refresh                                            \
+    && uv build --package kagent-adk                                          \
+    && which kagent-adk                                                       \
+    && echo "Installation complete."
+
+FROM python-os AS app
+ARG TOOLS_PYTHON_VERSION
 
 WORKDIR /app
+
+# Copy the Python version
+COPY --from=builder --chown=1001:1001 /python /python
+COPY --from=builder --chown=python:pythongroup /.kagent/python/.venv /app/.venv
+COPY --from=builder --chown=python:pythongroup /.kagent/python/packages /app/packages
+
+# Place executables in the environment at the front of the path
+ENV PATH="/app/.venv/bin:$PATH"
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
 ENTRYPOINT ["kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]
