@@ -164,6 +164,10 @@ jobs:
         working-directory: ./ui
         run: npm ci
 
+      - name: Run lint
+        working-directory: ./ui
+        run: npm run lint
+
       - name: Run tests
         working-directory: ./ui
         run: npm run test

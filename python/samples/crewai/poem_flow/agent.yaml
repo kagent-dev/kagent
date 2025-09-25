@@ -1,0 +1,18 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: poem-flow-agent
+  namespace: kagent
+spec:
+  description: A flow that uses a crew to generate a poem.
+  type: BYO
+  byo:
+    deployment:
+      image: localhost:5001/poem-flow:latest
+      env:
+        # Note that CrewAI LLM expects GEMINI_API_KEY instead of GOOGLE_API_KEY
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kagent-google
+              key: GOOGLE_API_KEY

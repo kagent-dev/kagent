@@ -62,7 +62,8 @@ ENV PATH=$PATH:/.kagent/bin:/.kagent/.venv/bin
 COPY --chown=python:pythongroup pyproject.toml  .
 COPY --chown=python:pythongroup .python-version .
 COPY --chown=python:pythongroup uv.lock .
-COPY --chown=python:pythongroup packages packages
+COPY --chown=python:pythongroup packages/kagent-adk packages/kagent-adk
+COPY --chown=python:pythongroup packages/kagent-core packages/kagent-core
 COPY --chown=python:pythongroup README.md .
 
 ARG VERSION
@@ -71,13 +72,13 @@ ARG VERSION
 RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     echo "Creating virtual environment and installing dependencies..."        \
     && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
-    && uv version ${VERSION%%-*} --package kagent-adk                         \
-    && uv sync  --locked --refresh                                            \
-    && uv build --package kagent-adk                                          \
-    && which kagent-adk                                                       \
+    && uv lock && uv sync --package kagent-adk                                \
+    && uv cache prune                                                         \
     && echo "Installation complete."
 
 ENV PATH="/.kagent/.venv/bin:$PATH"
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+
+WORKDIR /app
 
 ENTRYPOINT ["kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]

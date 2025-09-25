@@ -95,7 +95,7 @@ describe('createMessageHandlers smoke test (function_call and delegated response
       },
     };
 
-    // @ts-expect-error - private access in tests
+    // @ts-expect-error: private access in tests
     handlers.handleMessageEvent(statusUpdateCall);
 
     // Simulate status-update with function_response from agent
@@ -119,7 +119,7 @@ describe('createMessageHandlers smoke test (function_call and delegated response
       },
     };
 
-    // @ts-expect-error
+    // @ts-expect-error: private access in tests
     handlers.handleMessageEvent(statusUpdateResp);
 
     // Expect: ToolCallRequestEvent + delegated TextMessage + ToolCallExecutionEvent
@@ -149,14 +149,14 @@ describe('createMessageHandlers smoke test (function_call and delegated response
       kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
       status: { state: 'working', message: { role: 'agent', parts: [{ kind: 'data', data: { id: 'call_2', name: 'some_tool', args: { a: 1 } }, metadata: { kagent_type: 'function_call' } }] } }
     };
-    // @ts-expect-error
+    // @ts-expect-error: private access in tests
     handlers.handleMessageEvent(statusUpdateCall);
 
     const statusUpdateResp: any = {
       kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
       status: { state: 'working', message: { role: 'agent', parts: [{ kind: 'data', data: { id: 'call_2', name: 'some_tool', response: { result: 'tool ok' } }, metadata: { kagent_type: 'function_response' } }] } }
     };
-    // @ts-expect-error
+    // @ts-expect-error: private access in tests
     handlers.handleMessageEvent(statusUpdateResp);
 
     expect(emitted.length).toBe(2);
@@ -182,7 +182,7 @@ describe('createMessageHandlers smoke test (function_call and delegated response
       kind: 'status-update', contextId: 'ctx', taskId: 'task', final: true,
       status: { state: 'working', message: { role: 'agent', parts: [{ kind: 'text', text: 'hello' }] } }
     };
-    // @ts-expect-error
+    // @ts-expect-error: private access in tests
     handlers.handleMessageEvent(statusWithText);
 
     expect(emitted.length).toBe(1);
@@ -213,7 +213,7 @@ describe('createMessageHandlers smoke test (function_call and delegated response
         ]
       }
     };
-    // @ts-expect-error
+    // @ts-expect-error: private access in tests
     handlers.handleMessageEvent(artifactEvent);
 
     // Expect: request, execution, summary (no text message since no text part)
@@ -245,7 +245,7 @@ describe('createMessageHandlers smoke test (function_call and delegated response
       metadata: { kagent_usage_metadata: { totalTokenCount: 5, promptTokenCount: 2, candidatesTokenCount: 3 } },
       status: { state: 'working' }
     };
-    // @ts-expect-error
+    // @ts-expect-error: private access in tests
     handlers.handleMessageEvent(statusWithUsage);
 
     expect(capturedStats).toEqual({ total: 5, input: 2, output: 3 });

@@ -337,12 +337,6 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     ? `${handlers.agentContext.namespace}/${handlers.agentContext.agentName.replace(/_/g, "-")}`
     : "assistant";
 
-
-  const handleA2ATask = (task: Task) => {
-    handlers.setIsStreaming(true);
-    // TODO: figure out how/if we want to handle tasks separately from messages
-  };
-
   const handleA2ATaskStatusUpdate = (statusUpdate: TaskStatusUpdateEvent) => {
     try {
       const adkMetadata = getADKMetadata(statusUpdate);
@@ -535,7 +529,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
   const handleMessageEvent = (message: Message) => {
     if (messageUtils.isA2ATask(message)) {
-      handleA2ATask(message);
+      handlers.setIsStreaming(true);
       return;
     }
 

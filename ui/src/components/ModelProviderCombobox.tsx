@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -55,23 +55,22 @@ export function ModelProviderCombobox({
 }: ModelProviderComboboxProps) {
     const [comboboxOpen, setComboboxOpen] = useState(false);
 
-    const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?: string }>> = {
-        'OpenAI': OpenAI,
-        'Anthropic': Anthropic,
-        'Ollama': Ollama,
-        'AzureOpenAI': Azure,
-        'Gemini': Gemini,
-        'GeminiVertexAI': Gemini,
-        'AnthropicVertexAI': Anthropic,
-    };
-
-    const getProviderIcon = (providerKey: ModelProviderKey | undefined): React.ReactNode | null => {
+    const getProviderIcon = useCallback((providerKey: ModelProviderKey | undefined): React.ReactNode | null => {
+        const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?: string }>> = {
+            'OpenAI': OpenAI,
+            'Anthropic': Anthropic,
+            'Ollama': Ollama,
+            'AzureOpenAI': Azure,
+            'Gemini': Gemini,
+            'GeminiVertexAI': Gemini,
+            'AnthropicVertexAI': Anthropic,
+        };
         if (!providerKey || !PROVIDER_ICONS[providerKey]) {
             return null;
         }
         const IconComponent = PROVIDER_ICONS[providerKey];
         return <IconComponent className="h-4 w-4 mr-2 shrink-0" />;
-    };
+    }, []);
 
     const groupedProviderModelOptions = useMemo(() => {
         if (!providers || !models || providers.length === 0 || Object.keys(models).length === 0) {
@@ -138,7 +137,7 @@ export function ModelProviderCombobox({
         }
         if (flatProviderModelOptions.length === 0 && !loading && !error) return emptyPlaceholder;
         return placeholder;
-    }, [loading, error, currentSelection, flatProviderModelOptions.length, loadingPlaceholder, errorPlaceholder, emptyPlaceholder, placeholder]);
+    }, [loading, error, currentSelection, flatProviderModelOptions.length, loadingPlaceholder, errorPlaceholder, emptyPlaceholder, placeholder, getProviderIcon]);
 
     return (
         <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>

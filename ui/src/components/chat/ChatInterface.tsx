@@ -232,7 +232,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           abortControllerRef.current?.signal
         );
 
-        let lastEventTime = Date.now();
         let timeoutTimer: NodeJS.Timeout | null = null;
         let streamActive = true;
         const streamTimeout = 600000; // 10 minutes
@@ -256,13 +255,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
         try {
           for await (const event of stream) {
-            lastEventTime = Date.now();
             startTimeout(); // Reset timeout after every event
 
             try {
               handleMessageEvent(event);
             } catch (error) {
-              console.error("❌ Event that caused error:", event);
+              console.error(`❌ Error handling event: ${error}\nEvent: ${event}`);
             }
 
             // Check if we should stop streaming due to cancellation
@@ -276,12 +274,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           streamActive = false;
           if (timeoutTimer) clearTimeout(timeoutTimer);
         }
-      } catch (error: any) {
-        if (error.name === "AbortError") {
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "AbortError") {
           toast.info("Request cancelled");
           setChatStatus("ready");
         } else {
-          toast.error(`Streaming failed: ${error.message}`);
+          toast.error(`Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`);
           setChatStatus("error");
           setCurrentInputMessage(userMessageText);
         }

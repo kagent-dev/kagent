@@ -52,7 +52,7 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg" align="start" side={isMobile ? "bottom" : "right"} sideOffset={4}>
             <DropdownMenuLabel className="text-xs text-muted-foreground">Agents</DropdownMenuLabel>
-            {filteredAgentResponses.map(({ id, agent }, index) => {
+            {filteredAgentResponses.map(({ agent }, index) => {
               const agentRef = k8sRefUtils.toRef(agent.metadata.namespace || "", agent.metadata.name)
               return (
                 <DropdownMenuItem

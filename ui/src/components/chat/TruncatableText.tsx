@@ -12,6 +12,36 @@ interface TruncatableTextProps {
   isStreaming?: boolean;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const PreWithPreview = (props: any) => {
+  const { children } = props;
+  const [showPreview, setShowPreview] = useState(false);
+
+  if (
+    children.props &&
+    children.props.className &&
+    children.props.className.includes("language-html")
+  ) {
+    return (
+      <div className="relative">
+        <pre className="whitespace-pre-wrap">{children}</pre>
+        <button
+          onClick={() => setShowPreview(true)}
+          className="absolute top-2 right-2 px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
+        >
+          Preview
+        </button>
+        <HTMLPreviewDialog
+          html={children.props.children}
+          open={showPreview}
+          onOpenChange={setShowPreview}
+        />
+      </div>
+    );
+  }
+  return <pre className="whitespace-pre-wrap">{children}</pre>;
+};
+
 const components = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   code: (props: any) => {
@@ -28,31 +58,7 @@ const components = {
     const { children } = props;
     return <table className="min-w-full divide-y divide-gray-300 table-fixed">{children}</table>;
   },
-  pre: (props: any) => {
-    const { children } = props;
-    const [showPreview, setShowPreview] = useState(false);
-    
-    // Render the preview button and dialog for HTML preview
-    if (children.props && children.props.className && children.props.className.includes("language-html")) {
-      return (
-        <div className="relative">
-          <pre className="whitespace-pre-wrap">{children}</pre>
-          <button
-            onClick={() => setShowPreview(true)}
-            className="absolute top-2 right-2 px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
-          >
-            Preview
-          </button>
-          <HTMLPreviewDialog
-            html={children.props.children}
-            open={showPreview}
-            onOpenChange={setShowPreview}
-          />
-        </div>
-      );
-    }
-    return <pre className="whitespace-pre-wrap">{children}</pre>;
-  },
+  pre: PreWithPreview,
 };
 
 export const TruncatableText = memo(({ content, isJson = false, className = "", isStreaming = false }: TruncatableTextProps) => {

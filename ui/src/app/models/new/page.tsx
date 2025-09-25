@@ -170,7 +170,7 @@ function ModelPageContent() {
     };
     fetchData();
     return () => { isMounted = false; };
-  }, []);
+  }, [isEditMode]);
 
   useEffect(() => {
     let isMounted = true;
@@ -254,7 +254,7 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelConfigName, providers, providerModelsData]);
+  }, [isEditMode, modelConfigName, providers, providerModelsData, isLoading, modelConfigNamespace]);
 
   useEffect(() => {
     if (selectedProvider) {
@@ -305,7 +305,7 @@ function ModelPageContent() {
         }
       }
     }
-  }, [selectedCombinedModel, isEditMode, isEditingName, modelTag]);
+  }, [selectedCombinedModel, isEditMode, isEditingName, modelTag, selectedProvider]);
 
   useEffect(() => {
     if (!isApiKeyNeeded) {
@@ -314,7 +314,7 @@ function ModelPageContent() {
         setErrors(prev => ({ ...prev, apiKey: undefined }));
       }
     }
-  }, [isApiKeyNeeded]);
+  }, [isApiKeyNeeded, errors.apiKey]);
 
   const validateForm = () => {
     const newErrors: ValidationErrors = { requiredParams: {} };

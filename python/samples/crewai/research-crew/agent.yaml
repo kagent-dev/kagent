@@ -1,0 +1,23 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: research-crew-agent
+  namespace: kagent
+spec:
+  description: A crew that researches a topic and writes a report.
+  type: BYO
+  byo:
+    deployment:
+      image: localhost:5001/research-crew:latest
+      env:
+        # Note that CrewAI LLM expects GEMINI_API_KEY instead of GOOGLE_API_KEY
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kagent-google
+              key: GOOGLE_API_KEY
+        - name: SERPER_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kagent-serper
+              key: SERPER_API_KEY

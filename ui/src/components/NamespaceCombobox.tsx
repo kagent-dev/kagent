@@ -40,53 +40,54 @@ export function NamespaceCombobox({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadNamespaces = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await listNamespaces();
-
-      if (!response.error) {
-        const sorted = [...(response.data || [])].sort((a, b) =>
-          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-        );
-        setNamespaces(sorted);
+  useEffect(() => {
+    const loadNamespaces = async () => {
+      try {
+        setLoading(true);
         setError(null);
-        onError?.(null);
-
-        // Set a default namespace if none is currently selected
-        if (!value) {
-          const names = sorted.map((ns) => ns.name);
-          let defaultNamespace: string | undefined;
-          if (names.includes("kagent")) {
-            defaultNamespace = "kagent";
-          } else if (names.includes("default")) {
-            defaultNamespace = "default";
-          } else if (names.length > 0) {
-            defaultNamespace = names[0];
+        const response = await listNamespaces();
+  
+        if (!response.error) {
+          const sorted = [...(response.data || [])].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+          );
+          setNamespaces(sorted);
+          setError(null);
+          onError?.(null);
+  
+          // Set a default namespace if none is currently selected
+          if (!value) {
+            const names = sorted.map((ns) => ns.name);
+            let defaultNamespace: string | undefined;
+            if (names.includes("kagent")) {
+              defaultNamespace = "kagent";
+            } else if (names.includes("default")) {
+              defaultNamespace = "default";
+            } else if (names.length > 0) {
+              defaultNamespace = names[0];
+            }
+            if (defaultNamespace) {
+              onValueChange(defaultNamespace);
+            }
           }
-          if (defaultNamespace) {
-            onValueChange(defaultNamespace);
-          }
+        } else {
+          const errorMsg = response.error || 'Failed to load namespaces';
+          setError(errorMsg);
+          onError?.(errorMsg);
         }
-      } else {
-        const errorMsg = response.error || 'Failed to load namespaces';
+      } catch (err) {
+        console.error('Failed to load namespaces:', err);
+        const errorMsg = err instanceof Error ? err.message : 'Failed to load namespaces';
         setError(errorMsg);
         onError?.(errorMsg);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error('Failed to load namespaces:', err);
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load namespaces';
-      setError(errorMsg);
-      onError?.(errorMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
     loadNamespaces();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onError]);
 
   const selectedNamespace = namespaces.find((ns) => ns.name === value);
 
