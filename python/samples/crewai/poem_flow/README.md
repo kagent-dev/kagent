@@ -21,8 +21,8 @@ If you wish to use the memory persistence integration with KAgent, edit `poem_fl
 2. **Create secrets for API keys**:
 
    ```bash
-   kubectl create secret generic kagent-google -n kagent \
-     --from-literal=GOOGLE_API_KEY=$GOOGLE_API_KEY \
+   kubectl create secret generic kagent-openai -n kagent \
+     --from-literal=OPENAI_API_KEY=$OPENAI_API_KEY \
      --dry-run=client -o yaml | kubectl apply -f -
    ```
 

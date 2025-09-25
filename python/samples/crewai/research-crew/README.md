@@ -33,8 +33,8 @@ If you wish to use the memory persistence integration with KAgent, edit `crew.py
 3. **Create secrets for API keys**:
 
    ```bash
-   kubectl create secret generic kagent-google -n kagent \
-     --from-literal=GOOGLE_API_KEY=$GOOGLE_API_KEY \
+   kubectl create secret generic kagent-openai -n kagent \
+     --from-literal=OPENAI_API_KEY=$OPENAI_API_KEY \
      --dry-run=client -o yaml | kubectl apply -f -
    ```
 
@@ -42,7 +42,7 @@ If you wish to use the memory persistence integration with KAgent, edit `crew.py
 
 ```bash
 kubectl apply -f agent.yaml
-````
+```
 
 ## Local Development
 
