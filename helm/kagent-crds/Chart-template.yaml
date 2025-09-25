@@ -3,7 +3,3 @@ name: kagent-crds
 description: CRDs for kagent
 type: application
 version: ${VERSION}
-dependencies:
-  - name: kmcp-crds
-    version: ${KMCP_VERSION}
-    repository: oci://ghcr.io/kagent-dev/kmcp/helm
