@@ -6899,7 +6899,8 @@ spec:
                       If not specified, the default value is true.
                     type: boolean
                   systemMessage:
-                    minLength: 1
+                    description: SystemMessage is a string specifying the system message
+                      for the agent
                     type: string
                   systemMessageFrom:
                     description: SystemMessageFrom is a reference to a ConfigMap or
