@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/controller/translator"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
@@ -197,7 +197,7 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 		return
 	}
 
-	apiTranslator := translator.NewAdkApiTranslator(
+	apiTranslator := agent_translator.NewAdkApiTranslator(
 		kubeClientWrapper,
 		h.DefaultModelConfig,
 		nil,

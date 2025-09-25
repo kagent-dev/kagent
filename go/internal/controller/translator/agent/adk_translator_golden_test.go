@@ -1,4 +1,4 @@
-package translator_test
+package agent_test
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/controller/translator"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -119,7 +119,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 		}, agent)
 		require.NoError(t, err)
 
-		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil).TranslateAgent(ctx, agent)
+		result, err = agent_translator.NewAdkApiTranslator(kubeClient, defaultModel, nil).TranslateAgent(ctx, agent)
 		require.NoError(t, err)
 
 	default:

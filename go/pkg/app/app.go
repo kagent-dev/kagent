@@ -35,13 +35,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/internal/a2a"
-	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
 	a2a_reconciler "github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 
@@ -161,7 +161,7 @@ type CtrlManagerConfigFunc func(manager.Manager) error
 type ExtensionConfig struct {
 	Authenticator auth.AuthProvider
 	Authorizer    auth.Authorizer
-	AgentPlugins  []translator.TranslatorPlugin
+	AgentPlugins  []agent_translator.TranslatorPlugin
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -174,10 +174,10 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	ctx := context.Background()
 
 	cfg.SetFlags(flag.CommandLine)
-	flag.StringVar(&translator.DefaultImageConfig.Registry, "image-registry", translator.DefaultImageConfig.Registry, "The registry to use for the image.")
-	flag.StringVar(&translator.DefaultImageConfig.Tag, "image-tag", translator.DefaultImageConfig.Tag, "The tag to use for the image.")
-	flag.StringVar(&translator.DefaultImageConfig.PullPolicy, "image-pull-policy", translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
-	flag.StringVar(&translator.DefaultImageConfig.Repository, "image-repository", translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 
 	opts := zap.Options{
 		Development: true,
@@ -323,7 +323,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	apiTranslator := translator.NewAdkApiTranslator(
+	apiTranslator := agent_translator.NewAdkApiTranslator(
 		mgr.GetClient(),
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,

@@ -33,7 +33,9 @@ import (
 func TestToolServersHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
 
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha1.AddToScheme(scheme)
+	require.NoError(t, err)
+	err = v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
 	require.NoError(t, err)

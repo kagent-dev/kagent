@@ -190,6 +190,7 @@ type MCPServerStatus struct {
 }
 
 // MCPServerDeployment
+// TODO: consolidate with DeploymentSpec in agent_types.go
 type MCPServerDeployment struct {
 	// Image defines the container image to to deploy the MCP server.
 	// +optional
