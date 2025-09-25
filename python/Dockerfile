@@ -31,16 +31,16 @@ ENV UV_HTTP_TIMEOUT=60
 ENV UV_CONCURRENT_DOWNLOADS=10
 
 # Configure the Python directories
-ENV UV_CACHE_DIR=/.kagent/cache
-ENV UV_TOOL_DIR=/.kagent/python/tools
-ENV UV_PYTHON_DOWNLOADS_DIR=/.kagent/python/downloads
-ENV UV_PROJECT_ENVIRONMENT=/.kagent/python/.venv
+ENV UV_CACHE_DIR=/.kagent/cache/packages
+ENV UV_TOOL_DIR=/.kagent/cache/tools
+ENV UV_PYTHON_DOWNLOADS_DIR=/.kagent/cache/downloads
+ENV UV_PROJECT_ENVIRONMENT=/.kagent/.venv
 
 ENV UV_PYTHON_INSTALL_DIR=/python
 ENV UV_PYTHON_PREFERENCE=only-managed
 
 RUN addgroup -g 1001 pythongroup                           && \
-    adduser  -u 1001 -G pythongroup -s /bin/bash -D python -h /.kagent/python/  && \
+    adduser  -u 1001 -G pythongroup -s /bin/bash -D python -h /.kagent/  && \
     mkdir    -p $UV_PYTHON_DOWNLOADS_DIR                   && \
     mkdir    -p $UV_TOOL_DIR                               && \
     mkdir    -p $UV_CACHE_DIR                              && \
@@ -48,15 +48,15 @@ RUN addgroup -g 1001 pythongroup                           && \
     chown    -vR 1001:1001 /.kagent /python
 
 USER python
-WORKDIR /.kagent/python
+WORKDIR /.kagent
 
 ### STAGE 3: final
 FROM python-os AS builder
 ARG TOOLS_PYTHON_VERSION
 
-WORKDIR /.kagent/python
+WORKDIR /.kagent
 
-ENV PATH=$PATH:/.kagent/python/bin:/.kagent/python/.venv/bin
+ENV PATH=$PATH:/.kagent/bin:/.kagent/.venv/bin
 
 # Copy dependency files first for better layer caching
 COPY --chown=python:pythongroup pyproject.toml  .
@@ -67,7 +67,7 @@ COPY --chown=python:pythongroup README.md .
 
 ARG VERSION
 
-# Install dependencies - make sure /.kagent/python/.venv/bin in path and not in cache mount
+# Install dependencies - make sure /.kagent/.venv/bin in path and not in cache mount
 RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     echo "Creating virtual environment and installing dependencies..."        \
     && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
@@ -77,18 +77,7 @@ RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     && which kagent-adk                                                       \
     && echo "Installation complete."
 
-FROM python-os AS app
-ARG TOOLS_PYTHON_VERSION
-
-WORKDIR /app
-
-# Copy the Python version
-COPY --from=builder --chown=1001:1001 /python /python
-COPY --from=builder --chown=python:pythongroup /.kagent/python/.venv /app/.venv
-COPY --from=builder --chown=python:pythongroup /.kagent/python/packages /app/packages
-
-# Place executables in the environment at the front of the path
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/.kagent/.venv/bin:$PATH"
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
 ENTRYPOINT ["kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]
