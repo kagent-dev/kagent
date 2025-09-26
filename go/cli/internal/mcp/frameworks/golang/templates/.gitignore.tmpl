@@ -1,0 +1,38 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go extra files
+{{.ProjectName}}
+/server
+/{{.ProjectName}}
+*.log
+
+# Docker
+.dockerignore
+docker-compose.yml
+
+# VSCode
+.vscode/
+
+# Intellij
+.idea/ 
+
+# MCP Inspector config
+mcp-server-config.json

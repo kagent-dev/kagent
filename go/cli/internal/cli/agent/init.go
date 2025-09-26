@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
-	"github.com/kagent-dev/kagent/go/cli/internal/frameworks"
 	"github.com/kagent-dev/kagent/go/internal/version"
 )
 

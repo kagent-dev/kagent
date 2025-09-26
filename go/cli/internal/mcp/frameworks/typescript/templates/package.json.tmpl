@@ -1,0 +1,42 @@
+{
+  "name": "{{.ProjectName}}",
+  "version": "{{.Version}}",
+  "description": "{{.Description}}",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "{{.ProjectName}}": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts --http",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "clean": "rm -rf dist"
+  },
+  "keywords": ["mcp", "model-context-protocol", "typescript"],
+  "author": "{{.Author}}",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.16.0",
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.23.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@typescript-eslint/eslint-plugin": "^8.26.1",
+    "@typescript-eslint/parser": "^8.26.1",
+    "eslint": "^9.19.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -8,7 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/cli/internal/cli"
+	cli "github.com/kagent-dev/kagent/go/cli/internal/cli/agent"
+	"github.com/kagent-dev/kagent/go/cli/internal/cli/mcp"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui"
@@ -326,7 +327,7 @@ Examples:
 	deployCmd.Flags().StringVar(&deployCfg.APIKeySecret, "api-key-secret", "", "Name of existing secret containing API key")
 	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "", "Kubernetes namespace to deploy to")
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd)
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, mcp.NewMCPCmd())
 
 	// Initialize config
 	if err := config.Init(); err != nil {

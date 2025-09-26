@@ -1,0 +1,54 @@
+# {{.ProjectName}}
+
+{{.Description}}
+
+## 🚀 Getting Started
+
+This project was generated with [`kagent`](https://github.com/kagent-dev/kagent).
+
+### Prerequisites
+
+- [Go](https://golang.org/doc/install) (1.23 or later)
+- [Docker](https://docs.docker.com/get-docker/)
+
+### Local Development
+
+1.  **Tidy dependencies:**
+    ```bash
+    go mod tidy
+    ```
+
+2.  **Run the server:**
+    ```bash
+    go run main.go
+    ```
+
+### Building the Docker Image
+
+To build a Docker image for this project, run:
+
+```bash
+kagent mcp build
+```
+
+This will create an image named `{{.ProjectName}}:latest`.
+
+### Deploying to Kubernetes
+
+To deploy the MCP server to Kubernetes, first ensure you have a running cluster and `kubectl` is configured. Then, run:
+
+```bash
+kagent mcp deploy mcp
+```
+
+This will create an `MCPServer` custom resource in the `default` namespace.
+
+## 🛠️ Adding a New Tool
+
+To add a new tool to your project, use the `kagent mcp add-tool` command:
+
+```bash
+kagent mcp add-tool <tool-name>
+```
+
+This will generate a new Go file in the `tools/` directory with a template for your new tool. You will need to add the new tool to the `main.go` file. 
