@@ -207,3 +207,4 @@ go/bin/
 /contrib/memory/doc2vec/bun.lock
 
 .cursor/
+cilium-linux-amd64.tar.gz
