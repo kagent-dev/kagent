@@ -41,7 +41,7 @@ public class Echo implements Tool {
     
     @Override
     public Object execute(Map<String, Object> parameters) throws Exception {
-        // Get tool-specific configuration from kmcp.yaml
+        // Get tool-specific configuration from manifest.yaml
         String prefix = getToolConfig("echo", "prefix", "");
         
         // Get the message parameter

@@ -135,11 +135,7 @@ func applyResourcesToCluster(yamls ...[]byte) error {
 	// Apply using kubectl
 	err = runKubectl("apply", "-f", tmpFile.Name())
 	if err != nil {
-		// Check for CRD not found error
-		if strings.Contains(err.Error(), "no matches for kind") {
-			return fmt.Errorf("MCPServer CRD not found. Please run 'kmcp install' first")
-		}
-		return fmt.Errorf("kubectl apply failed: %w", err)
+		return err
 	}
 
 	fmt.Printf("✅ Resources applied successfully\n")

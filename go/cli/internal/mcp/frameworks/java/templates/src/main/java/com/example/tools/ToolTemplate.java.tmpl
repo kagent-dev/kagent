@@ -42,7 +42,7 @@ public class {{if .ToolNamePascalCase}}{{.ToolNamePascalCase}}{{else}}Tool{{end}
     
     @Override
     public Object execute(Map<String, Object> parameters) throws Exception {
-        // Get tool-specific configuration from kmcp.yaml
+        // Get tool-specific configuration from manifest.yaml
         String config = getToolConfig("{{if .ToolName}}{{.ToolName}}{{else}}tool{{end}}", "prefix", "echo: ");
         
         // TODO: Replace this basic implementation with your tool logic

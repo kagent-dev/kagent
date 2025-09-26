@@ -34,6 +34,6 @@ func runInitTypeScript(_ *cobra.Command, args []string) error {
 	fmt.Printf("1. cd %s\n", projectName)
 	fmt.Printf("2. npm install\n")
 	fmt.Printf("3. npm run dev\n")
-	fmt.Printf("4. Add tools with: kmcp add-tool myTool\n")
+	fmt.Printf("4. Add tools with: kagent mcp add-tool myTool\n")
 	return nil
 }

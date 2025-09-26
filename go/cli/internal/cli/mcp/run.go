@@ -191,7 +191,7 @@ func runMCPGo(projectDir string, manifest *manifests.ProjectManifest) error {
 	// Create server configuration for inspector
 	serverConfig := map[string]interface{}{
 		"command": "go",
-		"args":    []string{"run", "main.go"},
+		"args":    []string{"run", "cmd/server/main.go"},
 	}
 
 	// Create MCP inspector config
@@ -329,7 +329,7 @@ func runJava(projectDir string, manifest *manifests.ProjectManifest) error {
 	}
 
 	// Prepare Maven arguments based on transport mode
-	mavenArgs := []string{"-q", "exec:java", "-Dexec.mainClass=com.example.Main"}
+	mavenArgs := []string{"exec:java", "-q", "-Dexec.mainClass=com.example.Main"}
 	if runTransport == transportHTTP {
 		mavenArgs = append(mavenArgs, "-Dexec.args=--transport http --host 0.0.0.0 --port 3000")
 	}

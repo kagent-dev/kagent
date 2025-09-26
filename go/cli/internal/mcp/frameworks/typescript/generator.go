@@ -69,7 +69,7 @@ func (g *Generator) GenerateTool(projectroot string, config mcp.ToolConfig) erro
 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("1. Edit src/tools/%s.ts to implement your tool logic\n", toolNameCamelCase)
-	fmt.Printf("2. Configure any required environment variables in kmcp.yaml\n")
+	fmt.Printf("2. Configure any required environment variables in manifest.yaml\n")
 	fmt.Printf("3. Run 'npm run dev' to start the server in development mode\n")
 	fmt.Printf("4. Run 'npm run build' to build the project\n")
 	fmt.Printf("5. Run 'npm test' to test your tool\n")

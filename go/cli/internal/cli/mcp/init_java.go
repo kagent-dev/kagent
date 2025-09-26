@@ -34,6 +34,6 @@ func runInitJava(_ *cobra.Command, args []string) error {
 	fmt.Printf("1. cd %s\n", projectName)
 	fmt.Printf("2. mvn clean install\n")
 	fmt.Printf("3. mvn exec:java -Dexec.mainClass=\"com.example.Main\"\n")
-	fmt.Printf("4. Add tools with: kmcp add-tool my-tool\n")
+	fmt.Printf("4. Add tools with: kagent mcp add-tool my-tool\n")
 	return nil
 }

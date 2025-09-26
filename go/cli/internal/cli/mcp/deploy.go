@@ -100,7 +100,7 @@ func init() {
 	DeployCmd.Flags().StringSliceVar(&deployEnv, "env", []string{}, "Environment variables (KEY=VALUE)")
 	DeployCmd.Flags().BoolVar(&deployForce, "force", false, "Force deployment even if validation fails")
 	DeployCmd.Flags().StringVarP(&deployFile, "file", "f", "", "Path to manifest.yaml file (default: current directory)")
-	DeployCmd.Flags().BoolVar(&deployNoInspector, "no-inspector", false, "Do not start the MCP inspector after deployment")
+	DeployCmd.Flags().BoolVar(&deployNoInspector, "no-inspector", true, "Do not start the MCP inspector after deployment")
 	DeployCmd.Flags().StringVar(
 		&deployEnvironment,
 		"environment",
@@ -148,7 +148,7 @@ func init() {
 	packageDeployCmd.Flags().StringVar(&deployImage, "image", "", "Docker image to deploy (overrides default)")
 	packageDeployCmd.Flags().StringVar(&deployTransport, "transport", "", "Transport type (stdio, http)")
 	packageDeployCmd.Flags().IntVar(&deployPort, "port", 0, "Container port (default: 3000)")
-	packageDeployCmd.Flags().BoolVar(&deployNoInspector, "no-inspector", false, "Do not start the MCP inspector after deployment")
+	packageDeployCmd.Flags().BoolVar(&deployNoInspector, "no-inspector", true, "Do not start the MCP inspector after deployment")
 	packageDeployCmd.Flags().StringVarP(&deployOutput, "output", "o", "", "Output file for the generated YAML")
 
 	// Mark required flags

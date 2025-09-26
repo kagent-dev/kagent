@@ -60,7 +60,7 @@ func (g *Generator) GenerateTool(projectroot string, config mcp.ToolConfig) erro
 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("1. Edit internal/tools/%s.go to implement your tool logic\n", toolNameSnakeCase)
-	fmt.Printf("2. Configure any required environment variables in kmcp.yaml\n")
+	fmt.Printf("2. Configure any required environment variables in manifest.yaml\n")
 	fmt.Printf("3. Run 'go run main.go' to start the server\n")
 
 	return nil

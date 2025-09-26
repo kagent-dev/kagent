@@ -75,7 +75,7 @@ This project uses the official MCP Java SDK from Maven Central (version 0.11.3) 
 
 3. **Add new tools**:
    ```bash
-   kmcp add-tool my-tool --description "My custom tool"
+   kagent mcp add-tool my-tool --description "My custom tool"
    ```
 
 ### Docker Deployment
@@ -142,7 +142,7 @@ Tools are Java classes that implement the `Tool` interface. Each tool should:
 
 1. Implement the `Tool` interface
 2. Be placed in the `src/main/java/com/example/tools/` directory
-3. Be registered in the `Tools.java` file (automatically handled by `kmcp add-tool`)
+3. Be registered in the `Tools.java` file (automatically handled by `kagent mcp add-tool`)
 
 ### Example Tool
 
@@ -178,7 +178,7 @@ The server can be configured through:
 
 - **Command line arguments**: `--transport`, `--host`, `--port`
 - **Environment variables**: `MCP_TRANSPORT_MODE`, `HOST`, `PORT`
-- **kmcp.yaml**: Project configuration file
+- **manifest.yaml**: Project configuration file
 
 ## Testing
 
@@ -193,13 +193,13 @@ mvn test
 ### Local Deployment
 
 ```bash
-kmcp deploy
+kagent mcp deploy
 ```
 
 ### Kubernetes Deployment
 
 ```bash
-kmcp deploy --namespace production
+kagent mcp deploy --namespace production
 ```
 
 ## Contributing
@@ -213,7 +213,3 @@ kmcp deploy --namespace production
 ## License
 
 This project is licensed under the Apache License 2.0.
-
-## Support
-
-For support and questions, please refer to the [KMCP documentation](https://kagent.dev/docs/kmcp).
