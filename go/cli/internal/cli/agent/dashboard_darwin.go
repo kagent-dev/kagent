@@ -15,7 +15,7 @@ import (
 
 func DashboardCmd(ctx context.Context, cfg *config.Config) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-ui", "8082:80")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-ui", "8082:8080")
 
 	defer func() {
 		cancel()

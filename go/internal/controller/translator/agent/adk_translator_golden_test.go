@@ -13,11 +13,11 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
+	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -71,7 +71,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 	require.NoError(t, err)
 
 	// Set up fake Kubernetes client
-	scheme := scheme.Scheme
+	scheme := schemev1.Scheme
 	err = v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
 
@@ -119,7 +119,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 		}, agent)
 		require.NoError(t, err)
 
-		result, err = agent_translator.NewAdkApiTranslator(kubeClient, defaultModel, nil).TranslateAgent(ctx, agent)
+		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil).TranslateAgent(ctx, agent)
 		require.NoError(t, err)
 
 	default:

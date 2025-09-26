@@ -8,6 +8,8 @@ rules:
   - ""
   resources:
   - configmaps
+  - secrets
+  - serviceaccounts
   - services
   verbs:
   - create

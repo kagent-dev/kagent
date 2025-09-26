@@ -73,6 +73,10 @@ spec:
             - {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version  }}
             - -image-pull-policy
             - {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy }}
+            {{- if and .Values.controller.agentImage.pullSecret (not (eq .Values.controller.agentImage.pullSecret "")) }}
+            - -image-pull-secret
+            - {{ .Values.controller.agentImage.pullSecret | default "" }}
+            {{- end }}
           securityContext:
             {{- toYaml .Values.controller.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
@@ -115,8 +119,8 @@ spec:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 1
-            initialDelaySeconds: 1
+            periodSeconds: 15
+            initialDelaySeconds: 15
           readinessProbe:
             httpGet:
               path: /health

@@ -81,6 +81,7 @@ jobs:
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
           make push-test-agent
+          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
@@ -112,7 +113,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache: true
           cache-dependency-path: go/go.sum
 
@@ -227,13 +228,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache: true
           cache-dependency-path: go/go.sum
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.1
+          version: v2.5.0
           working-directory: go
 
   python-test:

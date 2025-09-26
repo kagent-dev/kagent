@@ -46,6 +46,7 @@ type ImageConfig struct {
 	Registry   string `json:"registry,omitempty"`
 	Tag        string `json:"tag,omitempty"`
 	PullPolicy string `json:"pullPolicy,omitempty"`
+	PullSecret string `json:"pullSecret,omitempty"`
 	Repository string `json:"repository,omitempty"`
 }
 
@@ -53,6 +54,7 @@ var DefaultImageConfig = ImageConfig{
 	Registry:   "cr.kagent.dev",
 	Tag:        version.Get().Version,
 	PullPolicy: string(corev1.PullIfNotPresent),
+	PullSecret: "",
 	Repository: "kagent-dev/kagent/app",
 }
 
@@ -225,7 +227,7 @@ func (a *adkApiTranslator) buildManifest(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
 	dep *resolvedDeployment,
-	cfg *adk.AgentConfig, // nil for BYO
+	cfg *adk.AgentConfig,   // nil for BYO
 	card *server.AgentCard, // nil for BYO
 ) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
@@ -1073,6 +1075,14 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
 	}
 
+	if DefaultImageConfig.PullSecret != "" {
+		// Only append if not already present
+		alreadyPresent := a.checkPullSecretAlreadyPresent(spec)
+		if !alreadyPresent {
+			spec.ImagePullSecrets = append(spec.ImagePullSecrets, corev1.LocalObjectReference{Name: DefaultImageConfig.PullSecret})
+		}
+	}
+
 	dep := &resolvedDeployment{
 		Image:            image,
 		Cmd:              cmd,
@@ -1095,6 +1105,17 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	}
 
 	return dep, nil
+}
+
+func (a *adkApiTranslator) checkPullSecretAlreadyPresent(spec v1alpha2.DeclarativeDeploymentSpec) bool {
+	alreadyPresent := false
+	for _, secret := range spec.ImagePullSecrets {
+		if secret.Name == DefaultImageConfig.PullSecret {
+			alreadyPresent = true
+			break
+		}
+	}
+	return alreadyPresent
 }
 
 func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {

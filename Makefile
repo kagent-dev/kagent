@@ -27,7 +27,9 @@ BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
 DOCKER_BUILDER ?= docker buildx
 DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
+
 KIND_CLUSTER_NAME ?= kagent
+KIND_IMAGE_VERSION ?= 1.34.0
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
@@ -50,20 +52,21 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 
 # Version information for the build
-LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)      \
-            -X github.com/kagent-dev/kagent/go/internal/version.GitCommit=$(GIT_COMMIT) \
-            -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)"
+LDFLAGS := "-X github.com/$(DOCKER_REPO)/go/internal/version.Version=$(VERSION)      \
+            -X github.com/$(DOCKER_REPO)/go/internal/version.GitCommit=$(GIT_COMMIT) \
+            -X github.com/$(DOCKER_REPO)/go/internal/version.BuildDate=$(BUILD_DATE)"
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.8.4
-TOOLS_BUN_VERSION ?= 1.2.19
-TOOLS_NODE_VERSION ?= 22.18.0
+TOOLS_UV_VERSION ?= 0.8.22
+TOOLS_BUN_VERSION ?= 1.2.22
+TOOLS_NODE_VERSION ?= 22.19.0
 TOOLS_PYTHON_VERSION ?= 3.13
-TOOLS_KIND_IMAGE_VERSION ?= 1.33.2
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg LDFLAGS=$(LDFLAGS)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REPO=$(DOCKER_REPO)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
@@ -130,8 +133,9 @@ build-all: buildx-create
 	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: push-test-agent
-push-test-agent: build-kagent-adk
-	$(DOCKER_BUILDER) build --push --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) --build-arg VERSION=$(VERSION) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
+push-test-agent: buildx-create build-kagent-adk
+	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)"
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 
 .PHONY: create-kind-cluster
@@ -342,14 +346,18 @@ helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 .PHONY: kagent-cli-install
-kagent-cli-install: use-kind-cluster build-cli-local helm-version
-	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local install
+kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-provider
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
 	kubectl port-forward -n kagent service/kagent-controller 8083:8083
+
+.PHONY: kagent-ui-port-forward
+kagent-ui-port-forward: use-kind-cluster
+	open http://localhost:8082/
+	kubectl port-forward -n kagent service/kagent-ui 8082:8080
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster
