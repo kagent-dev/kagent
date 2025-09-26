@@ -59,6 +59,5 @@ func runInitGo(_ *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("✓ Successfully created Go MCP server project: %s\n", projectName)
-	// Add next steps here
 	return nil
 }

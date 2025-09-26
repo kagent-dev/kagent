@@ -30,6 +30,5 @@ func runInitPython(_ *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("✓ Successfully created Python MCP server project: %s\n", projectName)
-	// Add next steps here
 	return nil
 }
