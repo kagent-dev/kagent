@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
-	"github.com/kagent-dev/kagent/go/cli/internal/frameworks/common"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

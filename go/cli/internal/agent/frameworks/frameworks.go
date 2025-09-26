@@ -3,7 +3,7 @@ package frameworks
 import (
 	"fmt"
 
-	adk_python "github.com/kagent-dev/kagent/go/cli/internal/frameworks/adk/python"
+	adk_python "github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/adk/python"
 )
 
 // Generator interface for project generation

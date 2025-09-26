@@ -1,0 +1,90 @@
+package com.example.tools;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
+
+/**
+ * Tools registry for MCP server.
+ * 
+ * This class manages the registration and discovery of tools.
+ * Tools can be registered manually or discovered automatically.
+ */
+public class Tools {
+    private static final Map<String, Tool> toolRegistry = new HashMap<>();
+    
+    static {
+        // Register default tools
+        {{range .Tools}}
+        registerTool(new {{.}}());
+        {{end}}
+    }
+    
+    /**
+     * Register a tool with the registry.
+     * 
+     * @param tool the tool to register
+     */
+    public static void registerTool(Tool tool) {
+        if (tool == null) {
+            throw new IllegalArgumentException("Tool cannot be null");
+        }
+        toolRegistry.put(tool.getName(), tool);
+    }
+    
+    /**
+     * Get a tool by name.
+     * 
+     * @param name the name of the tool
+     * @return the tool, or null if not found
+     */
+    public static Tool getTool(String name) {
+        return toolRegistry.get(name);
+    }
+    
+    /**
+     * Get all registered tools.
+     * 
+     * @return a map of all registered tools
+     */
+    public static Map<String, Tool> getAllTools() {
+        return new HashMap<>(toolRegistry);
+    }
+    
+    /**
+     * Get a list of all registered tool names.
+     * 
+     * @return a list of tool names
+     */
+    public static List<String> getToolNames() {
+        return new ArrayList<>(toolRegistry.keySet());
+    }
+    
+    /**
+     * Check if a tool is registered.
+     * 
+     * @param name the name of the tool
+     * @return true if the tool is registered, false otherwise
+     */
+    public static boolean hasTool(String name) {
+        return toolRegistry.containsKey(name);
+    }
+    
+    /**
+     * Get the number of registered tools.
+     * 
+     * @return the number of registered tools
+     */
+    public static int getToolCount() {
+        return toolRegistry.size();
+    }
+    
+    /**
+     * Clear all registered tools.
+     * This is mainly useful for testing.
+     */
+    public static void clearTools() {
+        toolRegistry.clear();
+    }
+}

@@ -1,0 +1,219 @@
+# {{.ProjectName}}
+
+{{.Description}}
+
+This is a Model Context Protocol (MCP) server built with Java. It provides tools that can be used by AI assistants to interact with external systems and data sources.
+
+## Features
+
+- **Dynamic Tool Loading**: Tools are automatically discovered and loaded from the `src/main/java/com/example/tools/` directory
+- **Multiple Transport Support**: Supports both stdio and HTTP transport protocols
+- **Maven Build System**: Uses Maven for dependency management and building
+- **Docker Support**: Includes Dockerfile for containerized deployment
+- **Framework Ready**: Complete MCP server framework ready for MCP Java SDK integration
+
+## Current Status
+
+✅ **Official MCP SDK Integration Complete!** This project now uses the official MCP Java SDK from Maven Central.
+
+- ✅ Project scaffolding and tool generation work
+- ✅ Maven build and packaging work
+- ✅ Docker containerization works
+- ✅ KMCP CLI integration works
+- ✅ Official MCP SDK integration (version 0.11.3)
+- ✅ Dynamic tool loading and registration
+- ✅ Input schema support for tools
+- ✅ Configuration management with environment variables
+- ✅ Comprehensive test suite
+
+## Prerequisites
+
+- Java 17 or higher
+- Maven 3.6 or higher
+- Docker (optional, for containerized deployment)
+
+## MCP SDK Integration
+
+This project uses the official MCP Java SDK from Maven Central (version 0.11.3) for complete Model Context Protocol support.
+
+### Features:
+- **Official MCP SDK**: Uses the official `io.modelcontextprotocol.sdk:mcp` dependency
+- **Full MCP Protocol Support**: Complete implementation of the Model Context Protocol
+- **Dual Transport Support**: Both stdio and HTTP transport implementations
+- **Dynamic Tool Management**: Automatic tool discovery and registration
+- **Input Schema Validation**: Proper JSON schema support for tool parameters
+- **Configuration Management**: Environment variables and config file support
+- **Comprehensive Testing**: Full test suite for all functionality
+
+### Protocol Support:
+- **MCP Protocol**: Full JSON-RPC implementation over HTTP at `/mcp` endpoint
+- **tools/list**: List all available tools with their schemas
+- **tools/call**: Execute tools with proper parameter validation
+- **Error Handling**: Proper JSON-RPC error responses
+- **HTTP Transport**: RESTful HTTP endpoints with health checks
+
+## Quick Start
+
+### Local Development
+
+1. **Build the project**:
+   ```bash
+   mvn clean install
+   ```
+
+2. **Run the server locally**:
+   ```bash
+   # Stdio mode (default)
+   mvn exec:java -Dexec.mainClass="com.example.Main"
+   
+   # HTTP mode
+   mvn exec:java -Dexec.mainClass="com.example.Main" -Dexec.args="--transport http"
+   
+   # Custom host/port
+   mvn exec:java -Dexec.mainClass="com.example.Main" -Dexec.args="--transport http --host localhost --port 8080"
+   ```
+
+3. **Add new tools**:
+   ```bash
+   kmcp add-tool my-tool --description "My custom tool"
+   ```
+
+### Docker Deployment
+
+1. **Build the Docker image**:
+   ```bash
+   docker build -t {{.ProjectName}}:{{.Version}} .
+   ```
+
+2. **Run the container**:
+   ```bash
+   # Stdio mode
+   docker run -it {{.ProjectName}}:{{.Version}}
+   
+   # HTTP mode
+   docker run -p 3000:3000 {{.ProjectName}}:{{.Version}} --transport http
+   ```
+
+## MCP Inspector Compatibility
+
+This server is fully compatible with the MCP Inspector and other MCP clients:
+
+1. **Start the server in HTTP mode**:
+   ```bash
+   mvn exec:java -Dexec.mainClass="com.example.Main" -Dexec.args="--transport http"
+   ```
+
+2. **Connect with MCP Inspector**:
+   - Open the MCP Inspector
+   - Connect to: `http://localhost:3000/mcp`
+   - The inspector will automatically discover and list available tools
+   - You can test tool execution directly from the inspector
+
+3. **Available endpoints**:
+   - `POST /mcp` - MCP protocol (JSON-RPC) for MCP clients
+   - `GET /health` - Health check
+   - `GET /tools` - List tools (custom API)
+   - `POST /execute` - Execute tools (custom API)
+
+## Project Structure
+
+```
+{{.ProjectName}}/
+├── src/
+│   └── main/
+│       └── java/
+│           └── com/
+│               └── example/
+│                   ├── Main.java              # Main entry point
+│                   ├── MCPServer.java         # MCP server implementation
+│                   ├── ServerConfig.java      # Server configuration
+│                   └── tools/
+│                       ├── Tool.java          # Tool interface
+│                       ├── Tools.java         # Tool registry
+│                       └── Echo.java          # Example tool
+├── pom.xml                                     # Maven configuration
+├── Dockerfile                                  # Docker configuration
+└── README.md                                   # This file
+```
+
+## Adding Tools
+
+Tools are Java classes that implement the `Tool` interface. Each tool should:
+
+1. Implement the `Tool` interface
+2. Be placed in the `src/main/java/com/example/tools/` directory
+3. Be registered in the `Tools.java` file (automatically handled by `kmcp add-tool`)
+
+### Example Tool
+
+```java
+package com.example.tools;
+
+import java.util.Map;
+
+public class MyTool implements Tool {
+    
+    @Override
+    public String getName() {
+        return "my-tool";
+    }
+    
+    @Override
+    public String getDescription() {
+        return "My custom tool description";
+    }
+    
+    @Override
+    public Object execute(Map<String, Object> parameters) throws Exception {
+        // Your tool logic here
+        String input = (String) parameters.get("input");
+        return "Processed: " + input;
+    }
+}
+```
+
+## Configuration
+
+The server can be configured through:
+
+- **Command line arguments**: `--transport`, `--host`, `--port`
+- **Environment variables**: `MCP_TRANSPORT_MODE`, `HOST`, `PORT`
+- **kmcp.yaml**: Project configuration file
+
+## Testing
+
+Run the test suite:
+
+```bash
+mvn test
+```
+
+## Deployment
+
+### Local Deployment
+
+```bash
+kmcp deploy
+```
+
+### Kubernetes Deployment
+
+```bash
+kmcp deploy --namespace production
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
+
+## License
+
+This project is licensed under the Apache License 2.0.
+
+## Support
+
+For support and questions, please refer to the [KMCP documentation](https://kagent.dev/docs/kmcp).

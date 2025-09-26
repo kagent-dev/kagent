@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kagent-dev/kagent/go/cli/internal/frameworks/common"
+	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
 )
 
 //go:embed templates/* templates/agent/* dice-agent-instruction.md

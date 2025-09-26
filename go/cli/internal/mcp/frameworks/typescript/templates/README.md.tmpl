@@ -1,0 +1,137 @@
+# {{.ProjectName}}
+
+{{.Description}}
+
+This is a Model Context Protocol (MCP) server built with TypeScript.
+
+## Features
+
+- TypeScript-based MCP server
+- Dynamic tool loading
+- Built-in development tools
+- Docker support
+- Comprehensive testing setup
+
+## Prerequisites
+
+- Node.js 18 or higher
+- npm or yarn
+
+## Installation
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Build the project:
+```bash
+npm run build
+```
+
+## Development
+
+### Running in Development Mode
+
+```bash
+npm run dev
+```
+
+This will start the server in watch mode, automatically restarting when files change.
+
+### Running Tests
+
+```bash
+npm test
+```
+
+### Linting
+
+```bash
+npm run lint
+```
+
+To automatically fix linting issues:
+
+```bash
+npm run lint:fix
+```
+
+## Production
+
+### Building for Production
+
+```bash
+npm run build
+```
+
+### Running in Production
+
+```bash
+npm start
+```
+
+### Docker
+
+Build the Docker image:
+
+```bash
+docker build -t {{.ProjectName}} .
+```
+
+Run the container:
+
+```bash
+docker run -p 3000:3000 {{.ProjectName}}
+```
+
+## Project Structure
+
+```
+src/
+├── index.ts          # Main server entry point
+├── server.ts         # MCP server implementation
+├── tools/            # Tool implementations
+│   ├── index.ts      # Tool exports
+│   └── echo.ts       # Example tool
+└── types/            # TypeScript type definitions
+    └── index.ts      # Common types
+```
+
+## Adding Tools
+
+To add a new tool, use the kmcp CLI:
+
+```bash
+kmcp add-tool my-tool
+```
+
+This will:
+1. Create a new tool file in `src/tools/`
+2. Update the tool exports in `src/tools/index.ts`
+3. Provide a template for implementing your tool
+
+## Configuration
+
+The server can be configured using environment variables:
+
+- `PORT`: Server port (default: 3000)
+- `HOST`: Server host (default: localhost)
+- `LOG_LEVEL`: Logging level (default: info)
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Run the test suite
+6. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Author
+
+{{.Author}}

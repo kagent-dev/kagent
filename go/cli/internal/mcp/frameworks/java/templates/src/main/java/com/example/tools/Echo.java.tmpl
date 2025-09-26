@@ -1,0 +1,63 @@
+package com.example.tools;
+
+import java.util.Map;
+import java.util.List;
+import com.example.tools.ToolConfig;
+
+/**
+ * Echo tool for {{.ProjectName}} MCP server.
+ * 
+ * This is an example tool showing the basic structure for MCP tools.
+ * Each tool should implement the Tool interface and be registered in Tools.java.
+ */
+public class Echo implements Tool {
+    
+    @Override
+    public String getName() {
+        return "echo";
+    }
+    
+    @Override
+    public String getDescription() {
+        return "Echo a message back to the client";
+    }
+    
+    @Override
+    public io.modelcontextprotocol.spec.McpSchema.JsonSchema getInputSchema() {
+        return new io.modelcontextprotocol.spec.McpSchema.JsonSchema(
+            "object",
+            java.util.Map.of(
+                "message", java.util.Map.of(
+                    "type", "string",
+                    "description", "The message to echo"
+                )
+            ),
+            java.util.List.of("message"),
+            null,
+            null,
+            null
+        );
+    }
+    
+    @Override
+    public Object execute(Map<String, Object> parameters) throws Exception {
+        // Get tool-specific configuration from kmcp.yaml
+        String prefix = getToolConfig("echo", "prefix", "");
+        
+        // Get the message parameter
+        String message = (String) parameters.get("message");
+        if (message == null) {
+            throw new IllegalArgumentException("Message parameter is required");
+        }
+        
+        // Return the message with optional prefix
+        return prefix.isEmpty() ? message : prefix + message;
+    }
+    
+    /**
+     * Get tool-specific configuration.
+     */
+    private String getToolConfig(String toolName, String key, String defaultValue) {
+        return ToolConfig.getToolConfig(toolName, key, defaultValue);
+    }
+}

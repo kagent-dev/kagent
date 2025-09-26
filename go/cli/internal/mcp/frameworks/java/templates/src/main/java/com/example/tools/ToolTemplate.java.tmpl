@@ -1,0 +1,66 @@
+package com.example.tools;
+
+import java.util.Map;
+import java.util.List;
+import com.example.tools.ToolConfig;
+
+/**
+ * {{if .ToolNameTitle}}{{.ToolNameTitle}} tool{{else}}Example tool{{end}} for MCP server.{{if .Description}}
+
+{{.Description}}{{end}}
+ * 
+ * This is a template tool. Replace this implementation with your tool logic.
+ */
+public class {{if .ToolNamePascalCase}}{{.ToolNamePascalCase}}{{else}}Tool{{end}} implements Tool {
+    
+    @Override
+    public String getName() {
+        return "{{if .ToolName}}{{.ToolName}}{{else}}tool{{end}}";
+    }
+    
+    @Override
+    public String getDescription() {
+        return "{{if .ToolNameTitle}}{{.ToolNameTitle}}{{else}}Example{{end}} tool implementation";
+    }
+    
+    @Override
+    public io.modelcontextprotocol.spec.McpSchema.JsonSchema getInputSchema() {
+        return new io.modelcontextprotocol.spec.McpSchema.JsonSchema(
+            "object",
+            java.util.Map.of(
+                "message", java.util.Map.of(
+                    "type", "string",
+                    "description", "The message to process"
+                )
+            ),
+            java.util.List.of("message"),
+            null,
+            null,
+            null
+        );
+    }
+    
+    @Override
+    public Object execute(Map<String, Object> parameters) throws Exception {
+        // Get tool-specific configuration from kmcp.yaml
+        String config = getToolConfig("{{if .ToolName}}{{.ToolName}}{{else}}tool{{end}}", "prefix", "echo: ");
+        
+        // TODO: Replace this basic implementation with your tool logic
+        
+        // Example: Basic text processing
+        String message = (String) parameters.get("message");
+        if (message == null) {
+            throw new IllegalArgumentException("Message parameter is required");
+        }
+        
+        return config + message;
+    }
+    
+    /**
+     * Get tool-specific configuration.
+     * This is a placeholder - implement based on your configuration system.
+     */
+    private String getToolConfig(String toolName, String key, String defaultValue) {
+        return ToolConfig.getToolConfig(toolName, key, defaultValue);
+    }
+}
