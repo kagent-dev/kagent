@@ -152,7 +152,7 @@ make generate
 make test
 
 # Run end-to-end tests (requires a running Kind cluster)
-make test-e2e
+make e2e
 ```
 
 ### Linting

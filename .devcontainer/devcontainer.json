@@ -3,17 +3,19 @@
   "build": {
     "dockerfile": "Dockerfile",
     "args": {
-      "TOOLS_GO_VERSION": "1.24.3",
-      "TOOLS_NODE_VERSION": "22.15.0",
-      "TOOLS_UV_VERSION": "0.7.2",
-      "TOOLS_K9S_VERSION": "0.50.4",
-      "TOOLS_KIND_VERSION": "0.27.0",
-      "TOOLS_ISTIO_VERSION": "1.26.0",
-      "TOOLS_KUBECTL_VERSION": "1.33.4"
+      "TOOLS_GO_VERSION": "1.25.1",
+      "TOOLS_NODE_VERSION": "22.20.0",
+      "TOOLS_UV_VERSION": "0.8.22",
+      "TOOLS_K9S_VERSION": "0.50.12",
+      "TOOLS_KIND_VERSION": "0.30.0",
+      "TOOLS_ISTIO_VERSION": "1.27.1",
+      "TOOLS_KUBECTL_VERSION": "1.34.0"
     }
   },
   "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": "false"
+    },
     "ghcr.io/mpriscella/features/kind:1": {}
   },
   "customizations": {

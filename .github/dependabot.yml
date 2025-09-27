@@ -1,0 +1,49 @@
+version: 2
+updates:
+  - package-ecosystem: devcontainers
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directories:
+      - .devcontainer
+      - go
+      - go/test/e2e/agents/kebab
+      - python
+      - python/samples/adk/basic
+      - python/samples/crewai/*
+      - python/samples/langgraph/currency
+      - ui
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: go
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directories:
+      - .github/data/agent-framework
+      - ui
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directories:
+      - go/test/e2e/agents/kebab
+      - python
+      - python/packages/*
+      - python/samples/adk/basic
+      - python/samples/crewai/*
+      - python/samples/langgraph/currency
+    schedule:
+      interval: weekly
+  - package-ecosystem: uv
+    directories:
+      - go/test/e2e/agents/kebab
+      - python
+      - python/samples/adk/basic
+    schedule:
+      interval: weekly
