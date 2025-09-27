@@ -4,6 +4,8 @@ This sample demonstrates how to use the `kagent-crewai` toolkit to run a CrewAI 
 
 It follows the standard CrewAI project structure and developer experience, allowing you to define your agents and tasks in Python.
 
+If you wish to use the memory persistence integration with KAgent, edit `crew.py` and set `memory=True` when creating the crew.
+
 ## Features
 
 - Research crew with multiple specialized agents
@@ -31,20 +33,16 @@ It follows the standard CrewAI project structure and developer experience, allow
 3. **Create secrets for API keys**:
 
    ```bash
-   kubectl create secret generic kagent-google -n kagent \
-     --from-literal=GOOGLE_API_KEY=$GOOGLE_API_KEY \
-     --dry-run=client -o yaml | kubectl apply -f -
-
-   kubectl create secret generic kagent-serper -n kagent \
-     --from-literal=SERPER_API_KEY=$SERPER_API_KEY \
+   kubectl create secret generic kagent-openai -n kagent \
+     --from-literal=OPENAI_API_KEY=$OPENAI_API_KEY \
      --dry-run=client -o yaml | kubectl apply -f -
    ```
 
 4. **Deploy the agent**:
 
-   ```bash
-   kubectl apply -f agent.yaml
-   ```
+```bash
+kubectl apply -f agent.yaml
+```
 
 ## Local Development
 
@@ -61,7 +59,7 @@ It follows the standard CrewAI project structure and developer experience, allow
 
    ```bash
    export KAGENT_URL=http://localhost:8080
-   export GEMINI_API_KEY="sk-..."
+   export OPENAI_API_KEY="sk-..."
    export SERPER_API_KEY="..."
    ```
 

@@ -9,12 +9,6 @@ dependencies = [
     "crewai[tools]>=0.193.2,<1.0.0"
 ]
 
-[project.scripts]
-kickoff = "poem_flow.main:kickoff"
-run_crew = "poem_flow.main:kickoff"
-plot = "poem_flow.main:plot"
-poem_flow = "poem_flow.main:main"
-
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"

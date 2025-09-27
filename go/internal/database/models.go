@@ -179,6 +179,32 @@ type LangGraphCheckpointWrite struct {
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 }
 
+// CrewAIAgentMemory represents long-term memory for CrewAI agents
+type CrewAIAgentMemory struct {
+	UserID    string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID  string         `gorm:"primaryKey;not null" json:"thread_id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime;index:idx_crewai_memory_list" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	// MemoryData contains JSON serialized memory data including task_description, score, metadata, datetime
+	MemoryData string `gorm:"type:text;not null" json:"memory_data"`
+}
+
+// CrewAIFlowState represents flow state for CrewAI flows
+type CrewAIFlowState struct {
+	ID         uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID     string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID   string         `gorm:"primaryKey;not null" json:"thread_id"`
+	FlowUUID   string         `gorm:"primaryKey;not null" json:"flow_uuid"`
+	MethodName string         `gorm:"not null" json:"method_name"`
+	Timestamp  time.Time      `gorm:"not null" json:"timestamp"`
+	CreatedAt  time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt  time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	// StateData contains JSON serialized flow state data
+	StateData string `gorm:"type:text;not null" json:"state_data"`
+}
+
 // TableName methods to match Python table names
 func (Agent) TableName() string                    { return "agent" }
 func (Event) TableName() string                    { return "event" }
@@ -190,3 +216,5 @@ func (Tool) TableName() string                     { return "tool" }
 func (ToolServer) TableName() string               { return "toolserver" }
 func (LangGraphCheckpoint) TableName() string      { return "lg_checkpoint" }
 func (LangGraphCheckpointWrite) TableName() string { return "lg_checkpoint_write" }
+func (CrewAIAgentMemory) TableName() string        { return "crewai_agent_memory" }
+func (CrewAIFlowState) TableName() string          { return "crewai_flow_state" }
