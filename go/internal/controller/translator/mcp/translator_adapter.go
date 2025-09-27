@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	transportAdapterContainerImage = "ghcr.io/agentgateway/agentgateway:0.7.4-musl"
+	transportAdapterContainerImage = "ghcr.io/agentgateway/agentgateway:0.9.0-musl"
 	defaultDebianContainerImage    = "ghcr.io/astral-sh/uv:debian"
-	defaultNodeContainerImage      = "node:24-alpine3.21"
+	defaultNodeContainerImage      = "node:24-alpine3.22"
 	mcpServerConfigHashAnnotation  = "kagent.dev/mcpserver-config-hash"
 )
 
