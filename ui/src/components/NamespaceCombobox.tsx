@@ -43,12 +43,6 @@ export function NamespaceCombobox({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-<<<<<<< HEAD
-  useEffect(() => {
-    const loadNamespaces = async () => {
-      try {
-        setLoading(true);
-=======
   const loadNamespaces = async () => {
     try {
       setLoading(true);
@@ -64,50 +58,41 @@ export function NamespaceCombobox({
           sorted = sorted.filter(ns => allow.has(ns.name));
         }
         setNamespaces(sorted);
->>>>>>> 6c8473e (updated enterprise grade)
         setError(null);
-        const response = await listNamespaces();
-  
-        if (!response.error) {
-          const sorted = [...(response.data || [])].sort((a, b) =>
-            a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-          );
-          setNamespaces(sorted);
-          setError(null);
-          onError?.(null);
-  
-          // Set a default namespace if none is currently selected
-          if (!value) {
-            const names = sorted.map((ns) => ns.name);
-            let defaultNamespace: string | undefined;
-            if (names.includes("kagent")) {
-              defaultNamespace = "kagent";
-            } else if (names.includes("default")) {
-              defaultNamespace = "default";
-            } else if (names.length > 0) {
-              defaultNamespace = names[0];
-            }
-            if (defaultNamespace) {
-              onValueChange(defaultNamespace);
-            }
+        onError?.(null);
+
+        // Set a default namespace if none is currently selected
+        if (!value) {
+          const names = sorted.map((ns) => ns.name);
+          let defaultNamespace: string | undefined;
+          if (names.includes("kagent")) {
+            defaultNamespace = "kagent";
+          } else if (names.includes("default")) {
+            defaultNamespace = "default";
+          } else if (names.length > 0) {
+            defaultNamespace = names[0];
           }
-        } else {
-          const errorMsg = response.error || 'Failed to load namespaces';
-          setError(errorMsg);
-          onError?.(errorMsg);
+          if (defaultNamespace) {
+            onValueChange(defaultNamespace);
+          }
         }
-      } catch (err) {
-        console.error('Failed to load namespaces:', err);
-        const errorMsg = err instanceof Error ? err.message : 'Failed to load namespaces';
+      } else {
+        const errorMsg = response.error || 'Failed to load namespaces';
         setError(errorMsg);
         onError?.(errorMsg);
-      } finally {
-        setLoading(false);
       }
-    };
+    } catch (err) {
+      console.error('Failed to load namespaces:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load namespaces';
+      setError(errorMsg);
+      onError?.(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     loadNamespaces();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onError]);
 
   const selectedNamespace = namespaces.find((ns) => ns.name === value);
@@ -120,7 +105,7 @@ export function NamespaceCombobox({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "w-full justify-between",
+            "w-full justify-between h-12 text-lg",
             error && "border-red-500 focus:border-red-500 focus:ring-red-500",
           )}
           disabled={disabled || loading}
@@ -188,4 +173,4 @@ export function NamespaceCombobox({
       </PopoverContent>
     </Popover>
   );
-} 
+}
