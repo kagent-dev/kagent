@@ -1,12 +1,8 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 import logging
-from datetime import datetime, timezone
 
-import requests
+import httpx
 from pydantic import BaseModel, Field
-
-from crewai.flow.persistence import FlowPersistence
-
 
 class KagentMemoryPayload(BaseModel):
     session_id: str = Field(..., alias="thread_id")
@@ -16,18 +12,6 @@ class KagentMemoryPayload(BaseModel):
 
 class KagentMemoryResponse(BaseModel):
     data: List[KagentMemoryPayload]
-
-
-class KagentFlowStatePayload(BaseModel):
-    session_id: str = Field(..., alias="thread_id")
-    flow_uuid: str
-    method_name: str
-    timestamp: str  # ISO format timestamp from when the state change happened
-    state_data: Dict[str, Any]
-
-
-class KagentFlowStateResponse(BaseModel):
-    data: KagentFlowStatePayload
 
 
 class KagentMemoryStorage:
@@ -61,9 +45,10 @@ class KagentMemoryStorage:
         logging.info(f"Saving memory to Kagent backend: {payload}")
 
         try:
-            response = requests.post(url, json=payload.model_dump(by_alias=True), headers={"X-User-ID": self.user_id})
-            response.raise_for_status()
-        except requests.exceptions.RequestException as e:
+            with httpx.Client() as client:
+                response = client.post(url, json=payload.model_dump(by_alias=True), headers={"X-User-ID": self.user_id})
+                response.raise_for_status()
+        except httpx.HTTPError as e:
             logging.error(f"Error saving memory to Kagent backend: {e}")
             raise
 
@@ -78,8 +63,9 @@ class KagentMemoryStorage:
 
         logging.debug(f"Loading memory from Kagent backend with params: {params}")
         try:
-            response = requests.get(url, params=params, headers={"X-User-ID": self.user_id})
-            response.raise_for_status()
+            with httpx.Client() as client:
+                response = client.get(url, params=params, headers={"X-User-ID": self.user_id})
+                response.raise_for_status()
 
             # Parse response and convert to the format expected by the original interface
             memory_response = KagentMemoryResponse.model_validate_json(response.text)
@@ -100,11 +86,8 @@ class KagentMemoryStorage:
                     }
                 )
 
-            # Sort by datetime DESC, then by score ASC (matching SQLite behavior)
-            results.sort(key=lambda x: (x["datetime"], x["score"]), reverse=True)
-
             return results if results else None
-        except requests.exceptions.RequestException as e:
+        except httpx.HTTPError as e:
             logging.error(f"Error loading memory from Kagent backend: {e}")
             return None
 
@@ -117,59 +100,13 @@ class KagentMemoryStorage:
 
         logging.info(f"Resetting memory for session {self.session_id}")
         try:
-            response = requests.delete(url, params=params, headers={"X-User-ID": self.user_id})
-            response.raise_for_status()
+            with httpx.Client() as client:
+                response = client.delete(url, params=params, headers={"X-User-ID": self.user_id})
+                response.raise_for_status()
             logging.info(f"Successfully reset memory for session {self.session_id}")
-        except requests.exceptions.RequestException as e:
+        except httpx.HTTPError as e:
             logging.error(f"Error resetting memory for session {self.session_id}: {e}")
             raise
 
 
-class KagentFlowPersistence(FlowPersistence):
-    """
-    KagentFlowPersistence is a custom persistence class for CrewAI Flows.
-    It saves and loads the flow state to the Kagent backend.
-    """
 
-    def __init__(self, session_id: str, user_id: str, base_url: str = "http://localhost:8080"):
-        self.session_id = session_id
-        self.user_id = user_id
-        self.base_url = base_url
-        self.init_db()
-
-    def init_db(self) -> None:
-        # Nothing to do here as the backend handles DB initialization
-        pass
-
-    def save_state(self, flow_uuid: str, method_name: str, state_data: Union[Dict[str, Any], BaseModel]) -> None:
-        """Saves the flow state to the Kagent backend."""
-        url = f"{self.base_url}/api/crewai/flows/state"
-        payload = KagentFlowStatePayload(
-            session_id=self.session_id,
-            flow_uuid=flow_uuid,
-            method_name=method_name,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            state_data=state_data.model_dump() if isinstance(state_data, BaseModel) else state_data,
-        )
-        logging.info(f"Saving flow state to Kagent backend: {payload}")
-        try:
-            response = requests.post(url, json=payload.model_dump(by_alias=True), headers={"X-User-ID": self.user_id})
-            response.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error saving flow state to Kagent backend: {e}")
-            raise
-
-    def load_state(self, flow_uuid: str) -> Optional[Dict[str, Any]]:
-        """Loads the flow state from the Kagent backend."""
-        url = f"{self.base_url}/api/crewai/flows/state"
-        params = {"thread_id": self.session_id, "flow_uuid": flow_uuid}
-        logging.info(f"Loading flow state from Kagent backend with params: {params}")
-        try:
-            response = requests.get(url, params=params, headers={"X-User-ID": self.user_id})
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            return KagentFlowStateResponse.model_validate_json(response.text).data.state_data
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error loading flow state from Kagent backend: {e}")
-            return None

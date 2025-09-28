@@ -60,8 +60,6 @@ EXISTING POEM:
     @listen(generate_poem)
     def save_poem(self):
         logging.info("Saving poem")
-        # with open("output/poem.txt", "w") as f:
-        #     f.write(self.state.poem)
         return self.state.poem
 
 

@@ -38,7 +38,6 @@ type KagentMemoryResponse struct {
 // KagentFlowStatePayload represents flow state payload data
 type KagentFlowStatePayload struct {
 	ThreadID   string                 `json:"thread_id"`
-	FlowUUID   string                 `json:"flow_uuid"`
 	MethodName string                 `json:"method_name"`
 	Timestamp  string                 `json:"timestamp,omitempty"`
 	StateData  map[string]interface{} `json:"state_data"`
@@ -217,10 +216,6 @@ func (h *CrewAIHandler) HandleStoreFlowState(w ErrorResponseWriter, r *http.Requ
 		w.RespondWithError(errors.NewBadRequestError("thread_id is required", nil))
 		return
 	}
-	if req.FlowUUID == "" {
-		w.RespondWithError(errors.NewBadRequestError("flow_uuid is required", nil))
-		return
-	}
 	if req.MethodName == "" {
 		w.RespondWithError(errors.NewBadRequestError("method_name is required", nil))
 		return
@@ -228,7 +223,6 @@ func (h *CrewAIHandler) HandleStoreFlowState(w ErrorResponseWriter, r *http.Requ
 
 	log = log.WithValues(
 		"threadID", req.ThreadID,
-		"flowUUID", req.FlowUUID,
 		"methodName", req.MethodName,
 	)
 
@@ -243,7 +237,6 @@ func (h *CrewAIHandler) HandleStoreFlowState(w ErrorResponseWriter, r *http.Requ
 	state := &database.CrewAIFlowState{
 		UserID:     userID,
 		ThreadID:   req.ThreadID,
-		FlowUUID:   req.FlowUUID,
 		MethodName: req.MethodName,
 		StateData:  string(stateDataJSON),
 	}
@@ -275,16 +268,10 @@ func (h *CrewAIHandler) HandleGetFlowState(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	flowUUID := r.URL.Query().Get("flow_uuid")
-	if flowUUID == "" {
-		w.RespondWithError(errors.NewBadRequestError("flow_uuid is required", nil))
-		return
-	}
-
-	log = log.WithValues("userID", userID, "threadID", threadID, "flowUUID", flowUUID)
+	log = log.WithValues("userID", userID, "threadID", threadID)
 
 	log.V(1).Info("Getting CrewAI flow state")
-	state, err := h.DatabaseService.GetCrewAIFlowState(userID, threadID, flowUUID)
+	state, err := h.DatabaseService.GetCrewAIFlowState(userID, threadID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get CrewAI flow state", err))
 		return
@@ -304,7 +291,6 @@ func (h *CrewAIHandler) HandleGetFlowState(w ErrorResponseWriter, r *http.Reques
 
 	statePayload := KagentFlowStatePayload{
 		ThreadID:   state.ThreadID,
-		FlowUUID:   state.FlowUUID,
 		MethodName: state.MethodName,
 		StateData:  stateData,
 	}

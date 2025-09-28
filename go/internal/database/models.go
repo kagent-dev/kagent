@@ -195,7 +195,6 @@ type CrewAIFlowState struct {
 	ID         uint           `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID     string         `gorm:"primaryKey;not null" json:"user_id"`
 	ThreadID   string         `gorm:"primaryKey;not null" json:"thread_id"`
-	FlowUUID   string         `gorm:"primaryKey;not null" json:"flow_uuid"`
 	MethodName string         `gorm:"not null" json:"method_name"`
 	Timestamp  time.Time      `gorm:"not null" json:"timestamp"`
 	CreatedAt  time.Time      `gorm:"autoCreateTime" json:"created_at"`

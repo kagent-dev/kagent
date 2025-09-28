@@ -64,7 +64,7 @@ type Client interface {
 	SearchCrewAIMemoryByTask(userID, threadID, taskDescription string, limit int) ([]*CrewAIAgentMemory, error)
 	ResetCrewAIMemory(userID, threadID string) error
 	StoreCrewAIFlowState(state *CrewAIFlowState) error
-	GetCrewAIFlowState(userID, threadID, flowUUID string) (*CrewAIFlowState, error)
+	GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error)
 }
 
 type LangGraphCheckpointTuple struct {
@@ -604,10 +604,11 @@ func (c *clientImpl) SearchCrewAIMemoryByTask(userID, threadID, taskDescription 
 	
 	// Search for task_description within the JSON memory_data field
 	// Using JSON_EXTRACT or JSON_UNQUOTE for MySQL/PostgreSQL, or simple LIKE for SQLite
+	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
 	query := c.db.Where(
 		"user_id = ? AND thread_id = ? AND (memory_data LIKE ? OR JSON_EXTRACT(memory_data, '$.task_description') LIKE ?)",
 		userID, threadID, "%"+taskDescription+"%", "%"+taskDescription+"%",
-	).Order("created_at DESC")
+	).Order("created_at DESC, JSON_EXTRACT(memory_data, '$.score') ASC")
 	
 	// Apply limit
 	if limit > 0 {
@@ -651,14 +652,14 @@ func (c *clientImpl) StoreCrewAIFlowState(state *CrewAIFlowState) error {
 }
 
 // GetCrewAIFlowState retrieves the most recent CrewAI flow state
-func (c *clientImpl) GetCrewAIFlowState(userID, threadID, flowUUID string) (*CrewAIFlowState, error) {
+func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error) {
 	var state CrewAIFlowState
 
 	// Get the most recent state by ordering by ID DESC
 	// Thread_id is equivalent to flow_uuid used by CrewAI because in each session there is only one flow
 	err := c.db.Where(
-		"user_id = ? AND thread_id = ? AND flow_uuid = ?",
-		userID, threadID, flowUUID,
+		"user_id = ? AND thread_id = ?",
+		userID, threadID,
 	).Order("id DESC").First(&state).Error
 	
 	if err != nil {

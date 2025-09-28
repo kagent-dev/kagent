@@ -28,7 +28,7 @@ type InMemoryFakeClient struct {
 	checkpoints       map[string]*database.LangGraphCheckpoint        // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	checkpointWrites  map[string][]*database.LangGraphCheckpointWrite // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	crewaiMemory      map[string][]*database.CrewAIAgentMemory        // key: user_id:thread_id:agent_id
-	crewaiFlowStates  map[string]*database.CrewAIFlowState            // key: user_id:thread_id:flow_uuid
+	crewaiFlowStates  map[string]*database.CrewAIFlowState            // key: user_id:thread_id
 	nextFeedbackID    int
 }
 
@@ -780,9 +780,30 @@ func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDesc
 		}
 	}
 	
-	// Sort by created_at DESC (most recent first)
+	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
 	sort.Slice(allMemories, func(i, j int) bool {
-		return allMemories[i].CreatedAt.After(allMemories[j].CreatedAt)
+		// First sort by created_at DESC (most recent first)
+		if !allMemories[i].CreatedAt.Equal(allMemories[j].CreatedAt) {
+			return allMemories[i].CreatedAt.After(allMemories[j].CreatedAt)
+		}
+		
+		// If created_at is equal, sort by score ASC
+		var scoreI, scoreJ float64
+		var memoryDataI, memoryDataJ map[string]interface{}
+		
+		if err := json.Unmarshal([]byte(allMemories[i].MemoryData), &memoryDataI); err == nil {
+			if score, ok := memoryDataI["score"].(float64); ok {
+				scoreI = score
+			}
+		}
+		
+		if err := json.Unmarshal([]byte(allMemories[j].MemoryData), &memoryDataJ); err == nil {
+			if score, ok := memoryDataJ["score"].(float64); ok {
+				scoreJ = score
+			}
+		}
+		
+		return scoreI < scoreJ
 	})
 	
 	// Apply limit
@@ -828,14 +849,14 @@ func (c *InMemoryFakeClient) StoreCrewAIFlowState(state *database.CrewAIFlowStat
 		c.crewaiFlowStates = make(map[string]*database.CrewAIFlowState)
 	}
 	
-	key := fmt.Sprintf("%s:%s:%s", state.UserID, state.ThreadID, state.FlowUUID)
+	key := fmt.Sprintf("%s:%s", state.UserID, state.ThreadID)
 	c.crewaiFlowStates[key] = state
 	
 	return nil
 }
 
 // GetCrewAIFlowState retrieves CrewAI flow state
-func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID, flowUUID string) (*database.CrewAIFlowState, error) {
+func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID string) (*database.CrewAIFlowState, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -843,7 +864,7 @@ func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID, flowUUID strin
 		return nil, nil
 	}
 	
-	key := fmt.Sprintf("%s:%s:%s", userID, threadID, flowUUID)
+	key := fmt.Sprintf("%s:%s", userID, threadID)
 	state := c.crewaiFlowStates[key]
 	
 	return state, nil
