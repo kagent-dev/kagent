@@ -3,6 +3,8 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentsProvider } from "@/components/AgentsProvider";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { OrganizationProvider } from "@/contexts/OrganizationContext";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -15,26 +17,35 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "kagent.dev",
+  title: "adolphe.ai - Enterprise AI Agent Platform",
+  description: "Deploy autonomous AI agents for enterprise automation. Orchestrate models, tools, and workflows with enterprise-grade security and scalability.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <TooltipProvider>
-      <AgentsProvider>
-        <html lang="en" className="">
-          <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
-            <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-              <AppInitializer>
-                <Header />
-                <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
-                <Footer />
-              </AppInitializer>
-              <Toaster richColors/>
-            </ThemeProvider>
-          </body>
-        </html>
-      </AgentsProvider>
-    </TooltipProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${geistSans.className} flex flex-col min-h-screen`}>
+        <TooltipProvider>
+          <AgentsProvider>
+            <AuthProvider>
+              <OrganizationProvider>
+                <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+                  <AppInitializer>
+                    <Header />
+                    <main className="flex-1 w-full">
+                      <div className="w-full">
+                        {children}
+                      </div>
+                    </main>
+                    <Footer />
+                  </AppInitializer>
+                  <Toaster richColors/>
+                </ThemeProvider>
+              </OrganizationProvider>
+            </AuthProvider>
+          </AgentsProvider>
+        </TooltipProvider>
+      </body>
+    </html>
   );
 }

@@ -26,6 +26,8 @@ interface NamespaceComboboxProps {
   disabled?: boolean;
   // callback to handle errors in case the parent component wants to handle an error
   onError?: (error: string | null) => void;
+  // Optional whitelist of namespaces to display/select
+  allowedNames?: string[];
 }
 
 export function NamespaceCombobox({
@@ -34,16 +36,35 @@ export function NamespaceCombobox({
   placeholder = "Select namespace...",
   disabled = false,
   onError,
+  allowedNames,
 }: NamespaceComboboxProps) {
   const [open, setOpen] = useState(false);
   const [namespaces, setNamespaces] = useState<NamespaceResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+<<<<<<< HEAD
   useEffect(() => {
     const loadNamespaces = async () => {
       try {
         setLoading(true);
+=======
+  const loadNamespaces = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await listNamespaces();
+
+      if (!response.error) {
+        let sorted = [...(response.data || [])].sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        );
+        if (allowedNames && allowedNames.length > 0) {
+          const allow = new Set(allowedNames);
+          sorted = sorted.filter(ns => allow.has(ns.name));
+        }
+        setNamespaces(sorted);
+>>>>>>> 6c8473e (updated enterprise grade)
         setError(null);
         const response = await listNamespaces();
   

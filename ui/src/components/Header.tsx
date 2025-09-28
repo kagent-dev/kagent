@@ -1,57 +1,90 @@
-'use client'
+"use client";
+
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import AdolpheLogo from "./AdolpheLogo";
 import { Button } from "./ui/button";
+<<<<<<< HEAD
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
 import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon } from "lucide-react";
+=======
+import { Menu, X, LogOut, User } from "lucide-react";
+>>>>>>> 6c8473e (updated enterprise grade)
 import { ThemeToggle } from "./ThemeToggle";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/hooks/useAuth";
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { isAuthenticated, user, logout } = useAuth();
+  const router = useRouter();
+  const homeHref = '/';
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
   };
 
-  // Close mobile menu when a link inside dropdown is clicked
-  const handleMobileLinkClick = () => {
-    if (isMenuOpen) {
-      setIsMenuOpen(false);
-    }
+  const handleLogout = () => {
+    logout();
+    setIsMenuOpen(false);
+    // Redirect to home page after logout
+    router.push('/');
   };
 
   return (
     <nav className="py-4 md:py-8 border-b">
-      <div className="max-w-6xl mx-auto px-4 md:px-6">
+      <div className="max-w-6xl mx-auto px-6">
         <div className="flex justify-between items-center">
-          <Link href="/">
-            <KAgentLogoWithText className="h-5" />
+          <Link href={homeHref}>
+            <span className="inline-flex items-center gap-3 text-xl md:text-2xl font-semibold tracking-tight hover:opacity-80 transition-opacity">
+              <div className="p-1 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+                <AdolpheLogo className="h-7 w-7 md:h-8 md:w-8" />
+              </div>
+              <span className="bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+                adolphe.ai
+              </span>
+            </span>
           </Link>
-          
+
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center gap-4">
+            {isAuthenticated ? (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-sm">
+                  <User className="h-4 w-4" />
+                  <span>Welcome, {user?.name || user?.email}</span>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleLogout}>
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Logout
+                </Button>
+                <ThemeToggle />
+              </div>
+            ) : (
+              <div className="flex items-center gap-4">
+                <Button variant="ghost" asChild>
+                  <Link href="/login">Log in</Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/signup">Sign up</Link>
+                </Button>
+                <ThemeToggle />
+              </div>
+            )}
+          </div>
+
           {/* Mobile menu button */}
-          <button 
-            className="md:hidden p-2 focus:outline-none"
-            onClick={toggleMenu}
-            aria-label="Toggle menu"
-          >
-            {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-          </button>
-          
-          {/* Desktop navigation */}
-          <div className="hidden md:flex items-center space-x-2 lg:space-x-4">
-            <Button variant="link" className="text-secondary-foreground" asChild>
-              <Link href="/" className="gap-1">
-                <HomeIcon className="h-4 w-4" />
-                Home
-              </Link>
+          <div className="md:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleMenu}
+              aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
+            >
+              {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
+<<<<<<< HEAD
 
 
             {/* Create Dropdown */}
@@ -131,11 +164,14 @@ export function Header() {
             </Button>
             
             <ThemeToggle />
+=======
+>>>>>>> 6c8473e (updated enterprise grade)
           </div>
         </div>
-        
+
         {/* Mobile menu */}
         {isMenuOpen && (
+<<<<<<< HEAD
           <div className="md:hidden pt-4 pb-2 animate-in fade-in slide-in-from-top duration-300">
             <div className="flex flex-col space-y-1">
               {/* Mobile Home Link */}
@@ -224,8 +260,36 @@ export function Header() {
 
               <div className="flex items-center justify-end py-2">
                  <ThemeToggle />
+=======
+          <div className="md:hidden mt-4 pb-4 space-y-4">
+            {isAuthenticated ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-sm px-2">
+                  <User className="h-4 w-4" />
+                  <span>Welcome, {user?.name || user?.email}</span>
+                </div>
+                <Button variant="outline" onClick={handleLogout} className="w-full">
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Logout
+                </Button>
+                <div className="pt-2 border-t">
+                  <ThemeToggle />
+                </div>
+>>>>>>> 6c8473e (updated enterprise grade)
               </div>
-            </div>
+            ) : (
+              <div className="space-y-4">
+                <Button variant="ghost" asChild className="w-full">
+                  <Link href="/login" onClick={() => setIsMenuOpen(false)}>Log in</Link>
+                </Button>
+                <Button asChild className="w-full">
+                  <Link href="/signup" onClick={() => setIsMenuOpen(false)}>Sign up</Link>
+                </Button>
+                <div className="pt-2 border-t">
+                  <ThemeToggle />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1,0 +1,565 @@
+"use client";
+
+import type React from "react";
+import { useState, useRef, useEffect } from "react";
+import { ArrowBigUp, X, Loader2, Sparkles, Brain, Zap, Send, Bot, Copy, Check, Clock, Heart } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import ChatMessage from "./ChatMessage";
+import StreamingMessage from "./StreamingMessage";
+import TokenStatsDisplay from "./TokenStats";
+import type { TokenStats, Session, ChatStatus } from "@/types";
+import StatusDisplay from "./StatusDisplay";
+import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
+import { getCurrentUserId } from "@/app/actions/utils";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromTasks, createMessage } from "@/lib/messageHandlers";
+import { kagentA2AClient } from "@/lib/a2aClient";
+import { v4 as uuidv4 } from "uuid";
+import { getStatusPlaceholder } from "@/lib/statusUtils";
+import { Message } from "@a2a-js/sdk";
+
+interface ChatInterfaceProps {
+  selectedAgentName: string;
+  selectedNamespace: string;
+  selectedSession?: Session | null;
+  sessionId?: string;
+}
+
+export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
+  const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [currentInputMessage, setCurrentInputMessage] = useState("");
+  const [tokenStats, setTokenStats] = useState<TokenStats>({
+    total: 0,
+    input: 0,
+    output: 0,
+  });
+
+  const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
+
+  const [session, setSession] = useState<Session | null>(selectedSession || null);
+  const [storedMessages, setStoredMessages] = useState<Message[]>([]);
+  const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
+  const [streamingContent, setStreamingContent] = useState<string>("");
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isFirstAssistantChunkRef = useRef(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
+  const isCreatingSessionRef = useRef<boolean>(false);
+  const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
+
+  const { handleMessageEvent } = createMessageHandlers({
+    setMessages: setStreamingMessages,
+    setIsStreaming,
+    setStreamingContent,
+    setTokenStats,
+    setChatStatus,
+    agentContext: {
+      namespace: selectedNamespace,
+      agentName: selectedAgentName
+    }
+  });
+
+  useEffect(() => {
+    async function initializeChat() {
+      setTokenStats({ total: 0, input: 0, output: 0 });
+      setStreamingMessages([]);
+
+      if (isFirstMessage || isCreatingSessionRef.current) {
+        return;
+      }
+
+      if (!sessionId) {
+        setIsLoading(false);
+        setStoredMessages([]);
+        return;
+      }
+
+      setIsLoading(true);
+      setSessionNotFound(false);
+
+      try {
+        const sessionExistsResponse = await checkSessionExists(sessionId);
+        if (sessionExistsResponse.error || !sessionExistsResponse.data) {
+          setSessionNotFound(true);
+          setIsLoading(false);
+          return;
+        }
+
+        const messagesResponse = await getSessionTasks(sessionId);
+        if (messagesResponse.error) {
+          toast.error("Failed to load messages");
+          setIsLoading(false);
+          return;
+        }
+
+        if (!messagesResponse.data || messagesResponse?.data?.length === 0) {
+          setStoredMessages([]);
+          setTokenStats({ total: 0, input: 0, output: 0 });
+        }
+        else {
+          const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
+          const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
+          setStoredMessages(extractedMessages);
+          setTokenStats(extractedTokenStats);
+        }
+      } catch (error) {
+        console.error("Error loading messages:", error);
+        toast.error("Error loading messages");
+        setSessionNotFound(true);
+      }
+      setIsLoading(false);
+    }
+
+    initializeChat();
+  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      const viewport = containerRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+      if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+    }
+  }, [storedMessages, streamingMessages, streamingContent]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
+      return;
+    }
+
+    const userMessageText = currentInputMessage;
+    setCurrentInputMessage("");
+    setChatStatus("thinking");
+    setStoredMessages(prev => [...prev, ...streamingMessages]);
+    setStreamingMessages([]);
+    setStreamingContent("");
+
+    const userMessage: Message = {
+      kind: "message",
+      messageId: uuidv4(),
+      role: "user",
+      parts: [{
+        kind: "text",
+        text: userMessageText
+      }],
+      metadata: {
+        timestamp: Date.now()
+      }
+    };
+
+    setStreamingMessages([userMessage]);
+    isFirstAssistantChunkRef.current = true;
+
+    try {
+      let currentSessionId = session?.id || sessionId;
+
+      if (!currentSessionId) {
+        try {
+          isCreatingSessionRef.current = true;
+          setIsFirstMessage(true);
+
+          const newSessionResponse = await createSession({
+            user_id: await getCurrentUserId(),
+            agent_ref: `${selectedNamespace}/${selectedAgentName}`,
+            name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
+          });
+
+          if (newSessionResponse.error || !newSessionResponse.data) {
+            toast.error("Failed to create session");
+            setChatStatus("error");
+            setCurrentInputMessage(userMessageText);
+            isCreatingSessionRef.current = false;
+            return;
+          }
+
+          currentSessionId = newSessionResponse.data.id;
+          setSession(newSessionResponse.data);
+
+          const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
+          router.replace(newUrl, { scroll: false });
+
+          const newSessionEvent = new CustomEvent('new-session-created', {
+            detail: {
+              agentRef: `${selectedNamespace}/${selectedAgentName}`,
+              session: newSessionResponse.data
+            }
+          });
+          window.dispatchEvent(newSessionEvent);
+        } catch (error) {
+          console.error("Error creating session:", error);
+          toast.error("Error creating session");
+          setChatStatus("error");
+          setCurrentInputMessage(userMessageText);
+          isCreatingSessionRef.current = false;
+          return;
+        }
+      }
+
+      abortControllerRef.current = new AbortController();
+
+      try {
+        const messageId = uuidv4();
+        const a2aMessage = createMessage(userMessageText, "user", {
+          messageId,
+          contextId: currentSessionId,
+        });
+        const sendParams = {
+          message: a2aMessage,
+          metadata: {}
+        };
+        const stream = await kagentA2AClient.sendMessageStream(
+          selectedNamespace,
+          selectedAgentName,
+          sendParams,
+          abortControllerRef.current?.signal
+        );
+
+        let lastEventTime = Date.now();
+        let timeoutTimer: NodeJS.Timeout | null = null;
+        let streamActive = true;
+        const streamTimeout = 600000;
+
+        const handleTimeout = () => {
+          if (streamActive) {
+            console.error("⏰ Stream timeout - no events received for 10 minutes");
+            toast.error("⏰ Stream timed out - no events received for 10 minutes");
+            streamActive = false;
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+          }
+        };
+
+        const startTimeout = () => {
+          if (timeoutTimer) clearTimeout(timeoutTimer);
+          timeoutTimer = setTimeout(handleTimeout, streamTimeout);
+        };
+        startTimeout();
+
+        try {
+          for await (const event of stream) {
+            lastEventTime = Date.now();
+            startTimeout();
+
+            try {
+              handleMessageEvent(event);
+            } catch (error) {
+              console.error("❌ Event that caused error:", event);
+            }
+
+            if (abortControllerRef.current?.signal.aborted) {
+              console.info("Stream aborted");
+              streamActive = false;
+              break;
+            }
+          }
+        } finally {
+          streamActive = false;
+          if (timeoutTimer) clearTimeout(timeoutTimer);
+        }
+      } catch (error: any) {
+        if (error.name === "AbortError") {
+          toast.info("Request cancelled");
+          setChatStatus("ready");
+        } else {
+          toast.error(`Streaming failed: ${error.message}`);
+          setChatStatus("error");
+          setCurrentInputMessage(userMessageText);
+        }
+
+        setIsStreaming(false);
+        setStreamingContent("");
+      } finally {
+        setChatStatus("ready");
+        abortControllerRef.current = null;
+      }
+    } catch (error) {
+      console.error("Error sending message or creating session:", error);
+      toast.error("Error sending message or creating session");
+      setChatStatus("error");
+      setCurrentInputMessage(userMessageText);
+    }
+  };
+
+  const handleCancel = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    setIsStreaming(false);
+    setStreamingContent("");
+    setChatStatus("ready");
+    toast.error("Request cancelled");
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+        handleSendMessage(e);
+      }
+    }
+  };
+
+  if (sessionNotFound) {
+    return (
+      <div className="flex flex-col items-center justify-center w-full h-full min-h-[60vh] bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 relative overflow-hidden">
+        {/* Animated Background */}
+        <div className="absolute inset-0 overflow-hidden opacity-10">
+          <div className="absolute top-20 left-20 w-32 h-32 bg-indigo-500 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute top-40 right-32 w-24 h-24 bg-purple-500 rounded-full blur-3xl animate-pulse delay-1000"></div>
+          <div className="absolute bottom-32 left-1/3 w-20 h-20 bg-pink-500 rounded-full blur-3xl animate-pulse delay-500"></div>
+        </div>
+
+        <div className="text-center space-y-8 max-w-md relative z-10">
+          <div className="relative">
+            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-red-500 via-pink-500 to-purple-500 flex items-center justify-center mx-auto mb-6 shadow-2xl">
+              <Bot className="w-12 h-12 text-white" />
+            </div>
+            <h2 className="text-3xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent mb-3">
+              Session Not Found
+            </h2>
+            <p className="text-slate-600 text-lg leading-relaxed">
+              This chat session may have been deleted or doesn't exist anymore.
+            </p>
+          </div>
+
+          <Button
+            className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 shadow-xl hover:shadow-2xl transition-all duration-300 px-8 py-3 text-lg rounded-2xl"
+            onClick={() => router.push(`/agents/${selectedNamespace}/${selectedAgentName}/chat`)}
+          >
+            <Sparkles className="w-5 h-5 mr-2" />
+            Start New Chat
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 w-full relative">
+      {/* Chat Messages Area */}
+      <div className="flex-[0.7] overflow-hidden relative w-full">
+        <ScrollArea ref={containerRef} className="h-full w-full">
+          <div className="flex flex-col w-full h-full">
+            {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
+              <div className="flex items-center justify-center h-full min-h-[50vh]">
+                <Card className="border-0 bg-white/90 backdrop-blur-xl shadow-2xl max-w-sm mx-auto">
+                  <CardContent className="flex flex-col items-center justify-center p-10">
+                    <div className="relative mb-8">
+                      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-xl">
+                        <Brain className="w-10 h-10 text-white animate-pulse" />
+                      </div>
+                      <div className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-green-500 border-4 border-white flex items-center justify-center">
+                        <div className="w-3 h-3 rounded-full bg-white animate-ping"></div>
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <h3 className="text-xl font-bold text-slate-900 mb-2">Loading Conversation</h3>
+                      <p className="text-slate-600">Retrieving your chat history...</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : storedMessages.length === 0 && streamingMessages.length === 0 && !isStreaming ? (
+              <div className="flex items-center justify-center h-full min-h-[50vh]">
+                <Card className="border-0 bg-white/95 backdrop-blur-xl shadow-2xl max-w-4xl mx-auto w-full">
+                  <CardContent className="flex flex-col items-center justify-center p-16 text-center relative overflow-hidden">
+                    {/* Beautiful Background */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 via-purple-50/50 to-pink-50/50"></div>
+                    <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-indigo-400/10 to-purple-400/10 rounded-full blur-3xl"></div>
+                    <div className="absolute bottom-0 left-0 w-32 h-32 bg-gradient-to-br from-pink-400/10 to-indigo-400/10 rounded-full blur-3xl"></div>
+
+                    <div className="relative z-10">
+                      <div className="w-32 h-32 rounded-3xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center mb-10 shadow-2xl mx-auto">
+                        <Sparkles className="w-16 h-16 text-white" />
+                      </div>
+
+                      <h2 className="text-4xl font-bold bg-gradient-to-r from-slate-900 via-purple-900 to-pink-900 bg-clip-text text-transparent mb-6">
+                        Welcome to AI Chat
+                      </h2>
+
+                      <p className="text-xl text-slate-600 mb-10 leading-relaxed max-w-2xl">
+                        I'm your intelligent AI assistant, ready to help with questions, tasks, creative projects, and more.
+                        Start a conversation and let's explore what's possible together!
+                      </p>
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10 max-w-2xl mx-auto">
+                        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 rounded-2xl border border-blue-100">
+                          <div className="text-2xl mb-2">💡</div>
+                          <div className="text-sm font-semibold text-blue-900">Problem Solving</div>
+                        </div>
+                        <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-4 rounded-2xl border border-purple-100">
+                          <div className="text-2xl mb-2">🎨</div>
+                          <div className="text-sm font-semibold text-purple-900">Creative Tasks</div>
+                        </div>
+                        <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-4 rounded-2xl border border-green-100">
+                          <div className="text-2xl mb-2">📚</div>
+                          <div className="text-sm font-semibold text-green-900">Learning</div>
+                        </div>
+                        <div className="bg-gradient-to-br from-orange-50 to-yellow-50 p-4 rounded-2xl border border-orange-100">
+                          <div className="text-2xl mb-2">🚀</div>
+                          <div className="text-sm font-semibold text-orange-900">Development</div>
+                        </div>
+                      </div>
+
+                      <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl p-6 border border-slate-200 max-w-xl mx-auto">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Heart className="w-4 h-4 text-pink-500" />
+                          <span className="font-semibold text-slate-800">Pro Tips:</span>
+                        </div>
+                        <ul className="text-left space-y-2 text-sm text-slate-600">
+                          <li className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
+                            Ask me to write code, analyze data, or create content
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-purple-400"></div>
+                            Request help with research, planning, or problem-solving
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-pink-400"></div>
+                            Use Ctrl+Enter as a keyboard shortcut to send
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <>
+                {/* Display stored messages from session */}
+                {storedMessages.map((message, index) => {
+                  return <ChatMessage
+                    key={`stored-${index}`}
+                    message={message}
+                    allMessages={storedMessages}
+                    agentContext={{
+                      namespace: selectedNamespace,
+                      agentName: selectedAgentName
+                    }}
+                  />
+                })}
+
+                {/* Display streaming messages */}
+                {streamingMessages.map((message, index) => {
+                  return <ChatMessage
+                    key={`stream-${index}`}
+                    message={message}
+                    allMessages={streamingMessages}
+                    agentContext={{
+                      namespace: selectedNamespace,
+                      agentName: selectedAgentName
+                    }}
+                  />
+                })}
+
+                {isStreaming && (
+                  <StreamingMessage
+                    content={streamingContent}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
+
+      {/* Modern Input Area */}
+      <div className="flex-[0.3] bg-white/95 backdrop-blur-xl border-t border-white/20 shadow-2xl w-full">
+        <div className="w-full h-full">
+          <div className="py-8">
+            {/* Modern Status and Stats Bar */}
+            <div className="flex items-center justify-between mb-8 px-2">
+              <div className="flex items-center gap-4">
+                <StatusDisplay chatStatus={chatStatus} />
+                <div className="h-6 w-px bg-slate-200"></div>
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Brain className="w-4 h-4 text-indigo-500" />
+                  <span>AI-powered responses</span>
+                </div>
+              </div>
+              <TokenStatsDisplay stats={tokenStats} />
+            </div>
+
+            {/* Modern Input Form */}
+            <form onSubmit={handleSendMessage} className="space-y-6">
+              <div className="relative group">
+                <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 via-purple-500/20 to-pink-500/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                <div className="relative bg-white/80 backdrop-blur-sm border-2 border-slate-200/50 rounded-3xl p-2 transition-all duration-300 group-hover:border-indigo-300 group-hover:bg-white/90">
+                  <Textarea
+                    value={currentInputMessage}
+                    onChange={(e) => setCurrentInputMessage(e.target.value)}
+                    placeholder={getStatusPlaceholder(chatStatus)}
+                    onKeyDown={handleKeyDown}
+                    className={`w-full min-h-[160px] border-0 rounded-2xl px-6 py-5 text-lg resize-none transition-all duration-300 bg-transparent placeholder:text-slate-400 focus:ring-0 focus:outline-none ${
+                      chatStatus !== "ready"
+                        ? "opacity-50 cursor-not-allowed"
+                        : "focus:bg-white/50"
+                    }`}
+                    disabled={chatStatus !== "ready"}
+                  />
+
+                  {/* Modern Send Button */}
+                  <div className="absolute bottom-4 right-4">
+                    <Button
+                      type="submit"
+                      size="lg"
+                      disabled={!currentInputMessage.trim() || chatStatus !== "ready"}
+                      className={`rounded-2xl w-16 h-16 p-0 transition-all duration-300 shadow-2xl ${
+                        currentInputMessage.trim() && chatStatus === "ready"
+                          ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 shadow-indigo-500/25 hover:shadow-2xl hover:scale-105"
+                          : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      }`}
+                    >
+                      {chatStatus === "thinking" ? (
+                        <Loader2 className="w-7 h-7 animate-spin" />
+                      ) : (
+                        <Send className="w-7 h-7" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modern Action Bar */}
+              <div className="flex items-center justify-between bg-gradient-to-r from-slate-50/80 to-slate-100/80 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/50">
+                <div className="flex items-center gap-6 text-sm text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+                    <span className="font-medium">AI Assistant Online</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs bg-white/60 px-4 py-2 rounded-full border border-slate-200/50">
+                    <Zap className="w-3 h-3 text-yellow-500" />
+                    <span className="font-medium">Ctrl+Enter to send</span>
+                  </div>
+                </div>
+
+                {chatStatus !== "ready" && chatStatus !== "error" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCancel}
+                    className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 rounded-xl"
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -7,9 +7,36 @@ import { ErrorState } from "./ErrorState";
 import { Button } from "./ui/button";
 import { LoadingState } from "./LoadingState";
 import { useAgents } from "./AgentsProvider";
+import { useEffect, useMemo, useState } from "react";
 
 export default function AgentList() {
   const { agents , loading, error } = useAgents();
+  const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/admin/agents-settings');
+        if (res.ok) {
+          const data = await res.json();
+          setEnabledMap(data.enabled || {});
+        }
+      } catch {
+        // ignore and default to all enabled
+      }
+    };
+    load();
+  }, []);
+
+  const visibleAgents = useMemo(() => {
+    return (agents || []).filter(a => {
+      const ns = a.agent.metadata.namespace || '';
+      const name = a.agent.metadata.name;
+      const ref = `${ns}/${name}`;
+      const flag = enabledMap.hasOwnProperty(ref) ? enabledMap[ref] : true;
+      return flag;
+    });
+  }, [agents, enabledMap]);
 
   if (error) {
     return <ErrorState message={error} />;
@@ -27,7 +54,7 @@ export default function AgentList() {
         </div>
       </div>
 
-      {agents?.length === 0 ? (
+      {visibleAgents?.length === 0 ? (
         <div className="text-center py-12">
           <KagentLogo className="h-16 w-16 mx-auto mb-4" />
           <h3 className="text-lg font-medium  mb-2">No agents yet</h3>
@@ -40,7 +67,7 @@ export default function AgentList() {
           </Button>
         </div>
       ) : (
-        <AgentGrid agentResponse={agents || []} />
+        <AgentGrid agentResponse={visibleAgents || []} />
       )}
     </div>
   );

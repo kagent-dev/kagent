@@ -1,36 +1,34 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { OnboardingWizard } from './onboarding/OnboardingWizard';
-
-const LOCAL_STORAGE_KEY = 'kagent-onboarding';
+import { useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
 
 export function AppInitializer({ children }: { children: React.ReactNode }) {
-  const [isOnboarding, setIsOnboarding] = useState<boolean | null>(null); // Use null to indicate loading state
+  const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
-    // localStorage is only available in the browser
-    const hasOnboarded = localStorage.getItem(LOCAL_STORAGE_KEY);
-    setIsOnboarding(hasOnboarded !== 'true');
-  }, []);
+    // Only redirect if user is authenticated and not loading
+    if (isAuthenticated && !isLoading) {
+      // Only redirect from the main public pages that users might bookmark or land on
+      const publicEntryPages = ['/', '/company'];
+      const isPublicEntryPage = publicEntryPages.includes(pathname);
 
-  const handleOnboardingComplete = () => {
-    localStorage.setItem(LOCAL_STORAGE_KEY, 'true');
-    setIsOnboarding(false);
-  };
+      if (isPublicEntryPage) {
+        router.push('/dashboard');
+      }
+    }
+  }, [isAuthenticated, isLoading, pathname, router]);
 
-  const handleSkipWizard = () => {
-    localStorage.setItem(LOCAL_STORAGE_KEY, 'true');
-    setIsOnboarding(false);
-    // You might want to show a toast here as well, depending on your UI library setup
-  };
-
-  if (isOnboarding === null) {
-    return null; 
-  }
-
-  if (isOnboarding) {
-    return <OnboardingWizard onOnboardingComplete={handleOnboardingComplete} onSkip={handleSkipWizard} />;
+  // Show loading while checking authentication
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   return <>{children}</>;

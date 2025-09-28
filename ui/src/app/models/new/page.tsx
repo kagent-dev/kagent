@@ -1,7 +1,8 @@
 "use client";
+
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Loader2, Brain, Sparkles, Building, Shield, BarChart3, Globe, Server, Database, Cloud, Network, Bot, Cpu, Key, Lock, Eye, EyeOff, Settings, Zap, CheckCircle, AlertCircle } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
@@ -29,6 +30,15 @@ import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 
 interface ValidationErrors {
   name?: string;
@@ -46,7 +56,6 @@ interface ModelParam {
 }
 
 // Helper function to process parameters before submission
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelParam[]): Record<string, any> => {
   const allParams = [...requiredParams, ...optionalParams]
@@ -495,6 +504,17 @@ function ModelPageContent() {
     }
   };
 
+  const getProviderIcon = (providerType: string) => {
+    const type = providerType.toLowerCase();
+    if (type.includes('openai')) return <Brain className="w-6 h-6 text-green-600" />;
+    if (type.includes('anthropic')) return <Sparkles className="w-6 h-6 text-orange-600" />;
+    if (type.includes('google') || type.includes('gemini')) return <Globe className="w-6 h-6 text-blue-600" />;
+    if (type.includes('azure')) return <Cloud className="w-6 h-6 text-blue-500" />;
+    if (type.includes('aws')) return <Server className="w-6 h-6 text-orange-500" />;
+    if (type.includes('ollama')) return <Cpu className="w-6 h-6 text-purple-600" />;
+    return <Bot className="w-6 h-6 text-slate-600" />;
+  };
+
   if (error) {
     return <ErrorState message={error} />;
   }
@@ -506,98 +526,238 @@ function ModelPageContent() {
   const showLoadingOverlay = isLoading && isEditMode;
 
   return (
-    <div className="min-h-screen p-8 relative">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 relative overflow-hidden">
+      {/* Enterprise Background Pattern */}
+      <div className="absolute inset-0 opacity-5">
+        <div className="absolute top-20 left-20 w-32 h-32 bg-blue-500 rounded-full blur-3xl"></div>
+        <div className="absolute top-40 right-32 w-24 h-24 bg-indigo-500 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-32 left-1/3 w-20 h-20 bg-slate-500 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-20 right-20 w-28 h-28 bg-purple-500 rounded-full blur-3xl"></div>
+      </div>
+
+      {/* Loading Overlay */}
       {showLoadingOverlay && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="absolute inset-0 bg-white/80 backdrop-blur-xl flex items-center justify-center z-50">
+          <Card className="border-0 bg-white/95 backdrop-blur-xl shadow-2xl">
+            <CardContent className="flex flex-col items-center justify-center p-12">
+              <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-blue-600 via-indigo-600 to-slate-600 flex items-center justify-center mb-6">
+                <Brain className="w-8 h-8 text-white animate-pulse" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Loading Model Configuration</h3>
+              <p className="text-slate-600">Retrieving your AI model settings...</p>
+            </CardContent>
+          </Card>
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-bold mb-8">{isEditMode ? "Edit Model" : "Create New Model"}</h1>
+      {/* Enterprise Header */}
+      <div className="relative z-10">
+        <div className="max-w-7xl mx-auto px-8 py-12">
+          {/* Page Header */}
+          <div className="text-center mb-12">
+            <div className="flex items-center justify-center gap-4 mb-6">
+              <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-blue-600 via-indigo-600 to-slate-600 flex items-center justify-center shadow-2xl">
+                <Brain className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent mb-2">
+                  {isEditMode ? "Edit AI Model" : "Create AI Model"}
+                </h1>
+                <p className="text-lg text-slate-600 max-w-2xl">
+                  {isEditMode 
+                    ? "Modify your enterprise AI model configuration with advanced intelligence settings"
+                    : "Configure powerful AI models for your enterprise applications with advanced intelligence and security"
+                  }
+                </p>
+              </div>
+            </div>
 
-        <div className="space-y-6">
-          <BasicInfoSection
-            name={name}
-            isEditingName={isEditingName}
-            namespace={namespace}
-            errors={errors}
-            isSubmitting={isSubmitting}
-            isLoading={isLoading}
-            onNameChange={setName}
-            onToggleEditName={() => setIsEditingName(!isEditingName)}
-            onNamespaceChange={setNamespace}
-            providers={providers}
-            providerModelsData={providerModelsData}
-            selectedCombinedModel={selectedCombinedModel}
-            onModelChange={(comboboxValue, providerKey, modelName, functionCalling) => {
-              setSelectedCombinedModel(comboboxValue);
-              const prov = providers.find(p => getProviderFormKey(p.type as BackendModelProviderType) === providerKey);
-              setSelectedProvider(prov || null);
-              setSelectedModelSupportsFunctionCalling(functionCalling);
-              if (errors.selectedCombinedModel) {
-                setErrors(prev => ({ ...prev, selectedCombinedModel: undefined }));
-              }
-            }}
-            selectedProvider={selectedProvider}
-            selectedModelSupportsFunctionCalling={selectedModelSupportsFunctionCalling}
-            loadingError={loadingError}
-            isEditMode={isEditMode}
-            modelTag={modelTag}
-            onModelTagChange={setModelTag}
-          />
+            {/* Enterprise Features Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+                <Brain className="w-8 h-8 text-blue-600 mb-2 mx-auto" />
+                <div className="text-sm font-semibold text-blue-900">Advanced AI</div>
+              </div>
+              <div className="bg-gradient-to-br from-indigo-50 to-purple-50 p-4 rounded-2xl border border-indigo-100 shadow-sm">
+                <Shield className="w-8 h-8 text-indigo-600 mb-2 mx-auto" />
+                <div className="text-sm font-semibold text-indigo-900">Enterprise Security</div>
+              </div>
+              <div className="bg-gradient-to-br from-slate-50 to-gray-50 p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <Network className="w-8 h-8 text-slate-600 mb-2 mx-auto" />
+                <div className="text-sm font-semibold text-slate-900">Multi-Provider</div>
+              </div>
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-4 rounded-2xl border border-green-100 shadow-sm">
+                <BarChart3 className="w-8 h-8 text-green-600 mb-2 mx-auto" />
+                <div className="text-sm font-semibold text-green-900">Performance Analytics</div>
+              </div>
+            </div>
+          </div>
 
-          <AuthSection
-            isOllamaSelected={isOllamaSelected}
-            isEditMode={isEditMode}
-            apiKey={apiKey}
-            showApiKey={showApiKey}
-            errors={errors}
-            isSubmitting={isSubmitting}
-            isLoading={isLoading}
-            onApiKeyChange={setApiKey}
-            onToggleShowApiKey={() => setShowApiKey(!showApiKey)}
-            selectedProvider={selectedProvider}
-            isApiKeyNeeded={isApiKeyNeeded}
-            onApiKeyNeededChange={setIsApiKeyNeeded}
-          />
+          {/* Main Form */}
+          <div className="max-w-6xl mx-auto space-y-8">
+            {/* Basic Information Card */}
+            <Card className="bg-white/95 backdrop-blur-xl border-0 shadow-2xl overflow-hidden">
+              <CardHeader className="bg-gradient-to-r from-blue-600 via-indigo-600 to-slate-600 text-white">
+                <CardTitle className="flex items-center gap-3 text-2xl">
+                  <Building className="w-6 h-6" />
+                  Basic Configuration
+                </CardTitle>
+                <p className="text-blue-100">Configure the fundamental properties of your AI model</p>
+              </CardHeader>
+              <CardContent className="p-8">
+                <BasicInfoSection
+                  name={name}
+                  isEditingName={isEditingName}
+                  namespace={namespace}
+                  errors={errors}
+                  isSubmitting={isSubmitting}
+                  isLoading={isLoading}
+                  onNameChange={setName}
+                  onToggleEditName={() => setIsEditingName(!isEditingName)}
+                  onNamespaceChange={setNamespace}
+                  providers={providers}
+                  providerModelsData={providerModelsData}
+                  selectedCombinedModel={selectedCombinedModel}
+                  onModelChange={(comboboxValue, providerKey, modelName, functionCalling) => {
+                    setSelectedCombinedModel(comboboxValue);
+                    const prov = providers.find(p => getProviderFormKey(p.type as BackendModelProviderType) === providerKey);
+                    setSelectedProvider(prov || null);
+                    setSelectedModelSupportsFunctionCalling(functionCalling);
+                    if (errors.selectedCombinedModel) {
+                      setErrors(prev => ({ ...prev, selectedCombinedModel: undefined }));
+                    }
+                  }}
+                  selectedProvider={selectedProvider}
+                  selectedModelSupportsFunctionCalling={selectedModelSupportsFunctionCalling}
+                  loadingError={loadingError}
+                  isEditMode={isEditMode}
+                  modelTag={modelTag}
+                  onModelTagChange={setModelTag}
+                />
+              </CardContent>
+            </Card>
 
-          {selectedProvider && selectedCombinedModel && (
-            <ParamsSection
-              selectedProvider={selectedProvider}
-              requiredParams={requiredParams}
-              optionalParams={optionalParams}
-              errors={errors}
-              isSubmitting={isSubmitting}
-              isLoading={isLoading}
-              onRequiredParamChange={handleRequiredParamChange}
-              onOptionalParamChange={handleOptionalParamChange}
-              isExpanded={isParamsSectionExpanded}
-              onToggleExpand={() => setIsParamsSectionExpanded(!isParamsSectionExpanded)}
-              title="Custom parameters"
-            />
-          )}
-        </div>
+            {/* Authentication Card */}
+            <Card className="bg-white/95 backdrop-blur-xl border-0 shadow-2xl overflow-hidden">
+              <CardHeader className="bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 text-white">
+                <CardTitle className="flex items-center gap-3 text-2xl">
+                  <Key className="w-6 h-6" />
+                  Authentication & Security
+                </CardTitle>
+                <p className="text-green-100">Configure secure access credentials for your AI model</p>
+              </CardHeader>
+              <CardContent className="p-8">
+                <AuthSection
+                  isOllamaSelected={isOllamaSelected}
+                  isEditMode={isEditMode}
+                  apiKey={apiKey}
+                  showApiKey={showApiKey}
+                  errors={errors}
+                  isSubmitting={isSubmitting}
+                  isLoading={isLoading}
+                  onApiKeyChange={setApiKey}
+                  onToggleShowApiKey={() => setShowApiKey(!showApiKey)}
+                  selectedProvider={selectedProvider}
+                  isApiKeyNeeded={isApiKeyNeeded}
+                  onApiKeyNeededChange={setIsApiKeyNeeded}
+                />
+              </CardContent>
+            </Card>
 
-        <div className="flex justify-end pt-6">
-          <Button
-            variant="default"
-            onClick={handleSubmit}
-            disabled={isSubmitting || isLoading}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                {isEditMode ? "Updating..." : "Creating..."}
-              </>
-            ) : isEditMode ? (
-              "Update Model"
-            ) : (
-              "Create Model"
+            {/* Advanced Parameters Card */}
+            {selectedProvider && selectedCombinedModel && (
+              <Card className="bg-white/95 backdrop-blur-xl border-0 shadow-2xl overflow-hidden">
+                <CardHeader className="bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 text-white">
+                  <CardTitle className="flex items-center gap-3 text-2xl">
+                    <Settings className="w-6 h-6" />
+                    Advanced Parameters
+                  </CardTitle>
+                  <p className="text-purple-100">Fine-tune your AI model with custom parameters and configurations</p>
+                </CardHeader>
+                <CardContent className="p-8">
+                  <ParamsSection
+                    selectedProvider={selectedProvider}
+                    requiredParams={requiredParams}
+                    optionalParams={optionalParams}
+                    errors={errors}
+                    isSubmitting={isSubmitting}
+                    isLoading={isLoading}
+                    onRequiredParamChange={handleRequiredParamChange}
+                    onOptionalParamChange={handleOptionalParamChange}
+                    isExpanded={isParamsSectionExpanded}
+                    onToggleExpand={() => setIsParamsSectionExpanded(!isParamsSectionExpanded)}
+                    title="Custom parameters"
+                  />
+                </CardContent>
+              </Card>
             )}
-          </Button>
-        </div>
 
+            {/* Action Buttons */}
+            <div className="flex justify-center pt-8">
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => router.push('/models')}
+                  className="h-14 px-8 text-lg border-2 border-slate-300 hover:border-slate-400"
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  className="h-14 px-12 text-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-slate-600 hover:from-blue-700 hover:via-indigo-700 hover:to-slate-700 shadow-xl hover:shadow-2xl transition-all duration-300"
+                  onClick={handleSubmit} 
+                  disabled={isSubmitting || isLoading}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-5 w-5 mr-3 animate-spin" />
+                      {isEditMode ? "Updating Model..." : "Creating Model..."}
+                    </>
+                  ) : isEditMode ? (
+                    <>
+                      <Brain className="h-5 w-5 mr-3" />
+                      Update AI Model
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-5 w-5 mr-3" />
+                      Create AI Model
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Enterprise Footer */}
+      <div className="relative z-10 bg-white/90 backdrop-blur-xl border-t border-slate-200 mt-12">
+        <div className="max-w-7xl mx-auto px-8 py-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center mx-auto mb-4">
+                <Brain className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="font-bold text-lg mb-2">AI Intelligence</h3>
+              <p className="text-slate-600 text-sm">Advanced machine learning models powering your applications</p>
+            </div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center mx-auto mb-4">
+                <Shield className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="font-bold text-lg mb-2">Enterprise Security</h3>
+              <p className="text-slate-600 text-sm">Bank-grade security with end-to-end encryption</p>
+            </div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center mx-auto mb-4">
+                <BarChart3 className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="font-bold text-lg mb-2">Performance Analytics</h3>
+              <p className="text-slate-600 text-sm">Real-time monitoring and optimization</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

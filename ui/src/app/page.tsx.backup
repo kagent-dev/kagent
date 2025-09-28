@@ -1,0 +1,493 @@
+"use client";
+
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
+export default function HomePage() {
+  return (
+    <div className="min-h-screen">
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-secondary/10" />
+        <div className="relative max-w-6xl mx-auto px-6 py-20 md:py-32">
+          <div className="text-center space-y-8">
+            <div className="space-y-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
+                🚀 Enterprise-Grade AI Platform
+              </div>
+              <h1 className="text-4xl md:text-7xl font-bold tracking-tight leading-tight">
+                Build Agentic AI
+                <span className="block text-primary">Experiences</span>
+              </h1>
+              <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
+                Orchestrate models, tools, and secure runtime to ship AI agents fast.
+                <span className="block mt-2 font-semibold text-foreground">From prototyping to production-ready deployments.</span>
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4">
+              <Button size="lg" className="text-lg px-8 py-4 h-auto" asChild>
+                <Link href="/signup">
+                  Get Started Free
+                  <span className="ml-2 text-sm opacity-90">→</span>
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="text-lg px-8 py-4 h-auto" asChild>
+                <Link href="/product">
+                  View Demo
+                </Link>
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-8 pt-8 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span>Open-source</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <span>Cloud-native</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                <span>Production-ready</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      {/* Features */}
+      <section className="py-16 md:py-24">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-5xl font-bold mb-4">
+              Everything You Need to
+              <span className="block text-primary">Build AI Agents</span>
+            </h2>
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+              A complete platform for developing, deploying, and managing intelligent AI agents at scale.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-2xl flex items-center justify-center">
+                <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold">Model Orchestration</h3>
+              <p className="text-muted-foreground">
+                Seamlessly integrate multiple AI models with intelligent routing and load balancing.
+              </p>
+            </div>
+
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-2xl flex items-center justify-center">
+                <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold">Enterprise Security</h3>
+              <p className="text-muted-foreground">
+                Bank-grade security with role-based access control, audit logs, and compliance features.
+              </p>
+            </div>
+
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-2xl flex items-center justify-center">
+                <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold">High Performance</h3>
+              <p className="text-muted-foreground">
+                Optimized for speed and reliability with horizontal scaling and intelligent caching.
+              </p>
+            </div>
+
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-2xl flex items-center justify-center">
+                <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold">Tool Integration</h3>
+              <p className="text-muted-foreground">
+                Connect with your existing tools and APIs to create powerful automated workflows.
+              </p>
+            </div>
+
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-2xl flex items-center justify-center">
+                <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold">Analytics & Monitoring</h3>
+              <p className="text-muted-foreground">
+                Comprehensive dashboards and real-time monitoring for all your AI agents.
+              </p>
+            </div>
+
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-2xl flex items-center justify-center">
+                <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a4 4 0 004-4V5z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold">API-First Design</h3>
+              <p className="text-muted-foreground">
+                RESTful APIs and SDKs for seamless integration with your existing systems.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="py-16 md:py-24 border-t bg-muted/30">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold">Use Cases</h2>
+            <p className="mt-3 text-muted-foreground">Deliver measurable outcomes with agentic workflows.</p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Customer Support</CardTitle>
+                <CardDescription>Resolve tickets, summarize chats, escalate with context.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+                  <li>24/7 deflection with handoff</li>
+                  <li>Multi-channel integrations</li>
+                  <li>CSAT and resolution analytics</li>
+                </ul>
+                <Button className="mt-4" variant="outline" asChild>
+                  <Link href="/use-cases/customer-support">Learn more</Link>
+                </Button>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>DevOps Automation</CardTitle>
+                <CardDescription>Run playbooks, triage incidents, and generate runbooks.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+                  <li>Observability-driven actions</li>
+                  <li>Safe change execution</li>
+                  <li>ChatOps workflows</li>
+                </ul>
+                <Button className="mt-4" variant="outline" asChild>
+                  <Link href="/use-cases/devops-automation">Learn more</Link>
+                </Button>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Knowledge Ops</CardTitle>
+                <CardDescription>Index, ground, and answer with enterprise sources.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+                  <li>RAG with permissions</li>
+                  <li>Freshness and lineage</li>
+                  <li>Human-in-the-loop review</li>
+                </ul>
+                <Button className="mt-4" variant="outline" asChild>
+                  <Link href="/use-cases/knowledge-ops">Learn more</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* Products */}
+      <section className="py-16 md:py-24 border-t">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold">Products</h2>
+            <p className="mt-3 text-muted-foreground">Everything you need to build, run, and scale AI agents.</p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Agent Builder</CardTitle>
+                <CardDescription>Create agents by composing models, skills, and tools.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <img
+                  src="https://images.unsplash.com/photo-1526378722484-bd91ca387e72?q=80&w=1200&auto=format&fit=crop"
+                  alt="Agent Builder"
+                  className="rounded-md w-full h-40 object-cover"
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Tool Server</CardTitle>
+                <CardDescription>Host secure tools and custom actions for your agents.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <img
+                  src="https://images.unsplash.com/photo-1515879218367-8466d910aaa4?q=80&w=1200&auto=format&fit=crop"
+                  alt="Tool Server"
+                  className="rounded-md w-full h-40 object-cover"
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Observability</CardTitle>
+                <CardDescription>Trace agent reasoning, tool calls, and performance.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <img
+                  src="https://images.unsplash.com/photo-1543286386-2e659306cd6c?q=80&w=1200&auto=format&fit=crop"
+                  alt="Observability"
+                  className="rounded-md w-full h-40 object-cover"
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section className="py-16 md:py-24 border-t">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold">Pricing</h2>
+            <p className="mt-3 text-muted-foreground">Simple, transparent plans for every stage.</p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card className="border-primary/30">
+              <CardHeader>
+                <CardTitle>Community</CardTitle>
+                <CardDescription>Open-source. Ideal for solo builders.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-4xl font-bold">$0</div>
+                <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+                  <li>All core features</li>
+                  <li>Local tool server</li>
+                  <li>Community support</li>
+                </ul>
+                <Button className="mt-6 w-full" asChild>
+                  <Link href="/signup">Start Free</Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="ring-2 ring-primary">
+              <CardHeader>
+                <CardTitle>Pro</CardTitle>
+                <CardDescription>For startups and teams shipping to prod.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-4xl font-bold">$49<span className="text-base font-normal">/mo</span></div>
+                <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+                  <li>Everything in Community</li>
+                  <li>Hosted tool servers</li>
+                  <li>Observability & analytics</li>
+                </ul>
+                <Button className="mt-6 w-full" asChild>
+                  <Link href="/pricing">Upgrade</Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Enterprise</CardTitle>
+                <CardDescription>Security, SSO, SLAs, and premium support.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-4xl font-bold">Custom</div>
+                <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+                  <li>Private cloud or on-prem</li>
+                  <li>Advanced governance</li>
+                  <li>Dedicated solutions</li>
+                </ul>
+                <Button className="mt-6 w-full" variant="outline" asChild>
+                  <Link href="/company/contact">Contact Sales</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* Integrations */}
+      <section className="py-16 md:py-20 border-t">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold">Integrations</h2>
+            <p className="mt-3 text-muted-foreground">Connect to your stack — tools, data, and infrastructure.</p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 items-center">
+            <div className="border rounded-md p-3 text-center text-sm">Kubernetes</div>
+            <div className="border rounded-md p-3 text-center text-sm">Postgres</div>
+            <div className="border rounded-md p-3 text-center text-sm">S3</div>
+            <div className="border rounded-md p-3 text-center text-sm">Slack</div>
+            <div className="border rounded-md p-3 text-center text-sm">GitHub</div>
+            <div className="border rounded-md p-3 text-center text-sm">Datadog</div>
+          </div>
+        </div>
+      </section>
+
+      {/* Security & Compliance */}
+      <section className="py-16 md:py-20 border-t bg-muted/30">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold">Security & Compliance</h2>
+            <p className="mt-3 text-muted-foreground">Built for enterprises that ship software at scale.</p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Isolation & Least Privilege</CardTitle>
+                <CardDescription>Scoped credentials and fine-grained policies for tools.</CardDescription>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Auditability</CardTitle>
+                <CardDescription>Trace prompts, tool calls, decisions, and data flows.</CardDescription>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Governance</CardTitle>
+                <CardDescription>SSO, role-based access, approval workflows, redaction.</CardDescription>
+              </CardHeader>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* Testimonials */}
+      <section className="py-16 md:py-24 border-t">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold">What Teams Say</h2>
+            <p className="mt-3 text-muted-foreground">Outcomes from pilots and production launches.</p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card>
+              <CardContent className="p-6">
+                <p className="text-sm">“We shipped our first support agent in a week and cut resolution time by 37%.”</p>
+                <div className="mt-4 text-xs text-muted-foreground">VP Support, SaaS</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <p className="text-sm">“Observability and governance gave our security team confidence to greenlight.”</p>
+                <div className="mt-4 text-xs text-muted-foreground">Head of Platform, Fintech</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <p className="text-sm">“DevOps runbooks as agents reduced on-call toil and accelerated incident response.”</p>
+                <div className="mt-4 text-xs text-muted-foreground">SRE Lead, Cloud</div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="py-16 md:py-20 border-t bg-muted/30">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold">FAQ</h2>
+            <p className="mt-3 text-muted-foreground">Answers to common questions about adolphe.ai</p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>How do I deploy agents to my cluster?</CardTitle>
+                <CardDescription>Use our Tool Server and Agents pages to configure providers and ship safely.</CardDescription>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>What models are supported?</CardTitle>
+                <CardDescription>Use any provider via API keys; bring your own open‑weights or hosted endpoints.</CardDescription>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>How is data secured?</CardTitle>
+                <CardDescription>Credentials are scoped per tool; actions and data access are fully audited.</CardDescription>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Can I start free?</CardTitle>
+                <CardDescription>Yes. Get started on the Community plan and upgrade anytime.</CardDescription>
+              </CardHeader>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* Support */}
+      <section className="py-16 md:py-24 border-t">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold">Support</h2>
+            <p className="mt-3 text-muted-foreground">We’re here to help you ship.</p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Documentation</CardTitle>
+                <CardDescription>Guides, APIs, and examples.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Explore how to build and deploy your agents end-to-end.</p>
+                <Button className="mt-4" variant="outline" asChild>
+                  <Link href="/">Read Docs</Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Community</CardTitle>
+                <CardDescription>Share, learn, and get feedback.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Join other builders to collaborate and exchange ideas.</p>
+                <Button className="mt-4" variant="outline" asChild>
+                  <Link href="/">Join</Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Support</CardTitle>
+                <CardDescription>Get help from our team.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Need something custom? We can help make it happen.</p>
+                <Button className="mt-4" variant="outline" asChild>
+                  <Link href="/login">Contact</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import KAgentLogoWithText from '@/components/kagent-logo-text';
+// Branding updated: using text-based brand instead of logo component
 
 interface WelcomeStepProps {
     onNext: () => void;
@@ -11,7 +11,9 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
     return (
         <>
             <CardHeader className="items-center text-center pt-10 pb-6 border-b">
-                <KAgentLogoWithText className="h-20 w-auto mb-6" />
+                <span className="text-3xl md:text-4xl font-semibold tracking-tight mb-6 block">
+                    adolphe.ai
+                </span>
                 <CardTitle className="text-2xl mb-2">Bringing <span className="font-semibold text-primary">Agentic AI</span> to Cloud Native</CardTitle>
             </CardHeader>
 

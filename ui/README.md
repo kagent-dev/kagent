@@ -28,3 +28,5 @@ npm run dev
 ```
 
 This will start the UI and connect to the backend running in the kind cluster.
+
+kubectl port-forward svc/kagent-controller 8083 && npm run dev

@@ -13,8 +13,8 @@ import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
-// Maximum number of tools that can be selected
-const MAX_TOOLS_LIMIT = 20;
+// Unlimited tools can be selected
+const MAX_TOOLS_LIMIT = Number.POSITIVE_INFINITY;
 
 interface SelectToolsDialogProps {
   open: boolean;
@@ -109,7 +109,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     }, 0);
   }, [localSelectedTools]);
 
-  const isLimitReached = actualSelectedCount >= MAX_TOOLS_LIMIT;
+  const isLimitReached = false;
 
   // Filter tools based on search and category selections
   const filteredAvailableItems = useMemo(() => {
@@ -217,11 +217,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       toolToAdd = toolResponseToAgentTool(tool, tool.server_name);
     }
 
-    if (actualSelectedCount + 1 <= MAX_TOOLS_LIMIT) {
-      setLocalSelectedTools(prev => [...prev, toolToAdd]);
-    } else {
-      console.warn(`Cannot add tool. Limit reached. Current: ${actualSelectedCount}, Limit: ${MAX_TOOLS_LIMIT}`);
-    }
+    setLocalSelectedTools(prev => [...prev, toolToAdd]);
   };
 
   const handleRemoveTool = (toolToRemove: Tool) => {
@@ -412,20 +408,13 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           {/* Right Panel: Selected Tools */}
           <div className="w-1/2 flex flex-col p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Selected ({actualSelectedCount}/{MAX_TOOLS_LIMIT})</h3>
+              <h3 className="text-lg font-semibold">Selected ({actualSelectedCount})</h3>
               <Button variant="ghost" size="sm" onClick={clearAllSelectedTools} disabled={actualSelectedCount === 0}>
                 Clear All
               </Button>
             </div>
 
-            {isLimitReached && actualSelectedCount >= MAX_TOOLS_LIMIT && (
-              <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2 text-amber-800 text-sm">
-                <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  Tool limit reached. Deselect a tool to add another.
-                </div>
-              </div>
-            )}
+            {/* No limit warning needed since selection is unlimited */}
 
             <ScrollArea className="flex-1 -mr-4 pr-4">
               {localSelectedTools.length > 0 ? (
@@ -533,7 +522,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         <DialogFooter className="p-4 border-t mt-auto">
           <div className="flex justify-between w-full items-center">
             <div className="text-sm text-muted-foreground">
-              Select up to {MAX_TOOLS_LIMIT} tools for your agent.
+              Select any number of tools for your agent.
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleCancel}>Cancel</Button>
