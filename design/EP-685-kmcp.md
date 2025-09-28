@@ -92,7 +92,7 @@ As stated above, the main goal of this EP is to provide a way to use kmcp `MCPSe
 
 To accomplish this, we will need to break the current `Agent` CRD, which will require bumping the version from `v1alpha1` to `v1alpha2`. This will allow us to add a new field to the `Agent` CRD, which will be used to specify the tool server to use.
 
-Because we are breaking this API, we have the oppurtunity to make some other changes to the API which are related, and we also view as important. For example, we view `kmcp` as the best way to run `stdio` MCP servers going forward, and therefore there is no need to support `ToolServer` resources as they exist today.
+Because we are breaking this API, we have the opportunity to make some other changes to the API which are related, and we also view as important. For example, we view `kmcp` as the best way to run `stdio` MCP servers going forward, and therefore there is no need to support `ToolServer` resources as they exist today.
 
 Therefore the goal is to instead create a new `RemoteMCPServer` CRD, which will be used specifically when a remote MCP server is needed. In addition, we can allow the new version of the `Agent` CRD to specify a `Service` resource to use as the MCP server, thereby skipping custom resources altogether for this use-case.
 
