@@ -19,10 +19,9 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from pydantic import BaseModel
-
 from crewai import Crew, Flow
 from crewai.memory import LongTermMemory
+from pydantic import BaseModel
 
 from ._listeners import A2ACrewAIListener
 from ._memory import KagentFlowPersistence, KagentMemoryStorage

@@ -1,11 +1,11 @@
-from typing import Any, Dict, Optional, Union
 import logging
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Union
 
 import httpx
+from crewai.flow.persistence import FlowPersistence
 from pydantic import BaseModel, Field
 
-from crewai.flow.persistence import FlowPersistence
 
 class KagentFlowStatePayload(BaseModel):
     session_id: str = Field(..., alias="thread_id")
@@ -17,6 +17,7 @@ class KagentFlowStatePayload(BaseModel):
 
 class KagentFlowStateResponse(BaseModel):
     data: KagentFlowStatePayload
+
 
 class KagentFlowPersistence(FlowPersistence):
     """
@@ -54,7 +55,7 @@ class KagentFlowPersistence(FlowPersistence):
         url = f"{self.base_url}/api/crewai/flows/state"
         params = {"thread_id": self.session_id, "flow_uuid": flow_uuid}
         logging.info(f"Loading flow state from Kagent backend with params: {params}")
-        
+
         try:
             with httpx.Client() as client:
                 response = client.post(url, params=params, headers={"X-User-ID": self.user_id})

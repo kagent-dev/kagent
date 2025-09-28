@@ -5,7 +5,7 @@ import os
 from random import randint
 
 import uvicorn
-from crewai.flow import Flow, listen, start, persist
+from crewai.flow import Flow, listen, persist, start
 from kagent.crewai import KAgentApp
 from pydantic import BaseModel
 

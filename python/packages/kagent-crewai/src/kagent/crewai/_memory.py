@@ -1,8 +1,9 @@
-from typing import Any, Dict, List
 import logging
+from typing import Any, Dict, List
 
 import httpx
 from pydantic import BaseModel, Field
+
 
 class KagentMemoryPayload(BaseModel):
     session_id: str = Field(..., alias="thread_id")
@@ -107,6 +108,3 @@ class KagentMemoryStorage:
         except httpx.HTTPError as e:
             logging.error(f"Error resetting memory for session {self.session_id}: {e}")
             raise
-
-
-
