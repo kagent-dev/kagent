@@ -68,7 +68,8 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
               {modelProvider} ({model})
             </span>
           )}
-          //this handles the ribbon 
+          
+           {/* this handles the ribbon */}
         </div>
         {!deploymentReady && (
           <div className="absolute bottom-0 left-0 right-0 bg-yellow-400/30 text-yellow-900 text-xs px-3 py-1 rounded-b-lg flex justify-end items-center">
