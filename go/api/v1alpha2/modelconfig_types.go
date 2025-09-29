@@ -151,7 +151,15 @@ type OpenAIConfig struct {
 
 	// Timeout
 	Timeout *int `json:"timeout,omitempty"`
+
+	// Reasoning effort
+	// +optional
+	ReasoningEffort *OpenAIReasoningEffort `json:"reasoningEffort,omitempty"`
 }
+
+// OpenAIReasoningEffort represents how many reasoning tokens the model generates before producing a response.
+// +kubebuilder:validation:Enum=minimal;low;medium;high
+type OpenAIReasoningEffort string
 
 // AzureOpenAIConfig contains Azure OpenAI-specific configuration options
 type AzureOpenAIConfig struct {

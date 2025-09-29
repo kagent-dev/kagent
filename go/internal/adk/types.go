@@ -49,6 +49,7 @@ type OpenAI struct {
 	MaxTokens        *int     `json:"max_tokens,omitempty"`
 	N                *int     `json:"n,omitempty"`
 	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	ReasoningEffort  *string  `json:"reasoning_effort,omitempty"`
 	Seed             *int     `json:"seed,omitempty"`
 	Temperature      *float64 `json:"temperature,omitempty"`
 	Timeout          *int     `json:"timeout,omitempty"`

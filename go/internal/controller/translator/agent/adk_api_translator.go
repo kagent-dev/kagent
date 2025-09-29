@@ -591,6 +591,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			if model.Spec.OpenAI.Timeout != nil {
 				openai.Timeout = model.Spec.OpenAI.Timeout
 			}
+			if model.Spec.OpenAI.ReasoningEffort != nil {
+				effort := string(*model.Spec.OpenAI.ReasoningEffort)
+				openai.ReasoningEffort = &effort
+			}
 
 			if model.Spec.OpenAI.Organization != "" {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{

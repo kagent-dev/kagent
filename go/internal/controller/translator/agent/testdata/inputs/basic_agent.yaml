@@ -23,6 +23,7 @@ objects:
         temperature: "0.7"
         maxTokens: 1024
         topP: "0.95"
+        reasoningEffort: "low"
       defaultHeaders:
         User-Agent: "kagent/1.0"
   - apiVersion: kagent.dev/v1alpha2

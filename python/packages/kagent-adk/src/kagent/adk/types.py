@@ -48,6 +48,7 @@ class OpenAI(BaseLLM):
     max_tokens: int | None = None
     n: int | None = None
     presence_penalty: float | None = None
+    reasoning_effort: str | None = None
     seed: int | None = None
     temperature: float | None = None
     timeout: int | None = None

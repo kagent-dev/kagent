@@ -544,6 +544,14 @@ spec:
                   presencePenalty:
                     description: Presence penalty
                     type: string
+                  reasoningEffort:
+                    description: Reasoning effort
+                    enum:
+                    - minimal
+                    - low
+                    - medium
+                    - high
+                    type: string
                   seed:
                     description: Seed value
                     type: integer

@@ -283,6 +283,7 @@ class BaseOpenAI(BaseLlm):
     max_tokens: Optional[int] = None
     n: Optional[int] = None
     presence_penalty: Optional[float] = None
+    reasoning_effort: Optional[str] = None
     seed: Optional[int] = None
     temperature: Optional[float] = None
     timeout: Optional[int] = None
@@ -340,6 +341,8 @@ class BaseOpenAI(BaseLlm):
             kwargs["n"] = self.n
         if self.presence_penalty is not None:
             kwargs["presence_penalty"] = self.presence_penalty
+        if self.reasoning_effort is not None:
+            kwargs["reasoning_effort"] = self.reasoning_effort
         if self.seed is not None:
             kwargs["seed"] = self.seed
         if self.temperature is not None:
