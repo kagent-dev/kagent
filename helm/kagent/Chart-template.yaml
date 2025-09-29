@@ -1,6 +1,6 @@
 apiVersion: v2
 name: kagent
-description: A Helm chart for kagent, built with Autogen
+description: A Helm chart for kagent, built with Google ADK
 type: application
 version: ${VERSION}
 dependencies:
