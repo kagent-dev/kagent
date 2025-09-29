@@ -43,6 +43,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "claude-sonnet-4-20250514", FunctionCalling: true},
 			{Name: "claude-3-7-sonnet-20250219", FunctionCalling: true},
 			{Name: "claude-3-5-sonnet-20240620", FunctionCalling: true},
+			{Name: "claude-sonnet-4-5", FunctionCalling: true},
 		},
 		v1alpha2.ModelProviderAzureOpenAI: {
 			{Name: "gpt-4", FunctionCalling: true},
