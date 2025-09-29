@@ -227,7 +227,7 @@ func (a *adkApiTranslator) buildManifest(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
 	dep *resolvedDeployment,
-	cfg *adk.AgentConfig,   // nil for BYO
+	cfg *adk.AgentConfig, // nil for BYO
 	card *server.AgentCard, // nil for BYO
 ) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
@@ -574,6 +574,24 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		if model.Spec.OpenAI != nil {
 			openai.BaseUrl = model.Spec.OpenAI.BaseURL
+			openai.Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
+			openai.TopP = utils.ParseStringToFloat64(model.Spec.OpenAI.TopP)
+			openai.FrequencyPenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.FrequencyPenalty)
+			openai.PresencePenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.PresencePenalty)
+
+			if model.Spec.OpenAI.MaxTokens > 0 {
+				openai.MaxTokens = &model.Spec.OpenAI.MaxTokens
+			}
+			if model.Spec.OpenAI.Seed != nil {
+				openai.Seed = model.Spec.OpenAI.Seed
+			}
+			if model.Spec.OpenAI.N != nil {
+				openai.N = model.Spec.OpenAI.N
+			}
+			if model.Spec.OpenAI.Timeout != nil {
+				openai.Timeout = model.Spec.OpenAI.Timeout
+			}
+
 			if model.Spec.OpenAI.Organization != "" {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 					Name:  "OPENAI_ORGANIZATION",

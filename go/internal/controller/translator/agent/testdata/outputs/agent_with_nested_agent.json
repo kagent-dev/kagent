@@ -23,7 +23,6 @@
     "instruction": "You are a coordinating agent that can delegate tasks to specialists.",
     "model": {
       "base_url": "",
-      "headers": null,
       "model": "gpt-4o",
       "type": "openai"
     },
@@ -62,7 +61,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"parent_agent\",\"description\":\"\",\"url\":\"http://parent-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"headers\":null,\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__specialist_agent\",\"url\":\"http://specialist-agent.test:8080\",\"headers\":{\"FOO\":\"sup3rs3cr3t\"}}]}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__specialist_agent\",\"url\":\"http://specialist-agent.test:8080\",\"headers\":{\"FOO\":\"sup3rs3cr3t\"}}]}"
       }
     },
     {
@@ -126,7 +125,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "4744892259230845552"
+              "kagent.dev/config-hash": "5107186355478406073"
             },
             "labels": {
               "app": "kagent",

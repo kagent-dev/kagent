@@ -23,7 +23,6 @@
     "instruction": "Speak in the style of Shakespeare.",
     "model": {
       "base_url": "",
-      "headers": null,
       "model": "gpt-4o",
       "type": "openai"
     },
@@ -54,7 +53,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_configmap_system_message\",\"description\":\"\",\"url\":\"http://agent-with-configmap-system-message.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"headers\":null,\"model\":\"gpt-4o\",\"type\":\"openai\"},\"description\":\"\",\"instruction\":\"Speak in the style of Shakespeare.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"Speak in the style of Shakespeare.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -118,7 +117,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "11461712675988608977"
+              "kagent.dev/config-hash": "13546320712459619772"
             },
             "labels": {
               "app": "kagent",
