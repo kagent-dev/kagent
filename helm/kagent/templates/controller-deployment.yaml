@@ -62,8 +62,9 @@ spec:
             - -sqlite-database-path
             - /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
             {{- else if eq .Values.database.type "postgres" }}
+            {{- $postgresConfig := .Values.database.postgresql | default .Values.database.postgres }}
             - -postgres-database-url
-            - {{ .Values.database.postgres.url }}
+            - {{ $postgresConfig.url }}
             {{- end }}
             - -image-registry
             - {{ .Values.controller.agentImage.registry | default .Values.registry  }}
