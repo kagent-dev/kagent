@@ -84,6 +84,32 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "debug"
+  - it: should use controller.agentImage.pullSecret when set
+    template: controller-deployment.yaml
+    set:
+      controller:
+        agentImage:
+          pullSecret: "pull-secret"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "-image-pull-secret"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "pull-secret"
+  - it: should not use controller.agentImage.pullSecret when not set
+    template: controller-deployment.yaml
+    set:
+      controller:
+        agentImage:
+          pullSecret: ""
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "-image-pull-secret"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "pull-secret"
 
   - it: should configure watch namespaces
     template: controller-deployment.yaml

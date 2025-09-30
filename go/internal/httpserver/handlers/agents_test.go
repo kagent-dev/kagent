@@ -415,7 +415,7 @@ func TestHandleCreateAgent(t *testing.T) {
 				Description: "Test team description",
 				Declarative: &v1alpha2.DeclarativeAgentSpec{
 					ModelConfig:   modelConfig.Name,
-					SystemMessage: "You are an imagenary agent",
+					SystemMessage: "You are an imaginary agent",
 				},
 			},
 		}
@@ -435,7 +435,7 @@ func TestHandleCreateAgent(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "test-team", response.Data.Name)
 		require.Equal(t, "default", response.Data.Namespace)
-		require.Equal(t, "You are an imagenary agent", response.Data.Spec.Declarative.SystemMessage)
+		require.Equal(t, "You are an imaginary agent", response.Data.Spec.Declarative.SystemMessage)
 		require.Equal(t, "test-model-config", response.Data.Spec.Declarative.ModelConfig)
 	})
 }

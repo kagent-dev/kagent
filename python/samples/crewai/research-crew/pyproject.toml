@@ -1,0 +1,20 @@
+[project]
+name = "research-crew"
+version = "0.1.0"
+description = "A sample research crew using kagent-crewai"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "kagent-crewai",
+    "crewai[tools]>=0.193.2,<1.0.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+research-crew = "research_crew.main:main"
+
+[tool.uv.sources]
+kagent-crewai = { workspace = true }

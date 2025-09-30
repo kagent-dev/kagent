@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -149,4 +150,15 @@ func ConvertToPythonIdentifier(name string) string {
 func ConvertToKubernetesIdentifier(name string) string {
 	name = strings.ReplaceAll(name, "__NS__", "/")
 	return strings.ReplaceAll(name, "_", "-")
+}
+
+// ParseStringToFloat64 parses a string to float64, returns nil if empty or invalid
+func ParseStringToFloat64(s string) *float64 {
+	if s == "" {
+		return nil
+	}
+	if val, err := strconv.ParseFloat(s, 64); err == nil {
+		return &val
+	}
+	return nil
 }

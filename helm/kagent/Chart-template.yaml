@@ -1,11 +1,11 @@
 apiVersion: v2
 name: kagent
-description: A Helm chart for kagent, built with Autogen
+description: A Helm chart for kagent, built with Google ADK
 type: application
 version: ${VERSION}
 dependencies:
   - name: kagent-tools
-    version: 0.0.11
+    version: 0.0.12
     repository: oci://ghcr.io/kagent-dev/tools/helm
     condition: kagent-tools.enabled
   - name: grafana-mcp

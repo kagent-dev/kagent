@@ -1,0 +1,19 @@
+{
+  "name": "poem-flow-agent",
+  "description": "A flow that generates a poem of a random number of lines.",
+  "url": "localhost:8080",
+  "version": "0.1.0",
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "generate-poem",
+      "name": "Generate a poem",
+      "description": "Can generate a poem by providing a topic and sentence count as input",
+      "tags": ["creativity", "writing"]
+    }
+  ]
+}

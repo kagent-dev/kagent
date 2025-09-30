@@ -34,10 +34,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
-	"github.com/kagent-dev/kagent/go/internal/controller/translator"
-	v1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 )
 
 var (
@@ -48,12 +48,16 @@ var (
 type AgentController struct {
 	Scheme        *runtime.Scheme
 	Reconciler    reconciler.KagentReconciler
-	AdkTranslator translator.AdkApiTranslator
+	AdkTranslator agent_translator.AdkApiTranslator
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 
 func (r *AgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)

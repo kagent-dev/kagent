@@ -44,6 +44,15 @@ class BaseLLM(BaseModel):
 
 class OpenAI(BaseLLM):
     base_url: str | None = None
+    frequency_penalty: float | None = None
+    max_tokens: int | None = None
+    n: int | None = None
+    presence_penalty: float | None = None
+    reasoning_effort: str | None = None
+    seed: int | None = None
+    temperature: float | None = None
+    timeout: int | None = None
+    top_p: float | None = None
 
     type: Literal["openai"]
 
@@ -110,14 +119,26 @@ class AgentConfig(BaseModel):
                     httpx_client=client,
                 )
 
-                tools.append(
-                    AgentTool(agent=remote_a2a_agent, skip_summarization=True)
-                )  # Get headers from model config
+                tools.append(AgentTool(agent=remote_a2a_agent, skip_summarization=True))
 
         extra_headers = self.model.headers or {}
 
         if self.model.type == "openai":
-            model = OpenAINative(model=self.model.model, base_url=self.model.base_url, type="openai")
+            model = OpenAINative(
+                type="openai",
+                base_url=self.model.base_url,
+                default_headers=extra_headers,
+                frequency_penalty=self.model.frequency_penalty,
+                max_tokens=self.model.max_tokens,
+                model=self.model.model,
+                n=self.model.n,
+                presence_penalty=self.model.presence_penalty,
+                reasoning_effort=self.model.reasoning_effort,
+                seed=self.model.seed,
+                temperature=self.model.temperature,
+                timeout=self.model.timeout,
+                top_p=self.model.top_p,
+            )
         elif self.model.type == "anthropic":
             model = LiteLlm(
                 model=f"anthropic/{self.model.model}", base_url=self.model.base_url, extra_headers=extra_headers
@@ -129,7 +150,7 @@ class AgentConfig(BaseModel):
         elif self.model.type == "ollama":
             model = LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers)
         elif self.model.type == "azure_openai":
-            model = OpenAIAzure(model=self.model.model, type="azure_openai", headers=extra_headers)
+            model = OpenAIAzure(model=self.model.model, type="azure_openai", default_headers=extra_headers)
         elif self.model.type == "gemini":
             model = self.model.model
         else:

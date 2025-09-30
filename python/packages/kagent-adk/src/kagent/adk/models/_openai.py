@@ -276,10 +276,18 @@ class BaseOpenAI(BaseLlm):
     """Base class for OpenAI-compatible models."""
 
     model: str
-    base_url: Optional[str] = None
     api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = None
+    frequency_penalty: Optional[float] = None
+    default_headers: Optional[dict[str, str]] = None
     max_tokens: Optional[int] = None
+    n: Optional[int] = None
+    presence_penalty: Optional[float] = None
+    reasoning_effort: Optional[str] = None
+    seed: Optional[int] = None
     temperature: Optional[float] = None
+    timeout: Optional[int] = None
+    top_p: Optional[float] = None
 
     @classmethod
     def supported_models(cls) -> list[str]:
@@ -289,13 +297,13 @@ class BaseOpenAI(BaseLlm):
     @cached_property
     def _client(self) -> AsyncOpenAI:
         """Get the OpenAI client."""
-        kwargs = {}
-        if self.base_url:
-            kwargs["base_url"] = self.base_url
-        if self.api_key:
-            kwargs["api_key"] = self.api_key
 
-        return AsyncOpenAI(**kwargs)
+        return AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url or None,
+            default_headers=self.default_headers,
+            timeout=self.timeout,
+        )
 
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
@@ -325,10 +333,22 @@ class BaseOpenAI(BaseLlm):
             "messages": messages,
         }
 
+        if self.frequency_penalty is not None:
+            kwargs["frequency_penalty"] = self.frequency_penalty
         if self.max_tokens:
             kwargs["max_tokens"] = self.max_tokens
+        if self.n is not None:
+            kwargs["n"] = self.n
+        if self.presence_penalty is not None:
+            kwargs["presence_penalty"] = self.presence_penalty
+        if self.reasoning_effort is not None:
+            kwargs["reasoning_effort"] = self.reasoning_effort
+        if self.seed is not None:
+            kwargs["seed"] = self.seed
         if self.temperature is not None:
             kwargs["temperature"] = self.temperature
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
 
         # Handle tools
         if llm_request.config and llm_request.config.tools:
@@ -369,19 +389,6 @@ class OpenAI(BaseOpenAI):
 
     type: Literal["openai"]
 
-    @cached_property
-    def _client(self) -> AsyncOpenAI:
-        """Get the OpenAI client."""
-        kwargs = {}
-        if self.base_url:
-            kwargs["base_url"] = self.base_url
-        if self.api_key:
-            kwargs["api_key"] = self.api_key
-        elif "OPENAI_API_KEY" in os.environ:
-            kwargs["api_key"] = os.environ["OPENAI_API_KEY"]
-
-        return AsyncOpenAI(**kwargs)
-
 
 class AzureOpenAI(BaseOpenAI):
     """Azure OpenAI model implementation."""
@@ -390,7 +397,6 @@ class AzureOpenAI(BaseOpenAI):
     api_version: Optional[str] = None
     azure_endpoint: Optional[str] = None
     azure_deployment: Optional[str] = None
-    headers: Optional[dict[str, str]] = None
 
     @cached_property
     def _client(self) -> AsyncAzureOpenAI:
@@ -409,8 +415,9 @@ class AzureOpenAI(BaseOpenAI):
                 "API key must be provided either via api_key parameter or AZURE_OPENAI_API_KEY environment variable"
             )
 
-        default_headers = self.headers or {}
-
         return AsyncAzureOpenAI(
-            api_version=api_version, azure_endpoint=azure_endpoint, api_key=api_key, default_headers=default_headers
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=azure_endpoint,
+            default_headers=self.default_headers,
         )

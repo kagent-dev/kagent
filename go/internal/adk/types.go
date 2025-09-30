@@ -44,7 +44,16 @@ type BaseModel struct {
 
 type OpenAI struct {
 	BaseModel
-	BaseUrl string `json:"base_url"`
+	BaseUrl          string   `json:"base_url"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	MaxTokens        *int     `json:"max_tokens,omitempty"`
+	N                *int     `json:"n,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	ReasoningEffort  *string  `json:"reasoning_effort,omitempty"`
+	Seed             *int     `json:"seed,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	Timeout          *int     `json:"timeout,omitempty"`
+	TopP             *float64 `json:"top_p,omitempty"`
 }
 
 const (
@@ -58,11 +67,14 @@ const (
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
-		"type":     ModelTypeOpenAI,
-		"model":    o.Model,
-		"base_url": o.BaseUrl,
-		"headers":  o.Headers,
+	type Alias OpenAI
+
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeOpenAI,
+		Alias: (*Alias)(o),
 	})
 }
 

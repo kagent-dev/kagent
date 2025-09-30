@@ -4,7 +4,7 @@ set -o errexit
 set -o pipefail
 
 KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-kagent}
-KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.33.2}
+KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.34.0}
 
 # 1. Create registry container unless it already exists
 reg_name='kind-registry'

@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/kagent-dev/kmcp/pkg/controller/transportadapter"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 
@@ -36,13 +35,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/internal/a2a"
-	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
 	a2a_reconciler "github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	mcp_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/mcp"
 	"github.com/kagent-dev/kagent/go/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 
@@ -69,8 +69,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller"
 	"github.com/kagent-dev/kagent/go/internal/goruntime"
-	kmcpv1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
-	kmcpcontroller "github.com/kagent-dev/kmcp/pkg/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -90,7 +88,6 @@ func init() {
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
-	utilruntime.Must(kmcpv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -165,8 +162,8 @@ type CtrlManagerConfigFunc func(manager.Manager) error
 type ExtensionConfig struct {
 	Authenticator    auth.AuthProvider
 	Authorizer       auth.Authorizer
-	AgentPlugins     []translator.TranslatorPlugin
-	MCPServerPlugins []transportadapter.TranslatorPlugin
+	AgentPlugins     []agent_translator.TranslatorPlugin
+	MCPServerPlugins []mcp_translator.TranslatorPlugin
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -179,10 +176,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	ctx := context.Background()
 
 	cfg.SetFlags(flag.CommandLine)
-	flag.StringVar(&translator.DefaultImageConfig.Registry, "image-registry", translator.DefaultImageConfig.Registry, "The registry to use for the image.")
-	flag.StringVar(&translator.DefaultImageConfig.Tag, "image-tag", translator.DefaultImageConfig.Tag, "The tag to use for the image.")
-	flag.StringVar(&translator.DefaultImageConfig.PullPolicy, "image-pull-policy", translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
-	flag.StringVar(&translator.DefaultImageConfig.Repository, "image-repository", translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
+	flag.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 
 	opts := zap.Options{
 		Development: true,
@@ -328,7 +326,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	apiTranslator := translator.NewAdkApiTranslator(
+	apiTranslator := agent_translator.NewAdkApiTranslator(
 		mgr.GetClient(),
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,
@@ -347,20 +345,33 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		extensionCfg.Authenticator,
 	)
 
+	mcpTranslator := mcp_translator.NewTransportAdapterTranslator(
+		mgr.GetScheme(),
+		extensionCfg.MCPServerPlugins,
+	)
+
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
+		mcpTranslator,
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
 		a2aReconciler,
 	)
 
-	if err = (&kmcpcontroller.MCPServerReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Plugins: extensionCfg.MCPServerPlugins,
+	if err = (&controller.MCPServerController{
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
+		os.Exit(1)
+	}
+
+	if err := (&controller.MCPServerToolController{
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MCPServerToolDiscovery")
 		os.Exit(1)
 	}
 
@@ -369,14 +380,6 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Service")
-		os.Exit(1)
-	}
-
-	if err := (&controller.MCPServerController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
 		os.Exit(1)
 	}
 

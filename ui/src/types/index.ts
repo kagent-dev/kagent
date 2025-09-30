@@ -56,6 +56,7 @@ export interface OpenAIConfigPayload {
   seed?: number;
   n?: number;
   timeout?: number;
+  reasoningEffort?: string;
 }
 
 export interface AnthropicConfigPayload {

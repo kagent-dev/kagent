@@ -22,6 +22,7 @@ from a2a.types import (
     TextPart,
 )
 from google.adk.runners import Runner
+from google.adk.utils.context_utils import Aclosing
 from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override
@@ -145,17 +146,6 @@ class A2aAgentExecutor(AgentExecutor):
                 )
             except Exception as enqueue_error:
                 logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
-        finally:
-            # Shield cleanup from external cancellation so toolsets (e.g., MCP) can
-            # gracefully close their sessions without being torn down mid-flight.
-            try:
-                await asyncio.wait_for(asyncio.shield(runner.close()), timeout=15.0)
-            except asyncio.CancelledError:
-                # Suppress cancellation during cleanup to avoid noisy tracebacks
-                # from libraries that assume non-cancelled close semantics.
-                logger.warning("Runner.close() was cancelled; suppressing during cleanup")
-            except Exception as close_error:
-                logger.error("Error during runner.close(): %s", close_error, exc_info=True)
 
     async def _handle_request(
         self,
@@ -203,12 +193,13 @@ class A2aAgentExecutor(AgentExecutor):
         )
 
         task_result_aggregator = TaskResultAggregator()
-        async for adk_event in runner.run_async(**run_args):
-            for a2a_event in convert_event_to_a2a_events(
-                adk_event, invocation_context, context.task_id, context.context_id
-            ):
-                task_result_aggregator.process_event(a2a_event)
-                await event_queue.enqueue_event(a2a_event)
+        async with Aclosing(runner.run_async(**run_args)) as agen:
+            async for adk_event in agen:
+                for a2a_event in convert_event_to_a2a_events(
+                    adk_event, invocation_context, context.task_id, context.context_id
+                ):
+                    task_result_aggregator.process_event(a2a_event)
+                    await event_queue.enqueue_event(a2a_event)
 
         # publish the task result event - this is final
         if (

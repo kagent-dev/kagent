@@ -20,10 +20,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/internal/controller/predicates"
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
-	"github.com/kagent-dev/kmcp/api/v1alpha1"
-
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,21 +33,30 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// MCPServerController reconciles a MCPServer object
+// MCPServerController reconciles a MCPServer object handling the deployment lifecycle of the MCP server
 type MCPServerController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
-// +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
+// Reconcile handles the deployment lifecycle of the MCPServer as well as
+// configuring the transport adapter layer for the MCP server which serves to
+// adapt stdio to http.
 func (r *MCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
-	return ctrl.Result{
-		// loop forever because we need to refresh tools server status
-		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileKagentMCPServer(ctx, req)
+	shouldRequeue, err := r.Reconciler.ReconcileKagentMCPServerDeployment(ctx, req)
+	if shouldRequeue {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+	return ctrl.Result{}, err
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -56,10 +65,10 @@ func (r *MCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha1.MCPServer{}, builder.WithPredicates(
-			predicate.GenerationChangedPredicate{},
-			predicates.DiscoveryDisabledPredicate{},
-		)).
-		Named("toolserver").
+		For(&v1alpha1.MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&appsv1.Deployment{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
+		Owns(&corev1.Service{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
+		Owns(&corev1.ConfigMap{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
+		Named("mcpserver").
 		Complete(r)
 }

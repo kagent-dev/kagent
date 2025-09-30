@@ -3,13 +3,11 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: modelconfigs.kagent.dev
 spec:
   group: kagent.dev
   names:
-    categories:
-    - kagent
     kind: ModelConfig
     listKind: ModelConfigList
     plural: modelconfigs
@@ -543,6 +541,14 @@ spec:
                     type: string
                   presencePenalty:
                     description: Presence penalty
+                    type: string
+                  reasoningEffort:
+                    description: Reasoning effort
+                    enum:
+                    - minimal
+                    - low
+                    - medium
+                    - high
                     type: string
                   seed:
                     description: Seed value

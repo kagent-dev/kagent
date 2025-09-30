@@ -126,7 +126,7 @@ ui:
   service:
     type: ClusterIP
     ports:
-      port: 80
+      port: 8080
       targetPort: 8080
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
 

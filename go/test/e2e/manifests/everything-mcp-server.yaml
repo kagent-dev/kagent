@@ -1,0 +1,13 @@
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: everything-mcp-server
+  namespace: kagent
+spec:
+  deployment:
+    port: 3000
+    cmd: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-everything"
+  transportType: stdio
