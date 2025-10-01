@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
@@ -77,6 +78,14 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		if cfg.Agent == "" {
 			fmt.Fprintln(os.Stderr, "Agent is required")
 			return
+		}
+
+		// Handle a case where the agent is provided with the namespace (e.g., namespace/agent-name)
+		//In this case, we override the namespace from the config with the namespace from the agent name
+		if strings.Contains(cfg.Agent, "/") {
+			parts := strings.Split(cfg.Agent, "/")
+			cfg.Config.Namespace = parts[0]
+			cfg.Agent = parts[1]
 		}
 
 		a2aURL := fmt.Sprintf("%s/api/a2a/%s/%s", cfg.Config.KAgentURL, cfg.Config.Namespace, cfg.Agent)
