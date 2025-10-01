@@ -42,7 +42,7 @@ spec:
           imagePullPolicy: {{ .Values.ui.image.pullPolicy | default .Values.imagePullPolicy }}
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
-              value: "http://{{ include "kagent.fullname" . }}-controller.{{ include "kagent.namespace" . }}.svc.cluster.local:{{ .Values.controller.service.ports.port }}/api"
+              value: "http://{{ include "kagent.fullname" . }}-controller:{{ .Values.controller.service.ports.port }}/api"
             {{- with .Values.ui.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
