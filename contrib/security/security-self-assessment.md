@@ -89,7 +89,6 @@ kagent addresses the growing need for AI-powered automation in cloud-native envi
 - **Kubernetes-Native AI Agents**: Provide a framework for building AI agents that operate naturally within Kubernetes environments with full integration of Kubernetes security models.
 - **Secure Multi-Tenancy**: Enable multiple users and teams to deploy and manage their own agents with proper isolation and access controls. This is not yet implemented, but is on the project roadmap.
 - **Extensible Tool Ecosystem**: Offer a secure and extensible system for agents to access various tools and services while maintaining proper authorization boundaries.
-- **Observable Operations**: Provide comprehensive observability for agent operations, including audit trails, performance metrics, and security events.
 - **Declarative Configuration**: Enable infrastructure-as-code practices for agent deployment and management with version control and review processes.
 
 ### Non-goals
@@ -111,7 +110,7 @@ This document provides the CNCF TAG-Security with an initial understanding of ka
 
 - **Authentication System**: Currently includes UnsecureAuthenticator for development and A2AAuthenticator for agent-to-agent communication. https://github.com/kagent-dev/kagent/issues/476 is on the roadmap to create a more extensible authentication and authorization system.
 
-- **Secret Management**: Integrates with Kubernetes secret management for storing sensitive data like API keys, credentials, and configuration data. Secrets are automatically mounted into agent containers and accessed through secure channels.
+- **Secret Management**: Integrates with Kubernetes secret management for storing sensitive data like API keys, credentials, and configuration data. Secrets are automatically mounted into agent containers and accessed through secure channels. The kagent API does not allow for any cross namespace referencing of secrets and/or resources which reference secrets. We are interested in potentially adding this ability via something like a ReferenceGrant in the future.
 
 - **Container Security**: All container images are scanned for vulnerabilities using Trivy in the CI/CD pipeline, with high and critical severity issues blocking releases.
 
@@ -161,7 +160,7 @@ In the future, kagent intends to build and maintain compliance with several indu
 
 - **Static Code Analysis**: Automated linting for Go code to identify potential security issues and maintain code quality.
 
-- **Signed Commits**: The project requires signed commits.
+- **Signed Commits**: The project requires signed commits via DCO.
 
 ### Communication Channels
 
@@ -192,6 +191,7 @@ Native integration:
 
 Optional tooling:
 
+- **kgateway**: Gateway and Kubernetes Gateway API integration
 - **Grafana**: Observability and monitoring integration
 - **Istio**: Integration with Istio Service Mesh APIs
 - **Argo**: Integration with Argo Rollouts
