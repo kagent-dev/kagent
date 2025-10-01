@@ -84,6 +84,10 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		//In this case, we override the namespace from the config with the namespace from the agent name
 		if strings.Contains(cfg.Agent, "/") {
 			parts := strings.Split(cfg.Agent, "/")
+			if len(parts) != 2 {
+				fmt.Fprintf(os.Stderr, "Invalid agent format: expected 'namespace/agent', got '%s'\n", cfg.Agent)
+				return
+			}
 			cfg.Config.Namespace = parts[0]
 			cfg.Agent = parts[1]
 		}
