@@ -31,7 +31,18 @@ func main() {
 
 		cancel()
 	}()
+	
+	// Initialize config first to load from file
+	if err := config.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing config: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Load config from file
 	cfg := &config.Config{}
+	if fileCfg, err := config.Get(); err == nil && fileCfg != nil {
+		cfg = fileCfg
+	}
 
 	rootCmd := &cobra.Command{
 		Use:   "kagent",
@@ -327,12 +338,6 @@ Examples:
 	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "", "Kubernetes namespace to deploy to")
 
 	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd)
-
-	// Initialize config
-	if err := config.Init(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing config: %v\n", err)
-		os.Exit(1)
-	}
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
