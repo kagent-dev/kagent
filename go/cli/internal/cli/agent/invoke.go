@@ -24,10 +24,9 @@ type InvokeCfg struct {
 }
 
 func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
-
 	clientSet := cfg.Config.Client()
 
-	if err := CheckServerConnection(clientSet); err != nil {
+	if err := CheckServerConnection(ctx, clientSet); err != nil {
 		// If a connection does not exist, start a short-lived port-forward.
 		pf, err := NewPortForward(ctx, cfg.Config)
 		if err != nil {
