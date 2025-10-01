@@ -24,7 +24,8 @@ from crewai.memory import LongTermMemory
 from pydantic import BaseModel
 
 from ._listeners import A2ACrewAIListener
-from ._memory import KagentFlowPersistence, KagentMemoryStorage
+from ._memory import KagentMemoryStorage
+from ._state import KagentFlowPersistence
 
 logger = logging.getLogger(__name__)
 
