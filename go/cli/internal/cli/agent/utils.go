@@ -16,13 +16,13 @@ var (
 	ErrServerConnection = fmt.Errorf("error connecting to server. Please run 'install' command first")
 )
 
-func CheckServerConnection(client *client.ClientSet) error {
+func CheckServerConnection(ctx context.Context, client *client.ClientSet) error {
 	// Only check if we have a valid client
 	if client == nil {
 		return ErrServerConnection
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 	_, err := client.Version.GetVersion(ctx)
 	if err != nil {
@@ -50,7 +50,7 @@ func NewPortForward(ctx context.Context, cfg *config.Config) (*PortForward, erro
 	client := cfg.Client()
 	var err error
 	for i := 0; i < 10; i++ {
-		err = CheckServerConnection(client)
+		err = CheckServerConnection(ctx, client)
 		if err == nil {
 			// Connection successful, port-forward is working
 			return &PortForward{
