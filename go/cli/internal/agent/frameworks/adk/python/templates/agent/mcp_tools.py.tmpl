@@ -1,0 +1,33 @@
+import os
+import json
+from typing import List, Callable
+
+
+def _load_manifest() -> dict:
+    """Load kagent.yaml rendered as JSON at build time if present.
+
+    The project generator can optionally write a JSON sidecar with MCP servers
+    to simplify dynamic tool discovery at runtime without a YAML parser.
+    """
+    manifest_path = os.path.join(os.path.dirname(__file__), "..", "kagent.yaml")
+    manifest_path = os.path.abspath(manifest_path)
+    if not os.path.exists(manifest_path):
+        return {}
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def get_mcp_tools() -> List[Callable]:
+    """Return MCP tool callables discovered from the project manifest.
+
+    This is a stub for now. Later we will spin up command/remote MCP servers
+    and expose adapter functions as ADK tools. For scaffolding purposes,
+    return an empty list.
+    """
+    _ = _load_manifest()
+    return []
+
+

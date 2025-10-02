@@ -20,6 +20,7 @@ type AgentConfig struct {
 	Framework     string
 	Language      string
 	KagentVersion string
+	McpServers    []McpServerType
 }
 
 // BaseGenerator provides common functionality for all project generators
