@@ -6,6 +6,7 @@ from google.adk.agents import Agent
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
+from google.adk.agents import SequentialAgent, LoopAgent, ParallelAgent
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
@@ -17,6 +18,21 @@ from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_agent_name(name: str) -> str:
+    """
+    Sanitize a string to be a valid agent name.
+    Agent names must start with a letter or underscore and contain only letters, digits, and underscores.
+    """
+    # Replace spaces and hyphens with underscores
+    sanitized = name.replace(" ", "_").replace("-", "_")
+    # Remove any other invalid characters
+    sanitized = "".join(c for c in sanitized if c.isalnum() or c == "_")
+    # Ensure it starts with a letter or underscore
+    if sanitized and not (sanitized[0].isalpha() or sanitized[0] == "_"):
+        sanitized = "_" + sanitized
+    return sanitized if sanitized else "_"
 
 
 class HttpMcpServerConfig(BaseModel):
@@ -35,6 +51,25 @@ class RemoteAgentConfig(BaseModel):
     headers: dict[str, Any] | None = None
     timeout: float = DEFAULT_TIMEOUT
     description: str = ""
+
+
+class SubagentConfig(BaseModel):
+    """Configuration for a subagent in a workflow."""
+
+    name: str
+    url: str
+    headers: dict[str, Any] | None = None
+    timeout: float = DEFAULT_TIMEOUT
+    description: str = ""
+
+
+class WorkflowConfig(BaseModel):
+    """Configuration for workflow subagents (Sequential, Parallel, or Loop)."""
+
+    type: Literal["Sequential", "Parallel", "Loop"]
+    subagents: list[SubagentConfig]
+    role: str = ""
+    max_iterations: int = 5  # For Loop agents
 
 
 class BaseLLM(BaseModel):
@@ -92,6 +127,7 @@ class AgentConfig(BaseModel):
     http_tools: list[HttpMcpServerConfig] | None = None  # Streamable HTTP MCP tools
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
+    workflow_subagents: list[WorkflowConfig] | None = None  # workflow patterns (Sequential, Parallel, Loop)
 
     def to_agent(self, name: str) -> Agent:
         if name is None or not str(name).strip():
@@ -120,6 +156,54 @@ class AgentConfig(BaseModel):
                 )
 
                 tools.append(AgentTool(agent=remote_a2a_agent, skip_summarization=True))
+
+        # Add workflow subagents as tools
+        if self.workflow_subagents:
+            for workflow in self.workflow_subagents:
+                # Create remote agents for each subagent in the workflow
+                tool_sub_agents: list[BaseAgent] = []
+                for subagent in workflow.subagents:
+                    client = None
+                    if subagent.headers:
+                        client = httpx.AsyncClient(
+                            headers=subagent.headers, timeout=httpx.Timeout(timeout=subagent.timeout)
+                        )
+
+                    remote_agent = RemoteA2aAgent(
+                        name=subagent.name,
+                        agent_card=f"{subagent.url}/{AGENT_CARD_WELL_KNOWN_PATH}",
+                        description=subagent.description,
+                        httpx_client=client,
+                    )
+                    tool_sub_agents.append(remote_agent)
+
+                # Create workflow agent based on type
+                # Sanitize the role to create a valid agent name
+                sanitized_role = sanitize_agent_name(workflow.role) if workflow.role else ""
+                
+                workflow_agent: BaseAgent
+                if workflow.type == "Sequential":
+                    workflow_agent = SequentialAgent(
+                        name=f"{name}_{sanitized_role}_sequential" if sanitized_role else f"{name}_sequential",
+                        sub_agents=tool_sub_agents,
+                    )
+                elif workflow.type == "Parallel":
+                    workflow_agent = ParallelAgent(
+                        name=f"{name}_{sanitized_role}_parallel" if sanitized_role else f"{name}_parallel",
+                        sub_agents=tool_sub_agents,
+                    )
+                elif workflow.type == "Loop":
+                    # LoopAgent automatically handles exit_loop() calls from tools
+                    workflow_agent = LoopAgent(
+                        name=f"{name}_{sanitized_role}_loop" if sanitized_role else f"{name}_loop",
+                        sub_agents=tool_sub_agents,
+                        max_iterations=workflow.max_iterations,
+                    )
+                else:
+                    raise ValueError(f"Unknown workflow type: {workflow.type}")
+
+                # Add workflow agent as subagent
+                sub_agents.append(workflow_agent)
 
         extra_headers = self.model.headers or {}
 
@@ -161,4 +245,5 @@ class AgentConfig(BaseModel):
             description=self.description,
             instruction=self.instruction,
             tools=tools,
+            sub_agents=sub_agents,
         )

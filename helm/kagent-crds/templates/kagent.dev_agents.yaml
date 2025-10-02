@@ -6898,6 +6898,150 @@ spec:
                       Whether to stream the response from the model.
                       If not specified, the default value is true.
                     type: boolean
+                  subagents:
+                    description: |-
+                      Subagents are specialized agents that can be delegated tasks by this parent agent.
+                      Each subagent can be either an individual agent reference or a workflow pattern.
+                    items:
+                      description: |-
+                        Subagent represents a specialized agent that can be delegated tasks.
+                        A subagent can be either an individual agent reference OR a workflow pattern (mutually exclusive).
+                      properties:
+                        agent:
+                          description: Agent is an individual agent reference
+                          properties:
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        delegationMode:
+                          allOf:
+                          - enum:
+                            - auto
+                            - tool
+                          - enum:
+                            - auto
+                            - tool
+                          description: DelegationMode specifies how this subagent
+                            is invoked
+                          type: string
+                        description:
+                          description: Description provides additional context about
+                            this subagent
+                          type: string
+                        headersFrom:
+                          description: HeadersFrom specifies a list of configuration
+                            values to be added as headers
+                          items:
+                            description: ValueRef represents a configuration value
+                            properties:
+                              name:
+                                type: string
+                              value:
+                                type: string
+                              valueFrom:
+                                description: ValueSource defines a source for configuration
+                                  values from a Secret or ConfigMap
+                                properties:
+                                  key:
+                                    description: The key of the ConfigMap or Secret.
+                                    type: string
+                                  name:
+                                    description: The name of the ConfigMap or Secret.
+                                    type: string
+                                  type:
+                                    enum:
+                                    - ConfigMap
+                                    - Secret
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                - type
+                                type: object
+                            required:
+                            - name
+                            type: object
+                            x-kubernetes-validations:
+                            - message: Exactly one of value or valueFrom must be specified
+                              rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                                && has(self.valueFrom))
+                          type: array
+                        role:
+                          description: Role is a description of this subagent's role
+                          type: string
+                        workflow:
+                          description: Workflow is a workflow pattern (Sequential,
+                            Parallel, or Loop)
+                          properties:
+                            agents:
+                              description: Agents is the list of agents to execute
+                                in the workflow
+                              items:
+                                description: WorkflowAgentRef references an agent
+                                  in a workflow
+                                properties:
+                                  description:
+                                    description: Description provides context about
+                                      this agent's role in the workflow
+                                    type: string
+                                  name:
+                                    description: Name is the agent reference (namespace/name
+                                      or name)
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                              minItems: 1
+                              type: array
+                            loopConfig:
+                              description: LoopConfig configures loop-specific behavior
+                                (required for Loop workflows)
+                              properties:
+                                maxIterations:
+                                  default: 5
+                                  description: |-
+                                    MaxIterations is the maximum number of iterations before terminating (hard limit)
+                                    Loops can also terminate early if a tool calls exit_loop() from google.adk.tools
+                                  maximum: 100
+                                  minimum: 1
+                                  type: integer
+                              type: object
+                            type:
+                              allOf:
+                              - enum:
+                                - Sequential
+                                - Parallel
+                                - Loop
+                              - enum:
+                                - Sequential
+                                - Parallel
+                                - Loop
+                              description: Type specifies the workflow execution pattern
+                                (Sequential, Parallel, or Loop)
+                              type: string
+                          required:
+                          - agents
+                          - type
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: subagent must specify either agent or workflow, not
+                          both
+                        rule: '!has(self.agent) || !has(self.workflow)'
+                      - message: subagent must specify either agent or workflow
+                        rule: has(self.agent) || has(self.workflow)
+                      - message: Loop workflow must specify loopConfig
+                        rule: '!has(self.workflow) || self.workflow.type != ''Loop''
+                          || has(self.workflow.loopConfig)'
+                    maxItems: 20
+                    type: array
                   systemMessage:
                     description: SystemMessage is a string specifying the system message
                       for the agent
