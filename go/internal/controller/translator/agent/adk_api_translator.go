@@ -106,6 +106,14 @@ func (t *tState) isVisited(agentName string) bool {
 	return slices.Contains(t.visitedAgents, agentName)
 }
 
+// validateSelfReference checks if an agent references itself and returns an error if so
+func validateSelfReference(parentAgent *v1alpha2.Agent, refNamespace, refName string) error {
+	if refNamespace == parentAgent.Namespace && refName == parentAgent.Name {
+		return fmt.Errorf("agent cannot reference itself: %s/%s", refNamespace, refName)
+	}
+	return nil
+}
+
 func (a *adkApiTranslator) TranslateAgent(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
@@ -203,8 +211,8 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 			Name:      tool.Agent.Name,
 		}
 
-		if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-			return fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+		if err := validateSelfReference(agent, agentRef.Namespace, agentRef.Name); err != nil {
+			return err
 		}
 
 		toolAgent := &v1alpha2.Agent{}
@@ -239,8 +247,8 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 				}
 
 				// Check for self-reference
-				if wfAgentRef.Namespace == agent.Namespace && wfAgentRef.Name == agent.Name {
-					return fmt.Errorf("workflow subagent cannot reference itself, %s", wfAgentRef)
+				if err := validateSelfReference(agent, wfAgentRef.Namespace, wfAgentRef.Name); err != nil {
+					return err
 				}
 
 				// Get and validate the workflow agent
@@ -263,8 +271,8 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 				Name:      subagent.Agent.Name,
 			}
 
-			if subagentRef.Namespace == agent.Namespace && subagentRef.Name == agent.Name {
-				return fmt.Errorf("subagent cannot reference itself, %s", subagentRef)
+			if err := validateSelfReference(agent, subagentRef.Namespace, subagentRef.Name); err != nil {
+				return err
 			}
 
 			subagentObj := &v1alpha2.Agent{}
@@ -552,8 +560,8 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				Name:      tool.Agent.Name,
 			}
 
-			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+			if err := validateSelfReference(agent, agentRef.Namespace, agentRef.Name); err != nil {
+				return nil, nil, nil, err
 			}
 
 			// Translate a nested tool
@@ -600,8 +608,8 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				Name:      subagent.Agent.Name,
 			}
 
-			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-				return nil, nil, nil, fmt.Errorf("subagent cannot reference itself, %s", agentRef)
+			if err := validateSelfReference(agent, agentRef.Namespace, agentRef.Name); err != nil {
+				return nil, nil, nil, err
 			}
 
 			subagentObj := &v1alpha2.Agent{}

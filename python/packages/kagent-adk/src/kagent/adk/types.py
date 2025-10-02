@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Literal, Union
+from typing import Any, Literal, Optional, Union
 
 import httpx
 from google.adk.agents import Agent
@@ -20,7 +20,7 @@ from .models import OpenAI as OpenAINative
 logger = logging.getLogger(__name__)
 
 
-def sanitize_agent_name(name: str, max_length: int = None) -> str:
+def sanitize_agent_name(name: str, max_length: Optional[int] = None) -> str:
     """
     Sanitize a string to be a valid agent name.
     Agent names must start with a letter or underscore and contain only letters, digits, and underscores.
