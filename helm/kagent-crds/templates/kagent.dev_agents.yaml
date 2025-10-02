@@ -2352,6 +2352,14 @@ spec:
       jsonPath: .status.conditions[?(@.type=='Accepted')].status
       name: Accepted
       type: string
+    - description: The current phase of the agent.
+      jsonPath: .status.phase
+      name: Status
+      type: string
+    - description: Human-readable message about the agent status.
+      jsonPath: .status.message
+      name: Message
+      type: string
     name: v1alpha2
     schema:
       openAPIV3Schema:
@@ -7252,9 +7260,21 @@ spec:
                   - type
                   type: object
                 type: array
+              message:
+                description: Message provides a human-readable message about the agent's
+                  current state.
+                type: string
               observedGeneration:
                 format: int64
                 type: integer
+              phase:
+                description: Phase represents the current lifecycle phase of the agent.
+                enum:
+                - Pending
+                - Ready
+                - Error
+                - Unknown
+                type: string
             required:
             - observedGeneration
             type: object

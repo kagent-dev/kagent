@@ -20,10 +20,17 @@ from .models import OpenAI as OpenAINative
 logger = logging.getLogger(__name__)
 
 
-def sanitize_agent_name(name: str) -> str:
+def sanitize_agent_name(name: str, max_length: int = None) -> str:
     """
     Sanitize a string to be a valid agent name.
     Agent names must start with a letter or underscore and contain only letters, digits, and underscores.
+    
+    Args:
+        name: The name to sanitize
+        max_length: Optional maximum length for the sanitized name (e.g., 64 for OpenAI tool names)
+    
+    Returns:
+        Sanitized name, truncated to max_length if specified
     """
     # Replace spaces and hyphens with underscores
     sanitized = name.replace(" ", "_").replace("-", "_")
@@ -32,7 +39,14 @@ def sanitize_agent_name(name: str) -> str:
     # Ensure it starts with a letter or underscore
     if sanitized and not (sanitized[0].isalpha() or sanitized[0] == "_"):
         sanitized = "_" + sanitized
-    return sanitized if sanitized else "_"
+    if not sanitized:
+        sanitized = "_"
+    
+    # Truncate if max_length is specified
+    if max_length and len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+    
+    return sanitized
 
 
 class HttpMcpServerConfig(BaseModel):
@@ -179,31 +193,38 @@ class AgentConfig(BaseModel):
 
                 # Create workflow agent based on type
                 # Sanitize the role to create a valid agent name
+                # OpenAI has a 64-character limit for tool names, so we need to ensure workflow names don't exceed it
                 sanitized_role = sanitize_agent_name(workflow.role) if workflow.role else ""
                 
                 workflow_agent: BaseAgent
                 if workflow.type == "Sequential":
+                    workflow_name = f"{name}_{sanitized_role}_sequential" if sanitized_role else f"{name}_sequential"
+                    workflow_name = sanitize_agent_name(workflow_name, max_length=64)
                     workflow_agent = SequentialAgent(
-                        name=f"{name}_{sanitized_role}_sequential" if sanitized_role else f"{name}_sequential",
+                        name=workflow_name,
                         sub_agents=tool_sub_agents,
                     )
                 elif workflow.type == "Parallel":
+                    workflow_name = f"{name}_{sanitized_role}_parallel" if sanitized_role else f"{name}_parallel"
+                    workflow_name = sanitize_agent_name(workflow_name, max_length=64)
                     workflow_agent = ParallelAgent(
-                        name=f"{name}_{sanitized_role}_parallel" if sanitized_role else f"{name}_parallel",
+                        name=workflow_name,
                         sub_agents=tool_sub_agents,
                     )
                 elif workflow.type == "Loop":
                     # LoopAgent automatically handles exit_loop() calls from tools
+                    workflow_name = f"{name}_{sanitized_role}_loop" if sanitized_role else f"{name}_loop"
+                    workflow_name = sanitize_agent_name(workflow_name, max_length=64)
                     workflow_agent = LoopAgent(
-                        name=f"{name}_{sanitized_role}_loop" if sanitized_role else f"{name}_loop",
+                        name=workflow_name,
                         sub_agents=tool_sub_agents,
                         max_iterations=workflow.max_iterations,
                     )
                 else:
                     raise ValueError(f"Unknown workflow type: {workflow.type}")
 
-                # Add workflow agent as subagent
-                sub_agents.append(workflow_agent)
+                # Add workflow agent as a tool
+                tools.append(AgentTool(agent=workflow_agent, skip_summarization=True))
 
         extra_headers = self.model.headers or {}
 
@@ -245,5 +266,4 @@ class AgentConfig(BaseModel):
             description=self.description,
             instruction=self.instruction,
             tools=tools,
-            sub_agents=sub_agents,
         )

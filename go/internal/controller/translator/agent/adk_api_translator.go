@@ -220,6 +220,67 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 
 	}
 
+	// Validate workflow subagents for circular references
+	for _, subagent := range agent.Spec.Declarative.Subagents {
+		if subagent.Workflow != nil {
+			// Validate each agent in the workflow
+			for _, wfAgent := range subagent.Workflow.Agents {
+				// Parse agent name (supports namespace/name or just name)
+				wfAgentRef := types.NamespacedName{
+					Namespace: agent.Namespace,
+					Name:      wfAgent.Name,
+				}
+				if strings.Contains(wfAgent.Name, "/") {
+					parts := strings.Split(wfAgent.Name, "/")
+					if len(parts) == 2 {
+						wfAgentRef.Namespace = parts[0]
+						wfAgentRef.Name = parts[1]
+					}
+				}
+
+				// Check for self-reference
+				if wfAgentRef.Namespace == agent.Namespace && wfAgentRef.Name == agent.Name {
+					return fmt.Errorf("workflow subagent cannot reference itself, %s", wfAgentRef)
+				}
+
+				// Get and validate the workflow agent
+				workflowAgent := &v1alpha2.Agent{}
+				err := a.kube.Get(ctx, wfAgentRef, workflowAgent)
+				if err != nil {
+					return err
+				}
+
+				// Recursively validate for cycles
+				err = a.validateAgent(ctx, workflowAgent, state.with(agent))
+				if err != nil {
+					return err
+				}
+			}
+		} else if subagent.Agent != nil {
+			// Validate individual agent subagent
+			subagentRef := types.NamespacedName{
+				Namespace: agent.Namespace,
+				Name:      subagent.Agent.Name,
+			}
+
+			if subagentRef.Namespace == agent.Namespace && subagentRef.Name == agent.Name {
+				return fmt.Errorf("subagent cannot reference itself, %s", subagentRef)
+			}
+
+			subagentObj := &v1alpha2.Agent{}
+			err := a.kube.Get(ctx, subagentRef, subagentObj)
+			if err != nil {
+				return err
+			}
+
+			// Recursively validate for cycles
+			err = a.validateAgent(ctx, subagentObj, state.with(agent))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 

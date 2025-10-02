@@ -1,0 +1,300 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "loop_orchestrator",
+    "skills": null,
+    "url": "http://loop-orchestrator.default:8080",
+    "version": ""
+  },
+  "config": {
+    "description": "",
+    "http_tools": null,
+    "instruction": "You orchestrate iterative refinement",
+    "model": {
+      "base_url": "",
+      "model": "gpt-4o",
+      "type": "openai"
+    },
+    "remote_agents": null,
+    "sse_tools": null,
+    "workflow_subagents": [
+      {
+        "max_iterations": 10,
+        "role": "writer_critic_loop",
+        "subagents": [
+          {
+            "description": "Write content",
+            "name": "default__NS__writer_agent",
+            "url": "http://writer-agent.default:8080"
+          },
+          {
+            "description": "Provide feedback",
+            "name": "default__NS__critic_agent",
+            "url": "http://critic-agent.default:8080"
+          }
+        ],
+        "type": "Loop"
+      }
+    ]
+  },
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "kagent": "loop-orchestrator"
+        },
+        "name": "loop-orchestrator",
+        "namespace": "default",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "loop-orchestrator",
+            "uid": ""
+          }
+        ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"name\":\"loop_orchestrator\",\"description\":\"\",\"url\":\"http://loop-orchestrator.default:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You orchestrate iterative refinement\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"workflow_subagents\":[{\"type\":\"Loop\",\"subagents\":[{\"name\":\"default__NS__writer_agent\",\"url\":\"http://writer-agent.default:8080\",\"description\":\"Write content\"},{\"name\":\"default__NS__critic_agent\",\"url\":\"http://critic-agent.default:8080\",\"description\":\"Provide feedback\"}],\"role\":\"writer_critic_loop\",\"max_iterations\":10}]}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "kagent": "loop-orchestrator"
+        },
+        "name": "loop-orchestrator",
+        "namespace": "default",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "loop-orchestrator",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "kagent": "loop-orchestrator"
+        },
+        "name": "loop-orchestrator",
+        "namespace": "default",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "loop-orchestrator",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "loop-orchestrator"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "5770775296607015985"
+            },
+            "labels": {
+              "app": "kagent",
+              "kagent": "loop-orchestrator"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "args": [
+                  "static",
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config"
+                ],
+                "command": [
+                  "kagent-adk"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "384Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "loop-orchestrator",
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "loop-orchestrator"
+                }
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "kagent": "loop-orchestrator"
+        },
+        "name": "loop-orchestrator",
+        "namespace": "default",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "loop-orchestrator",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "loop-orchestrator"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+operation: translateAgent
+targetObject: loop-orchestrator
+namespace: default
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: default
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: test-model
+      namespace: default
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: writer-agent
+      namespace: default
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You are a writer"
+        modelConfig: test-model
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: critic-agent
+      namespace: default
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You are a critic"
+        modelConfig: test-model
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: loop-orchestrator
+      namespace: default
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You orchestrate iterative refinement"
+        modelConfig: test-model
+        subagents:
+          - role: writer_critic_loop
+            workflow:
+              type: Loop
+              agents:
+                - name: writer-agent
+                  description: "Write content"
+                - name: critic-agent
+                  description: "Provide feedback"
+              loopConfig:
+                maxIterations: 10
+

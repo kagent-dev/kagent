@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -100,6 +101,27 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 		}),
 		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 	).
+		Watches(
+			&v1alpha2.Agent{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.findAgentsUsingWorkflowAgent(ctx, mgr.GetClient(), types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.ObjectMeta.Name,
+							Namespace: agent.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+			builder.WithPredicates(workflowAgentPredicate{}),
+		).
 		Watches(
 			&v1alpha2.RemoteMCPServer{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -317,6 +339,62 @@ func (r *AgentController) findAgentsUsingModelConfig(ctx context.Context, cl cli
 	return agents
 }
 
+func (r *AgentController) findAgentsUsingWorkflowAgent(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+	var agentsList v1alpha2.AgentList
+	if err := cl.List(
+		ctx,
+		&agentsList,
+	); err != nil {
+		agentControllerLog.Error(err, "failed to list agents in order to reconcile workflow agent update")
+		return nil
+	}
+
+	var agents []*v1alpha2.Agent
+	for i := range agentsList.Items {
+		agent := &agentsList.Items[i]
+
+		// Skip if not declarative agent
+		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
+			continue
+		}
+
+		// Check if this agent has workflow subagents that reference the changed agent
+		for _, subagent := range agent.Spec.Declarative.Subagents {
+			if subagent.Workflow == nil {
+				continue
+			}
+
+			// Check each workflow agent reference
+			for _, wfAgent := range subagent.Workflow.Agents {
+				// Parse agent name (supports namespace/name or just name)
+				// This logic matches the translator in adk_api_translator.go
+				wfAgentRef := types.NamespacedName{
+					Namespace: agent.Namespace, // default to parent agent namespace
+					Name:      wfAgent.Name,
+				}
+
+				// Parse namespace/name format (e.g., "prod/my-agent")
+				if strings.Contains(wfAgent.Name, "/") {
+					parts := strings.Split(wfAgent.Name, "/")
+					if len(parts) == 2 {
+						wfAgentRef.Namespace = parts[0]
+						wfAgentRef.Name = parts[1]
+					}
+				}
+
+				// If this workflow agent reference matches the changed agent, add parent to reconcile list
+				if wfAgentRef.Namespace == obj.Namespace && wfAgentRef.Name == obj.Name {
+					agents = append(agents, agent)
+					// Found a match, no need to check other workflow agents in this subagent
+					break
+				}
+			}
+		}
+	}
+
+	return agents
+}
+
 type ownedObjectPredicate = typedOwnedObjectPredicate[client.Object]
 
 type typedOwnedObjectPredicate[object metav1.Object] struct {
@@ -328,4 +406,53 @@ type typedOwnedObjectPredicate[object metav1.Object] struct {
 // re-reconcile.
 func (typedOwnedObjectPredicate[object]) Create(e event.TypedCreateEvent[object]) bool {
 	return false
+}
+
+// workflowAgentPredicate filters events for workflow agent changes
+// Only trigger reconciliation when an agent changes that might be referenced in workflows
+type workflowAgentPredicate struct {
+	predicate.TypedFuncs[client.Object]
+}
+
+// Create returns true for agent creation events (workflow parent may need to reconcile)
+func (workflowAgentPredicate) Create(e event.TypedCreateEvent[client.Object]) bool {
+	return true
+}
+
+// Update returns true for agent update events (workflow parent may need to reconcile)
+func (workflowAgentPredicate) Update(e event.TypedUpdateEvent[client.Object]) bool {
+	// Trigger reconciliation if generation or status changed
+	oldAgent, oldOk := e.ObjectOld.(*v1alpha2.Agent)
+	newAgent, newOk := e.ObjectNew.(*v1alpha2.Agent)
+	if !oldOk || !newOk {
+		return false
+	}
+
+	// Reconcile if generation changed (spec update)
+	if oldAgent.Generation != newAgent.Generation {
+		return true
+	}
+
+	// Reconcile if Ready condition changed
+	oldReady := false
+	newReady := false
+	for _, cond := range oldAgent.Status.Conditions {
+		if cond.Type == v1alpha2.AgentConditionTypeReady {
+			oldReady = cond.Status == metav1.ConditionTrue
+			break
+		}
+	}
+	for _, cond := range newAgent.Status.Conditions {
+		if cond.Type == v1alpha2.AgentConditionTypeReady {
+			newReady = cond.Status == metav1.ConditionTrue
+			break
+		}
+	}
+
+	return oldReady != newReady
+}
+
+// Delete returns true for agent deletion events (workflow parent may need to reconcile)
+func (workflowAgentPredicate) Delete(e event.TypedDeleteEvent[client.Object]) bool {
+	return true
 }

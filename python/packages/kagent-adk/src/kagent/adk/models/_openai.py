@@ -192,14 +192,27 @@ def _update_type_string(value_dict: dict[str, Any]):
 
 def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionToolParam]:
     """Convert google.genai Tools to OpenAI tools format."""
+    import logging
+    
+    logger = logging.getLogger(__name__)
     openai_tools: list[ChatCompletionToolParam] = []
 
     for tool in tools:
         if tool.function_declarations:
             for func_decl in tool.function_declarations:
+                # OpenAI has a 64-character limit for function names
+                tool_name = func_decl.name or ""
+                if len(tool_name) > 64:
+                    original_name = tool_name
+                    tool_name = tool_name[:64]
+                    logger.warning(
+                        f"Tool name '{original_name}' exceeds OpenAI's 64-character limit. "
+                        f"Truncated to '{tool_name}'"
+                    )
+                
                 # Build function definition
                 function_def = FunctionDefinition(
-                    name=func_decl.name or "",
+                    name=tool_name,
                     description=func_decl.description or "",
                 )
 

@@ -312,10 +312,27 @@ const (
 	AgentConditionTypeReady    = "Ready"
 )
 
+// AgentPhase represents the current phase of the agent lifecycle
+// +kubebuilder:validation:Enum=Pending;Ready;Error;Unknown
+type AgentPhase string
+
+const (
+	AgentPhasePending AgentPhase = "Pending"
+	AgentPhaseReady   AgentPhase = "Ready"
+	AgentPhaseError   AgentPhase = "Error"
+	AgentPhaseUnknown AgentPhase = "Unknown"
+)
+
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
 	ObservedGeneration int64              `json:"observedGeneration"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	// Phase represents the current lifecycle phase of the agent.
+	// +optional
+	Phase AgentPhase `json:"phase,omitempty"`
+	// Message provides a human-readable message about the agent's current state.
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -323,6 +340,8 @@ type AgentStatus struct {
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase",description="The current phase of the agent."
+// +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Human-readable message about the agent status."
 // +kubebuilder:storageversion
 
 // Agent is the Schema for the agents API.
