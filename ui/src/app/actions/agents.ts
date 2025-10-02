@@ -172,6 +172,7 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
       response.data!.metadata.name,
     )
 
+    revalidatePath("/agents");
     revalidatePath(`/agents/${agentRef}/chat`);
     return { message: "Successfully created agent", data: response.data };
   } catch (error) {
