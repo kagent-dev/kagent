@@ -1,0 +1,206 @@
+# Nested Workflow Example: Research → Analysis → Report
+# Demonstrates composing multiple workflow patterns
+
+---
+# Research Agents (for Parallel stage)
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: market-researcher
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Researches market trends and competitive landscape"
+  declarative:
+    systemMessage: |
+      You research market trends, competitive landscape, and business opportunities.
+      Store findings in output_key: "market_research"
+    modelConfig: default-model-config
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: kagent-tool-server
+          kind: RemoteMCPServer
+          apiGroup: kagent.dev
+          toolNames: ["shell"]
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: technical-researcher
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Researches technical feasibility and architecture"
+  declarative:
+    systemMessage: |
+      You research technical feasibility, architecture patterns, and implementation considerations.
+      Store findings in output_key: "technical_research"
+    modelConfig: default-model-config
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: kagent-tool-server
+          kind: RemoteMCPServer
+          apiGroup: kagent.dev
+          toolNames: ["shell"]
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: compliance-researcher
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Researches regulatory and compliance requirements"
+  declarative:
+    systemMessage: |
+      You research regulatory requirements, compliance standards, and legal considerations.
+      Store findings in output_key: "compliance_research"
+    modelConfig: default-model-config
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: kagent-tool-server
+          kind: RemoteMCPServer
+          apiGroup: kagent.dev
+          toolNames: ["shell"]
+
+---
+# Analysis Agents (for Sequential stage)
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: data-synthesizer
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Synthesizes research data into coherent insights"
+  declarative:
+    systemMessage: |
+      You synthesize research data from multiple sources.
+      Read: temp:market_research, temp:technical_research, temp:compliance_research
+      
+      Create unified insights identifying:
+      - Common themes
+      - Contradictions
+      - Gaps
+      
+      Store synthesis in output_key: "research_synthesis"
+    modelConfig: default-model-config
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: risk-analyzer
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Analyzes risks and opportunities"
+  declarative:
+    systemMessage: |
+      You analyze risks and opportunities based on synthesized research.
+      Read: temp:research_synthesis
+      
+      Identify:
+      - Key risks (technical, market, compliance)
+      - Mitigation strategies
+      - Opportunities
+      
+      Store analysis in output_key: "risk_analysis"
+    modelConfig: default-model-config
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: recommendation-generator
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Generates actionable recommendations"
+  declarative:
+    systemMessage: |
+      You generate actionable recommendations.
+      Read: temp:research_synthesis, temp:risk_analysis
+      
+      Provide:
+      - Strategic recommendations
+      - Implementation roadmap
+      - Success metrics
+      
+      Store recommendations in output_key: "recommendations"
+    modelConfig: default-model-config
+
+---
+# Nested Workflow Orchestrator
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: strategic-analysis-workflow
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Multi-stage strategic analysis: parallel research → sequential analysis"
+  declarative:
+    systemMessage: |
+      You orchestrate a comprehensive strategic analysis workflow.
+      
+      Stage 1 (Parallel): Conduct research across multiple domains simultaneously
+      Stage 2 (Sequential): Systematically analyze and synthesize findings
+      
+      Present final strategic recommendations to the user.
+    modelConfig: default-model-config
+    
+    subagents:
+      # Stage 1: Parallel Research
+      - role: "Multi-Domain Research"
+        description: "Parallel research across market, technical, and compliance domains"
+        workflow:
+          type: Parallel
+          agents:
+            - name: market-researcher
+            - name: technical-researcher
+            - name: compliance-researcher
+      
+      # Stage 2: Sequential Analysis
+      - role: "Strategic Analysis Pipeline"
+        description: "Sequential analysis: synthesize → analyze risks → generate recommendations"
+        workflow:
+          type: Sequential
+          agents:
+            - name: data-synthesizer
+            - name: risk-analyzer
+            - name: recommendation-generator
+
+---
+# Example usage:
+# kubectl apply -f nested-workflow.yaml
+#
+# Test via A2A:
+# curl -X POST http://kagent-controller:8083/api/a2a/kagent/strategic-analysis-workflow \
+#   -H "Content-Type: application/json" \
+#   -d '{"input": "Analyze the feasibility of launching a Kubernetes-native AI agent platform"}'
+#
+# Expected behavior:
+# 1. Three research agents run in parallel (market, technical, compliance)
+# 2. After all complete, sequential analysis begins:
+#    a. Synthesizer combines all research
+#    b. Risk analyzer evaluates synthesis
+#    c. Recommendation generator creates actionable plan
+# 3. Final recommendations presented to user
+#
+# Workflow structure:
+#   Strategic Analysis
+#   ├─ Parallel Research Stage
+#   │  ├─ Market Researcher
+#   │  ├─ Technical Researcher
+#   │  └─ Compliance Researcher
+#   └─ Sequential Analysis Stage
+#      ├─ Data Synthesizer
+#      ├─ Risk Analyzer
+#      └─ Recommendation Generator
+

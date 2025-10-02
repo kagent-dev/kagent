@@ -1,0 +1,136 @@
+# Parallel Workflow Example: Multi-Domain Research
+# Reference: https://github.com/google/adk-docs/blob/main/docs/agents/workflow-agents/parallel-agents.md
+
+---
+# Research Agent 1: Renewable Energy
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: renewable-energy-researcher
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Researches renewable energy sources and technologies"
+  declarative:
+    systemMessage: |
+      You are an expert in renewable energy. Research topics related to:
+      - Solar power
+      - Wind energy
+      - Hydroelectric
+      - Geothermal
+      - Emerging technologies
+      
+      Provide comprehensive research with sources. Store findings in output_key: "renewable_energy_findings"
+    modelConfig: default-model-config
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: web-search-mcp
+          toolNames: ["search", "get_webpage_content"]
+
+---
+# Research Agent 2: Electric Vehicles
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: ev-technology-researcher
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Researches electric vehicle technology and infrastructure"
+  declarative:
+    systemMessage: |
+      You are an electric vehicle technology expert. Research:
+      - Battery technologies
+      - Charging infrastructure
+      - Vehicle platforms
+      - Market trends
+      - Policy and regulations
+      
+      Provide detailed analysis. Store findings in output_key: "ev_tech_findings"
+    modelConfig: default-model-config
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: web-search-mcp
+          toolNames: ["search", "get_webpage_content"]
+
+---
+# Research Agent 3: Carbon Capture
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: carbon-capture-researcher
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Researches carbon capture and sequestration methods"
+  declarative:
+    systemMessage: |
+      You are a carbon capture specialist. Research:
+      - Direct air capture
+      - Point-source capture
+      - Carbon sequestration methods
+      - Cost analysis
+      - Scalability challenges
+      
+      Provide thorough research. Store findings in output_key: "carbon_capture_findings"
+    modelConfig: default-model-config
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: web-search-mcp
+          toolNames: ["search", "get_webpage_content"]
+
+---
+# Parallel Research Coordinator
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: parallel-research-coordinator
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Coordinates parallel research across multiple domains"
+  declarative:
+    systemMessage: |
+      You coordinate parallel research across multiple domains.
+      
+      All research agents run concurrently to maximize efficiency.
+      Once all complete, synthesize their findings into a comprehensive report covering:
+      - Key findings from each domain
+      - Connections between domains
+      - Overall trends and implications
+      - Recommendations
+      
+      Present a unified research report to the user.
+    modelConfig: default-model-config
+    
+    subagents:
+      - role: "Multi-Domain Research Coordinator"
+        description: "Parallel research across renewable energy, EVs, and carbon capture"
+        delegationMode: Direct
+        workflow:
+          type: Parallel
+          agents:
+            - name: renewable-energy-researcher
+              description: "Researches renewable energy sources"
+            - name: ev-technology-researcher
+              description: "Researches electric vehicle technology"
+            - name: carbon-capture-researcher
+              description: "Researches carbon capture methods"
+
+---
+# Example usage:
+# kubectl apply -f parallel-research.yaml
+#
+# Test via A2A:
+# curl -X POST http://kagent-controller:8083/api/a2a/kagent/parallel-research-coordinator \
+#   -H "Content-Type: application/json" \
+#   -d '{"input": "Research the latest developments in clean energy technologies for 2025"}'
+#
+# Expected behavior:
+# - All 3 research agents run concurrently (parallel execution)
+# - Total time ≈ longest individual research time (not sum of all)
+# - Results aggregated by coordinator
+

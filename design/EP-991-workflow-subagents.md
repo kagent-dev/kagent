@@ -651,12 +651,12 @@ def check_quality_threshold(
 **Example 1: Code Development Pipeline** (from ADK docs)
 ```bash
 # Deploy individual agents
-kubectl apply -f examples/workflow-subagents/code-writer-agent.yaml
-kubectl apply -f examples/workflow-subagents/code-reviewer-agent.yaml
-kubectl apply -f examples/workflow-subagents/code-refactorer-agent.yaml
+kubectl apply -f examples/EP-991-workflow-subagents/code-writer-agent.yaml
+kubectl apply -f examples/EP-991-workflow-subagents/code-reviewer-agent.yaml
+kubectl apply -f examples/EP-991-workflow-subagents/code-refactorer-agent.yaml
 
 # Deploy sequential workflow
-kubectl apply -f examples/workflow-subagents/code-pipeline.yaml
+kubectl apply -f examples/EP-991-workflow-subagents/code-pipeline.yaml
 
 # Send request via A2A
 curl -X POST http://kagent-controller:8083/api/a2a/kagent/code-pipeline \
@@ -672,10 +672,10 @@ curl -X POST http://kagent-controller:8083/api/a2a/kagent/code-pipeline \
 **Example 2: Parallel Research** (from ADK docs)
 ```bash
 # Deploy research agents
-kubectl apply -f examples/workflow-subagents/research-agents/
+kubectl apply -f examples/EP-991-workflow-subagents/research-agents/
 
 # Deploy parallel workflow
-kubectl apply -f examples/workflow-subagents/parallel-research.yaml
+kubectl apply -f examples/EP-991-workflow-subagents/parallel-research.yaml
 
 # Send request
 curl -X POST http://kagent-controller:8083/api/a2a/kagent/parallel-research \
@@ -688,10 +688,10 @@ curl -X POST http://kagent-controller:8083/api/a2a/kagent/parallel-research \
 **Example 3: Iterative Improvement** (from ADK docs)
 ```bash
 # Deploy writer and critic
-kubectl apply -f examples/workflow-subagents/writer-critic/
+kubectl apply -f examples/EP-991-workflow-subagents/writer-critic/
 
 # Deploy loop workflow
-kubectl apply -f examples/workflow-subagents/iterative-improvement.yaml
+kubectl apply -f examples/EP-991-workflow-subagents/iterative-improvement.yaml
 
 # Send request
 curl -X POST http://kagent-controller:8083/api/a2a/kagent/iterative-improvement \
