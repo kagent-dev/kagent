@@ -51,6 +51,8 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 		ModelProvider: modelProvider,
 		ModelName:     modelName,
 		KagentVersion: kagentVersion,
+		// Empty MCP servers on init
+		McpServers: nil,
 	}
 
 	// Use the base generator to create the project
@@ -66,6 +68,7 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 		agentConfig.ModelProvider,
 		agentConfig.ModelName,
 		description,
+		agentConfig.McpServers,
 	)
 
 	// Save the manifest using the Manager
