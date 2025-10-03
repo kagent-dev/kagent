@@ -20,6 +20,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator/labels"
+	"github.com/kagent-dev/kagent/go/pkg/mcp_translator"
 )
 
 const (
@@ -39,11 +40,7 @@ type Translator interface {
 	) ([]client.Object, error)
 }
 
-type TranslatorPlugin func(
-	ctx context.Context,
-	server *v1alpha1.MCPServer,
-	objects []client.Object,
-) ([]client.Object, error)
+type TranslatorPlugin = mcp_translator.TranslatorPlugin
 
 type transportAdapterTranslator struct {
 	scheme  *runtime.Scheme
