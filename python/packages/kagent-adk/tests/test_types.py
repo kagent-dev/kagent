@@ -10,7 +10,7 @@ from typing import Any
 from kagent.adk.types import (
     sanitize_agent_name,
     generate_workflow_name,
-    to_workflow_agent,
+    create_workflow_agent,
     HttpMcpServerConfig,
     SseMcpServerConfig,
     RemoteAgentConfig,
@@ -135,11 +135,11 @@ class TestGenerateWorkflowName:
 
 
 # ============================================================================
-# Tests for to_workflow_agent()
+# Tests for create_workflow_agent()
 # ============================================================================
 
 class TestToWorkflowAgent:
-    """Test suite for to_workflow_agent factory function."""
+    """Test suite for create_workflow_agent factory function."""
 
     @patch('kagent.adk.types.SequentialAgent')
     def test_sequential_agent_creation(self, mock_sequential):
@@ -147,7 +147,7 @@ class TestToWorkflowAgent:
         subagents = [Mock(), Mock()]
         agent_name = "test_sequential"
         
-        to_workflow_agent("Sequential", agent_name, subagents)
+        create_workflow_agent("Sequential", agent_name, subagents)
         
         mock_sequential.assert_called_once_with(
             name=agent_name,
@@ -160,7 +160,7 @@ class TestToWorkflowAgent:
         subagents = [Mock(), Mock()]
         agent_name = "test_parallel"
         
-        to_workflow_agent("Parallel", agent_name, subagents)
+        create_workflow_agent("Parallel", agent_name, subagents)
         
         mock_parallel.assert_called_once_with(
             name=agent_name,
@@ -173,7 +173,7 @@ class TestToWorkflowAgent:
         subagents = [Mock()]
         agent_name = "test_loop"
         
-        to_workflow_agent("Loop", agent_name, subagents)
+        create_workflow_agent("Loop", agent_name, subagents)
         
         mock_loop.assert_called_once_with(
             name=agent_name,
@@ -187,7 +187,7 @@ class TestToWorkflowAgent:
         subagents = [Mock()]
         agent_name = "test_loop"
         
-        to_workflow_agent("Loop", agent_name, subagents, max_iterations=10)
+        create_workflow_agent("Loop", agent_name, subagents, max_iterations=10)
         
         mock_loop.assert_called_once_with(
             name=agent_name,
@@ -198,12 +198,12 @@ class TestToWorkflowAgent:
     def test_invalid_workflow_type(self):
         """Test that invalid workflow type raises ValueError."""
         with pytest.raises(ValueError, match="Unknown workflow type: InvalidType"):
-            to_workflow_agent("InvalidType", "test", [Mock()])
+            create_workflow_agent("InvalidType", "test", [Mock()])
 
     def test_empty_workflow_type(self):
         """Test that empty workflow type raises ValueError."""
         with pytest.raises(ValueError, match="Unknown workflow type: "):
-            to_workflow_agent("", "test", [Mock()])
+            create_workflow_agent("", "test", [Mock()])
 
 
 # ============================================================================
@@ -682,7 +682,7 @@ class TestAgentConfigToAgent:
     @patch('kagent.adk.types.Agent')
     @patch('kagent.adk.types.OpenAINative')
     @patch('kagent.adk.types.RemoteA2aAgent')
-    @patch('kagent.adk.types.to_workflow_agent')
+    @patch('kagent.adk.types.create_workflow_agent')
     @patch('kagent.adk.types.AgentTool')
     def test_workflow_subagents_sequential(
         self, mock_agent_tool, mock_to_workflow, mock_remote_agent, mock_openai, mock_agent
@@ -718,7 +718,7 @@ class TestAgentConfigToAgent:
     @patch('kagent.adk.types.Agent')
     @patch('kagent.adk.types.OpenAINative')
     @patch('kagent.adk.types.RemoteA2aAgent')
-    @patch('kagent.adk.types.to_workflow_agent')
+    @patch('kagent.adk.types.create_workflow_agent')
     @patch('kagent.adk.types.AgentTool')
     def test_workflow_subagents_with_empty_role(
         self, mock_agent_tool, mock_to_workflow, mock_remote_agent, mock_openai, mock_agent
@@ -752,7 +752,7 @@ class TestAgentConfigToAgent:
     @patch('kagent.adk.types.Agent')
     @patch('kagent.adk.types.OpenAINative')
     @patch('kagent.adk.types.RemoteA2aAgent')
-    @patch('kagent.adk.types.to_workflow_agent')
+    @patch('kagent.adk.types.create_workflow_agent')
     @patch('kagent.adk.types.AgentTool')
     @patch('kagent.adk.types.httpx.AsyncClient')
     def test_workflow_subagents_with_headers(
@@ -839,7 +839,7 @@ class TestAgentConfigToAgent:
     @patch('kagent.adk.types.MCPToolset')
     @patch('kagent.adk.types.RemoteA2aAgent')
     @patch('kagent.adk.types.AgentTool')
-    @patch('kagent.adk.types.to_workflow_agent')
+    @patch('kagent.adk.types.create_workflow_agent')
     def test_all_tools_combined(
         self, mock_workflow, mock_agent_tool, mock_remote, 
         mock_mcp, mock_openai, mock_agent
@@ -941,12 +941,12 @@ class TestEdgeCases:
         # Should sanitize to underscore
         assert "_sequential" in result
 
-    def test_to_workflow_agent_empty_subagents(self):
+    def test_create_workflow_agent_empty_subagents(self):
         """Test workflow creation with empty subagents list."""
         # This should work but might create an invalid workflow
         # The actual validation happens in the ADK library
         with patch('kagent.adk.types.SequentialAgent') as mock_seq:
-            to_workflow_agent("Sequential", "test", [])
+            create_workflow_agent("Sequential", "test", [])
             mock_seq.assert_called_once_with(name="test", sub_agents=[])
     
     def test_invalid_model_type_error(self):
