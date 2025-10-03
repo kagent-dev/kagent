@@ -11,11 +11,11 @@ update:
 .PHONY: format
 format:
 	uv run ruff format
-	uv run ruff check
 
 .PHONY: lint
 lint: 
 	uv run ruff format --diff
+	uv run ruff check
 
 .PHONY: test
 test: update

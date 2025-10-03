@@ -2,11 +2,10 @@ import logging
 from typing import Any, Literal, Optional, Union
 
 import httpx
-from google.adk.agents import Agent
+from google.adk.agents import Agent, LoopAgent, ParallelAgent, SequentialAgent
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
-from google.adk.agents import SequentialAgent, LoopAgent, ParallelAgent
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
@@ -24,11 +23,11 @@ def sanitize_agent_name(name: str, max_length: Optional[int] = None) -> str:
     """
     Sanitize a string to be a valid agent name.
     Agent names must start with a letter or underscore and contain only letters, digits, and underscores.
-    
+
     Args:
         name: The name to sanitize
         max_length: Optional maximum length for the sanitized name (e.g., 64 for OpenAI tool names)
-    
+
     Returns:
         Sanitized name, truncated to max_length if specified
     """
@@ -41,22 +40,22 @@ def sanitize_agent_name(name: str, max_length: Optional[int] = None) -> str:
         sanitized = "_" + sanitized
     if not sanitized:
         sanitized = "_"
-    
+
     # Truncate if max_length is specified
     if max_length and len(sanitized) > max_length:
         sanitized = sanitized[:max_length]
-    
+
     return sanitized
 
 
 def generate_workflow_name(base_name: str, sanitized_role: str, workflow_type: str) -> str:
     """Generate a workflow agent name with proper sanitization.
-    
+
     Args:
         base_name: Base name for the workflow
         sanitized_role: Sanitized role string (already processed through sanitize_agent_name)
         workflow_type: Type of workflow (Sequential, Parallel, Loop)
-    
+
     Returns:
         Sanitized workflow name with 64-character limit for OpenAI compatibility
     """
@@ -72,16 +71,16 @@ def create_workflow_agent(
     workflow_type: str, agent_name: str, subagents: list[BaseAgent], max_iterations: int = 5
 ) -> BaseAgent:
     """Factory method to create workflow agents based on type.
-    
+
     Args:
         workflow_type: Type of workflow ("Sequential", "Parallel", or "Loop")
         agent_name: Name for the workflow agent
         subagents: List of subagents to include in the workflow
         max_iterations: Maximum iterations for Loop workflows (default: 5)
-    
+
     Returns:
         The created workflow agent instance
-    
+
     Raises:
         ValueError: If workflow_type is not recognized
     """
@@ -90,11 +89,11 @@ def create_workflow_agent(
         "Parallel": lambda: ParallelAgent(name=agent_name, sub_agents=subagents),
         "Loop": lambda: LoopAgent(name=agent_name, sub_agents=subagents, max_iterations=max_iterations),
     }
-    
+
     factory = workflow_factories.get(workflow_type)
     if factory is None:
         raise ValueError(f"Unknown workflow type: {workflow_type}")
-    
+
     return factory()
 
 
@@ -106,24 +105,21 @@ def create_remote_agent(
     description: str,
 ) -> RemoteA2aAgent:
     """Create a RemoteA2aAgent with optional HTTP client.
-    
+
     Args:
         name: Agent name
         url: Agent base URL
         headers: Optional HTTP headers
         timeout: Request timeout in seconds
         description: Agent description
-    
+
     Returns:
         Configured RemoteA2aAgent instance
     """
     client = None
     if headers:
-        client = httpx.AsyncClient(
-            headers=headers,
-            timeout=httpx.Timeout(timeout=timeout)
-        )
-    
+        client = httpx.AsyncClient(headers=headers, timeout=httpx.Timeout(timeout=timeout))
+
     return RemoteA2aAgent(
         name=name,
         agent_card=f"{url}/{AGENT_CARD_WELL_KNOWN_PATH}",
@@ -228,22 +224,22 @@ class AgentConfig(BaseModel):
 
     def to_agent(self, name: str) -> Agent:
         """Create an Agent instance from this configuration.
-        
+
         Args:
             name: Name for the agent
-            
+
         Returns:
             Configured Agent instance
-            
+
         Raises:
             ValueError: If name is empty or invalid
         """
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
-        
+
         tools = self._build_tools(name)
         model = self._create_model()
-        
+
         return Agent(
             name=name,
             model=model,
@@ -251,13 +247,13 @@ class AgentConfig(BaseModel):
             instruction=self.instruction,
             tools=tools,
         )
-    
+
     def _build_tools(self, name: str) -> list[ToolUnion]:
         """Build all tools from configuration.
-        
+
         Args:
             name: Base name for workflow tools
-            
+
         Returns:
             List of all configured tools
         """
@@ -266,39 +262,33 @@ class AgentConfig(BaseModel):
         tools.extend(self._create_remote_agent_tools())
         tools.extend(self._create_workflow_tools(name))
         return tools
-    
+
     def _create_mcp_tools(self) -> list[ToolUnion]:
         """Create MCP toolsets from HTTP and SSE configurations.
-        
+
         Returns:
             List of MCP toolsets
         """
         tools: list[ToolUnion] = []
-        
+
         if self.http_tools:
             for http_tool in self.http_tools:
-                tools.append(MCPToolset(
-                    connection_params=http_tool.params,
-                    tool_filter=http_tool.tools
-                ))
-        
+                tools.append(MCPToolset(connection_params=http_tool.params, tool_filter=http_tool.tools))
+
         if self.sse_tools:
             for sse_tool in self.sse_tools:
-                tools.append(MCPToolset(
-                    connection_params=sse_tool.params,
-                    tool_filter=sse_tool.tools
-                ))
-        
+                tools.append(MCPToolset(connection_params=sse_tool.params, tool_filter=sse_tool.tools))
+
         return tools
-    
+
     def _create_remote_agent_tools(self) -> list[ToolUnion]:
         """Create tools from remote agent configurations.
-        
+
         Returns:
             List of AgentTools wrapping remote agents
         """
         tools: list[ToolUnion] = []
-        
+
         if self.remote_agents:
             for remote_agent in self.remote_agents:
                 remote_a2a_agent = create_remote_agent(
@@ -309,20 +299,20 @@ class AgentConfig(BaseModel):
                     description=remote_agent.description,
                 )
                 tools.append(AgentTool(agent=remote_a2a_agent, skip_summarization=True))
-        
+
         return tools
-    
+
     def _create_workflow_tools(self, base_name: str) -> list[ToolUnion]:
         """Create workflow agent tools.
-        
+
         Args:
             base_name: Base name for workflow agent naming
-            
+
         Returns:
             List of AgentTools wrapping workflow agents
         """
         tools: list[ToolUnion] = []
-        
+
         if self.workflow_subagents:
             for workflow in self.workflow_subagents:
                 # Create remote agents for each subagent in the workflow
@@ -336,33 +326,33 @@ class AgentConfig(BaseModel):
                     )
                     for subagent in workflow.subagents
                 ]
-                
+
                 # Create workflow agent based on type
                 sanitized_role = sanitize_agent_name(workflow.role) if workflow.role else ""
                 workflow_name = generate_workflow_name(base_name, sanitized_role, workflow.type)
-                
+
                 workflow_agent = create_workflow_agent(
                     workflow_type=workflow.type,
                     agent_name=workflow_name,
                     subagents=tool_sub_agents,
                     max_iterations=workflow.max_iterations,
                 )
-                
+
                 tools.append(AgentTool(agent=workflow_agent, skip_summarization=True))
-        
+
         return tools
-    
+
     def _create_model(self):
         """Create the appropriate LLM model based on configuration.
-        
+
         Returns:
             Configured LLM model instance
-            
+
         Raises:
             ValueError: If model type is invalid
         """
         extra_headers = self.model.headers or {}
-        
+
         # Factory pattern for model creation
         model_factories = {
             "openai": lambda: OpenAINative(
@@ -381,26 +371,19 @@ class AgentConfig(BaseModel):
                 top_p=self.model.top_p,
             ),
             "anthropic": lambda: LiteLlm(
-                model=f"anthropic/{self.model.model}",
-                base_url=self.model.base_url,
-                extra_headers=extra_headers
+                model=f"anthropic/{self.model.model}", base_url=self.model.base_url, extra_headers=extra_headers
             ),
             "gemini_vertex_ai": lambda: GeminiLLM(model=self.model.model),
             "gemini_anthropic": lambda: ClaudeLLM(model=self.model.model),
-            "ollama": lambda: LiteLlm(
-                model=f"ollama_chat/{self.model.model}",
-                extra_headers=extra_headers
-            ),
+            "ollama": lambda: LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers),
             "azure_openai": lambda: OpenAIAzure(
-                model=self.model.model,
-                type="azure_openai",
-                default_headers=extra_headers
+                model=self.model.model, type="azure_openai", default_headers=extra_headers
             ),
             "gemini": lambda: self.model.model,
         }
-        
+
         factory = model_factories.get(self.model.type)
         if factory is None:
             raise ValueError(f"Invalid model type: {self.model.type}")
-        
+
         return factory()

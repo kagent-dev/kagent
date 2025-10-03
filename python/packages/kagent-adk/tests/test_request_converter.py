@@ -1,10 +1,10 @@
 """Tests for kagent.adk.converters.request_converter module."""
 
-import pytest
 from unittest.mock import Mock
 
-from a2a.server.agent_execution import RequestContext
+import pytest
 from a2a import types as a2a_types
+from a2a.server.agent_execution import RequestContext
 
 from kagent.adk.converters.request_converter import (
     _get_user_id,
@@ -22,9 +22,9 @@ class TestGetUserId:
         request.call_context.user = Mock()
         request.call_context.user.user_name = "john_doe"
         request.context_id = "context_123"
-        
+
         user_id = _get_user_id(request)
-        
+
         assert user_id == "john_doe"
 
     def test_get_user_from_context_id_no_call_context(self):
@@ -32,9 +32,9 @@ class TestGetUserId:
         request = Mock(spec=RequestContext)
         request.call_context = None
         request.context_id = "context_456"
-        
+
         user_id = _get_user_id(request)
-        
+
         assert user_id == "A2A_USER_context_456"
 
     def test_get_user_from_context_id_no_user(self):
@@ -43,9 +43,9 @@ class TestGetUserId:
         request.call_context = Mock()
         request.call_context.user = None
         request.context_id = "context_789"
-        
+
         user_id = _get_user_id(request)
-        
+
         assert user_id == "A2A_USER_context_789"
 
     def test_get_user_from_context_id_empty_user_name(self):
@@ -55,9 +55,9 @@ class TestGetUserId:
         request.call_context.user = Mock()
         request.call_context.user.user_name = ""
         request.context_id = "context_abc"
-        
+
         user_id = _get_user_id(request)
-        
+
         assert user_id == "A2A_USER_context_abc"
 
 
@@ -70,12 +70,10 @@ class TestConvertA2ARequestToADKRunArgs:
         request.context_id = "session_123"
         request.call_context = None
         request.message = Mock()
-        request.message.parts = [
-            a2a_types.Part(root=a2a_types.TextPart(text="Hello"))
-        ]
-        
+        request.message.parts = [a2a_types.Part(root=a2a_types.TextPart(text="Hello"))]
+
         result = convert_a2a_request_to_adk_run_args(request)
-        
+
         assert result is not None
         assert result["user_id"] == "A2A_USER_session_123"
         assert result["session_id"] == "session_123"
@@ -91,12 +89,10 @@ class TestConvertA2ARequestToADKRunArgs:
         request.call_context.user = Mock()
         request.call_context.user.user_name = "authenticated_user"
         request.message = Mock()
-        request.message.parts = [
-            a2a_types.Part(root=a2a_types.TextPart(text="Authenticated message"))
-        ]
-        
+        request.message.parts = [a2a_types.Part(root=a2a_types.TextPart(text="Authenticated message"))]
+
         result = convert_a2a_request_to_adk_run_args(request)
-        
+
         assert result["user_id"] == "authenticated_user"
         assert result["session_id"] == "session_456"
 
@@ -111,9 +107,9 @@ class TestConvertA2ARequestToADKRunArgs:
             a2a_types.Part(root=a2a_types.TextPart(text="Part 2")),
             a2a_types.Part(root=a2a_types.TextPart(text="Part 3")),
         ]
-        
+
         result = convert_a2a_request_to_adk_run_args(request)
-        
+
         assert len(result["new_message"].parts) == 3
 
     def test_convert_request_none_message_raises_error(self):
@@ -122,7 +118,7 @@ class TestConvertA2ARequestToADKRunArgs:
         request.context_id = "session_error"
         request.call_context = None
         request.message = None
-        
+
         with pytest.raises(ValueError, match="Request message cannot be None"):
             convert_a2a_request_to_adk_run_args(request)
 
@@ -135,16 +131,13 @@ class TestConvertA2ARequestToADKRunArgs:
         request.message.parts = [
             a2a_types.Part(
                 root=a2a_types.FilePart(
-                    file=a2a_types.FileWithUri(
-                        uri="https://example.com/file.pdf",
-                        mime_type="application/pdf"
-                    )
+                    file=a2a_types.FileWithUri(uri="https://example.com/file.pdf", mime_type="application/pdf")
                 )
             )
         ]
-        
+
         result = convert_a2a_request_to_adk_run_args(request)
-        
+
         assert result is not None
         assert len(result["new_message"].parts) == 1
         # The part converter should have converted the file part
@@ -156,12 +149,10 @@ class TestConvertA2ARequestToADKRunArgs:
         request.context_id = "session_config"
         request.call_context = None
         request.message = Mock()
-        request.message.parts = [
-            a2a_types.Part(root=a2a_types.TextPart(text="Test"))
-        ]
-        
+        request.message.parts = [a2a_types.Part(root=a2a_types.TextPart(text="Test"))]
+
         result = convert_a2a_request_to_adk_run_args(request)
-        
+
         assert "run_config" in result
         assert result["run_config"] is not None
 
@@ -171,11 +162,8 @@ class TestConvertA2ARequestToADKRunArgs:
         request.context_id = "session_role"
         request.call_context = None
         request.message = Mock()
-        request.message.parts = [
-            a2a_types.Part(root=a2a_types.TextPart(text="User message"))
-        ]
-        
-        result = convert_a2a_request_to_adk_run_args(request)
-        
-        assert result["new_message"].role == "user"
+        request.message.parts = [a2a_types.Part(root=a2a_types.TextPart(text="User message"))]
 
+        result = convert_a2a_request_to_adk_run_args(request)
+
+        assert result["new_message"].role == "user"
