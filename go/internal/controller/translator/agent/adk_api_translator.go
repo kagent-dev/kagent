@@ -106,6 +106,14 @@ func (t *tState) isVisited(agentName string) bool {
 	return slices.Contains(t.visitedAgents, agentName)
 }
 
+// validateSelfReference checks if an agent references itself and returns an error if so
+func validateSelfReference(parentAgent *v1alpha2.Agent, refNamespace, refName string) error {
+	if refNamespace == parentAgent.Namespace && refName == parentAgent.Name {
+		return fmt.Errorf("agent cannot reference itself: %s/%s", refNamespace, refName)
+	}
+	return nil
+}
+
 func (a *adkApiTranslator) TranslateAgent(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
@@ -203,8 +211,8 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 			Name:      tool.Agent.Name,
 		}
 
-		if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-			return fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+		if err := validateSelfReference(agent, agentRef.Namespace, agentRef.Name); err != nil {
+			return err
 		}
 
 		toolAgent := &v1alpha2.Agent{}
@@ -218,6 +226,67 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 			return err
 		}
 
+	}
+
+	// Validate workflow subagents for circular references
+	for _, subagent := range agent.Spec.Declarative.Subagents {
+		if subagent.Workflow != nil {
+			// Validate each agent in the workflow
+			for _, wfAgent := range subagent.Workflow.Agents {
+				// Parse agent name (supports namespace/name or just name)
+				wfAgentRef := types.NamespacedName{
+					Namespace: agent.Namespace,
+					Name:      wfAgent.Name,
+				}
+				if strings.Contains(wfAgent.Name, "/") {
+					parts := strings.Split(wfAgent.Name, "/")
+					if len(parts) == 2 {
+						wfAgentRef.Namespace = parts[0]
+						wfAgentRef.Name = parts[1]
+					}
+				}
+
+				// Check for self-reference
+				if err := validateSelfReference(agent, wfAgentRef.Namespace, wfAgentRef.Name); err != nil {
+					return err
+				}
+
+				// Get and validate the workflow agent
+				workflowAgent := &v1alpha2.Agent{}
+				err := a.kube.Get(ctx, wfAgentRef, workflowAgent)
+				if err != nil {
+					return err
+				}
+
+				// Recursively validate for cycles
+				err = a.validateAgent(ctx, workflowAgent, state.with(agent))
+				if err != nil {
+					return err
+				}
+			}
+		} else if subagent.Agent != nil {
+			// Validate individual agent subagent
+			subagentRef := types.NamespacedName{
+				Namespace: agent.Namespace,
+				Name:      subagent.Agent.Name,
+			}
+
+			if err := validateSelfReference(agent, subagentRef.Namespace, subagentRef.Name); err != nil {
+				return err
+			}
+
+			subagentObj := &v1alpha2.Agent{}
+			err := a.kube.Get(ctx, subagentRef, subagentObj)
+			if err != nil {
+				return err
+			}
+
+			// Recursively validate for cycles
+			err = a.validateAgent(ctx, subagentObj, state.with(agent))
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -491,8 +560,8 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				Name:      tool.Agent.Name,
 			}
 
-			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+			if err := validateSelfReference(agent, agentRef.Namespace, agentRef.Name); err != nil {
+				return nil, nil, nil, err
 			}
 
 			// Translate a nested tool
@@ -525,6 +594,54 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
+	// Translate subagents (workflow subagents)
+	for _, subagent := range agent.Spec.Declarative.Subagents {
+		if subagent.Workflow != nil {
+			err := a.translateWorkflowSubagent(ctx, cfg, agent, subagent)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		} else if subagent.Agent != nil {
+			// Individual agent subagent (existing behavior)
+			agentRef := types.NamespacedName{
+				Namespace: agent.Namespace,
+				Name:      subagent.Agent.Name,
+			}
+
+			if err := validateSelfReference(agent, agentRef.Namespace, agentRef.Name); err != nil {
+				return nil, nil, nil, err
+			}
+
+			subagentObj := &v1alpha2.Agent{}
+			err := a.kube.Get(ctx, agentRef, subagentObj)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			switch subagentObj.Spec.Type {
+			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
+				url := fmt.Sprintf("http://%s.%s:8080", subagentObj.Name, subagentObj.Namespace)
+				headers := make(map[string]string)
+				if len(subagent.HeadersFrom) > 0 {
+					var err error
+					headers, err = a.resolveHeaders(ctx, agent.Namespace, subagent.HeadersFrom)
+					if err != nil {
+						return nil, nil, nil, err
+					}
+				}
+
+				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
+					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(subagentObj)),
+					Url:         url,
+					Headers:     headers,
+					Description: subagentObj.Spec.Description,
+				})
+			default:
+				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", subagentObj.Spec.Type)
+			}
+		}
+	}
+
 	return cfg, agentCard, mdd, nil
 }
 
@@ -536,6 +653,82 @@ func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1al
 		return agent.Spec.Declarative.SystemMessage, nil
 	}
 	return "", fmt.Errorf("at least one system message source (SystemMessage or SystemMessageFrom) must be specified")
+}
+
+func (a *adkApiTranslator) resolveHeaders(ctx context.Context, namespace string, headersFrom []v1alpha2.ValueRef) (map[string]string, error) {
+	headers := make(map[string]string)
+	for _, h := range headersFrom {
+		k, v, err := h.Resolve(ctx, a.kube, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve header: %v", err)
+		}
+		headers[k] = v
+	}
+	return headers, nil
+}
+
+func (a *adkApiTranslator) translateWorkflowSubagent(ctx context.Context, cfg *adk.AgentConfig, agent *v1alpha2.Agent, subagent *v1alpha2.Subagent) error {
+	workflow := subagent.Workflow
+
+	// Resolve all workflow agent references
+	var workflowSubagents []adk.SubagentConfig
+	for _, wfAgent := range workflow.Agents {
+		// Parse agent name (supports namespace/name or just name)
+		agentRef := types.NamespacedName{
+			Namespace: agent.Namespace,
+			Name:      wfAgent.Name,
+		}
+		if strings.Contains(wfAgent.Name, "/") {
+			parts := strings.Split(wfAgent.Name, "/")
+			if len(parts) == 2 {
+				agentRef.Namespace = parts[0]
+				agentRef.Name = parts[1]
+			}
+		}
+
+		// Get the workflow agent
+		workflowAgent := &v1alpha2.Agent{}
+		err := a.kube.Get(ctx, agentRef, workflowAgent)
+		if err != nil {
+			return fmt.Errorf("failed to get workflow agent %s: %v", agentRef, err)
+		}
+
+		url := fmt.Sprintf("http://%s.%s:8080", workflowAgent.Name, workflowAgent.Namespace)
+
+		headers := make(map[string]string)
+		if len(subagent.HeadersFrom) > 0 {
+			headers, err = a.resolveHeaders(ctx, agent.Namespace, subagent.HeadersFrom)
+			if err != nil {
+				return err
+			}
+		}
+
+		workflowSubagents = append(workflowSubagents, adk.SubagentConfig{
+			Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(workflowAgent)),
+			Url:         url,
+			Headers:     headers,
+			Description: wfAgent.Description,
+		})
+	}
+
+	// Create workflow config based on type
+	workflowConfig := adk.WorkflowConfig{
+		Type:      string(workflow.Type),
+		Subagents: workflowSubagents,
+		Role:      subagent.Role,
+	}
+
+	// Set maxIterations for Loop workflows
+	if workflow.Type == v1alpha2.WorkflowType_Loop {
+		if workflow.LoopConfig != nil && workflow.LoopConfig.MaxIterations > 0 {
+			workflowConfig.MaxIterations = workflow.LoopConfig.MaxIterations
+		} else {
+			workflowConfig.MaxIterations = 5 // default
+		}
+	}
+
+	cfg.WorkflowSubagents = append(cfg.WorkflowSubagents, workflowConfig)
+	return nil
 }
 
 const (

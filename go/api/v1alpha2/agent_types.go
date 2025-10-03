@@ -74,6 +74,11 @@ type DeclarativeAgentSpec struct {
 	Stream *bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
+	// Subagents are specialized agents that can be delegated tasks by this parent agent.
+	// Each subagent can be either an individual agent reference or a workflow pattern.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Subagents []*Subagent `json:"subagents,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
@@ -192,6 +197,94 @@ type McpServerTool struct {
 	ToolNames []string `json:"toolNames,omitempty"`
 }
 
+// DelegationMode represents the delegation mode
+// +kubebuilder:validation:Enum=auto;tool
+type DelegationMode string
+
+const (
+	DelegationMode_Auto DelegationMode = "auto"
+	DelegationMode_Tool DelegationMode = "tool"
+)
+
+// Subagent represents a specialized agent that can be delegated tasks.
+// A subagent can be either an individual agent reference OR a workflow pattern (mutually exclusive).
+// +kubebuilder:validation:XValidation:rule="!has(self.agent) || !has(self.workflow)",message="subagent must specify either agent or workflow, not both"
+// +kubebuilder:validation:XValidation:rule="has(self.agent) || has(self.workflow)",message="subagent must specify either agent or workflow"
+// +kubebuilder:validation:XValidation:rule="!has(self.workflow) || self.workflow.type != 'Loop' || has(self.workflow.loopConfig)",message="Loop workflow must specify loopConfig"
+type Subagent struct {
+	// Agent is an individual agent reference
+	// +optional
+	Agent *TypedLocalReference `json:"agent,omitempty"`
+
+	// Workflow is a workflow pattern (Sequential, Parallel, or Loop)
+	// +optional
+	Workflow *WorkflowSubagent `json:"workflow,omitempty"`
+
+	// Role is a description of this subagent's role
+	// +optional
+	Role string `json:"role,omitempty"`
+
+	// Description provides additional context about this subagent
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// HeadersFrom specifies a list of configuration values to be added as headers
+	// +optional
+	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
+
+	// DelegationMode specifies how this subagent is invoked
+	// +optional
+	// +kubebuilder:validation:Enum=auto;tool
+	DelegationMode *DelegationMode `json:"delegationMode,omitempty"`
+}
+
+// WorkflowType represents workflow execution patterns
+// +kubebuilder:validation:Enum=Sequential;Parallel;Loop
+type WorkflowType string
+
+const (
+	WorkflowType_Sequential WorkflowType = "Sequential"
+	WorkflowType_Parallel   WorkflowType = "Parallel"
+	WorkflowType_Loop       WorkflowType = "Loop"
+)
+
+// WorkflowSubagent defines a workflow pattern for executing multiple agents
+type WorkflowSubagent struct {
+	// Type specifies the workflow execution pattern (Sequential, Parallel, or Loop)
+	// +kubebuilder:validation:Enum=Sequential;Parallel;Loop
+	Type WorkflowType `json:"type"`
+
+	// Agents is the list of agents to execute in the workflow
+	// +kubebuilder:validation:MinItems=1
+	Agents []WorkflowAgentRef `json:"agents"`
+
+	// LoopConfig configures loop-specific behavior (required for Loop workflows)
+	// +optional
+	LoopConfig *LoopConfig `json:"loopConfig,omitempty"`
+}
+
+// WorkflowAgentRef references an agent in a workflow
+type WorkflowAgentRef struct {
+	// Name is the agent reference (namespace/name or name)
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Description provides context about this agent's role in the workflow
+	// +optional
+	Description string `json:"description,omitempty"`
+}
+
+// LoopConfig configures loop agent behavior
+type LoopConfig struct {
+	// MaxIterations is the maximum number of iterations before terminating (hard limit)
+	// Loops can also terminate early if a tool calls exit_loop() from google.adk.tools
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=5
+	// +optional
+	MaxIterations int `json:"maxIterations,omitempty"`
+}
+
 type TypedLocalReference struct {
 	// +optional
 	Kind string `json:"kind"`
@@ -219,10 +312,27 @@ const (
 	AgentConditionTypeReady    = "Ready"
 )
 
+// AgentPhase represents the current phase of the agent lifecycle
+// +kubebuilder:validation:Enum=Pending;Ready;Error;Unknown
+type AgentPhase string
+
+const (
+	AgentPhasePending AgentPhase = "Pending"
+	AgentPhaseReady   AgentPhase = "Ready"
+	AgentPhaseError   AgentPhase = "Error"
+	AgentPhaseUnknown AgentPhase = "Unknown"
+)
+
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
 	ObservedGeneration int64              `json:"observedGeneration"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	// Phase represents the current lifecycle phase of the agent.
+	// +optional
+	Phase AgentPhase `json:"phase,omitempty"`
+	// Message provides a human-readable message about the agent's current state.
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -230,6 +340,8 @@ type AgentStatus struct {
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase",description="The current phase of the agent."
+// +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Human-readable message about the agent status."
 // +kubebuilder:storageversion
 
 // Agent is the Schema for the agents API.

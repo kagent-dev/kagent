@@ -11,15 +11,49 @@ update:
 .PHONY: format
 format:
 	uv run ruff format
-	uv run ruff check
 
 .PHONY: lint
 lint: 
 	uv run ruff format --diff
+	uv run ruff check
 
 .PHONY: test
 test: update
 	uv run pytest tests
+
+.PHONY: test-cov
+test-cov: update
+	uv run pytest tests --cov=packages --cov-report=term-missing --cov-report=html --cov-fail-under=90
+
+.PHONY: test-adk
+test-adk:
+	cd packages/kagent-adk && uv run pytest tests -v
+
+.PHONY: test-adk-cov
+test-adk-cov:
+	cd packages/kagent-adk && uv run pytest tests -v --cov=kagent.adk --cov-report=term-missing --cov-report=html --cov-fail-under=73
+
+.PHONY: test-adk-cov-strict
+test-adk-cov-strict:
+	cd packages/kagent-adk && uv run pytest tests -v --cov=kagent.adk --cov-report=term-missing --cov-report=html --cov-fail-under=90
+
+.PHONY: test-adk-cov-core
+test-adk-cov-core:
+	cd packages/kagent-adk && uv run pytest tests -v \
+		--cov=kagent.adk.types \
+		--cov=kagent.adk._token \
+		--cov=kagent.adk._session_service \
+		--cov=kagent.adk._a2a \
+		--cov=kagent.adk.converters \
+		--cov-report=term-missing --cov-report=html
+
+.PHONY: test-types
+test-types:
+	cd packages/kagent-adk && uv run pytest tests/test_types.py -v --cov=src/kagent/adk/types.py --cov-report=term-missing --cov-report=html
+
+.PHONY: test-watch
+test-watch:
+	uv run pytest-watch tests -- -v
 
 .PHONY: build
 build: update format

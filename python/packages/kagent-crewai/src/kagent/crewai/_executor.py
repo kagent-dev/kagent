@@ -18,9 +18,8 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from pydantic import BaseModel
-
 from crewai import Crew, Flow
+from pydantic import BaseModel
 
 from ._listeners import A2ACrewAIListener
 

@@ -1,0 +1,68 @@
+operation: translateAgent
+targetObject: pipeline-orchestrator
+namespace: kagent
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: kagent
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+      apiKeySecretKey: api-key
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: code-writer
+      namespace: kagent
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You write code"
+        modelConfig: default-model-config
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: code-reviewer
+      namespace: kagent
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You review code"
+        modelConfig: default-model-config
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: code-refactorer
+      namespace: kagent
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You refactor code"
+        modelConfig: default-model-config
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: pipeline-orchestrator
+      namespace: kagent
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You orchestrate a code pipeline"
+        modelConfig: default-model-config
+        subagents:
+          - role: code_pipeline
+            workflow:
+              type: Sequential
+              agents:
+                - name: code-writer
+                  description: "Write initial code"
+                - name: code-reviewer
+                  description: "Review the code"
+                - name: code-refactorer
+                  description: "Refactor based on review"
+

@@ -144,29 +144,50 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		ObservedGeneration: agent.Generation,
 	}
 
-	// Check if the deployment exists
-	deployment := &appsv1.Deployment{}
-	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
-		deployedCondition.Status = metav1.ConditionUnknown
-		deployedCondition.Reason = "DeploymentNotFound"
-		deployedCondition.Message = err.Error()
+	// If reconciliation failed, mark Ready as False since the agent cannot be deployed
+	if err != nil {
+		deployedCondition.Status = metav1.ConditionFalse
+		deployedCondition.Reason = "ReconcileFailed"
+		deployedCondition.Message = fmt.Sprintf("Agent cannot be ready due to reconciliation failure: %v", err)
 	} else {
-		replicas := int32(1)
-		if deployment.Spec.Replicas != nil {
-			replicas = *deployment.Spec.Replicas
-		}
-		if deployment.Status.AvailableReplicas >= replicas {
-			deployedCondition.Status = metav1.ConditionTrue
-			deployedCondition.Reason = "DeploymentReady"
-			deployedCondition.Message = "Deployment is ready"
+		// Check if the deployment exists only if reconciliation succeeded
+		deployment := &appsv1.Deployment{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
+			deployedCondition.Status = metav1.ConditionUnknown
+			deployedCondition.Reason = "DeploymentNotFound"
+			deployedCondition.Message = err.Error()
 		} else {
-			deployedCondition.Status = metav1.ConditionFalse
-			deployedCondition.Reason = "DeploymentNotReady"
-			deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+			replicas := int32(1)
+			if deployment.Spec.Replicas != nil {
+				replicas = *deployment.Spec.Replicas
+			}
+			if deployment.Status.AvailableReplicas >= replicas {
+				deployedCondition.Status = metav1.ConditionTrue
+				deployedCondition.Reason = "DeploymentReady"
+				deployedCondition.Message = "Deployment is ready"
+			} else {
+				deployedCondition.Status = metav1.ConditionFalse
+				deployedCondition.Reason = "DeploymentNotReady"
+				deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+			}
 		}
 	}
 
 	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+
+	// Compute the overall phase based on conditions
+	phase := a.computeAgentPhase(agent)
+	if agent.Status.Phase != phase {
+		agent.Status.Phase = phase
+		conditionChanged = true
+	}
+
+	// Compute a summary message from conditions
+	message = a.computeAgentMessage(agent)
+	if agent.Status.Message != message {
+		agent.Status.Message = message
+		conditionChanged = true
+	}
 
 	// update the status if it has changed or the generation has changed
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
@@ -177,6 +198,69 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	}
 
 	return nil
+}
+
+// computeAgentPhase determines the overall phase of the agent based on its conditions
+func (a *kagentReconciler) computeAgentPhase(agent *v1alpha2.Agent) v1alpha2.AgentPhase {
+	var acceptedStatus, readyStatus metav1.ConditionStatus
+
+	// Find the Accepted and Ready conditions
+	for _, cond := range agent.Status.Conditions {
+		switch cond.Type {
+		case v1alpha2.AgentConditionTypeAccepted:
+			acceptedStatus = cond.Status
+		case v1alpha2.AgentConditionTypeReady:
+			readyStatus = cond.Status
+		}
+	}
+
+	// Determine phase based on condition states
+	// Priority: Error > Ready > Pending > Unknown
+	if acceptedStatus == metav1.ConditionFalse {
+		return v1alpha2.AgentPhaseError
+	}
+
+	if acceptedStatus == metav1.ConditionTrue && readyStatus == metav1.ConditionTrue {
+		return v1alpha2.AgentPhaseReady
+	}
+
+	if acceptedStatus == metav1.ConditionTrue {
+		// Accepted but not ready yet
+		return v1alpha2.AgentPhasePending
+	}
+
+	// No conditions set or unknown states
+	return v1alpha2.AgentPhaseUnknown
+}
+
+// computeAgentMessage determines a human-readable message from the agent's conditions
+func (a *kagentReconciler) computeAgentMessage(agent *v1alpha2.Agent) string {
+	// Priority: Show error/failure messages first, then informational
+	for _, cond := range agent.Status.Conditions {
+		if cond.Status == metav1.ConditionFalse && cond.Message != "" {
+			return cond.Message
+		}
+	}
+
+	// If no errors, show the Ready condition message
+	for _, cond := range agent.Status.Conditions {
+		if cond.Type == v1alpha2.AgentConditionTypeReady && cond.Message != "" {
+			return cond.Message
+		}
+	}
+
+	// If no specific messages, return a default based on phase
+	phase := a.computeAgentPhase(agent)
+	switch phase {
+	case v1alpha2.AgentPhaseReady:
+		return "Agent is ready"
+	case v1alpha2.AgentPhasePending:
+		return "Agent is pending"
+	case v1alpha2.AgentPhaseError:
+		return "Agent has errors"
+	default:
+		return ""
+	}
 }
 
 func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error {

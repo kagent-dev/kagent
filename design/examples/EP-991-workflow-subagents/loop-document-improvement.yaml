@@ -1,0 +1,117 @@
+# Loop Workflow Example: Iterative Document Improvement
+# Reference: https://github.com/google/adk-docs/blob/main/docs/agents/workflow-agents/loop-agents.md
+
+---
+# Writer Agent
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: document-writer
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Generates or refines document drafts"
+  declarative:
+    systemMessage: |
+      You are a skilled technical writer. 
+      
+      First iteration: Generate an initial draft based on the user's topic.
+      Subsequent iterations: Read previous draft (temp:document_draft) and 
+      feedback (temp:critique), then improve the document.
+      
+      Focus on:
+      - Clear structure
+      - Accurate technical content
+      - Engaging writing style
+      - Proper formatting
+      
+      Store your draft in output_key: "document_draft"
+    modelConfig: default-model-config
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: web-search-mcp
+          toolNames: ["search", "get_webpage_content"]
+
+---
+# Critic Agent
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: document-critic
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Critiques documents and suggests improvements"
+  declarative:
+    systemMessage: |
+      You are an experienced editor and critic.
+      
+      Read the current draft from temp:document_draft.
+      
+      Evaluate:
+      - Structure and organization
+      - Clarity and readability
+      - Technical accuracy
+      - Completeness
+      - Grammar and style
+      
+      Provide constructive criticism with specific suggestions for improvement.
+      If the document is excellent (no major issues), you may recommend stopping.
+      
+      Store your critique in output_key: "critique"
+    modelConfig: default-model-config
+
+---
+# Iterative Document Improver with Loop
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: iterative-document-improver
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Iteratively improves documents through write-critique-refine cycles"
+  declarative:
+    systemMessage: |
+      You orchestrate an iterative document improvement process.
+      
+      The workflow loops through:
+      1. Writer creates/refines the document
+      2. Critic evaluates and provides feedback
+      
+      This continues for up to 5 iterations or until the document quality is satisfactory.
+      
+      After the loop completes, present the final polished document to the user.
+    modelConfig: default-model-config
+    
+    subagents:
+      - role: "Iterative Document Improver"
+        description: "Loop workflow for document refinement"
+        delegationMode: Supervised
+        workflow:
+          type: Loop
+          agents:
+            - name: document-writer
+              description: "Writes or refines document drafts"
+            - name: document-critic
+              description: "Critiques and suggests improvements"
+            # the critic agent use exit_loop to stop the loop
+          loopConfig:
+            maxIterations: 5
+
+---
+# Example usage:
+# kubectl apply -f loop-document-improvement.yaml
+#
+# Test via A2A:
+# curl -X POST http://kagent-controller:8083/api/a2a/kagent/iterative-document-improver \
+#   -H "Content-Type: application/json" \
+#   -d '{"input": "Write a comprehensive technical blog post about Kubernetes agent patterns using MCP"}'
+#
+# Expected behavior:
+# - Loop runs up to 5 times
+# - Each iteration: Writer creates/improves → Critic provides feedback
+# - Loop terminates when maxIterations reached or early exit condition met or the critic agent returns "STOP"
+# - Final document presented to user
+

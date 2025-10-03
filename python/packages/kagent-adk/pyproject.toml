@@ -40,6 +40,8 @@ kagent-adk = "kagent.adk.cli:app"
 test = [
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
+  "pytest-cov>=6.0.0",
+  "pytest-mock>=3.14.0",
 ]
 memory = [
   "psutil>=6.1.0",  # For memory monitoring

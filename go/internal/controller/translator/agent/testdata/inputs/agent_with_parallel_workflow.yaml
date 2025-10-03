@@ -1,0 +1,78 @@
+operation: translateAgent
+targetObject: orchestrator-agent
+namespace: kagent
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: kagent
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: test-model
+      namespace: kagent
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: researcher-1
+      namespace: kagent
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You are researcher 1"
+        modelConfig: default-model-config
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: researcher-2
+      namespace: kagent
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You are researcher 2"
+        modelConfig: default-model-config
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: researcher-3
+      namespace: kagent
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You are researcher 3"
+        modelConfig: default-model-config
+
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: orchestrator-agent
+      namespace: kagent
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: "You are an orchestrator that coordinates parallel research"
+        modelConfig: default-model-config
+        subagents:
+          - role: parallel_researchers
+            workflow:
+              type: Parallel
+              agents:
+                - name: researcher-1
+                  description: "Research renewable energy"
+                - name: researcher-2
+                  description: "Research electric vehicles"
+                - name: researcher-3
+                  description: "Research carbon capture"
+

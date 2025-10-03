@@ -1,0 +1,120 @@
+# Sequential Workflow Example: Code Development Pipeline
+# Reference: https://github.com/google/adk-docs/blob/main/docs/agents/workflow-agents/sequential-agents.md
+
+---
+# Step 1: Code Writer Agent
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: code-writer
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Generates initial code based on specifications"
+  declarative:
+    systemMessage: |
+      You are a skilled software engineer. Generate clean, well-documented code based on specifications.
+      Always include:
+      - Clear function/class names
+      - Docstrings
+      - Type hints (for Python)
+      - Basic error handling
+      
+      Store your generated code in the output using the output_key: "generated_code"
+    modelConfig: default-model-config
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: github-mcp
+          toolNames: ["search_repos", "get_file_content"]
+
+---
+# Step 2: Code Reviewer Agent
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: code-reviewer
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Reviews code for errors, style issues, and best practices"
+  declarative:
+    systemMessage: |
+      You are an experienced code reviewer. Analyze code for:
+      - Logic errors
+      - Security vulnerabilities
+      - Performance issues
+      - Style violations
+      - Missing documentation
+      - Edge cases
+      
+      Read the generated code from previous step: temp:generated_code
+      Provide constructive feedback with specific line references.
+      Store your review in output_key: "code_review"
+    modelConfig: default-model-config
+
+---
+# Step 3: Code Refactorer Agent
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: code-refactorer
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Refactors code based on review feedback"
+  declarative:
+    systemMessage: |
+      You are a refactoring specialist. Improve code based on review feedback.
+      
+      Read:
+      - Original code from: temp:generated_code
+      - Review feedback from: temp:code_review
+      
+      Apply all suggested improvements and store final code in output_key: "refactored_code"
+    modelConfig: default-model-config
+
+---
+# Pipeline Orchestrator with Sequential Workflow
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: code-pipeline
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "Sequential code development pipeline: write → review → refactor"
+  declarative:
+    systemMessage: |
+      You orchestrate a code development pipeline.
+      The workflow executes in strict sequence:
+      1. Code Writer generates initial implementation
+      2. Code Reviewer provides detailed feedback
+      3. Code Refactorer applies improvements
+      
+      Present the final refactored code to the user.
+    modelConfig: default-model-config
+    
+    subagents:
+      - role: "Code Development Pipeline"
+        description: "Sequential workflow for code generation and improvement"
+        delegationMode: Direct
+        workflow:
+          type: Sequential
+          agents:
+            - name: code-writer
+              description: "Generates initial code from specifications"
+            - name: code-reviewer
+              description: "Reviews code and provides feedback"
+            - name: code-refactorer
+              description: "Refactors code based on review"
+
+---
+# Example usage:
+# kubectl apply -f sequential-code-pipeline.yaml
+#
+# Test via A2A:
+# curl -X POST http://kagent-controller:8083/api/a2a/kagent/code-pipeline \
+#   -H "Content-Type: application/json" \
+#   -d '{"input": "Create a Python function to calculate fibonacci numbers with memoization"}'
+

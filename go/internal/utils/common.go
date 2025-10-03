@@ -140,9 +140,17 @@ func ParseRefString(ref string, parentNamespace string) (types.NamespacedName, e
 
 // ConvertToPythonIdentifier converts Kubernetes identifiers to Python-compatible format
 // by replacing hyphens with underscores and slashes with "__NS__".
+// OpenAI has a 64-character limit for tool names, so names are truncated if needed.
 func ConvertToPythonIdentifier(name string) string {
 	name = strings.ReplaceAll(name, "-", "_")
-	return strings.ReplaceAll(name, "/", "__NS__") // RFC 1123 will guarantee there will be no conflicts
+	name = strings.ReplaceAll(name, "/", "__NS__") // RFC 1123 will guarantee there will be no conflicts
+
+	// Truncate to 64 characters to comply with OpenAI's tool name length limit
+	if len(name) > 64 {
+		name = name[:64]
+	}
+
+	return name
 }
 
 // ConvertToKubernetesIdentifier converts Python identifiers back to Kubernetes format

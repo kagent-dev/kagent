@@ -239,23 +239,39 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
+type SubagentConfig struct {
+	Name        string            `json:"name"`
+	Url         string            `json:"url"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Description string            `json:"description,omitempty"`
+}
+
+type WorkflowConfig struct {
+	Type          string           `json:"type"` // "Sequential", "Parallel", or "Loop"
+	Subagents     []SubagentConfig `json:"subagents"`
+	Role          string           `json:"role,omitempty"`
+	MaxIterations int              `json:"max_iterations,omitempty"` // For Loop agents
+}
+
 type AgentConfig struct {
-	Model        Model                 `json:"model"`
-	Description  string                `json:"description"`
-	Instruction  string                `json:"instruction"`
-	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+	Model             Model                 `json:"model"`
+	Description       string                `json:"description"`
+	Instruction       string                `json:"instruction"`
+	HttpTools         []HttpMcpServerConfig `json:"http_tools"`
+	SseTools          []SseMcpServerConfig  `json:"sse_tools"`
+	RemoteAgents      []RemoteAgentConfig   `json:"remote_agents"`
+	WorkflowSubagents []WorkflowConfig      `json:"workflow_subagents,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model        json.RawMessage       `json:"model"`
-		Description  string                `json:"description"`
-		Instruction  string                `json:"instruction"`
-		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+		Model             json.RawMessage       `json:"model"`
+		Description       string                `json:"description"`
+		Instruction       string                `json:"instruction"`
+		HttpTools         []HttpMcpServerConfig `json:"http_tools"`
+		SseTools          []SseMcpServerConfig  `json:"sse_tools"`
+		RemoteAgents      []RemoteAgentConfig   `json:"remote_agents"`
+		WorkflowSubagents []WorkflowConfig      `json:"workflow_subagents"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -270,6 +286,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
+	a.WorkflowSubagents = tmp.WorkflowSubagents
 	return nil
 }
 
