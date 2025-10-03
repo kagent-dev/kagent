@@ -17,6 +17,7 @@ dependencies = [
   "uvicorn>=0.20.0",
   "a2a-sdk>=0.3.1",
   "kagent-core",
+  "opentelemetry-instrumentation-crewai>=0.47.3"
 ]
 
 [project.optional-dependencies]

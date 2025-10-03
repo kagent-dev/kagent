@@ -5,7 +5,7 @@ import os
 from random import randint
 
 import uvicorn
-from crewai.flow import Flow, listen, start
+from crewai.flow import Flow, listen, persist, start
 from kagent.crewai import KAgentApp
 from pydantic import BaseModel
 
@@ -22,25 +22,45 @@ class PoemState(BaseModel):
     poem: str = ""
 
 
+# The persist decorator will persist all the flow method states to KAgent backend
+# Alternatively, you can persist only certain methods by adding @persist to those methods
+@persist(verbose=True)
 class PoemFlow(Flow[PoemState]):
     @start()
     def generate_sentence_count(self):
+        logging.info(f"Flow starting. Initial state: {self.state}")
         logging.info("Generating sentence count")
         self.state.sentence_count = randint(1, 5)
 
     @listen(generate_sentence_count)
     def generate_poem(self):
         logging.info("Generating poem")
-        result = PoemCrew().crew().kickoff(inputs={"sentence_count": self.state.sentence_count})
+        poem_crew = PoemCrew().crew()
 
-        logging.info("Poem generated", result.raw)
-        self.state.poem = result.raw
+        if self.state.poem:
+            logging.info("Continuing existing poem...")
+            continuation_task = poem_crew.tasks[0]
+            continuation_task.description = f"""Continue this poem about how CrewAI is awesome, adding {self.state.sentence_count} more sentences.
+Keep the tone funny and light-hearted. Respond only with the new lines of the poem, do not repeat the existing poem.
+
+EXISTING POEM:
+---
+{self.state.poem}
+---"""
+            continuation_task.expected_output = f"The next {self.state.sentence_count} sentences of the poem."
+            result = poem_crew.kickoff()
+            self.state.poem += f"\n{result.raw}"
+        else:
+            logging.info("Starting a new poem...")
+            result = poem_crew.kickoff(inputs={"sentence_count": self.state.sentence_count})
+            self.state.poem = result.raw
+
+        logging.info(f"Poem state is now:\n{self.state.poem}")
 
     @listen(generate_poem)
     def save_poem(self):
         logging.info("Saving poem")
-        with open("output/poem.txt", "w") as f:
-            f.write(self.state.poem)
+        return self.state.poem
 
 
 # These two methods are for the script that crewai CLI uses

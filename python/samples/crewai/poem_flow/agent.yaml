@@ -10,9 +10,8 @@ spec:
     deployment:
       image: localhost:5001/poem-flow:latest
       env:
-        # Note that CrewAI LLM expects GEMINI_API_KEY instead of GOOGLE_API_KEY
-        - name: GEMINI_API_KEY
+        - name: OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
-              name: kagent-google
-              key: GOOGLE_API_KEY
+              name: kagent-openai
+              key: OPENAI_API_KEY
