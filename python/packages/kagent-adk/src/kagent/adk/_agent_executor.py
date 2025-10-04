@@ -306,12 +306,16 @@ class A2aAgentExecutor(AgentExecutor):
             return
 
         # Get service account actor token
+        actor_token = None
+        actor_token_type = None
         actor_token = await self._service_account_service.get_actor_jwt()
-        if not actor_token:
-            logger.warning("No service account actor token available")
+        if actor_token:
+            actor_token_type = TokenType.JWT
+        else:
+            logger.debug("No service account actor token available")
 
         access_token = await self._sts_service.exchange_token(
-            subject_token=user_jwt, actor_token=actor_token, actor_token_type=TokenType.JWT
+            subject_token=user_jwt, actor_token=actor_token, actor_token_type=actor_token_type
         )
 
         logger.debug(f"Successfully obtained access token with length: {len(access_token)}")
