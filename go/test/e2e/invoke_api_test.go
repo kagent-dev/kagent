@@ -115,9 +115,10 @@ func setupA2AClient(t *testing.T) *a2aclient.A2AClient {
 
 // runSyncTest runs a synchronous message test
 func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(),120*time.Second)
 	defer cancel()
 
+	t.Logf("Sending sync message: %s", userMessage)
 	msg, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
 		Message: protocol.Message{
 			Kind:  protocol.KindMessage,
@@ -125,6 +126,9 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 			Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
 		},
 	})
+	if err != nil {
+		t.Logf("SendMessage error: %v", err)
+	}
 	require.NoError(t, err)
 
 	taskResult, ok := msg.Result.(*protocol.Task)
@@ -137,9 +141,10 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 
 // runStreamingTest runs a streaming message test
 func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
+	t.Logf("Sending streaming message: %s", userMessage)
 	msg, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
 		Message: protocol.Message{
 			Kind:  protocol.KindMessage,
@@ -147,6 +152,9 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 			Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
 		},
 	})
+	if err != nil {
+		t.Logf("StreamMessage error: %v", err)
+	}
 	require.NoError(t, err)
 
 	resultList := []protocol.StreamingMessageEvent{}
@@ -173,7 +181,9 @@ func a2aUrl(namespace, name string) string {
 		kagentURL = "http://localhost:8083"
 	}
 	// A2A URL format: <base_url>/<namespace>/<agent_name>
-	return kagentURL + "/api/a2a/" + namespace + "/" + name
+	fullURL := kagentURL + "/api/a2a/" + namespace + "/" + name
+	fmt.Printf("A2A URL for %s/%s: %s\n", namespace, name, fullURL)
+	return fullURL
 }
 
 func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {

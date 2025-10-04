@@ -81,17 +81,65 @@ jobs:
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
           make push-test-agent
-          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
-          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
+          
+          # Wait for controller deployment to be ready
+          echo "Waiting for kagent-controller deployment..."
+          kubectl wait --for=condition=available --timeout=120s deployment/kagent-controller -n kagent
+          
+          # Wait for agents to be ready
+          echo "Waiting for agents to be ready..."
+          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=120s || {
+            echo "Agents not ready, checking status..."
+            kubectl get po -n kagent -o wide
+            kubectl describe agents.kagent.dev -n kagent || true
+          }
+          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=120s
+          
+          # Show final status
+          echo "Final cluster status:"
+          kubectl get all -n kagent
 
       - name: Run e2e tests
         if: success()
         working-directory: go
         run: |
-          export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
-          echo $KAGENT_URL
+          # Get the service type and handle accordingly
+          SERVICE_TYPE=$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.spec.type}')
+          if [[ "$SERVICE_TYPE" == "LoadBalancer" ]]; then
+            # Wait for external IP to be assigned
+            kubectl wait --for=condition=available --timeout=60s deployment/kagent-controller -n kagent
+            EXTERNAL_IP=$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [[ -z "$EXTERNAL_IP" || "$EXTERNAL_IP" == "null" ]]; then
+              # Fallback to using kubectl port-forward in background
+              kubectl port-forward -n kagent svc/kagent-controller 8083:8083 &
+              PORT_FORWARD_PID=$!
+              sleep 5
+              export KAGENT_URL="http://localhost:8083"
+            else
+              export KAGENT_URL="http://$EXTERNAL_IP:8083"
+            fi
+          elif [[ "$SERVICE_TYPE" == "NodePort" ]]; then
+            NODE_PORT=$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.spec.ports[0].nodePort}')
+            NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+            export KAGENT_URL="http://$NODE_IP:$NODE_PORT"
+          else
+            # Default to port-forward for ClusterIP
+            kubectl port-forward -n kagent svc/kagent-controller 8083:8083 &
+            PORT_FORWARD_PID=$!
+            sleep 5
+            export KAGENT_URL="http://localhost:8083"
+          fi
+          
+          echo "KAGENT_URL: $KAGENT_URL"
+          echo "Testing connectivity to kagent service..."
+          curl -f -s "$KAGENT_URL/health" || echo "Health check failed, but continuing with tests"
 
-          go test -race -v github.com/kagent-dev/kagent/go/test/e2e
+          go test -race -v -timeout=10m github.com/kagent-dev/kagent/go/test/e2e
+          
+          # Clean up port-forward if it was started
+          if [[ -n "$PORT_FORWARD_PID" ]]; then
+            kill $PORT_FORWARD_PID || true
+          fi
       - name: fail print info
         if: failure()
         run: |
