@@ -135,7 +135,7 @@ class TestAuthenticationFlow:
         # Mock the _resolve_runner method to return our mock runner
         with patch.object(agent_executor, "_resolve_runner", return_value=mock_runner):
             # Test token storage
-            await agent_executor._store_token_in_session(access_token, mock_runner)
+            agent_executor._store_token_in_session(access_token, mock_runner)
 
             # Verify token was stored in session service
             mock_runner.session_service.set_access_token.assert_called_once_with(access_token)
@@ -152,7 +152,7 @@ class TestAuthenticationFlow:
         # Mock the _resolve_runner method to return our mock runner
         with patch.object(agent_executor, "_resolve_runner", return_value=mock_runner):
             # This should not raise an error, just log a warning
-            await agent_executor._store_token_in_session(access_token, mock_runner)
+            agent_executor._store_token_in_session(access_token, mock_runner)
 
     @pytest.mark.asyncio
     async def test_extract_jwt_from_context_success(self, agent_executor):
