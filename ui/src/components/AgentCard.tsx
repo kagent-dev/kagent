@@ -18,7 +18,17 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
     agent.metadata.namespace || '',
     agent.metadata.name || '');
   const isBYO = agent.spec?.type === "BYO";
+  const isWorkflow = agent.spec?.type === "Workflow";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
+  
+  // Determine workflow type for display
+  const getWorkflowType = () => {
+    if (!isWorkflow) return "";
+    if (agent.spec?.workflow?.sequential) return "Sequential";
+    if (agent.spec?.workflow?.parallel) return "Parallel";
+    if (agent.spec?.workflow?.loop) return "Loop";
+    return "Workflow";
+  };
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -67,8 +77,10 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
         <div className="mt-4 flex items-center text-xs text-muted-foreground">
           {isBYO ? (
             <span title={byoImage}>Image: {byoImage}</span>
+          ) : isWorkflow ? (
+            <span>{getWorkflowType()} Workflow</span>
           ) : (
-            <span>{modelProvider} ({model})</span>
+            <span>{modelProvider}{model ? ` (${model})` : ''}</span>
           )}
         </div>
       </CardContent>

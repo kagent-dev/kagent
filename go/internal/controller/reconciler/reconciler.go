@@ -20,6 +20,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -608,10 +609,20 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	defer a.upsertLock.Unlock()
 
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+
+	// Extract config if it's a declarative agent
+	var config *adk.AgentConfig
+	if agentOutputs.Config != nil {
+		if adkCfg, ok := agentOutputs.Config.(*adk.AgentConfig); ok {
+			config = adkCfg
+		}
+		// For workflow agents, config will be nil (workflow configs are not stored in the database)
+	}
+
 	dbAgent := &database.Agent{
 		ID:     id,
 		Type:   string(agent.Spec.Type),
-		Config: agentOutputs.Config,
+		Config: config,
 	}
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {

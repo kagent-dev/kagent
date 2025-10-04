@@ -11,7 +11,7 @@ from google.adk.cli.utils.agent_loader import AgentLoader
 
 from kagent.core import KAgentConfig, configure_tracing
 
-from . import AgentConfig, KAgentApp
+from . import AgentConfig, KAgentApp, WorkflowAgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,61 @@ def test(
     agent_card = AgentCard.model_validate(agent_card)
     agent_config = AgentConfig.model_validate(config)
     asyncio.run(test_agent(agent_config, agent_card, task))
+
+
+@app.command()
+def workflow(
+    host: str = "0.0.0.0",
+    port: int = 8080,
+    workers: int = 1,
+    filepath: str = "/config",
+    reload: Annotated[bool, typer.Option("--reload")] = False,
+):
+    """Run a workflow agent (Parallel, Sequential, or Loop).
+
+    Workflow agents orchestrate multiple sub-agents, executing them in parallel,
+    sequentially, or in a loop. Sub-agents are referenced as remote A2A agents.
+
+    Args:
+        host: Host to bind the server to (default: 0.0.0.0)
+        port: Port to bind the server to (default: 8080)
+        workers: Number of uvicorn workers (default: 1)
+        filepath: Path to the workflow config directory (default: /config)
+        reload: Enable auto-reload for development (default: False)
+    """
+    app_cfg = KAgentConfig()
+
+    # Load workflow configuration
+    with open(os.path.join(filepath, "config.json"), "r") as f:
+        config = json.load(f)
+    workflow_config = WorkflowAgentConfig.model_validate(config)
+
+    # Load agent card
+    with open(os.path.join(filepath, "agent-card.json"), "r") as f:
+        agent_card = json.load(f)
+    agent_card = AgentCard.model_validate(agent_card)
+
+    # Create workflow agent instance
+    root_agent = workflow_config.to_agent()
+
+    # Build KAgent app
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
+
+    server = kagent_app.build()
+    configure_tracing(server)
+
+    # Run the server
+    logger.info(
+        f"Starting {workflow_config.workflow_type} workflow agent '{workflow_config.name}' "
+        f"with {len(workflow_config.sub_agents)} sub-agents"
+    )
+    uvicorn.run(
+        server,
+        host=host,
+        port=port,
+        workers=workers,
+        reload=reload,
+    )
 
 
 def run_cli():

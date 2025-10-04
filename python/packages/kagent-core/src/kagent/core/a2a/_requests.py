@@ -44,7 +44,7 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
         if context:
             # grab the user id from the header
             headers = context.state.get("headers", {})
-            user_id = headers.get("x-user-id", None)
+            user_id = headers.get("X-User-ID", None)
             if user_id:
                 context.user = KAgentUser(user_id=user_id)
         request_context = await super().build(params, task_id, context_id, task, context)

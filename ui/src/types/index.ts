@@ -213,11 +213,12 @@ export interface McpServerTool extends TypedLocalReference {
   toolNames: string[];
 }
 
-export type AgentType = "Declarative" | "BYO";
+export type AgentType = "Declarative" | "BYO" | "Workflow";
 export interface AgentSpec {
   type: AgentType;
   declarative?: DeclarativeAgentSpec;
   byo?: BYOAgentSpec;
+  workflow?: WorkflowAgentSpec;
   description: string;
 }
 
@@ -264,6 +265,33 @@ export interface AgentSkill {
   outputModes: string[];
 }
 
+export interface WorkflowAgentSpec {
+  sequential?: SequentialAgentSpec;
+  parallel?: ParallelAgentSpec;
+  loop?: LoopAgentSpec;
+}
+
+export interface BaseWorkflowSpec {
+  subAgents: SubAgentReference[];
+  timeout?: string;
+  description?: string;
+}
+
+export interface SequentialAgentSpec extends BaseWorkflowSpec {}
+
+export interface ParallelAgentSpec extends BaseWorkflowSpec {
+  maxWorkers?: number;
+}
+
+export interface LoopAgentSpec extends BaseWorkflowSpec {
+  maxIterations: number;
+}
+
+export interface SubAgentReference {
+  name: string;
+  namespace?: string;
+  kind?: string;
+}
 
 export interface Agent {
   metadata: ResourceMetadata;
