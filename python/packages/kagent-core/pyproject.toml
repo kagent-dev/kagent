@@ -7,7 +7,7 @@ name = "kagent-core"
 version = "0.1.0"
 description = "kagent common library for kagent python packages"
 readme = "README.md"
-requires-python = ">=3.12.11"
+requires-python = ">=3.11.0"
 dependencies = [
   "a2a-sdk>=0.2.16",
   "opentelemetry-api>=1.36.0",
