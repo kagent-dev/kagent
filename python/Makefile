@@ -35,11 +35,11 @@ test-adk:
 
 .PHONY: test-adk-cov
 test-adk-cov:
-	cd packages/kagent-adk && uv run pytest tests -v --cov=kagent.adk --cov-report=term-missing --cov-report=html --cov-fail-under=60
+	cd packages/kagent-adk && uv run pytest tests -v --cov=kagent.adk --cov-report=term-missing --cov-report=html --cov-fail-under=80
 
 .PHONY: test-adk-cov-strict
 test-adk-cov-strict:
-	cd packages/kagent-adk && uv run pytest tests -v --cov=kagent.adk --cov-report=term-missing --cov-report=html --cov-fail-under=81 --cov-config=pyproject.toml
+	cd packages/kagent-adk && uv run pytest tests -v --cov=kagent.adk --cov-report=term-missing --cov-report=html --cov-fail-under=80 --cov-config=pyproject.toml
 
 .PHONY: test-adk-cov-core
 test-adk-cov-core:

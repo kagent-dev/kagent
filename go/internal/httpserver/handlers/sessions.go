@@ -346,13 +346,19 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 
 	principal, err := GetPrincipal(r)
 	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		w.RespondWithError(errors.NewBadRequestError("Failed to get principal", err))
 		return
 	}
-	userID, err := getUserID(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
-		return
+
+	// Use the authenticated user ID from the principal, not from query params/headers
+	userID := principal.User.ID
+	if userID == "" {
+		// If no user in principal, try to get from request (for agent-to-agent calls)
+		userID, err = getUserID(r)
+		if err != nil {
+			w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+			return
+		}
 	}
 	log = log.WithValues("userID", userID)
 

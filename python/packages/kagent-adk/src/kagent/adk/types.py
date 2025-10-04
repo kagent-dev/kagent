@@ -248,7 +248,6 @@ class AgentConfig(BaseModel):
         tools: list[ToolUnion] = []
         tools.extend(self._create_mcp_tools())
         tools.extend(self._create_remote_agent_tools())
-        tools.extend(self._create_workflow_tools(name))
         return tools
 
     def _create_mcp_tools(self) -> list[ToolUnion]:
@@ -290,7 +289,6 @@ class AgentConfig(BaseModel):
 
         return tools
 
-        return tools
 
     def _create_model(self):
         """Create the appropriate LLM model based on configuration.
