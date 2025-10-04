@@ -317,11 +317,11 @@ class A2aAgentExecutor(AgentExecutor):
         logger.debug(f"Successfully obtained access token with length: {len(access_token)}")
         if access_token:
             # Store token in session state for plugin to use
-            await self._store_token_in_session(access_token, runner)
+            self._store_token_in_session(access_token, runner)
         else:
             logger.warning("Failed to obtain delegated token from STS")
 
-    async def _store_token_in_session(self, access_token: str, runner: Runner):
+    def _store_token_in_session(self, access_token: str, runner: Runner):
         """Store the access token in the session state for the plugin to use.
 
         Args:
