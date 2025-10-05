@@ -116,6 +116,30 @@ func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
 	return nil
 }
 
+// determineAgentPhaseAndMessage determines the agent phase and message based on conditions
+func determineAgentPhaseAndMessage(agent *v1alpha2.Agent) (v1alpha2.AgentPhase, string) {
+	acceptedCondition := meta.FindStatusCondition(agent.Status.Conditions, v1alpha2.AgentConditionTypeAccepted)
+	readyCondition := meta.FindStatusCondition(agent.Status.Conditions, v1alpha2.AgentConditionTypeReady)
+
+	// If not accepted, agent is in error state
+	if acceptedCondition != nil && acceptedCondition.Status == metav1.ConditionFalse {
+		return v1alpha2.AgentPhaseError, acceptedCondition.Message
+	}
+
+	// If ready condition is true, agent is ready
+	if readyCondition != nil && readyCondition.Status == metav1.ConditionTrue {
+		return v1alpha2.AgentPhaseReady, readyCondition.Message
+	}
+
+	// If ready condition is false or unknown, agent is pending
+	if readyCondition != nil && readyCondition.Status == metav1.ConditionFalse {
+		return v1alpha2.AgentPhasePending, readyCondition.Message
+	}
+
+	// Default to pending if conditions are not yet set
+	return v1alpha2.AgentPhasePending, "Waiting for reconciliation"
+}
+
 func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, err error) error {
 	var (
 		status  metav1.ConditionStatus
@@ -168,6 +192,14 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	}
 
 	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+
+	// Update Phase and Message based on conditions
+	newPhase, newMessage := determineAgentPhaseAndMessage(agent)
+	if agent.Status.Phase != newPhase || agent.Status.Message != newMessage {
+		agent.Status.Phase = newPhase
+		agent.Status.Message = newMessage
+		conditionChanged = true
+	}
 
 	// update the status if it has changed or the generation has changed
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
