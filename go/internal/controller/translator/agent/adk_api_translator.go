@@ -515,7 +515,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			}
 
 			switch toolAgent.Spec.Type {
-			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
+			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative, v1alpha2.AgentType_Workflow:
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
 				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 				if err != nil {
