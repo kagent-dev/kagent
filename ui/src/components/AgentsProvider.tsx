@@ -177,19 +177,15 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       if (!data.workflowType) {
         errors.type = "Workflow type is required";
       }
-      if (!data.subAgents || data.subAgents.length < 2) {
-        errors.tools = "At least 2 sub-agents are required for workflow";
-      } else {
-        // Validate that all sub-agents have valid names
+      // Only validate that we have at least 2 sub-agents with valid names
+      // Empty sub-agents will be filtered out before submission
+      if (data.subAgents) {
         const validSubAgents = data.subAgents.filter(sa => sa.name && sa.name.trim());
         if (validSubAgents.length < 2) {
           errors.tools = "At least 2 sub-agents with valid names are required";
         }
-        // Check each sub-agent has a valid name
-        const hasEmptyNames = data.subAgents.some(sa => !sa.name || !sa.name.trim());
-        if (hasEmptyNames) {
-          errors.tools = "All sub-agents must have a valid name";
-        }
+      } else {
+        errors.tools = "At least 2 sub-agents are required for workflow";
       }
       if (data.workflowType === "loop" && (!data.maxIterations || data.maxIterations < 1)) {
         errors.type = "Max iterations is required for loop workflow";
