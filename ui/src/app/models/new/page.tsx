@@ -254,6 +254,7 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditMode, modelConfigName, providers, providerModelsData, modelConfigNamespace]);
 
   useEffect(() => {

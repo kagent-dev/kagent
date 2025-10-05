@@ -289,7 +289,6 @@ class AgentConfig(BaseModel):
 
         return tools
 
-
     def _create_model(self):
         """Create the appropriate LLM model based on configuration.
 

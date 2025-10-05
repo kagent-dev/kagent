@@ -277,7 +277,7 @@ export interface BaseWorkflowSpec {
   description?: string;
 }
 
-export interface SequentialAgentSpec extends BaseWorkflowSpec {}
+export type SequentialAgentSpec = BaseWorkflowSpec;
 
 export interface ParallelAgentSpec extends BaseWorkflowSpec {
   maxWorkers?: number;
