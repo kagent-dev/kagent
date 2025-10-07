@@ -65,6 +65,7 @@ COPY --chown=python:pythongroup uv.lock .
 COPY --chown=python:pythongroup packages/kagent-adk packages/kagent-adk
 COPY --chown=python:pythongroup packages/kagent-core packages/kagent-core
 COPY --chown=python:pythongroup packages/kagent-sts packages/kagent-sts
+COPY --chown=python:pythongroup packages/kagent-agw packages/kagent-agw
 COPY --chown=python:pythongroup README.md .
 
 ARG VERSION

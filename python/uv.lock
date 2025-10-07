@@ -7,6 +7,7 @@ members = [
     "basic",
     "currency",
     "kagent-adk",
+    "kagent-agw",
     "kagent-core",
     "kagent-crewai",
     "kagent-langgraph",
@@ -1734,8 +1735,8 @@ dependencies = [
     { name = "google-genai" },
     { name = "httpx" },
     { name = "jsonref" },
+    { name = "kagent-agw" },
     { name = "kagent-core" },
-    { name = "kagent-sts" },
     { name = "litellm" },
     { name = "mcp" },
     { name = "openai" },
@@ -1767,8 +1768,8 @@ requires-dist = [
     { name = "google-genai", specifier = ">=1.21.1" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "jsonref", specifier = ">=1.1.0" },
+    { name = "kagent-agw", editable = "packages/kagent-agw" },
     { name = "kagent-core", editable = "packages/kagent-core" },
-    { name = "kagent-sts", editable = "packages/kagent-sts" },
     { name = "litellm", specifier = ">=1.74.3" },
     { name = "mcp", specifier = ">=1.12.0" },
     { name = "openai", specifier = ">=1.72.0" },
@@ -1782,6 +1783,48 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.34.0" },
 ]
 provides-extras = ["test", "memory"]
+
+[[package]]
+name = "kagent-agw"
+version = "0.1.0"
+source = { editable = "packages/kagent-agw" }
+dependencies = [
+    { name = "aiofiles" },
+    { name = "anyio" },
+    { name = "google-adk" },
+    { name = "google-auth" },
+    { name = "google-genai" },
+    { name = "httpx" },
+    { name = "kagent-core" },
+    { name = "kagent-sts" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-mock" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiofiles", specifier = ">=24.1.0" },
+    { name = "anyio", specifier = ">=4.9.0" },
+    { name = "google-adk", specifier = ">=1.11.0" },
+    { name = "google-auth", specifier = ">=2.40.2" },
+    { name = "google-genai", specifier = ">=1.21.1" },
+    { name = "httpx", specifier = ">=0.25.0" },
+    { name = "kagent-core", editable = "packages/kagent-core" },
+    { name = "kagent-sts", editable = "packages/kagent-sts" },
+    { name = "pydantic", specifier = ">=2.5.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.25.3" },
+    { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.0.0" },
+    { name = "typing-extensions", specifier = ">=4.8.0" },
+]
+provides-extras = ["test"]
 
 [[package]]
 name = "kagent-core"

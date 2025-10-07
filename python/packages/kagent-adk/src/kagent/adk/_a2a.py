@@ -2,8 +2,7 @@
 import faulthandler
 import logging
 import os
-from contextlib import asynccontextmanager
-from typing import Callable, Optional
+from typing import Callable
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
@@ -13,22 +12,18 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
 from google.adk.apps import App
-from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.agw import ADKSTSIntegration, ADKSessionService, ADKRunner, ADKTokenPropagationPlugin
 
 from ._agent_executor import A2aAgentExecutor
-from ._service_account_service import KAgentServiceAccountService
 from ._session_service import KAgentSessionService
-from ._sts_token_service import KAgentSTSTokenService
 from ._token import KAgentTokenService
-from .token_plugin import TokenPropagationPlugin
-from .wrapped_session_service import WrappedSessionService
 
-
+# --- Configure Logging ---
 def configure_logging() -> None:
     """Configure logging based on LOG_LEVEL environment variable."""
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -72,44 +67,31 @@ class KAgentApp:
         self.kagent_url = kagent_url
         self.app_name = app_name
         self.agent_card = agent_card
-        self.sts_service = None
-        self.plugins = []
-
-        # only store sts config if the well known uri is provided
-        if sts_well_known_uri:
-            self.sts_service = KAgentSTSTokenService(
-                well_known_uri=sts_well_known_uri,
-            )
-            self.plugins.append(TokenPropagationPlugin())
 
     def build(self) -> FastAPI:
         token_service = KAgentTokenService(self.app_name)
-        service_account_service = KAgentServiceAccountService(self.app_name)
-
-        http_client = httpx.AsyncClient(
+        http_client = httpx.AsyncClient(  # TODO: add user  and agent headers
             base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks()
         )
-        base_session_service = KAgentSessionService(http_client)
+        session_service = KAgentSessionService(http_client)
 
-        # use wrapped session service if the sts service is available for token propagation
-        # via the TokenPropagationPlugin
-        if self.sts_service:
-            session_service = WrappedSessionService(base_session_service, "")
-        else:
-            session_service = base_session_service
+        sts_integration = None
+        plugins = []
+        if sts_well_known_uri:
+            sts_integration = ADKSTSIntegration(sts_well_known_uri)
+            session_service = ADKSessionService(sts_integration, session_service)
+            plugins.append(ADKTokenPropagationPlugin(sts_integration))
 
-        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
+        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=plugins)
 
         def create_runner() -> Runner:
-            return Runner(
+            return ADKRunner(
                 app=adk_app,
                 session_service=session_service,
             )
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
-            service_account_service=service_account_service,
-            sts_service=self.sts_service,
         )
 
         kagent_task_store = KAgentTaskStore(http_client)
@@ -127,18 +109,7 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-
-        # combine the lifespans of the token and service account services
-        @asynccontextmanager
-        async def combined_lifespan(app: FastAPI):
-            async with token_service.lifespan()(app):
-                if self.sts_service:
-                    async with service_account_service.lifespan()(app):
-                        yield
-                else:
-                    yield
-
-        app = FastAPI(lifespan=combined_lifespan)
+        app = FastAPI(lifespan=token_service.lifespan())
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
@@ -147,7 +118,7 @@ class KAgentApp:
 
         return app
 
-    async def test(self, task: str) -> str:
+    async def test(self, task: str):
         session_service = InMemorySessionService()
         SESSION_ID = "12345"
         USER_ID = "admin"
