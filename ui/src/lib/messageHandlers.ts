@@ -300,7 +300,6 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       content: normalizeToolResultToText(toolData),
       is_error: toolData.response?.isError || false
     }];
-    
     const execEvent = createMessage(
       "",
       defaultSource,
