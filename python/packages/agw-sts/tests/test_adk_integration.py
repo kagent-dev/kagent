@@ -6,14 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from google.adk.tools.mcp_tool import MCPTool
 
-from kagent.agw.adk_integration import (
-    ACCESS_TOKEN_KEY,
+from agw.adk.adk_integration import (
+    SUBJECT_TOKEN_KEY,
     ADKRunner,
-    ADKSessionService,
-    ADKSTSIntegration,
     ADKTokenPropagationPlugin,
+    extract_jwt_from_headers,
 )
-from kagent.sts import TokenType
 
 
 class TestADKTokenPropagationPlugin:
@@ -43,7 +41,7 @@ class TestADKTokenPropagationPlugin:
 
         # Create mock tool context with session state
         mock_tool_context = Mock()
-        mock_tool_context._invocation_context.session.state = {ACCESS_TOKEN_KEY: "subject-token-123"}
+        mock_tool_context._invocation_context.session.state = {SUBJECT_TOKEN_KEY: "subject-token-123"}
 
         tool_args = {"arg1": "value1"}
 
@@ -90,7 +88,7 @@ class TestADKTokenPropagationPlugin:
 
         tool_args = {"arg1": "value1"}
 
-        with patch("kagent.agw.adk_integration.logger") as mock_logger:
+        with patch("agw.adk.adk_integration.logger") as mock_logger:
             result = await plugin.before_tool_callback(
                 tool=mock_tool, tool_args=tool_args, tool_context=mock_tool_context
             )
@@ -104,7 +102,7 @@ class TestADKRunner:
 
     def test_init(self):
         """Test ADKRunner initialization."""
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
+        with patch("agw.adk.adk_integration.ADKSessionService") as mock_session_service:
             mock_agent = Mock()
             runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
 
@@ -115,19 +113,17 @@ class TestADKRunner:
         """Test run_async with JWT in headers."""
         headers = {"Authorization": "Bearer jwt-token-123"}
 
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
+        with patch("agw.adk.adk_integration.ADKSessionService") as mock_session_service:
             mock_session_service_instance = Mock()
-            mock_session_service_instance._store_access_token = Mock(return_value=None)
+            mock_session_service_instance._store_subject_token = Mock(return_value=None)
             mock_session_service.return_value = mock_session_service_instance
-            with patch.object(ADKRunner, "_extract_jwt_from_headers") as mock_extract:
+            with patch("agw.adk.adk_integration.extract_jwt_from_headers") as mock_extract:
                 # Mock the async generator
                 async def mock_async_gen():
                     yield "event1"
                     yield "event2"
 
-                with patch(
-                    "kagent.agw.adk_integration.Runner.run_async", return_value=mock_async_gen()
-                ) as mock_super_run:
+                with patch("agw.adk.adk_integration.Runner.run_async", return_value=mock_async_gen()) as mock_super_run:
                     mock_extract.return_value = "jwt-token-123"
                     mock_agent = Mock()
 
@@ -141,7 +137,7 @@ class TestADKRunner:
                         events.append(event)
 
                     mock_extract.assert_called_once_with(headers)
-                    mock_session_service_instance._store_access_token.assert_called_once_with("jwt-token-123")
+                    mock_session_service_instance._store_subject_token.assert_called_once_with("jwt-token-123")
                     mock_super_run.assert_called_once_with("arg1", "arg2", kwarg1="value1")
                     assert events == ["event1", "event2"]
 
@@ -150,16 +146,14 @@ class TestADKRunner:
         """Test run_async without JWT in headers."""
         headers = {"Other-Header": "value"}
 
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
-            with patch.object(ADKRunner, "_extract_jwt_from_headers") as mock_extract:
+        with patch("agw.adk.adk_integration.ADKSessionService") as mock_session_service:
+            with patch("agw.adk.adk_integration.extract_jwt_from_headers") as mock_extract:
                 # Mock the async generator
                 async def mock_async_gen():
                     yield "event1"
                     yield "event2"
 
-                with patch(
-                    "kagent.agw.adk_integration.Runner.run_async", return_value=mock_async_gen()
-                ) as mock_super_run:
+                with patch("agw.adk.adk_integration.Runner.run_async", return_value=mock_async_gen()) as mock_super_run:
                     mock_extract.return_value = None
                     mock_agent = Mock()
 
@@ -178,94 +172,66 @@ class TestADKRunner:
         """Test successful JWT extraction from headers."""
         headers = {"Authorization": "Bearer jwt-token-123"}
 
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
-            mock_agent = Mock()
-            runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
+        with patch("agw.adk.adk_integration.logger") as mock_logger:
+            result = extract_jwt_from_headers(headers)
 
-            with patch("kagent.agw.adk_integration.logger") as mock_logger:
-                result = runner._extract_jwt_from_headers(headers)
-
-                assert result == "jwt-token-123"
-                mock_logger.debug.assert_called_once()
+            assert result == "jwt-token-123"
+            mock_logger.debug.assert_called_once()
 
     def test_extract_jwt_from_headers_no_headers(self):
         """Test JWT extraction with no headers."""
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
-            mock_agent = Mock()
-            runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
+        with patch("agw.adk.adk_integration.logger") as mock_logger:
+            result = extract_jwt_from_headers(None)
 
-            with patch("kagent.agw.adk_integration.logger") as mock_logger:
-                result = runner._extract_jwt_from_headers(None)
-
-                assert result is None
-                mock_logger.warning.assert_called_once_with("No headers provided for JWT extraction")
+            assert result is None
+            mock_logger.warning.assert_called_once_with("No headers provided for JWT extraction")
 
     def test_extract_jwt_from_headers_no_auth_header(self):
         """Test JWT extraction with no Authorization header."""
         headers = {"Other-Header": "value"}
 
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
-            mock_agent = Mock()
-            runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
+        with patch("agw.adk.adk_integration.logger") as mock_logger:
+            result = extract_jwt_from_headers(headers)
 
-            with patch("kagent.agw.adk_integration.logger") as mock_logger:
-                result = runner._extract_jwt_from_headers(headers)
-
-                assert result is None
-                mock_logger.warning.assert_called_once_with("No Authorization header found in request")
+            assert result is None
+            mock_logger.warning.assert_called_once_with("No Authorization header found in request")
 
     def test_extract_jwt_from_headers_invalid_bearer(self):
         """Test JWT extraction with invalid Bearer format."""
         headers = {"Authorization": "Basic jwt-token-123"}
 
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
-            mock_agent = Mock()
-            runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
+        with patch("agw.adk.adk_integration.logger") as mock_logger:
+            result = extract_jwt_from_headers(headers)
 
-            with patch("kagent.agw.adk_integration.logger") as mock_logger:
-                result = runner._extract_jwt_from_headers(headers)
-
-                assert result is None
-                mock_logger.warning.assert_called_once_with("Authorization header must start with Bearer")
+            assert result is None
+            mock_logger.warning.assert_called_once_with("Authorization header must start with Bearer")
 
     def test_extract_jwt_from_headers_empty_token(self):
         """Test JWT extraction with empty token."""
         headers = {"Authorization": "Bearer "}
 
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
-            mock_agent = Mock()
-            runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
+        with patch("agw.adk.adk_integration.logger") as mock_logger:
+            result = extract_jwt_from_headers(headers)
 
-            with patch("kagent.agw.adk_integration.logger") as mock_logger:
-                result = runner._extract_jwt_from_headers(headers)
-
-                assert result is None
-                mock_logger.warning.assert_called_once_with("Empty JWT token found in Authorization header")
+            assert result is None
+            mock_logger.warning.assert_called_once_with("Empty JWT token found in Authorization header")
 
     def test_extract_jwt_from_headers_whitespace_token(self):
         """Test JWT extraction with whitespace-only token."""
         headers = {"Authorization": "Bearer   \n\t  "}
 
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
-            mock_agent = Mock()
-            runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
+        with patch("agw.adk.adk_integration.logger") as mock_logger:
+            result = extract_jwt_from_headers(headers)
 
-            with patch("kagent.agw.adk_integration.logger") as mock_logger:
-                result = runner._extract_jwt_from_headers(headers)
-
-                assert result is None
-                mock_logger.warning.assert_called_once_with("Empty JWT token found in Authorization header")
+            assert result is None
+            mock_logger.warning.assert_called_once_with("Empty JWT token found in Authorization header")
 
     def test_extract_jwt_from_headers_stripped_token(self):
         """Test JWT extraction with token that has whitespace."""
         headers = {"Authorization": "Bearer  jwt-token-123  \n"}
 
-        with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
-            mock_agent = Mock()
-            runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
+        with patch("agw.adk.adk_integration.logger") as mock_logger:
+            result = extract_jwt_from_headers(headers)
 
-            with patch("kagent.agw.adk_integration.logger") as mock_logger:
-                result = runner._extract_jwt_from_headers(headers)
-
-                assert result == "jwt-token-123"
-                mock_logger.debug.assert_called_once()
+            assert result == "jwt-token-123"
+            mock_logger.debug.assert_called_once()

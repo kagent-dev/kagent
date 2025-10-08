@@ -11,7 +11,8 @@ import (
 )
 
 type SimpleSession struct {
-	P auth.Principal
+	P                   auth.Principal
+	AuthorizationHeader string
 }
 
 func (s *SimpleSession) Principal() auth.Principal {
@@ -29,6 +30,7 @@ func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 		userID = "admin@kagent.dev"
 	}
 	agentId := reqHeaders.Get("X-Agent-Name")
+	authHeader := reqHeaders.Get("Authorization")
 	return &SimpleSession{
 		P: auth.Principal{
 			User: auth.User{
@@ -38,6 +40,7 @@ func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 				ID: agentId,
 			},
 		},
+		AuthorizationHeader: authHeader,
 	}, nil
 }
 
@@ -47,6 +50,21 @@ func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Sessi
 		return nil
 	}
 	r.Header.Set("X-User-Id", session.Principal().User.ID)
+
+	// Try to get Authorization header from the current request first
+	authHeader := r.Header.Get("Authorization")
+
+	// If not found in current request, try to get it from the session
+	if authHeader == "" {
+		if simpleSession, ok := session.(*SimpleSession); ok && simpleSession.AuthorizationHeader != "" {
+			authHeader = simpleSession.AuthorizationHeader
+		}
+	}
+
+	if authHeader != "" {
+		r.Header.Set("Authorization", authHeader)
+	}
+
 	return nil
 }
 
@@ -83,6 +101,7 @@ func A2ARequestHandler(authProvider auth.AuthProvider, agentNns types.Namespaced
 		if client == nil {
 			return nil, fmt.Errorf("a2aClient.httpRequestHandler: http client is nil")
 		}
+
 		upstreamPrincipal := auth.Principal{
 			Agent: auth.Agent{
 				ID: types.NamespacedName{

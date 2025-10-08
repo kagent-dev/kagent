@@ -27,7 +27,6 @@ from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override
 
-from kagent.agw import ADKSessionService
 from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
 
 from .converters.event_converter import convert_event_to_a2a_events

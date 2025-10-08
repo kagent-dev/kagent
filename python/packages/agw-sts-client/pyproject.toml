@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "kagent-sts"
+name = "agw-sts-client"
 version = "0.1.0"
-description = "Security Token Service client for kagent implementing RFC 8693 OAuth 2.0 Token Exchange"
+description = "Security Token Service client implementing RFC 8693 OAuth 2.0 Token Exchange"
 requires-python = ">=3.11.0"
 dependencies = [
   "httpx>=0.25.0",
@@ -14,9 +14,6 @@ dependencies = [
   "cryptography>=41.0.0",  # For JWT handling
   "PyJWT>=2.8.0",  # For JWT token parsing
 ]
-
-[tool.uv.sources]
-kagent-core = {workspace = true}
 
 [project.optional-dependencies]
 test = [
@@ -29,4 +26,4 @@ test = [
 extend = "../../pyproject.toml"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kagent"]
+packages = ["src/agw_status_client"]

@@ -1,11 +1,9 @@
-"""Tests for kagent-sts client."""
-
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from kagent.sts import AuthenticationError, NetworkError, STSClient, STSConfig, TokenExchangeError, TokenType
+from agw_status_client import AuthenticationError, NetworkError, STSClient, STSConfig, TokenExchangeError, TokenType
 
 
 class MockWellKnownConfig:
@@ -35,7 +33,7 @@ def mock_well_known_config():
 @pytest.mark.asyncio
 async def test_impersonation_token_exchange(config, mock_well_known_config):
     """Test impersonation token exchange."""
-    with patch("kagent.sts._client.fetch_well_known_configuration") as mock_fetch:
+    with patch("agw_status_client._client.fetch_well_known_configuration") as mock_fetch:
         mock_fetch.return_value = mock_well_known_config
 
         async with STSClient(config) as client:
@@ -65,7 +63,7 @@ async def test_impersonation_token_exchange(config, mock_well_known_config):
 @pytest.mark.asyncio
 async def test_delegation_token_exchange(config, mock_well_known_config):
     """Test delegation token exchange."""
-    with patch("kagent.sts._client.fetch_well_known_configuration") as mock_fetch:
+    with patch("agw_status_client._client.fetch_well_known_configuration") as mock_fetch:
         mock_fetch.return_value = mock_well_known_config
 
         async with STSClient(config) as client:
@@ -100,7 +98,7 @@ async def test_delegation_token_exchange(config, mock_well_known_config):
 @pytest.mark.asyncio
 async def test_delegation_without_subject_token(config, mock_well_known_config):
     """Test delegation without identity token raises error."""
-    with patch("kagent.sts._client.fetch_well_known_configuration") as mock_fetch:
+    with patch("agw_status_client._client.fetch_well_known_configuration") as mock_fetch:
         mock_fetch.return_value = mock_well_known_config
 
         async with STSClient(config) as client:  # No identity token
@@ -118,7 +116,7 @@ async def test_delegation_without_subject_token(config, mock_well_known_config):
 @pytest.mark.asyncio
 async def test_token_exchange_error_response(config, mock_well_known_config):
     """Test token exchange error response handling."""
-    with patch("kagent.sts._client.fetch_well_known_configuration") as mock_fetch:
+    with patch("agw_status_client._client.fetch_well_known_configuration") as mock_fetch:
         mock_fetch.return_value = mock_well_known_config
 
         async with STSClient(config) as client:
@@ -143,7 +141,7 @@ async def test_token_exchange_error_response(config, mock_well_known_config):
 @pytest.mark.asyncio
 async def test_network_error(config, mock_well_known_config):
     """Test network error handling."""
-    with patch("kagent.sts._client.fetch_well_known_configuration") as mock_fetch:
+    with patch("agw_status_client._client.fetch_well_known_configuration") as mock_fetch:
         mock_fetch.return_value = mock_well_known_config
 
         async with STSClient(config) as client:
@@ -159,7 +157,7 @@ async def test_network_error(config, mock_well_known_config):
 @pytest.mark.asyncio
 async def test_request_data_building(config, mock_well_known_config):
     """Test that request data is built correctly."""
-    with patch("kagent.sts._client.fetch_well_known_configuration") as mock_fetch:
+    with patch("agw_status_client._client.fetch_well_known_configuration") as mock_fetch:
         mock_fetch.return_value = mock_well_known_config
 
         async with STSClient(config) as client:
@@ -203,7 +201,7 @@ async def test_request_data_building(config, mock_well_known_config):
 @pytest.mark.asyncio
 async def test_context_manager(config, mock_well_known_config):
     """Test async context manager functionality."""
-    with patch("kagent.sts._client.fetch_well_known_configuration") as mock_fetch:
+    with patch("agw_status_client._client.fetch_well_known_configuration") as mock_fetch:
         mock_fetch.return_value = mock_well_known_config
 
         async with STSClient(config) as client:
@@ -217,7 +215,7 @@ async def test_context_manager(config, mock_well_known_config):
 @pytest.mark.asyncio
 async def test_manual_initialization_and_close(config, mock_well_known_config):
     """Test manual initialization and close."""
-    with patch("kagent.sts._client.fetch_well_known_configuration") as mock_fetch:
+    with patch("agw_status_client._client.fetch_well_known_configuration") as mock_fetch:
         mock_fetch.return_value = mock_well_known_config
 
         client = STSClient(config)

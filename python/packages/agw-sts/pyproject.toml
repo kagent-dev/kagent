@@ -3,13 +3,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "kagent-agw"
+name = "agw-sts"
 version = "0.1.0"
-description = "Framework-specific integration points with kagent-sts"
+description = "Framework-specific integration points with agw-sts-client"
 requires-python = ">=3.11.0"
 dependencies = [
-  "kagent-core",
-  "kagent-sts",
+  "agw-sts-client",
   "google-adk>=1.11.0",
   "google-genai>=1.21.1",
   "google-auth>=2.40.2",
@@ -21,8 +20,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-kagent-core = {workspace = true}
-kagent-sts = {workspace = true}
+agw-sts-client = {workspace = true}
 
 [project.optional-dependencies]
 test = [
@@ -32,7 +30,7 @@ test = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kagent"]
+packages = ["src/agw"]
 
 [tool.ruff]
 extend = "../../pyproject.toml"

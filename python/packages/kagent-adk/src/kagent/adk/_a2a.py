@@ -8,6 +8,7 @@ import httpx
 from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
+from agw.adk import ADKSessionService, ADKSTSIntegration, ADKRunner, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
@@ -16,7 +17,6 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from kagent.agw import ADKRunner, ADKSessionService, ADKSTSIntegration, ADKTokenPropagationPlugin
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor

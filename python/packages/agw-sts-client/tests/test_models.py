@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from kagent.sts import (
+from agw_status_client import (
     GrantType,
     TokenExchangeError,
     TokenExchangeRequest,

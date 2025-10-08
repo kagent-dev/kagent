@@ -4,10 +4,9 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from agw_status_client import TokenType
 
-from kagent.agw.actor_service import ActorTokenService
-from kagent.agw.base import STSIntegrationBase
-from kagent.sts import TokenType
+from agw.base import STSIntegrationBase
 
 
 class TestSTSIntegration(STSIntegrationBase):
@@ -31,12 +30,12 @@ class TestSTSIntegrationBase:
         mock_response = Mock()
         mock_response.access_token = expected_access_token
 
-        with patch("kagent.agw.base.STSClient") as mock_sts_client_class:
+        with patch("agw.base.STSClient") as mock_sts_client_class:
             mock_sts_client = Mock()
             mock_sts_client.exchange_token = AsyncMock(return_value=mock_response)
             mock_sts_client_class.return_value = mock_sts_client
 
-            with patch("kagent.agw.base.ActorTokenService"):
+            with patch("agw.base.ActorTokenService"):
                 integration = TestSTSIntegration(well_known_uri)
 
                 result = await integration.exchange_token(subject_token)
@@ -60,12 +59,12 @@ class TestSTSIntegrationBase:
         well_known_uri = "https://sts.example.com/.well-known/openid_configuration"
         subject_token = "invalid-token"
 
-        with patch("kagent.agw.base.STSClient") as mock_sts_client_class:
+        with patch("agw.base.STSClient") as mock_sts_client_class:
             mock_sts_client = Mock()
             mock_sts_client.exchange_token = AsyncMock(side_effect=Exception("Token exchange failed"))
             mock_sts_client_class.return_value = mock_sts_client
 
-            with patch("kagent.agw.base.ActorTokenService"):
+            with patch("agw.base.ActorTokenService"):
                 integration = TestSTSIntegration(well_known_uri)
 
                 with pytest.raises(Exception, match="Token exchange failed"):
@@ -75,8 +74,8 @@ class TestSTSIntegrationBase:
         """Test that concrete implementation works correctly."""
         well_known_uri = "https://sts.example.com/.well-known/openid_configuration"
 
-        with patch("kagent.agw.base.STSClient"):
-            with patch("kagent.agw.base.ActorTokenService"):
+        with patch("agw.base.STSClient"):
+            with patch("agw.base.ActorTokenService"):
                 integration = TestSTSIntegration(well_known_uri)
 
                 # Test that create_auth_credential works

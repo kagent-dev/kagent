@@ -4,9 +4,9 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Union
 
-from kagent.sts import STSClient, STSConfig, TokenType
+from agw_status_client import STSClient, STSConfig, TokenType
 
-from .actor_service import ActorTokenService
+from agw.actor_service import ActorTokenService
 
 logger = logging.getLogger(__name__)
 
