@@ -3,7 +3,7 @@ ARG DOCKER_REGISTRY=ghcr.io
 ARG TOOLS_UV_VERSION=latest
 
 ### STAGE 1: base image
-FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
+FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-trixie-slim AS base-os
 ARG TOOLS_NODE_VERSION
 
 #ENVIRONMENT VARIABLES
@@ -24,7 +24,7 @@ RUN mkdir -p /etc/apt/keyrings \
 FROM base-os AS base
 
 # Install python
-RUN uv python install 3.12
+RUN uv python install 3.13
 
 # Install nvm
 ENV NVM_DIR=/usr/local/nvm
@@ -125,7 +125,7 @@ RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${TOOLS_ISTIO_VERSION
     && rm -rf istio-*
 
 # Install kind
-RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${ARCH} \
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.30.0/kind-$(uname)-${ARCH} \
     && chmod +x ./kind \
     && mv ./kind /usr/local/bin/
 
