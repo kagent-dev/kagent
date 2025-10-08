@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"sort"
 
 	"go.uber.org/multierr"
@@ -24,10 +25,10 @@ import (
 )
 
 const (
-	transportAdapterContainerImage = "ghcr.io/agentgateway/agentgateway:0.7.4-musl"
-	defaultDebianContainerImage    = "ghcr.io/astral-sh/uv:debian"
-	defaultNodeContainerImage      = "node:24-alpine3.21"
-	mcpServerConfigHashAnnotation  = "kagent.dev/mcpserver-config-hash"
+	defaultTransportAdapterContainerImage = "ghcr.io/agentgateway/agentgateway:0.9.0-musl"
+	defaultDebianContainerImage           = "ghcr.io/astral-sh/uv:debian"
+	defaultNodeContainerImage             = "node:24-alpine3.21"
+	mcpServerConfigHashAnnotation         = "kagent.dev/mcpserver-config-hash"
 )
 
 var mcpProtocol string = "kgateway.dev/mcp"
@@ -104,6 +105,12 @@ func (t *transportAdapterTranslator) translateTransportAdapterDeployment(
 
 	// Create volume mounts from the MCPServer spec
 	volumeMounts := t.createVolumeMounts(server.Spec.Deployment)
+
+	transportAdapterContainerImage := defaultTransportAdapterContainerImage
+	transportAdapterVersion := os.Getenv("TRANSPORT_ADAPTER_VERSION")
+	if transportAdapterVersion != "" {
+		transportAdapterContainerImage = fmt.Sprintf("ghcr.io/agentgateway/agentgateway:%s-musl", transportAdapterVersion)
+	}
 
 	var template corev1.PodSpec
 	switch server.Spec.TransportType {
