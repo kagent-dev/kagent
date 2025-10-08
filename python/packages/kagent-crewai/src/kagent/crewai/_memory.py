@@ -2,11 +2,11 @@ import logging
 from typing import Any, Dict, List
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class KagentMemoryPayload(BaseModel):
-    session_id: str = Field(..., alias="thread_id")
+    thread_id: str
     user_id: str
     memory_data: Dict[str, Any]
 
@@ -18,11 +18,11 @@ class KagentMemoryResponse(BaseModel):
 class KagentMemoryStorage:
     """
     KagentMemoryStorage is a custom storage class for CrewAI's LongTermMemory.
-    It persists memory items to the Kagent backend, scoped by session_id and user_id.
+    It persists memory items to the Kagent backend, scoped by thread_id and user_id.
     """
 
-    def __init__(self, session_id: str, user_id: str, base_url: str = "http://localhost:8080"):
-        self.session_id = session_id
+    def __init__(self, thread_id: str, user_id: str, base_url: str):
+        self.thread_id = thread_id
         self.user_id = user_id
         self.base_url = base_url
 
@@ -33,7 +33,7 @@ class KagentMemoryStorage:
         """
         url = f"{self.base_url}/api/crewai/memory"
         payload = KagentMemoryPayload(
-            session_id=self.session_id,
+            thread_id=self.thread_id,
             user_id=self.user_id,
             memory_data={
                 "task_description": task_description,
@@ -47,7 +47,7 @@ class KagentMemoryStorage:
 
         try:
             with httpx.Client() as client:
-                response = client.post(url, json=payload.model_dump(by_alias=True), headers={"X-User-ID": self.user_id})
+                response = client.post(url, json=payload.model_dump(), headers={"X-User-ID": self.user_id})
                 response.raise_for_status()
         except httpx.HTTPError as e:
             logging.error(f"Error saving memory to Kagent backend: {e}")
@@ -60,7 +60,7 @@ class KagentMemoryStorage:
         """
         url = f"{self.base_url}/api/crewai/memory"
         # Use task_description as the query parameter to search across all agents for this session
-        params = {"q": task_description, "limit": latest_n, "thread_id": self.session_id}
+        params = {"q": task_description, "limit": latest_n, "thread_id": self.thread_id}
 
         logging.debug(f"Loading memory from Kagent backend with params: {params}")
         try:
@@ -97,14 +97,14 @@ class KagentMemoryStorage:
         Resets the memory storage by deleting all memories for this session.
         """
         url = f"{self.base_url}/api/crewai/memory"
-        params = {"thread_id": self.session_id}
+        params = {"thread_id": self.thread_id}
 
-        logging.info(f"Resetting memory for session {self.session_id}")
+        logging.info(f"Resetting memory for session {self.thread_id}")
         try:
             with httpx.Client() as client:
                 response = client.delete(url, params=params, headers={"X-User-ID": self.user_id})
                 response.raise_for_status()
-            logging.info(f"Successfully reset memory for session {self.session_id}")
+            logging.info(f"Successfully reset memory for session {self.thread_id}")
         except httpx.HTTPError as e:
-            logging.error(f"Error resetting memory for session {self.session_id}: {e}")
+            logging.error(f"Error resetting memory for session {self.thread_id}: {e}")
             raise

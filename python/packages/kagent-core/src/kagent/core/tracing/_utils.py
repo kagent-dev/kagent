@@ -39,6 +39,7 @@ def configure(fastapi_app: FastAPI | None = None):
         current_provider = trace.get_tracer_provider()
         if isinstance(current_provider, TracerProvider):
             # TracerProvider already exists, just add our processor to it
+            current_provider.resource = current_provider.resource.merge(resource)
             current_provider.add_span_processor(processor)
             logging.info("Added OTLP processor to existing TracerProvider")
         else:

@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Union
 
 import httpx
@@ -9,7 +8,7 @@ from crewai.flow.persistence import FlowPersistence
 
 
 class KagentFlowStatePayload(BaseModel):
-    session_id: str = Field(..., alias="thread_id")
+    thread_id: str
     flow_uuid: str
     method_name: str
     state_data: Dict[str, Any]
@@ -25,8 +24,8 @@ class KagentFlowPersistence(FlowPersistence):
     It saves and loads the flow state to the Kagent backend.
     """
 
-    def __init__(self, session_id: str, user_id: str, base_url: str = "http://localhost:8080"):
-        self.session_id = session_id
+    def __init__(self, thread_id: str, user_id: str, base_url: str):
+        self.thread_id = thread_id
         self.user_id = user_id
         self.base_url = base_url
 
@@ -38,7 +37,7 @@ class KagentFlowPersistence(FlowPersistence):
         """Saves the flow state to the Kagent backend."""
         url = f"{self.base_url}/api/crewai/flows/state"
         payload = KagentFlowStatePayload(
-            session_id=self.session_id,
+            thread_id=self.thread_id,
             flow_uuid=flow_uuid,
             method_name=method_name,
             state_data=state_data.model_dump() if isinstance(state_data, BaseModel) else state_data,
@@ -47,7 +46,7 @@ class KagentFlowPersistence(FlowPersistence):
 
         try:
             with httpx.Client() as client:
-                response = client.post(url, json=payload.model_dump(by_alias=True), headers={"X-User-ID": self.user_id})
+                response = client.post(url, json=payload.model_dump(), headers={"X-User-ID": self.user_id})
                 response.raise_for_status()
         except httpx.HTTPError as e:
             logging.error(f"Error saving flow state to Kagent backend: {e}")
@@ -56,7 +55,7 @@ class KagentFlowPersistence(FlowPersistence):
     def load_state(self, flow_uuid: str) -> Optional[Dict[str, Any]]:
         """Loads the flow state from the Kagent backend."""
         url = f"{self.base_url}/api/crewai/flows/state"
-        params = {"thread_id": self.session_id, "flow_uuid": flow_uuid}
+        params = {"thread_id": self.thread_id, "flow_uuid": flow_uuid}
         logging.info(f"Loading flow state from Kagent backend with params: {params}")
 
         try:

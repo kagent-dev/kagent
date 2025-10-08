@@ -113,7 +113,7 @@ class CrewAIAgentExecutor(AgentExecutor):
             if isinstance(self._crew, Flow):
                 flow_class = type(self._crew)
                 persistence = KagentFlowPersistence(
-                    session_id=session_id,
+                    thread_id=session_id,
                     user_id=user_id,
                     base_url=str(self._http_client.base_url),
                 )
@@ -131,7 +131,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                 if self._crew.memory:
                     self._crew.long_term_memory = LongTermMemory(
                         KagentMemoryStorage(
-                            session_id=session_id,
+                            thread_id=session_id,
                             user_id=user_id,
                             base_url=str(self._http_client.base_url),
                         )
