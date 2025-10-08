@@ -411,7 +411,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 	return &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "poem-flow-agent",
+			Name:      "poem-flow-test",
 			Namespace: "kagent",
 		},
 		Spec: v1alpha2.AgentSpec{
@@ -471,7 +471,7 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Clean up any leftover agent from a previous failed run
-	_ = cli.Delete(t.Context(), &v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "poem-flow-agent", Namespace: "kagent"}})
+	_ = cli.Delete(t.Context(), &v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "poem-flow-test", Namespace: "kagent"}})
 
 	// Generate the CrewAI agent and inject the mock server's URL
 	agent := generateCrewAIAgent(baseURL)
@@ -501,6 +501,9 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Run())
 
+	// Give the agent pod extra time to fully initialize its A2A endpoint
+	time.Sleep(5 * time.Second)
+
 	// Setup A2A client
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
@@ -510,14 +513,14 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 		// First turn: Generate initial poem
 		// Use artifacts only (true) for CrewAI flows
 		useArtifacts := true
-		taskResult1 := runSyncTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI", &useArtifacts)
+		taskResult1 := runSyncTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.", &useArtifacts)
 
 		// Second turn: Continue poem (tests persistence)
 		// Use the same ContextID to maintain conversation context
-		runSyncTest(t, a2aClient, "Continue the poem", "AI agents", &useArtifacts, taskResult1.ContextID)
+		runSyncTest(t, a2aClient, "Continue the poem", "In harmony with the code, it flows so smooth.", &useArtifacts, taskResult1.ContextID)
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
-		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI")
+		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 	})
 }
