@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 ACCESS_TOKEN_KEY = "access_token"
 
+
 class ADKSTSIntegration(STSIntegrationBase):
     """Google ADK-specific STS integration."""
 
@@ -56,7 +57,6 @@ class ADKSTSIntegration(STSIntegrationBase):
     ) -> AuthCredential:
         access_token = await self.exchange_token(subject_token, subject_token_type)
         return self.create_auth_credential(access_token)
-
 
 
 class ADKTokenPropagationPlugin(BasePlugin):
@@ -102,11 +102,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 return None
             if credential:
                 logger.debug("Propagating STS token in ADK tool call: %s", tool.name)
-                return await tool._run_async_impl(
-                    args=tool_args,
-                    tool_context=tool_context,
-                    credential=credential
-                )
+                return await tool._run_async_impl(args=tool_args, tool_context=tool_context, credential=credential)
             else:
                 logger.warning("No STS token available for ADK tool: %s", tool.name)
 
@@ -218,11 +214,10 @@ class ADKSessionService(InMemorySessionService):
 
 
 class ADKRunner(Runner):
-    """Custom runner for ADK """
+    """Custom runner for ADK"""
 
     def __init__(self, session_service: ADKSessionService, **kwargs):
         super().__init__(session_service=session_service, **kwargs)
-
 
     @override
     async def run_async(self, *args, **kwargs):
@@ -232,7 +227,6 @@ class ADKRunner(Runner):
             self.session_service._store_access_token(user_jwt)
         async for event in super().run_async(*args, **kwargs):
             yield event
-
 
     def _extract_jwt_from_headers(self, headers: dict[str, str]) -> Optional[str]:
         """Extract JWT from request headers for STS token exchange.

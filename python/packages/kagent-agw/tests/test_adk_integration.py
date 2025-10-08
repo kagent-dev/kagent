@@ -47,17 +47,11 @@ class TestADKTokenPropagationPlugin:
 
         tool_args = {"arg1": "value1"}
 
-        result = await plugin.before_tool_callback(
-            tool=mock_tool,
-            tool_args=tool_args,
-            tool_context=mock_tool_context
-        )
+        result = await plugin.before_tool_callback(tool=mock_tool, tool_args=tool_args, tool_context=mock_tool_context)
 
         mock_sts_integration.get_auth_credential.assert_called_once_with(subject_token="subject-token-123")
         mock_tool._run_async_impl.assert_called_once_with(
-            args=tool_args,
-            tool_context=mock_tool_context,
-            credential=mock_credential
+            args=tool_args, tool_context=mock_tool_context, credential=mock_credential
         )
         assert result == "tool_result"
 
@@ -74,11 +68,7 @@ class TestADKTokenPropagationPlugin:
         mock_tool_context = Mock()
         tool_args = {"arg1": "value1"}
 
-        result = await plugin.before_tool_callback(
-            tool=mock_tool,
-            tool_args=tool_args,
-            tool_context=mock_tool_context
-        )
+        result = await plugin.before_tool_callback(tool=mock_tool, tool_args=tool_args, tool_context=mock_tool_context)
 
         mock_sts_integration.get_auth_credential.assert_not_called()
         assert result is None
@@ -102,9 +92,7 @@ class TestADKTokenPropagationPlugin:
 
         with patch("kagent.agw.adk_integration.logger") as mock_logger:
             result = await plugin.before_tool_callback(
-                tool=mock_tool,
-                tool_args=tool_args,
-                tool_context=mock_tool_context
+                tool=mock_tool, tool_args=tool_args, tool_context=mock_tool_context
             )
 
             mock_logger.warning.assert_called_once_with("No access token available for ADK tool: %s", "test-mcp-tool")
@@ -132,28 +120,30 @@ class TestADKRunner:
             mock_session_service_instance._store_access_token = Mock(return_value=None)
             mock_session_service.return_value = mock_session_service_instance
             with patch.object(ADKRunner, "_extract_jwt_from_headers") as mock_extract:
-                        # Mock the async generator
-                        async def mock_async_gen():
-                            yield "event1"
-                            yield "event2"
+                # Mock the async generator
+                async def mock_async_gen():
+                    yield "event1"
+                    yield "event2"
 
-                        with patch("kagent.agw.adk_integration.Runner.run_async",
-                                  return_value=mock_async_gen()) as mock_super_run:
+                with patch(
+                    "kagent.agw.adk_integration.Runner.run_async", return_value=mock_async_gen()
+                ) as mock_super_run:
+                    mock_extract.return_value = "jwt-token-123"
+                    mock_agent = Mock()
 
-                            mock_extract.return_value = "jwt-token-123"
-                            mock_agent = Mock()
+                    runner = ADKRunner(
+                        session_service=mock_session_service_instance, app_name="test-app", agent=mock_agent
+                    )
 
-                            runner = ADKRunner(session_service=mock_session_service_instance, app_name="test-app", agent=mock_agent)
+                    # Collect all events from the async generator
+                    events = []
+                    async for event in runner.run_async("arg1", "arg2", headers=headers, kwarg1="value1"):
+                        events.append(event)
 
-                            # Collect all events from the async generator
-                            events = []
-                            async for event in runner.run_async("arg1", "arg2", headers=headers, kwarg1="value1"):
-                                events.append(event)
-
-                            mock_extract.assert_called_once_with(headers)
-                            mock_session_service_instance._store_access_token.assert_called_once_with("jwt-token-123")
-                            mock_super_run.assert_called_once_with("arg1", "arg2", kwarg1="value1")
-                            assert events == ["event1", "event2"]
+                    mock_extract.assert_called_once_with(headers)
+                    mock_session_service_instance._store_access_token.assert_called_once_with("jwt-token-123")
+                    mock_super_run.assert_called_once_with("arg1", "arg2", kwarg1="value1")
+                    assert events == ["event1", "event2"]
 
     @pytest.mark.asyncio
     async def test_run_async_without_jwt(self):
@@ -162,27 +152,27 @@ class TestADKRunner:
 
         with patch("kagent.agw.adk_integration.ADKSessionService") as mock_session_service:
             with patch.object(ADKRunner, "_extract_jwt_from_headers") as mock_extract:
-                        # Mock the async generator
-                        async def mock_async_gen():
-                            yield "event1"
-                            yield "event2"
+                # Mock the async generator
+                async def mock_async_gen():
+                    yield "event1"
+                    yield "event2"
 
-                        with patch("kagent.agw.adk_integration.Runner.run_async",
-                                  return_value=mock_async_gen()) as mock_super_run:
+                with patch(
+                    "kagent.agw.adk_integration.Runner.run_async", return_value=mock_async_gen()
+                ) as mock_super_run:
+                    mock_extract.return_value = None
+                    mock_agent = Mock()
 
-                            mock_extract.return_value = None
-                            mock_agent = Mock()
+                    runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
 
-                            runner = ADKRunner(session_service=mock_session_service, app_name="test-app", agent=mock_agent)
+                    # Collect all events from the async generator
+                    events = []
+                    async for event in runner.run_async("arg1", "arg2", headers=headers):
+                        events.append(event)
 
-                            # Collect all events from the async generator
-                            events = []
-                            async for event in runner.run_async("arg1", "arg2", headers=headers):
-                                events.append(event)
-
-                            mock_extract.assert_called_once_with(headers)
-                            mock_super_run.assert_called_once_with("arg1", "arg2")
-                            assert events == ["event1", "event2"]
+                    mock_extract.assert_called_once_with(headers)
+                    mock_super_run.assert_called_once_with("arg1", "arg2")
+                    assert events == ["event1", "event2"]
 
     def test_extract_jwt_from_headers_success(self):
         """Test successful JWT extraction from headers."""

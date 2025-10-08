@@ -42,9 +42,8 @@ class STSIntegrationBase(ABC):
             verify_ssl=verify_ssl,
         )
         self.sts_client = STSClient(config)
-        self.access_token = None # cached access token
+        self.access_token = None  # cached access token
         self._actor_token = ActorTokenService(service_account_token_path).get_actor_token()
-
 
     @abstractmethod
     def create_auth_credential(self, access_token: str) -> Any:

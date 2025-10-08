@@ -51,7 +51,7 @@ class TestSTSIntegrationBase:
                     audience=None,
                     scope=None,
                     requested_token_type=None,
-                    additional_parameters=None
+                    additional_parameters=None,
                 )
 
     @pytest.mark.asyncio
