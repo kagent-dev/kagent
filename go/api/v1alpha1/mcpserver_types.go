@@ -232,6 +232,25 @@ type MCPServerDeployment struct {
 	// This allows for custom volume configurations beyond just secrets and configmaps.
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// InitContainer defines the configuration for the init container that copies
+	// the transport adapter binary. This is used for stdio transport type.
+	// +optional
+	InitContainer *InitContainerConfig `json:"initContainer,omitempty"`
+}
+
+// InitContainerConfig defines the configuration for the init container.
+type InitContainerConfig struct {
+	// Image defines the full image reference for the init container.
+	// If specified, this overrides the default transport adapter image.
+	// Example: "myregistry.com/agentgateway/agentgateway:0.9.0-musl"
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// ImagePullPolicy defines the pull policy for the init container image.
+	// +optional
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 }
 
 // +kubebuilder:object:root=true
