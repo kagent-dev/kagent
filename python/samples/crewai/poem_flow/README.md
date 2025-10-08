@@ -49,7 +49,7 @@ When interacting with the agent, you do not need to provide any input because th
 
    ```bash
    export KAGENT_URL=http://localhost:8080
-   export GEMINI_API_KEY="..."
+   export OPENAI_API_KEY="..."
    ```
 
 3. **Run the agent server**:

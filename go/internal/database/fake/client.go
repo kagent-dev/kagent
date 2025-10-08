@@ -760,8 +760,8 @@ func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDesc
 	
 	// Search across all agents for this user/thread
 	for key, memories := range c.crewaiMemory {
-		// Key format is "user_id:thread_id:agent_id"
-		if strings.HasPrefix(key, userID+":"+threadID+":") {
+		// Key format is "user_id:thread_id"
+		if strings.HasPrefix(key, userID+":"+threadID) {
 			for _, memory := range memories {
 				// Parse the JSON memory data and search for task_description
 				var memoryData map[string]interface{}
@@ -826,8 +826,8 @@ func (c *InMemoryFakeClient) ResetCrewAIMemory(userID, threadID string) error {
 	// Find and delete all memory entries for this user/thread combination
 	keysToDelete := make([]string, 0)
 	for key := range c.crewaiMemory {
-		// Key format is "user_id:thread_id:agent_id"
-		if strings.HasPrefix(key, userID+":"+threadID+":") {
+		// Key format is "user_id:thread_id"
+		if strings.HasPrefix(key, userID+":"+threadID) {
 			keysToDelete = append(keysToDelete, key)
 		}
 	}

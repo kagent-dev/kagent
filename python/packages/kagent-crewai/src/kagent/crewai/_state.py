@@ -61,7 +61,7 @@ class KagentFlowPersistence(FlowPersistence):
 
         try:
             with httpx.Client() as client:
-                response = client.post(url, params=params, headers={"X-User-ID": self.user_id})
+                response = client.get(url, params=params, headers={"X-User-ID": self.user_id})
             if response.status_code == 404:
                 return None
             response.raise_for_status()
