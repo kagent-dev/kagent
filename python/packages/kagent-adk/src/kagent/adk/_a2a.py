@@ -16,12 +16,13 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
+from kagent.agw import ADKRunner, ADKSessionService, ADKSTSIntegration, ADKTokenPropagationPlugin
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
-from kagent.agw import ADKSTSIntegration, ADKSessionService, ADKRunner, ADKTokenPropagationPlugin
 
 from ._agent_executor import A2aAgentExecutor
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
+
 
 # --- Configure Logging ---
 def configure_logging() -> None:
@@ -75,7 +76,6 @@ class KAgentApp:
         )
         session_service = KAgentSessionService(http_client)
 
-        sts_integration = None
         plugins = []
         if sts_well_known_uri:
             sts_integration = ADKSTSIntegration(sts_well_known_uri)

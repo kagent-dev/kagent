@@ -34,17 +34,17 @@ class ActorTokenService:
         """
         try:
             logger.debug(f"Loading actor token from {self.token_path}")
-            
+
             with open(self.token_path, "r", encoding="utf-8") as f:
                 token = f.read().strip()
-            
+
             if token:
-                logger.info(f"Successfully loaded actor token'")
+                logger.info("Successfully loaded actor token'")
                 return token
             else:
                 logger.warning(f"No actor token found at {self.token_path}")
                 return None
-                
+
         except Exception as e:
             logger.error(f"Failed to load actor token': {e}")
             logger.error(f"Token path: {self.token_path}")

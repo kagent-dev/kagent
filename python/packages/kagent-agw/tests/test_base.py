@@ -1,17 +1,18 @@
 """Tests for STSIntegrationBase."""
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
 from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 
-from kagent.agw.base import STSIntegrationBase
+import pytest
+
 from kagent.agw.actor_service import ActorTokenService
+from kagent.agw.base import STSIntegrationBase
 from kagent.sts import TokenType
 
 
 class TestSTSIntegration(STSIntegrationBase):
     """Concrete implementation for testing."""
-    
+
     def create_auth_credential(self, access_token: str) -> Any:
         """Create a mock auth credential."""
         return {"access_token": access_token, "type": "mock"}
@@ -26,20 +27,20 @@ class TestSTSIntegrationBase:
         well_known_uri = "https://sts.example.com/.well-known/openid_configuration"
         subject_token = "subject-token-123"
         expected_access_token = "access-token-456"
-        
+
         mock_response = Mock()
         mock_response.access_token = expected_access_token
-        
-        with patch('kagent.agw.base.STSClient') as mock_sts_client_class:
+
+        with patch("kagent.agw.base.STSClient") as mock_sts_client_class:
             mock_sts_client = Mock()
             mock_sts_client.exchange_token = AsyncMock(return_value=mock_response)
             mock_sts_client_class.return_value = mock_sts_client
-            
-            with patch('kagent.agw.base.ActorTokenService'):
+
+            with patch("kagent.agw.base.ActorTokenService"):
                 integration = TestSTSIntegration(well_known_uri)
-                
+
                 result = await integration.exchange_token(subject_token)
-                
+
                 assert result == expected_access_token
                 mock_sts_client.exchange_token.assert_called_once_with(
                     subject_token=subject_token,
@@ -58,28 +59,28 @@ class TestSTSIntegrationBase:
         """Test token exchange failure."""
         well_known_uri = "https://sts.example.com/.well-known/openid_configuration"
         subject_token = "invalid-token"
-        
-        with patch('kagent.agw.base.STSClient') as mock_sts_client_class:
+
+        with patch("kagent.agw.base.STSClient") as mock_sts_client_class:
             mock_sts_client = Mock()
             mock_sts_client.exchange_token = AsyncMock(side_effect=Exception("Token exchange failed"))
             mock_sts_client_class.return_value = mock_sts_client
-            
-            with patch('kagent.agw.base.ActorTokenService'):
+
+            with patch("kagent.agw.base.ActorTokenService"):
                 integration = TestSTSIntegration(well_known_uri)
-                
+
                 with pytest.raises(Exception, match="Token exchange failed"):
                     await integration.exchange_token(subject_token)
 
     def test_concrete_implementation(self):
         """Test that concrete implementation works correctly."""
         well_known_uri = "https://sts.example.com/.well-known/openid_configuration"
-        
-        with patch('kagent.agw.base.STSClient'):
-            with patch('kagent.agw.base.ActorTokenService'):
+
+        with patch("kagent.agw.base.STSClient"):
+            with patch("kagent.agw.base.ActorTokenService"):
                 integration = TestSTSIntegration(well_known_uri)
-                
+
                 # Test that create_auth_credential works
                 access_token = "test-access-token"
                 credential = integration.create_auth_credential(access_token)
-                
+
                 assert credential == {"access_token": access_token, "type": "mock"}

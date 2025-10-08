@@ -27,8 +27,8 @@ from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override
 
-from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
 from kagent.agw import ADKSessionService
+from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
 
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
@@ -153,7 +153,7 @@ class A2aAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
         runner: Runner,
-    ):    
+    ):
         # Convert the a2a request to ADK run args
         run_args = convert_a2a_request_to_adk_run_args(context)
 

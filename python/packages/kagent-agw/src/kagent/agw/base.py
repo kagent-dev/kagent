@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Union
 
 from kagent.sts import STSClient, STSConfig, TokenType
+
 from .actor_service import ActorTokenService
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class STSIntegrationBase(ABC):
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.additional_config = additional_config or {}
-        
+
         # Initialize STS client
         config = STSConfig(
             well_known_uri=well_known_uri,

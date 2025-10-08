@@ -5,14 +5,15 @@ from typing import Any, Dict, Optional
 
 from google.adk.auth.auth_credential import AuthCredential, AuthCredentialTypes, HttpAuth, HttpCredentials
 from google.adk.plugins.base_plugin import BasePlugin
-from google.adk.tools.base_tool import BaseTool
-from google.adk.tools.mcp_tool import MCPTool
-from google.adk.tools.tool_context import ToolContext
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.sessions.base_session_service import BaseSessionService
-from kagent.sts import TokenType
+from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.mcp_tool import MCPTool
+from google.adk.tools.tool_context import ToolContext
 from typing_extensions import override
+
+from kagent.sts import TokenType
 
 from .base import STSIntegrationBase
 
@@ -44,7 +45,7 @@ class ADKSTSIntegration(STSIntegrationBase):
                 credentials=HttpCredentials(token=access_token),
             ),
         )
-        
+
         logger.debug("Successfully configured ADK with access token")
         return credential
 
@@ -90,7 +91,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         """
         if isinstance(tool, MCPTool):
             logger.debug("Setting up token propagation for ADK tool: %s", tool.name)
-            
+
             # get subject's access token from session state
             access_token = tool_context._invocation_context.session.state.get(ACCESS_TOKEN_KEY, None)
             if access_token:
@@ -102,13 +103,13 @@ class ADKTokenPropagationPlugin(BasePlugin):
             if credential:
                 logger.debug("Propagating STS token in ADK tool call: %s", tool.name)
                 return await tool._run_async_impl(
-                    args=tool_args, 
-                    tool_context=tool_context, 
+                    args=tool_args,
+                    tool_context=tool_context,
                     credential=credential
                 )
             else:
                 logger.warning("No STS token available for ADK tool: %s", tool.name)
-                
+
         return None
 
 
@@ -120,11 +121,11 @@ class ADKSessionService(InMemorySessionService):
 
         Args:
             sts_integration: The ADK STS integration instance
-            wrapped_service: Optional session service to wrap (any BaseSessionService implementation). 
+            wrapped_service: Optional session service to wrap (any BaseSessionService implementation).
                            If None, uses InMemorySessionService
         """
         super().__init__()
-        self._wrapped_service = wrapped_service            
+        self._wrapped_service = wrapped_service
         self.sts_integration = sts_integration
         self._access_token = None
 
@@ -145,15 +146,15 @@ class ADKSessionService(InMemorySessionService):
                 session_id=session_id,
                 config=config,
             )
-        
+
         if session is not None:
             if session.state is None:
                 session.state = {}
-            
+
             # Add the user's access token to session state
             if self._access_token:
                 session.state[ACCESS_TOKEN_KEY] = self._access_token
-                
+
         return session
 
     @override
@@ -173,13 +174,13 @@ class ADKSessionService(InMemorySessionService):
                 state=state,
                 session_id=session_id,
             )
-        
+
         if session.state is None:
             session.state = {}
-        
+
         if self._access_token:
             session.state[ACCESS_TOKEN_KEY] = self._access_token
-                
+
         return session
 
     @override
@@ -214,18 +215,18 @@ class ADKSessionService(InMemorySessionService):
 
     def _store_access_token(self, access_token: str):
         self._access_token = access_token
-    
+
 
 class ADKRunner(Runner):
     """Custom runner for ADK """
 
-    def __init__(self, session_service: ADKSessionService, *args, **kwargs):
-        super().__init__(session_service=session_service, *args, **kwargs)
+    def __init__(self, session_service: ADKSessionService, **kwargs):
+        super().__init__(session_service=session_service, **kwargs)
 
 
     @override
     async def run_async(self, *args, **kwargs):
-        headers = kwargs.pop('headers', {})
+        headers = kwargs.pop("headers", {})
         user_jwt = self._extract_jwt_from_headers(headers)
         if user_jwt:
             self.session_service._store_access_token(user_jwt)
