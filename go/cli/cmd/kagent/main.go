@@ -325,7 +325,37 @@ Examples:
 	deployCmd.Flags().StringVar(&deployCfg.APIKeySecret, "api-key-secret", "", "Name of existing secret containing API key")
 	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "", "Kubernetes namespace to deploy to")
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, mcp.NewMCPCmd())
+	// add-mcp command
+	addMcpCfg := &cli.AddMcpCfg{Config: cfg}
+	addMcpCmd := &cobra.Command{
+		Use:   "add-mcp [name] [args...]",
+		Short: "Add an MCP server entry to kagent.yaml",
+		Long:  `Add an MCP server entry to kagent.yaml. Use flags for non-interactive setup or run without flags to open the wizard.`,
+		Args:  cobra.ArbitraryArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) > 0 {
+				addMcpCfg.Name = args[0]
+				if len(args) > 1 && addMcpCfg.Command != "" {
+					addMcpCfg.Args = append(addMcpCfg.Args, args[1:]...)
+				}
+			}
+			if err := cli.AddMcpCmd(addMcpCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
+	// Flags for non-interactive usage
+	addMcpCmd.Flags().StringVar(&addMcpCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
+	addMcpCmd.Flags().StringVar(&addMcpCfg.RemoteURL, "remote", "", "Remote MCP server URL (http/https)")
+	addMcpCmd.Flags().StringVar(&addMcpCfg.Command, "command", "", "Command to run MCP server (e.g., npx, uvx, kmcp, or a binary)")
+	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Args, "arg", nil, "Command argument (repeatable)")
+	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Env, "env", nil, "Environment variable in KEY=VALUE format (repeatable)")
+	addMcpCmd.Flags().StringVar(&addMcpCfg.Image, "image", "", "Container image (optional; mutually exclusive with --build)")
+	addMcpCmd.Flags().StringVar(&addMcpCfg.Build, "build", "", "Container build (optional; mutually exclusive with --image)")
+
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, mcp.NewMCPCmd())
 
 	// Initialize config
 	if err := config.Init(); err != nil {
