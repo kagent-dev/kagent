@@ -1,6 +1,6 @@
+
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import type { AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import KagentLogo from "@/components/kagent-logo";
@@ -18,10 +18,10 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
   const router = useRouter();
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
-    agent.metadata.name || '');
+    agent.metadata.name || ''
+  );
   const isBYO = agent.spec?.type === "BYO";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
-  
   const isReady = deploymentReady && accepted;
 
   const handleEditClick = (e: React.MouseEvent) => {
@@ -34,7 +34,7 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
     <Card className={cn(
       "group relative transition-all duration-200 overflow-hidden min-h-[200px]",
       isReady
-        ? 'cursor-pointer hover:border-violet-500 hover:shadow-md' 
+        ? 'cursor-pointer hover:border-primary hover:shadow-md'
         : 'cursor-default'
     )}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 relative z-30">
@@ -42,25 +42,22 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
           <KagentLogo className="h-5 w-5 flex-shrink-0" />
           <span className="truncate">{agentRef}</span>
         </CardTitle>
-        
         <div className="flex items-center space-x-2 relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handleEditClick} 
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleEditClick}
             aria-label="Edit Agent"
-            className="bg-white/80 hover:bg-white dark:bg-gray-800/80 dark:hover:bg-gray-800 shadow-sm"
+            className="bg-background/80 hover:bg-background shadow-sm"
           >
             <Pencil className="h-4 w-4" />
           </Button>
-          <DeleteButton 
-            agentName={agent.metadata.name} 
-            namespace={agent.metadata.namespace || ''} 
-            className="bg-white/80 hover:bg-white dark:bg-gray-800/80 dark:hover:bg-gray-800 shadow-sm"
+          <DeleteButton
+            agentName={agent.metadata.name}
+            namespace={agent.metadata.namespace || ''}
           />
         </div>
       </CardHeader>
-      
       <CardContent className="flex flex-col justify-between h-32 relative z-10">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">
           {agent.spec.description}
@@ -76,12 +73,34 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
 
       {!isReady && (
         <div className={cn(
-          "absolute bottom-0 left-0 right-0 z-20 py-1.5 px-4 text-right text-xs font-medium rounded-b-xl",
+          "absolute inset-0 rounded-xl flex flex-col items-center justify-center z-20 backdrop-blur-[2px]",
           !accepted 
-            ? "bg-red-100 text-red-800 dark:bg-red-900/90 dark:text-red-100" 
-            : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/90 dark:text-yellow-100"
+            ? "bg-destructive/90" 
+            : "bg-secondary/90"
         )}>
-          {!accepted ? "Agent not Accepted" : "Agent not Ready"}
+          <div className="text-center px-6 py-8 max-w-[80%]">
+            <div className="flex justify-center mb-4">
+              {!accepted ? (
+                <AlertCircle className="h-12 w-12 text-destructive-foreground drop-shadow-lg" />
+              ) : (
+                <Clock className="h-12 w-12 text-secondary-foreground drop-shadow-lg" />
+              )}
+            </div>
+            <h3 className={cn(
+              "font-bold text-2xl mb-3 drop-shadow-lg",
+              !accepted ? "text-destructive-foreground" : "text-secondary-foreground"
+            )}>
+              {!accepted ? "Agent not Accepted" : "Agent not Ready"}
+            </h3>
+            <p className={cn(
+              "text-base drop-shadow",
+              !accepted ? "text-destructive-foreground/95" : "text-secondary-foreground/90"
+            )}>
+              {!accepted 
+                ? "Configuration needs review" 
+                : "Still deploying..."}
+            </p>
+          </div>
         </div>
       )}
     </Card>
