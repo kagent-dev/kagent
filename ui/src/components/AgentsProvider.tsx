@@ -1,11 +1,12 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
-import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
-import { getTools } from "@/app/actions/tools";
+import React, { createContext, useContext, ReactNode, useCallback } from "react";
+import { getAgent as getAgentAction, createAgent } from "@/app/actions/agents";
 import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar } from "@/types";
-import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
+import { useSettings } from "@/contexts/SettingsContext";
+import useSWR from "swr";
+import { createTypedFetcher, buildApiUrl } from "@/lib/fetcher";
 
 interface ValidationErrors {
   name?: string;
@@ -53,6 +54,7 @@ interface AgentsContextType {
   updateAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   getAgent: (name: string, namespace: string) => Promise<AgentResponse | null>;
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
+  isRefreshing: boolean;
 }
 
 const AgentsContext = createContext<AgentsContextType | undefined>(undefined);
@@ -70,60 +72,44 @@ interface AgentsProviderProps {
 }
 
 export function AgentsProvider({ children }: AgentsProviderProps) {
-  const [agents, setAgents] = useState<AgentResponse[]>([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [tools, setTools] = useState<ToolsResponse[]>([]);
-  const [models, setModels] = useState<ModelConfig[]>([]);
+  const { getSwrConfig } = useSettings();
+  
+  // Create typed fetchers
+  const agentsFetcher = createTypedFetcher<AgentResponse[]>();
+  const toolsFetcher = createTypedFetcher<ToolsResponse[]>();
+  const modelsFetcher = createTypedFetcher<ModelConfig[]>();
+  
+  // SWR hooks for data fetching with auto-refresh
+  const { data: agents = [], error: agentsError, isLoading: agentsLoading, mutate: mutateAgents } = useSWR(
+    buildApiUrl('/agents'),
+    agentsFetcher,
+    getSwrConfig()
+  );
+  
+  const { data: tools = [], error: toolsError, isLoading: toolsLoading } = useSWR(
+    buildApiUrl('/tools'),
+    toolsFetcher,
+    // Tools change less frequently, so less aggressive refresh
+    { revalidateOnFocus: false, refreshInterval: undefined }
+  );
+  
+  const { data: models = [], error: modelsError, isLoading: modelsLoading } = useSWR(
+    buildApiUrl('/models'),
+    modelsFetcher,
+    // Models change even less frequently
+    { revalidateOnFocus: false, refreshInterval: undefined }
+  );
+  
+  // Combine loading states
+  const loading = agentsLoading || toolsLoading || modelsLoading;
+  const error = agentsError?.message || toolsError?.message || modelsError?.message || "";
+  const isRefreshing = agentsLoading && agents.length > 0; // Only consider it "refreshing" if we have data already
 
-  const fetchAgents = useCallback(async () => {
-    try {
-      setLoading(true);
-      const agentsResult = await getAgents();
-
-      if (!agentsResult.data || agentsResult.error) {
-        throw new Error(agentsResult.error || "Failed to fetch agents");
-      }
-
-      setAgents(agentsResult.data);
-      setError("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchModels = useCallback(async () => {
-    try {
-      const response = await getModelConfigs();
-      if (!response.data || response.error) {
-        throw new Error(response.error || "Failed to fetch models");
-      }
-
-      setModels(response.data);
-      setError("");
-    } catch (err) {
-      console.error("Error fetching models:", err);
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchTools = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await getTools();
-      setTools(response);
-      setError("");
-    } catch (err) {
-      console.error("Error fetching tools:", err);
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Manual refresh functions using SWR's mutate
+  const refreshAgents = useCallback(async () => {
+    await mutateAgents();
+  }, [mutateAgents]);
+  
 
   // Validation logic moved from the component
   const validateAgentData = useCallback((data: Partial<AgentFormData>): ValidationErrors => {
@@ -169,11 +155,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   // Get agent by ID function
   const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
     try {
-      // Fetch all agents
+      // Fetch single agent
       const agentResult = await getAgentAction(name, namespace);
       if (!agentResult.data || agentResult.error) {
         console.error("Failed to get agent:", agentResult.error);
-        setError("Failed to get agent");
         return null;
       }
 
@@ -186,12 +171,11 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       return agent;
     } catch (error) {
       console.error("Error getting agent by name and namespace:", error);
-      setError(error instanceof Error ? error.message : "Failed to get agent");
       return null;
     }
   }, []);
 
-  // Agent creation logic moved from the component
+  // Agent creation logic
   const createNewAgent = useCallback(async (agentData: AgentFormData) => {
     try {
       const errors = validateAgentData(agentData);
@@ -203,7 +187,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
       if (!result.error) {
         // Refresh agents to get the newly created one
-        await fetchAgents();
+        await mutateAgents();
       }
 
       return result;
@@ -214,7 +198,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to create agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
+  }, [mutateAgents, validateAgentData]);
 
   // Update existing agent
   const updateAgent = useCallback(async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
@@ -231,7 +215,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
       if (!result.error) {
         // Refresh agents to get the updated one
-        await fetchAgents();
+        await mutateAgents();
       }
 
       return result;
@@ -242,14 +226,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to update agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
-
-  // Initial fetches
-  useEffect(() => {
-    fetchAgents();
-    fetchTools();
-    fetchModels();
-  }, [fetchAgents, fetchTools, fetchModels]);
+  }, [mutateAgents, validateAgentData]);
 
   const value = {
     agents,
@@ -257,11 +234,12 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     loading,
     error,
     tools,
-    refreshAgents: fetchAgents,
+    refreshAgents,
     createNewAgent,
     updateAgent,
     getAgent,
     validateAgentData,
+    isRefreshing,
   };
 
   return <AgentsContext.Provider value={value}>{children}</AgentsContext.Provider>;
