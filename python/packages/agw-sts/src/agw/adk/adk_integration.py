@@ -88,17 +88,14 @@ class ADKTokenPropagationPlugin(BasePlugin):
             if subject_token and self.sts_integration is not None:
                 try:
                     credential = await self.sts_integration.get_auth_credential(subject_token=subject_token)
+                    logger.debug("Created ADK auth credential using STS token")
                 except Exception as e:
                     logger.error(f"Token exchange failed for tool {tool.name}: {e}")
                     logger.warning("Continuing without STS token propagation due to token exchange failure")
                     return None
             elif access_token:
-                try:
-                    credential = create_adk_auth_credential(access_token=access_token)
-                except Exception as e:
-                    logger.error(f"Token exchange failed for tool {tool.name}: {e}")
-                    logger.warning("Continuing without STS token propagation due to token exchange failure")
-                    return None
+                credential = create_adk_auth_credential(access_token=access_token)
+                logger.debug("Created ADK auth credential using passthrough access token")
             else:
                 logger.warning("No access token available for ADK tool: %s", tool.name)
                 return None
