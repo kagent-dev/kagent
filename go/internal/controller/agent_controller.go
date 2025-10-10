@@ -70,7 +70,7 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
+		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}))
 
 	// Setup owns relationships for resources created by the Agent controller -
 	// for now ownership of agent resources is handled by the ADK translator
