@@ -351,7 +351,7 @@ func TestE2EInvokeExternalAgent(t *testing.T) {
 
 	t.Run("invocation with different user", func(t *testing.T) {
 		// Setup A2A client with authentication
-		authClient, err := a2aclient.NewA2AClient(a2aURL, a2aclient.WithAPIKeyAuth("user@example.com", "x-user-id"))
+		authClient, err := a2aclient.NewA2AClient(a2aURL, a2aclient.WithAPIKeyAuth("user@example.com", "X-User-ID"))
 		require.NoError(t, err)
 
 		runSyncTest(t, authClient, "What can you do?", "kebab for user@example.com", nil)

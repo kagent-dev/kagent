@@ -20,6 +20,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -115,6 +116,30 @@ func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
 	return nil
 }
 
+// determineAgentPhaseAndMessage determines the agent phase and message based on conditions
+func determineAgentPhaseAndMessage(agent *v1alpha2.Agent) (v1alpha2.AgentPhase, string) {
+	acceptedCondition := meta.FindStatusCondition(agent.Status.Conditions, v1alpha2.AgentConditionTypeAccepted)
+	readyCondition := meta.FindStatusCondition(agent.Status.Conditions, v1alpha2.AgentConditionTypeReady)
+
+	// If not accepted, agent is in error state
+	if acceptedCondition != nil && acceptedCondition.Status == metav1.ConditionFalse {
+		return v1alpha2.AgentPhaseError, acceptedCondition.Message
+	}
+
+	// If ready condition is true, agent is ready
+	if readyCondition != nil && readyCondition.Status == metav1.ConditionTrue {
+		return v1alpha2.AgentPhaseReady, readyCondition.Message
+	}
+
+	// If ready condition is false or unknown, agent is pending
+	if readyCondition != nil && readyCondition.Status == metav1.ConditionFalse {
+		return v1alpha2.AgentPhasePending, readyCondition.Message
+	}
+
+	// Default to pending if conditions are not yet set
+	return v1alpha2.AgentPhasePending, "Waiting for reconciliation"
+}
+
 func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, err error) error {
 	var (
 		status  metav1.ConditionStatus
@@ -167,6 +192,14 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	}
 
 	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+
+	// Update Phase and Message based on conditions
+	newPhase, newMessage := determineAgentPhaseAndMessage(agent)
+	if agent.Status.Phase != newPhase || agent.Status.Message != newMessage {
+		agent.Status.Phase = newPhase
+		agent.Status.Message = newMessage
+		conditionChanged = true
+	}
 
 	// update the status if it has changed or the generation has changed
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
@@ -608,10 +641,20 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	defer a.upsertLock.Unlock()
 
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+
+	// Extract config if it's a declarative agent
+	var config *adk.AgentConfig
+	if agentOutputs.Config != nil {
+		if adkCfg, ok := agentOutputs.Config.(*adk.AgentConfig); ok {
+			config = adkCfg
+		}
+		// For workflow agents, config will be nil (workflow configs are not stored in the database)
+	}
+
 	dbAgent := &database.Agent{
 		ID:     id,
 		Type:   string(agent.Spec.Type),
-		Config: agentOutputs.Config,
+		Config: config,
 	}
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {

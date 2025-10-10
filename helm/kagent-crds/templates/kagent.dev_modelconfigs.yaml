@@ -8,6 +8,8 @@ metadata:
 spec:
   group: kagent.dev
   names:
+    categories:
+    - kagent
     kind: ModelConfig
     listKind: ModelConfigList
     plural: modelconfigs

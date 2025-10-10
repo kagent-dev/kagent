@@ -40,8 +40,8 @@ func DashboardCmd(ctx context.Context, cfg *config.Config) {
 		fmt.Fprintf(os.Stderr, "Error opening kagent dashboard: %v\n", err)
 	}
 
-	fmt.Fprintln(os.Stdout, "kagent dashboard is available at http://localhost:8082")
+	_, _ = fmt.Fprintln(os.Stdout, "kagent dashboard is available at http://localhost:8082")
 
 	fmt.Println("Press the Enter Key to stop the port-forward...")
-	fmt.Scanln() // wait for Enter Key
+	_, _ = fmt.Scanln() // wait for Enter Key
 }

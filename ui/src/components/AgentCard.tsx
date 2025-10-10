@@ -16,10 +16,19 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
   const router = useRouter();
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
-    agent.metadata.name || ''
-  );
+    agent.metadata.name || '');
   const isBYO = agent.spec?.type === "BYO";
+  const isWorkflow = agent.spec?.type === "Workflow";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
+
+  // Determine workflow type for display
+  const getWorkflowType = () => {
+    if (!isWorkflow) return "";
+    if (agent.spec?.workflow?.sequential) return "Sequential";
+    if (agent.spec?.workflow?.parallel) return "Parallel";
+    if (agent.spec?.workflow?.loop) return "Loop";
+    return "Workflow";
+  };
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -63,12 +72,16 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
             <span title={byoImage} className="truncate">
               Image: {byoImage}
             </span>
-          ) : (
+          ) : isWorkflow ? (
             <span className="truncate">
-              {modelProvider} ({model})
+              {getWorkflowType()} Workflow
+            </span>
+              ) : (
+            <span className="truncate">
+                {modelProvider} ({model})
             </span>
           )}
-          
+
            {/* this handles the ribbon part to  edit it change the py to change height and bg-yellow-400/30 to change transparency levels*/}
         </div>
         {!deploymentReady && (

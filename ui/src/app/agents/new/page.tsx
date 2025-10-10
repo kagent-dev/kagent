@@ -9,6 +9,8 @@ import { ModelConfig, AgentType } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
+import { WorkflowSection } from "@/components/create/WorkflowSection";
+import { SubAgentRef } from "@/components/AgentsProvider";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
@@ -70,6 +72,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     byoImage: string;
     byoCmd: string;
     byoArgs: string;
+    workflowType: "sequential" | "parallel" | "loop" | undefined;
+    subAgents: SubAgentRef[];
+    maxWorkers: number | undefined;
+    maxIterations: number | undefined;
+    timeout: string;
     replicas: string;
     imagePullPolicy: string;
     imagePullSecrets: string[];
@@ -90,6 +97,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
+    workflowType: undefined,
+    subAgents: [{ name: "", namespace: "default" }, { name: "", namespace: "default" }],
+    maxWorkers: undefined,
+    maxIterations: undefined,
+    timeout: "",
     replicas: "",
     imagePullPolicy: "",
     imagePullSecrets: [""],
@@ -133,6 +145,42 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
+                }));
+              } else if (agent.spec.type === "Workflow") {
+                const workflow = agent.spec.workflow;
+                let workflowType: "sequential" | "parallel" | "loop" | undefined;
+                let subAgents: SubAgentRef[] = [];
+                let maxWorkers: number | undefined;
+                let maxIterations: number | undefined;
+                let timeout: string | undefined;
+
+                if (workflow?.sequential) {
+                  workflowType = "sequential";
+                  subAgents = workflow.sequential.subAgents || [];
+                  timeout = workflow.sequential.timeout;
+                } else if (workflow?.parallel) {
+                  workflowType = "parallel";
+                  subAgents = workflow.parallel.subAgents || [];
+                  maxWorkers = workflow.parallel.maxWorkers;
+                  timeout = workflow.parallel.timeout;
+                } else if (workflow?.loop) {
+                  workflowType = "loop";
+                  subAgents = workflow.loop.subAgents || [];
+                  maxIterations = workflow.loop.maxIterations;
+                  timeout = workflow.loop.timeout;
+                }
+
+                setState(prev => ({
+                  ...prev,
+                  ...baseUpdates,
+                  systemPrompt: "",
+                  selectedModel: null,
+                  selectedTools: [],
+                  workflowType,
+                  subAgents: subAgents.length > 0 ? subAgents : [{ name: "", namespace: "default" }, { name: "", namespace: "default" }],
+                  maxWorkers,
+                  maxIterations,
+                  timeout: timeout || "",
                 }));
               } else {
                 setState(prev => ({
@@ -244,6 +292,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
         byoArgs: state.byoArgs ? state.byoArgs.split(/\s+/).filter(Boolean) : undefined,
+        // Workflow
+        workflowType: state.workflowType,
+        subAgents: state.subAgents,
+        maxWorkers: state.maxWorkers,
+        maxIterations: state.maxIterations,
+        timeout: state.timeout || undefined,
         replicas: state.replicas ? parseInt(state.replicas, 10) : undefined,
         imagePullPolicy: state.imagePullPolicy || undefined,
         imagePullSecrets: (state.imagePullSecrets || []).filter(n => n.trim()).map(n => ({ name: n.trim() })),
@@ -352,7 +406,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <div>
                   <Label className="text-base mb-2 block font-bold">Agent Type</Label>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    Choose declarative (uses a model) or BYO (bring your own containerized agent).
+                    Choose declarative (uses a model), BYO (bring your own containerized agent), or workflow (orchestrates multiple agents).
                   </p>
                   <Select
                     value={state.agentType}
@@ -368,6 +422,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     <SelectContent>
                       <SelectItem value="Declarative">Declarative</SelectItem>
                       <SelectItem value="BYO">BYO</SelectItem>
+                      <SelectItem value="Workflow">Workflow</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -554,6 +609,23 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
                     
                   </div>
+                )}
+                {state.agentType === "Workflow" && (
+                  <WorkflowSection
+                    workflowType={state.workflowType}
+                    onWorkflowTypeChange={(type) => setState(prev => ({ ...prev, workflowType: type }))}
+                    subAgents={state.subAgents}
+                    onSubAgentsChange={(subAgents) => setState(prev => ({ ...prev, subAgents }))}
+                    maxWorkers={state.maxWorkers}
+                    onMaxWorkersChange={(maxWorkers) => setState(prev => ({ ...prev, maxWorkers }))}
+                    maxIterations={state.maxIterations}
+                    onMaxIterationsChange={(maxIterations) => setState(prev => ({ ...prev, maxIterations }))}
+                    timeout={state.timeout}
+                    onTimeoutChange={(timeout) => setState(prev => ({ ...prev, timeout }))}
+                    disabled={state.isSubmitting || state.isLoading}
+                    currentAgentName={state.name}
+                    error={state.errors.tools}
+                  />
                 )}
               </CardContent>
             </Card>

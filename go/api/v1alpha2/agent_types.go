@@ -29,20 +29,21 @@ import (
 )
 
 // AgentType represents the agent type
-// +kubebuilder:validation:Enum=Declarative;BYO
+// +kubebuilder:validation:Enum=Declarative;BYO;Workflow
 type AgentType string
 
 const (
 	AgentType_Declarative AgentType = "Declarative"
 	AgentType_BYO         AgentType = "BYO"
+	AgentType_Workflow    AgentType = "Workflow"
 )
 
 // AgentSpec defines the desired state of Agent.
 // +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
-// +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
-// +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, or byo must be specified if type is BYO",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo))"
+// +kubebuilder:validation:XValidation:message="type must be either Declarative, BYO, or Workflow",rule="self.type == 'Declarative' || self.type == 'BYO' || self.type == 'Workflow'"
+// +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, byo must be specified if type is BYO, or workflow must be specified if type is Workflow",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo)) || (self.type == 'Workflow' && has(self.workflow))"
 type AgentSpec struct {
-	// +kubebuilder:validation:Enum=Declarative;BYO
+	// +kubebuilder:validation:Enum=Declarative;BYO;Workflow
 	// +kubebuilder:default=Declarative
 	Type AgentType `json:"type"`
 
@@ -50,6 +51,8 @@ type AgentSpec struct {
 	BYO *BYOAgentSpec `json:"byo,omitempty"`
 	// +optional
 	Declarative *DeclarativeAgentSpec `json:"declarative,omitempty"`
+	// +optional
+	Workflow *WorkflowAgentSpec `json:"workflow,omitempty"`
 
 	// +optional
 	Description string `json:"description,omitempty"`
@@ -133,6 +136,90 @@ type SharedDeploymentSpec struct {
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// WorkflowAgentSpec defines a workflow agent that orchestrates multiple sub-agents
+// +kubebuilder:validation:XValidation:message="exactly one of sequential, parallel, or loop must be specified",rule="(has(self.sequential) && !has(self.parallel) && !has(self.loop)) || (!has(self.sequential) && has(self.parallel) && !has(self.loop)) || (!has(self.sequential) && !has(self.parallel) && has(self.loop))"
+type WorkflowAgentSpec struct {
+	// Sequential workflow executes sub-agents in order with context propagation
+	// +optional
+	Sequential *SequentialAgentSpec `json:"sequential,omitempty"`
+
+	// Parallel workflow executes sub-agents concurrently with isolated contexts
+	// +optional
+	Parallel *ParallelAgentSpec `json:"parallel,omitempty"`
+
+	// Loop workflow executes sub-agents iteratively with configurable termination
+	// +optional
+	Loop *LoopAgentSpec `json:"loop,omitempty"`
+}
+
+// BaseWorkflowSpec contains fields common to all workflow types
+type BaseWorkflowSpec struct {
+	// SubAgents to execute (2-50 items required)
+	// +kubebuilder:validation:MinItems=2
+	// +kubebuilder:validation:MaxItems=50
+	// +kubebuilder:validation:Required
+	SubAgents []SubAgentReference `json:"subAgents"`
+
+	// Timeout for each sub-agent execution (e.g., "5m", "300s")
+	// Defaults to "5m" if not specified
+	// +kubebuilder:validation:Pattern="^[0-9]+(ms|s|m|h)$"
+	// +optional
+	Timeout *string `json:"timeout,omitempty"`
+
+	// Description of this workflow
+	// +optional
+	Description string `json:"description,omitempty"`
+}
+
+// SequentialAgentSpec defines a workflow that executes sub-agents in sequence
+type SequentialAgentSpec struct {
+	BaseWorkflowSpec `json:",inline"`
+}
+
+// ParallelAgentSpec defines a workflow that executes sub-agents concurrently
+type ParallelAgentSpec struct {
+	BaseWorkflowSpec `json:",inline"`
+
+	// Maximum number of sub-agents executing concurrently (default: 10)
+	// Controls resource usage by limiting parallel execution
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=50
+	// +kubebuilder:default=10
+	// +optional
+	MaxWorkers *int32 `json:"maxWorkers,omitempty"`
+}
+
+// LoopAgentSpec defines a workflow that executes sub-agents iteratively
+type LoopAgentSpec struct {
+	BaseWorkflowSpec `json:",inline"`
+
+	// Maximum number of iterations (required, minimum 1)
+	// Loop terminates when max_iterations is reached OR when exit_loop tool is called
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:validation:Required
+	MaxIterations int32 `json:"maxIterations"`
+}
+
+// SubAgentReference references an existing Agent to use as a sub-agent in a workflow
+type SubAgentReference struct {
+	// Name of the referenced Agent (required)
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Namespace of the referenced Agent
+	// If empty, defaults to the same namespace as the parent workflow agent
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// Kind of the referenced resource (must be "Agent")
+	// +kubebuilder:validation:Enum=Agent
+	// +kubebuilder:default=Agent
+	// +optional
+	Kind string `json:"kind,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type
@@ -219,10 +306,27 @@ const (
 	AgentConditionTypeReady    = "Ready"
 )
 
+// AgentPhase represents the current phase of the agent lifecycle
+// +kubebuilder:validation:Enum=Pending;Ready;Error;Unknown
+type AgentPhase string
+
+const (
+	AgentPhasePending AgentPhase = "Pending"
+	AgentPhaseReady   AgentPhase = "Ready"
+	AgentPhaseError   AgentPhase = "Error"
+	AgentPhaseUnknown AgentPhase = "Unknown"
+)
+
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
 	ObservedGeneration int64              `json:"observedGeneration"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	// Phase represents the current lifecycle phase of the agent.
+	// +optional
+	Phase AgentPhase `json:"phase,omitempty"`
+	// Message provides a human-readable message about the agent's current state.
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -230,6 +334,8 @@ type AgentStatus struct {
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase",description="The current phase of the agent."
+// +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Human-readable message about the agent status."
 // +kubebuilder:storageversion
 
 // Agent is the Schema for the agents API.

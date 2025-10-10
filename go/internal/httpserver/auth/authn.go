@@ -23,7 +23,7 @@ type UnsecureAuthenticator struct{}
 func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (auth.Session, error) {
 	userID := query.Get("user_id")
 	if userID == "" {
-		userID = reqHeaders.Get("X-User-Id")
+		userID = reqHeaders.Get("X-User-ID")
 	}
 	if userID == "" {
 		userID = "admin@kagent.dev"
@@ -46,7 +46,7 @@ func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Sessi
 	if session == nil || session.Principal().User.ID == "" {
 		return nil
 	}
-	r.Header.Set("X-User-Id", session.Principal().User.ID)
+	r.Header.Set("X-User-ID", session.Principal().User.ID)
 	return nil
 }
 

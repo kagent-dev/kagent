@@ -88,7 +88,8 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		Accepted:        accepted,
 	}
 
-	if agent.Spec.Type == v1alpha2.AgentType_Declarative {
+	switch agent.Spec.Type {
+	case v1alpha2.AgentType_Declarative:
 		// Get the ModelConfig for the team
 		modelConfig := &v1alpha2.ModelConfig{}
 		objKey := client.ObjectKey{
@@ -111,6 +112,31 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		response.Model = modelConfig.Spec.Model
 		response.ModelConfigRef = utils.GetObjectRef(modelConfig)
 		response.Tools = agent.Spec.Declarative.Tools
+	case v1alpha2.AgentType_Workflow:
+		// For workflow agents, convert sub-agents to Tools
+		var subAgents []v1alpha2.SubAgentReference
+
+		if agent.Spec.Workflow.Sequential != nil {
+			subAgents = agent.Spec.Workflow.Sequential.SubAgents
+		} else if agent.Spec.Workflow.Parallel != nil {
+			subAgents = agent.Spec.Workflow.Parallel.SubAgents
+		} else if agent.Spec.Workflow.Loop != nil {
+			subAgents = agent.Spec.Workflow.Loop.SubAgents
+		}
+
+		// Convert SubAgentReferences to Tools
+		tools := make([]*v1alpha2.Tool, 0, len(subAgents))
+		for _, subAgent := range subAgents {
+			tool := &v1alpha2.Tool{
+				Type: v1alpha2.ToolProviderType_Agent,
+				Agent: &v1alpha2.TypedLocalReference{
+					Name: subAgent.Name,
+					Kind: "Agent",
+				},
+			}
+			tools = append(tools, tool)
+		}
+		response.Tools = tools
 	}
 
 	return response, nil
