@@ -7,11 +7,11 @@ import httpx
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
-from crewai import Crew, Flow
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
 
+from crewai import Crew, Flow
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
