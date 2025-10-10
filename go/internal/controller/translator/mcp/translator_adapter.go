@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"regexp"
 	"sort"
 
 	"go.uber.org/multierr"
@@ -24,13 +26,43 @@ import (
 )
 
 const (
-	transportAdapterContainerImage = "ghcr.io/agentgateway/agentgateway:0.7.4-musl"
+	transportAdapterRepository     = "ghcr.io/agentgateway/agentgateway"
+	defaultTransportAdapterVersion = "0.9.0"
 	defaultDebianContainerImage    = "ghcr.io/astral-sh/uv:debian"
 	defaultNodeContainerImage      = "node:24-alpine3.21"
 	mcpServerConfigHashAnnotation  = "kagent.dev/mcpserver-config-hash"
 )
 
+// versionRegex validates that version strings contain only allowed characters
+// (alphanumeric, dots, hyphens) to prevent potential image injection attacks
+var versionRegex = regexp.MustCompile(`^[a-zA-Z0-9.\-]+$`)
+
 var mcpProtocol string = "kgateway.dev/mcp"
+
+// validateVersion validates that a version string contains only allowed characters
+// to prevent potential image injection attacks
+func validateVersion(version string) error {
+	if !versionRegex.MatchString(version) {
+		return fmt.Errorf("invalid version format: %s (only alphanumeric characters, dots, and hyphens are allowed)", version)
+	}
+	return nil
+}
+
+// getTransportAdapterImage returns the transport adapter container image,
+// using the environment variable if provided and valid, otherwise using the default
+func getTransportAdapterImage() (string, error) {
+	transportAdapterVersion := os.Getenv("TRANSPORT_ADAPTER_VERSION")
+	if transportAdapterVersion == "" {
+		return fmt.Sprintf("%s:%s-musl", transportAdapterRepository, defaultTransportAdapterVersion), nil
+	}
+
+	if err := validateVersion(transportAdapterVersion); err != nil {
+		klog.Warningf("Invalid TRANSPORT_ADAPTER_VERSION: %v, falling back to default version %s", err, defaultTransportAdapterVersion)
+		return fmt.Sprintf("%s:%s-musl", transportAdapterRepository, defaultTransportAdapterVersion), nil
+	}
+
+	return fmt.Sprintf("%s:%s-musl", transportAdapterRepository, transportAdapterVersion), nil
+}
 
 // Translator is the interface for translating MCPServer objects to TransportAdapter objects.
 type Translator interface {
@@ -104,6 +136,11 @@ func (t *transportAdapterTranslator) translateTransportAdapterDeployment(
 
 	// Create volume mounts from the MCPServer spec
 	volumeMounts := t.createVolumeMounts(server.Spec.Deployment)
+
+	transportAdapterContainerImage, err := getTransportAdapterImage()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transport adapter image: %w", err)
+	}
 
 	var template corev1.PodSpec
 	switch server.Spec.TransportType {

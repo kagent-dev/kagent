@@ -285,7 +285,7 @@ class AgentConfig(BaseModel):
                     timeout=remote_agent.timeout,
                     description=remote_agent.description,
                 )
-                tools.append(AgentTool(agent=remote_a2a_agent, skip_summarization=True))
+                tools.append(AgentTool(agent=remote_a2a_agent))
 
         return tools
 

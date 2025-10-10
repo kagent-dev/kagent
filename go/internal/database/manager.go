@@ -102,6 +102,8 @@ func (m *Manager) Initialize() error {
 		&ToolServer{},
 		&LangGraphCheckpoint{},
 		&LangGraphCheckpointWrite{},
+		&CrewAIAgentMemory{},
+		&CrewAIFlowState{},
 	)
 
 	if err != nil {
@@ -130,6 +132,8 @@ func (m *Manager) Reset(recreateTables bool) error {
 		&ToolServer{},
 		&LangGraphCheckpoint{},
 		&LangGraphCheckpointWrite{},
+		&CrewAIAgentMemory{},
+		&CrewAIFlowState{},
 	)
 
 	if err != nil {

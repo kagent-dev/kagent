@@ -16,4 +16,7 @@ type AgentOutputs struct {
 	AgentCard server.AgentCard `json:"agentCard"`
 }
 
-type TranslatorPlugin func(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error
+type TranslatorPlugin interface {
+	ProcessAgent(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error
+	GetOwnedResourceTypes() []client.Object
+}

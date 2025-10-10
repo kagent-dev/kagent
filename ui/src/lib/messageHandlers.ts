@@ -292,29 +292,12 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     toolData: ToolResponseData,
     contextId: string | undefined,
     taskId: string | undefined,
-    defaultSource: string,
-    includeDelegatedPlainMessage: boolean
+    defaultSource: string
   ) => {
-    const textContent = normalizeToolResultToText(toolData);
-
-    if (isAgentToolName(toolData.name) && includeDelegatedPlainMessage) {
-      const delegatedSource = convertToUserFriendlyName(toolData.name);
-      const plainMessage = createMessage(
-        textContent,
-        delegatedSource,
-        {
-          originalType: "TextMessage",
-          contextId,
-          taskId
-        }
-      );
-      appendMessage(plainMessage);
-    }
-
     const toolResultContent: ProcessedToolResultData[] = [{
       call_id: toolData.id,
       name: toolData.name,
-      content: textContent,
+      content: normalizeToolResultToText(toolData),
       is_error: toolData.response?.isError || false
     }];
     const execEvent = createMessage(
@@ -379,8 +362,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
                 handlers.setChatStatus("generating_response");
               }
             }
-
-                    } else if (isDataPart(part)) {
+          } else if (isDataPart(part)) {
             const data = part.data;
             const partMetadata = part.metadata as ADKMetadata | undefined;
 
@@ -392,7 +374,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             } else if (partMetadata?.kagent_type === "function_response") {
               const toolData = data as unknown as ToolResponseData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-              processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, true);
+              processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source);
             }
           }
         }
