@@ -152,7 +152,7 @@ class KAgentSessionService(BaseSessionService):
         # Convert ADK Event to JSON format
         event_data = {
             "id": event.id,
-            "data": event.model_dump_json(),
+            "data": event.model_dump(mode="json"),
         }
 
         # Make API call to append event to session

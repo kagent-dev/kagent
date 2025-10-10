@@ -212,7 +212,9 @@ func a2aUrl(namespace, name string) string {
 		kagentURL = "http://localhost:8083"
 	}
 	// A2A URL format: <base_url>/<namespace>/<agent_name>
-	return kagentURL + "/api/a2a/" + namespace + "/" + name
+	fullURL := kagentURL + "/api/a2a/" + namespace + "/" + name
+	fmt.Printf("A2A URL for %s/%s: %s\n", namespace, name, fullURL)
+	return fullURL
 }
 
 func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {

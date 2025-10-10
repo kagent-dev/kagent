@@ -163,7 +163,7 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
         # Call the Go service
         response = await self.client.post(
             "/api/langgraph/checkpoints",
-            json=request_data.model_dump(),
+            json=request_data.model_dump(mode="json"),
             headers={"X-User-ID": user_id},
         )
         response.raise_for_status()
@@ -216,7 +216,7 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
 
         response = await self.client.post(
             "/api/langgraph/checkpoints/writes",
-            json=request_data.model_dump(),
+            json=request_data.model_dump(mode="json"),
             headers={"X-User-ID": user_id},
         )
         response.raise_for_status()
