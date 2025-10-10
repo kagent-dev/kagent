@@ -598,6 +598,12 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	// configure sts server to use the k8s url in its well known config response
 	stsServer.SetK8sURL(stsK8sURL)
 
+	// Add debug logging for STS server setup
+	t.Logf("\n=== DEBUG: STS Server Setup ===\n")
+	t.Logf("  - Original STS server URL: %s\n", stsServer.URL())
+	t.Logf("  - K8s accessible STS URL: %s\n", stsK8sURL)
+	t.Logf("  - Well-known URL: %s\n", stsServer.WellKnownURL())
+
 	t.Run("agent_with_sts_configuration", func(t *testing.T) {
 		baseURL, stopLLMServer := setupMockServer(t, "mocks/invoke_mcp_agent.json")
 		defer stopLLMServer()
@@ -633,6 +639,54 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 				},
 			},
 		})
+
+		// Add debug logging for agent environment
+		fmt.Printf("\n=== DEBUG: Agent Environment Variables ===\n")
+		fmt.Printf("  - STS_WELL_KNOWN_URI: %s\n", stsK8sURL+"/.well-known/oauth-authorization-server")
+		fmt.Printf("  - Agent name: %s\n", agent.Name)
+		fmt.Printf("  - Agent namespace: %s\n", agent.Namespace)
+
+		// Add logging to get deployment logs
+		defer func() {
+			// Get logs from the test-sts-agent deployment
+			fmt.Printf("\n=== DEBUG: Getting logs for test-sts-agent deployment ===\n")
+			cmd := exec.CommandContext(t.Context(), "kubectl", "logs", "-n", "kagent", "deployment/test-sts-agent", "--tail=50")
+			output, err := cmd.Output()
+			if err != nil {
+				fmt.Printf("Failed to get deployment logs: %v\n", err)
+			} else {
+				fmt.Printf("Deployment logs:\n%s\n", string(output))
+			}
+
+			// Also get pod logs
+			fmt.Printf("\n=== DEBUG: Getting pod logs for test-sts-agent ===\n")
+			cmd = exec.CommandContext(t.Context(), "kubectl", "get", "pods", "-n", "kagent", "-l", "app=test-sts-agent", "-o", "name")
+			podOutput, err := cmd.Output()
+			if err != nil {
+				fmt.Printf("Failed to get pod names: %v\n", err)
+			} else {
+				podName := strings.TrimSpace(string(podOutput))
+				if podName != "" {
+					cmd = exec.CommandContext(t.Context(), "kubectl", "logs", "-n", "kagent", podName, "--tail=50")
+					podLogs, err := cmd.Output()
+					if err != nil {
+						fmt.Printf("Failed to get pod logs: %v\n", err)
+					} else {
+						fmt.Printf("Pod logs:\n%s\n", string(podLogs))
+					}
+				}
+			}
+
+			// Get pod description for debugging
+			fmt.Printf("\n=== DEBUG: Getting pod description ===\n")
+			cmd = exec.CommandContext(t.Context(), "kubectl", "describe", "pods", "-n", "kagent", "-l", "app=test-sts-agent")
+			descOutput, err := cmd.Output()
+			if err != nil {
+				fmt.Printf("Failed to get pod description: %v\n", err)
+			} else {
+				fmt.Printf("Pod description:\n%s\n", string(descOutput))
+			}
+		}()
 
 		// cleanup
 		defer func() {
