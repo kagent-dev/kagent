@@ -84,21 +84,15 @@ jobs:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
-      - name: Detect host IP for Kind cluster access
-        id: host-ip
+      - name: Run e2e tests
+        if: success()
+        working-directory: go
         run: |
           # Get the Kind network gateway IP that pods can reach
           HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
           echo "Detected Kind network gateway: $HOST_IP"
-          echo "KAGENT_LOCAL_HOST=$HOST_IP" >> $GITHUB_ENV
-          echo "host-ip=$HOST_IP" >> $GITHUB_OUTPUT
-
-      - name: Run e2e tests
-        if: success()
-        working-directory: go
-        env:
-          KAGENT_LOCAL_HOST: ${{ env.KAGENT_LOCAL_HOST }}
-        run: |
+          export KAGENT_LOCAL_HOST=$HOST_IP
+          
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
           echo "KAGENT_URL: $KAGENT_URL"
           echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
