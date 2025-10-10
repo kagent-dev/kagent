@@ -8,7 +8,7 @@ import { Terminal, Globe, Loader2, PlusCircle, Trash2, Code, InfoIcon, AlertCirc
 import type { RemoteMCPServer, MCPServer, ToolServerCreateRequest } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { isResourceNameValid } from "@/lib/utils";
+import { createRFC1123ValidName, isResourceNameValid } from "@/lib/utils";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Checkbox } from "./ui/checkbox";
 
@@ -51,52 +51,6 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const [timeout, setTimeout] = useState("5s");
   const [sseReadTimeout, setSseReadTimeout] = useState("300s");
   const [terminateOnClose, setTerminateOnClose] = useState(true);
-  
-
-  // Clean up package name for server name
-  const cleanPackageName = (pkgName: string): string => {
-    let cleaned = pkgName.trim().replace(/^@[\w-]+\//, "");
-
-    if (cleaned.startsWith("mcp-") && cleaned.length > 4) {
-      cleaned = cleaned.substring(4);
-    }
-
-    // Convert to lowercase
-    cleaned = cleaned.toLowerCase();
-    // Replace spaces and invalid characters with hyphens
-    cleaned = cleaned.replace(/[^a-z0-9.-]/g, "-");
-    // Replace multiple consecutive hyphens with a single hyphen
-    cleaned = cleaned.replace(/-+/g, "-");
-    // Remove hyphens at the beginning and end
-    cleaned = cleaned.replace(/^-+|-+$/g, "");
-    // If the string starts with a dot, prepend an 'a'
-    if (cleaned.startsWith(".")) {
-      cleaned = "a" + cleaned;
-    }
-    
-    // If the string ends with a dot, append an 'a'
-    if (cleaned.endsWith(".")) {
-      cleaned = cleaned + "a";
-    }
-    
-    // Ensure the name starts and ends with an alphanumeric character
-    // If it doesn't start with alphanumeric, prepend 'server-'
-    if (!/^[a-z0-9]/.test(cleaned)) {
-      cleaned = "server-" + cleaned;
-    }
-    
-    // If it doesn't end with alphanumeric, append '-server'
-    if (!/[a-z0-9]$/.test(cleaned)) {
-      cleaned = cleaned + "-server";
-    }
-    
-    // If the string is empty (could happen after all the replacements), use a default name
-    if (!cleaned) {
-      cleaned = "tool-server";
-    }
-    
-    return cleaned;
-  };
 
   // Handle server name input changes
   const handleServerNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -114,7 +68,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     let generatedName = "";
 
     if (activeTab === "command" && packageName.trim()) {
-      generatedName = cleanPackageName(packageName.trim());
+      generatedName = createRFC1123ValidName([packageName.trim()]);
     } else if (activeTab === "url" && url.trim()) {
       try {
         const urlObj = new URL(url.trim());

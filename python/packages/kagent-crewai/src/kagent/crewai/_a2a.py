@@ -1,5 +1,6 @@
 import faulthandler
 import logging
+import os
 from typing import Union
 
 import httpx
@@ -9,6 +10,7 @@ from a2a.types import AgentCard
 from crewai import Crew, Flow
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
 
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
@@ -54,6 +56,7 @@ class KAgentApp:
             crew=self._crew,
             app_name=self.config.app_name,
             config=self.executor_config,
+            http_client=http_client,
         )
 
         task_store = KAgentTaskStore(http_client)
@@ -78,6 +81,10 @@ class KAgentApp:
 
         if self.tracing:
             configure_tracing(app)
+            # Setup crewAI instrumentor separately as core configure does not include it
+            tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
+            if tracing_enabled:
+                CrewAIInstrumentor().instrument()
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)

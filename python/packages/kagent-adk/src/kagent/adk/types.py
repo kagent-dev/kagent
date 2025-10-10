@@ -119,7 +119,7 @@ class AgentConfig(BaseModel):
                     httpx_client=client,
                 )
 
-                tools.append(AgentTool(agent=remote_a2a_agent, skip_summarization=True))
+                tools.append(AgentTool(agent=remote_a2a_agent))
 
         extra_headers = self.model.headers or {}
 

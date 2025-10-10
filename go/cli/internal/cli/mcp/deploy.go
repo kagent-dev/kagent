@@ -149,7 +149,7 @@ func init() {
 	packageDeployCmd.Flags().StringVar(&deployTransport, "transport", "", "Transport type (stdio, http)")
 	packageDeployCmd.Flags().IntVar(&deployPort, "port", 0, "Container port (default: 3000)")
 	packageDeployCmd.Flags().BoolVar(&deployNoInspector, "no-inspector", true, "Do not start the MCP inspector after deployment")
-	packageDeployCmd.Flags().StringVarP(&deployOutput, "output", "o", "", "Output file for the generated YAML")
+	packageDeployCmd.Flags().StringVarP(&deployOutput, "output", "", "", "Output file for the generated YAML")
 
 	// Mark required flags
 	_ = packageDeployCmd.MarkFlagRequired("deployment-name")

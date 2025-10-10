@@ -23,6 +23,7 @@ type Handlers struct {
 	Namespaces  *NamespacesHandler
 	Tasks       *TasksHandler
 	Checkpoints *CheckpointsHandler
+	CrewAI      *CrewAIHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -56,5 +57,6 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Namespaces:  NewNamespacesHandler(base, watchedNamespaces),
 		Tasks:       NewTasksHandler(base),
 		Checkpoints: NewCheckpointsHandler(base),
+		CrewAI:      NewCrewAIHandler(base),
 	}
 }

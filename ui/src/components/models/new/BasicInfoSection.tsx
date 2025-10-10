@@ -72,6 +72,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
               </div>
             )}
             <Button
+              data-test="edit-model-name-button"
               variant="outline"
               size="icon"
               onClick={onToggleEditName}

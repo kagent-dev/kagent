@@ -40,6 +40,13 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/57/cb/03315694ea2f9536c796767da0a1dd6d0b7c48df4badbab19c2c9c570741/a2a_sdk-0.3.3-py3-none-any.whl", hash = "sha256:d433c7f13a7a4b426e3aef798f9ef6eff0d3aea68c9a595634af865111b5c7c2", size = 135159, upload-time = "2025-08-25T18:32:08.18Z" },
 ]
 
+[package.optional-dependencies]
+http-server = [
+    { name = "fastapi" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
+]
+
 [[package]]
 name = "absolufy-imports"
 version = "0.3.1"
@@ -1890,11 +1897,13 @@ name = "kagent-crewai"
 version = "0.1.0"
 source = { editable = "packages/kagent-crewai" }
 dependencies = [
-    { name = "a2a-sdk" },
+    { name = "a2a-sdk", extra = ["http-server"] },
     { name = "crewai", extra = ["tools"] },
     { name = "fastapi" },
+    { name = "google-genai" },
     { name = "httpx" },
     { name = "kagent-core" },
+    { name = "opentelemetry-instrumentation-crewai" },
     { name = "pydantic" },
     { name = "typing-extensions" },
     { name = "uvicorn" },
@@ -1910,12 +1919,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", specifier = ">=0.3.1" },
+    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=0.3.1" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "crewai", extras = ["tools"], specifier = ">=0.193.2,<1.0.0" },
     { name = "fastapi", specifier = ">=0.100.0" },
+    { name = "google-genai", specifier = ">=1.21.1" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "kagent-core", editable = "packages/kagent-core" },
+    { name = "opentelemetry-instrumentation-crewai", specifier = ">=0.47.3" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
@@ -2731,6 +2742,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/97/10/7ba59b586eb099fa0155521b387d857de476687c670096597f618d889323/opentelemetry_instrumentation_asgi-0.57b0.tar.gz", hash = "sha256:a6f880b5d1838f65688fc992c65fbb1d3571f319d370990c32e759d3160e510b", size = 24654, upload-time = "2025-07-29T15:42:48.199Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/07/ab97dd7e8bc680b479203f7d3b2771b7a097468135a669a38da3208f96cb/opentelemetry_instrumentation_asgi-0.57b0-py3-none-any.whl", hash = "sha256:47debbde6af066a7e8e911f7193730d5e40d62effc1ac2e1119908347790a3ea", size = 16599, upload-time = "2025-07-29T15:41:48.332Z" },
+]
+
+[[package]]
+name = "opentelemetry-instrumentation-crewai"
+version = "0.47.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "opentelemetry-semantic-conventions-ai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6e/c7/64647122476b18cc17c460d137ddd89feca03df852ea8ba4924cbb6eee97/opentelemetry_instrumentation_crewai-0.47.3.tar.gz", hash = "sha256:80af9b6b92e95c729d3fcd5a9778f847538f8b7ce43c71497c20722ddaad3a5f", size = 4620, upload-time = "2025-09-21T12:12:45.993Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/bd/1d8b74abbf1bd3a124e47b4a2ec64e8bb1edf458e5db5cffd222ce413a21/opentelemetry_instrumentation_crewai-0.47.3-py3-none-any.whl", hash = "sha256:56b5283a8b4d6f7332b4aaca7165d14e64c175fccb0af0e671916da4f93a81cc", size = 6193, upload-time = "2025-09-21T12:12:06.595Z" },
 ]
 
 [[package]]

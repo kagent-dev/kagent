@@ -1,5 +1,5 @@
 import { describe, expect, it, jest, beforeEach, afterEach, afterAll } from '@jest/globals';
-import { getBackendUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
+import { createRFC1123ValidName, getBackendUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
 
 describe('URL Generation Utilities', () => {
   const originalEnv = process.env;
@@ -87,6 +87,24 @@ describe('Resource Name Validation', () => {
       expect(isResourceNameValid('-invalid-name')).toBe(false);
       expect(isResourceNameValid('invalid-name-')).toBe(false);
       expect(isResourceNameValid('invalid@name')).toBe(false);
+    });
+  });
+});
+
+
+describe('RFC 1123 Valid Name', () => {
+  describe('createRFC1123ValidName', () => {
+    it('should create a valid RFC 1123 subdomain name with a single part', () => {
+      expect(createRFC1123ValidName(['awslabs.terraform-mcp-server-latest'])).toBe('awslabs-terraform-mcp-server-latest');
+    });
+
+    it('should sanitize and join multiple parts', () => {
+      expect(createRFC1123ValidName(['My Service', 'v1.0', 'prod@us-east-1']))
+        .toBe('my-service-v1-0-prod-us-east-1');
+    });
+
+    it('should return empty string when all parts are invalid or empty', () => {
+      expect(createRFC1123ValidName(['***', '___', ''])).toBe('');
     });
   });
 });

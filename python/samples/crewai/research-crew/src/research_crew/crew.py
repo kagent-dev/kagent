@@ -50,4 +50,6 @@ class ResearchCrew:
             tasks=self.tasks,
             process=Process.sequential,
             verbose=True,
+            # NOTE: Uncomment this line to enable long term memory across agents in the same session
+            # memory=True,
         )
