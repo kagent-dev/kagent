@@ -85,7 +85,7 @@ func (m *MockSTSServer) ClearRequests() {
 func (m *MockSTSServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/.well-known/oauth-authorization-server":
-		m.handleWellKnown(w, r)
+		m.handleWellKnown(w)
 	case "/token":
 		m.handleTokenExchange(w, r)
 	default:
@@ -93,7 +93,7 @@ func (m *MockSTSServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (m *MockSTSServer) handleWellKnown(w http.ResponseWriter, r *http.Request) {
+func (m *MockSTSServer) handleWellKnown(w http.ResponseWriter) {
 	baseURL := m.server.URL
 	if m.k8sURL != "" {
 		baseURL = m.k8sURL
@@ -105,7 +105,11 @@ func (m *MockSTSServer) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(wellKnownConfig)
+	err := json.NewEncoder(w).Encode(wellKnownConfig)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (m *MockSTSServer) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
