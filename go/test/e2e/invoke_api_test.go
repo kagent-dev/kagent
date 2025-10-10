@@ -594,9 +594,8 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	defer stsServer.Close()
 
 	// convert STS server URL to be accessible from within Kubernetes pods
-	splitted := strings.Split(stsServer.URL(), ":")
-	port := splitted[len(splitted)-1]
-	stsK8sURL := fmt.Sprintf("http://host.docker.internal:%s", port)
+	stsK8sURL := buildK8sURL(stsServer.URL())
+	t.Logf("STS server URL: %s", stsK8sURL)
 	// configure sts server to use the k8s url in its well known config response
 	stsServer.SetK8sURL(stsK8sURL)
 

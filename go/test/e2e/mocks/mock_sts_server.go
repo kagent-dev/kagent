@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -48,7 +49,15 @@ func NewMockSTSServer(agentServiceAccount string) *MockSTSServer {
 		agentServiceAccount: agentServiceAccount,
 	}
 
-	mock.server = httptest.NewServer(http.HandlerFunc(mock.handleRequest))
+	// Use httptest.NewUnstartedServer to get more control over the server
+	mock.server = httptest.NewUnstartedServer(http.HandlerFunc(mock.handleRequest))
+
+	// Configure the server to listen on all interfaces
+	mock.server.Listener, _ = net.Listen("tcp", "0.0.0.0:0")
+
+	// Start the server
+	mock.server.Start()
+
 	return mock
 }
 
