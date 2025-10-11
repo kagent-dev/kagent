@@ -13,7 +13,10 @@ from google.adk.sessions.base_session_service import BaseSessionService
 from google.adk.sessions.session import Session
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.mcp_tool import MCPTool
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 from google.adk.tools.tool_context import ToolContext
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.models import LlmRequest
 from typing_extensions import override
 
 from agw.base import STSIntegrationBase
@@ -60,6 +63,46 @@ class ADKTokenPropagationPlugin(BasePlugin):
         """
         super().__init__("ADKTokenPropagationPlugin")
         self.sts_integration = sts_integration
+
+    @override
+    async def before_run_callback(
+      self,
+      *,
+      invocation_context: InvocationContext,
+    ) -> Optional[dict]:
+        """Propagate token to model before execution.
+        """
+        logger.debug("Setting up token propagation for ADK tool in before_model_callback")
+
+        # get subject's access token from session state or access token from session state
+        subject_token = invocation_context.session.state.get(SUBJECT_TOKEN_KEY, None)
+        access_token = invocation_context.session.state.get(ACCESS_TOKEN_KEY, None)
+
+        agent = invocation_context.agent
+        logger.debug(f"Agent name: {agent.name}")
+        if subject_token and self.sts_integration is not None:
+            logger.debug("Propagating STS token to ADK tool in before_run_callback")
+            try:
+                access_token = await self.sts_integration.exchange_token(subject_token, TokenType.JWT)
+                logger.debug(f"Got Access token from STS server:  with length: {len(access_token)}")
+                for tool in agent.tools:
+                    if isinstance(tool, MCPToolset):
+                        if tool._connection_params.headers is None:
+                            tool._connection_params.headers = {}
+                        tool._connection_params.headers['Authorization'] = f'Bearer {access_token}'
+                        logger.debug("Updated tool connection params to include access token from STS server")
+            except Exception as e:
+                logger.warning(f"Token exchange failed for tool {tool.name}: {e}")
+                return None
+        elif access_token:
+            for tool in agent.tools:
+                if isinstance(tool, MCPToolset):
+                    if tool._connection_params.headers is None:
+                        tool._connection_params.headers = {}
+                    tool._connection_params.headers['Authorization'] = f'Bearer {access_token}'
+                    logger.debug("Updated tool connection params to include passthroughaccess token")
+
+        return None
 
     @override
     async def before_tool_callback(
@@ -259,7 +302,6 @@ def create_adk_auth_credential(access_token: str) -> AuthCredential:
         ),
     )
 
-    logger.debug("Successfully configured ADK with access token")
     return credential
 
 
