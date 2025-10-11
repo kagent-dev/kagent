@@ -16,7 +16,6 @@ from google.adk.tools.mcp_tool import MCPTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 from google.adk.tools.tool_context import ToolContext
 from google.adk.agents.invocation_context import InvocationContext
-from google.adk.models import LlmRequest
 from typing_extensions import override
 
 from agw.base import STSIntegrationBase
@@ -92,7 +91,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
                         tool._connection_params.headers['Authorization'] = f'Bearer {access_token}'
                         logger.debug("Updated tool connection params to include access token from STS server")
             except Exception as e:
-                logger.warning(f"Token exchange failed for tool {tool.name}: {e}")
+                logger.warning(f"Token exchange failed for tool: {e}")
                 return None
         elif access_token:
             for tool in agent.tools:
