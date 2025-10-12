@@ -121,9 +121,9 @@ func main() {
 			defer cli.VersionCmd(cfg)
 
 			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				// silently error if kagent server is not reachable
-				pf, _ := cli.NewPortForward(cmd.Context(), cfg)
-				defer pf.Stop()
+				if pf, e := cli.NewPortForward(cmd.Context(), cfg); e == nil {
+					defer pf.Stop()
+				}
 			}
 		},
 	}
