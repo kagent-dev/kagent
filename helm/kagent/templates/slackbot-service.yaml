@@ -1,0 +1,22 @@
+{{- if .Values.slackbot.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kagent.fullname" . }}-slackbot
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.slackbot.labels" . | nindent 4 }}
+  {{- with .Values.slackbot.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.slackbot.service.type }}
+  ports:
+    - port: {{ .Values.slackbot.service.ports.port }}
+      targetPort: {{ .Values.slackbot.service.ports.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "kagent.slackbot.selectorLabels" . | nindent 4 }}
+{{- end }}

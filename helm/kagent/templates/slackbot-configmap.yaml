@@ -1,0 +1,29 @@
+{{- if .Values.slackbot.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-slackbot-config
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.slackbot.labels" . | nindent 4 }}
+data:
+  permissions.yaml: |
+    # Agent-level permissions configuration
+    # Configure which users/groups can access which agents via Slackbot
+
+    # Example: Restrict k8s-agent to SRE team
+    # agent_permissions:
+    #   kagent/k8s-agent:
+    #     user_groups:
+    #       - S0T8FCWSB  # Replace with your Slack user group ID
+    #     users:
+    #       - admin@company.com
+    #     deny_message: "K8s agent requires @sre-team membership"
+
+    # Default: If agent not listed above, it's public (accessible to all)
+    {{- toYaml .Values.slackbot.permissions | nindent 4 }}
+
+    # Global settings
+    settings:
+      user_group_cache_ttl: {{ .Values.slackbot.permissions.settings.user_group_cache_ttl | default 300 }}
+{{- end }}
