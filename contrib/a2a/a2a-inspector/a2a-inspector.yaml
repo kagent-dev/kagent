@@ -18,6 +18,13 @@ spec:
           image: localhost:5001/a2a-inspector:latest
           ports:
             - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
 ---
 kind: Service
 apiVersion: v1

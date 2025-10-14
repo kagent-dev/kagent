@@ -229,12 +229,13 @@ class WorkflowAgentConfig(BaseModel):
                 namespace=self.namespace,
             )
         elif self.workflow_type == "sequential":
-            from google.adk.agents import SequentialAgent
+            from .agents.sequential import KAgentSequentialAgent
 
-            return SequentialAgent(
+            return KAgentSequentialAgent(
                 name=self.name.replace("-", "_"),
                 description=self.description,
                 sub_agents=sub_agent_instances,
+                namespace=self.namespace,
             )
         elif self.workflow_type == "loop":
             from google.adk.agents import LoopAgent

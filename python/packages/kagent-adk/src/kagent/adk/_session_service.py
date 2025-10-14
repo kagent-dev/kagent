@@ -105,6 +105,25 @@ class KAgentSessionService(BaseSessionService):
             for event_data in events_data:
                 events.append(Event.model_validate_json(event_data["data"]))
 
+            # Log warning for large sessions (T041)
+            num_events = len(events)
+            if num_events > 1000:
+                logger.warning(
+                    "Large session detected: session_id=%s has %d events. "
+                    "Consider implementing pagination or archiving old sessions. "
+                    "Performance may degrade with very large sessions.",
+                    session_id,
+                    num_events,
+                )
+            elif num_events > 5000:
+                logger.error(
+                    "Very large session detected: session_id=%s has %d events. "
+                    "This may cause performance issues or memory exhaustion. "
+                    "Immediate action recommended: implement pagination or split session.",
+                    session_id,
+                    num_events,
+                )
+
             # Convert to ADK Session format
             return Session(
                 id=session_data["id"],
