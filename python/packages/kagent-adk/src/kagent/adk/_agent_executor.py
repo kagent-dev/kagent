@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable, Optional
 
 from a2a.server.agent_execution import AgentExecutor
@@ -113,7 +113,7 @@ class A2aAgentExecutor(AgentExecutor):
                     status=TaskStatus(
                         state=TaskState.submitted,
                         message=context.message,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                     ),
                     context_id=context.context_id,
                     final=False,
@@ -133,7 +133,7 @@ class A2aAgentExecutor(AgentExecutor):
                         task_id=context.task_id,
                         status=TaskStatus(
                             state=TaskState.failed,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            timestamp=datetime.now(UTC).isoformat(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
                                 role=Role.agent,
@@ -155,6 +155,12 @@ class A2aAgentExecutor(AgentExecutor):
     ):
         # Convert the a2a request to ADK run args
         run_args = convert_a2a_request_to_adk_run_args(context)
+
+        # Set user_id in context variable BEFORE preparing session
+        # This ensures the X-User-ID header is injected in HTTP calls to KAgent controller
+        from kagent.core.a2a import set_current_user_id
+
+        set_current_user_id(run_args["user_id"])
 
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
@@ -180,7 +186,7 @@ class A2aAgentExecutor(AgentExecutor):
                 task_id=context.task_id,
                 status=TaskStatus(
                     state=TaskState.working,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                 ),
                 context_id=context.context_id,
                 final=False,
@@ -226,7 +232,7 @@ class A2aAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.completed,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                     ),
                     context_id=context.context_id,
                     final=True,
@@ -238,7 +244,7 @@ class A2aAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=task_result_aggregator.task_state,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                         message=task_result_aggregator.task_status_message,
                     ),
                     context_id=context.context_id,

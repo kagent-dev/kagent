@@ -7,11 +7,11 @@ import httpx
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
-from crewai import Crew, Flow
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
 
+from crewai import Crew, Flow
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
@@ -50,7 +50,9 @@ class KAgentApp:
         self.tracing = tracing
 
     def build(self) -> FastAPI:
-        http_client = httpx.AsyncClient(base_url=self.config.url)
+        from kagent.core.a2a._requests import _inject_user_id_header
+
+        http_client = httpx.AsyncClient(base_url=self.config.url, event_hooks={"request": [_inject_user_id_header]})
 
         agent_executor = CrewAIAgentExecutor(
             crew=self._crew,
@@ -78,6 +80,12 @@ class KAgentApp:
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
         )
+
+        # Add middleware to extract X-User-ID header and set it in context variable
+        # This must be added before routes are added
+        from kagent.core.a2a import create_user_id_extraction_middleware
+
+        app.middleware("http")(create_user_id_extraction_middleware())
 
         if self.tracing:
             configure_tracing(app)

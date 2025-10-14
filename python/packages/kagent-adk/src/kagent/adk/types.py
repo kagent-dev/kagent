@@ -1,4 +1,5 @@
 import logging
+from contextvars import ContextVar
 from typing import Any, Literal, Union
 
 import httpx
@@ -17,6 +18,44 @@ from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
 
 logger = logging.getLogger(__name__)
+
+# Context variable to store user_id for propagation to sub-agents
+_current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=None)
+
+
+async def _inject_user_id_header(request: httpx.Request):
+    """Event hook to inject X-User-ID header from context variable."""
+    from kagent.core.a2a._requests import _inject_user_id_header as inject_header
+
+    await inject_header(request)
+
+
+def get_current_user_id() -> str | None:
+    """Get the current user_id from the context variable.
+
+    Returns:
+        The current user ID or None if not set
+    """
+    from kagent.core.a2a import get_current_user_id as get_user_id
+
+    return get_user_id()
+
+
+def create_user_propagating_httpx_client(timeout: float = DEFAULT_TIMEOUT) -> httpx.AsyncClient:
+    """Create an httpx.AsyncClient that propagates user_id via X-User-ID header.
+
+    This client uses a context variable to dynamically inject the X-User-ID header
+    at request time, enabling user context propagation through workflow agents.
+
+    Args:
+        timeout: Request timeout in seconds
+
+    Returns:
+        Configured AsyncClient with user ID propagation
+    """
+    from kagent.core.a2a import create_user_propagating_httpx_client as create_client
+
+    return create_client(timeout=timeout)
 
 
 def create_remote_agent(
@@ -39,13 +78,21 @@ def create_remote_agent(
         Configured RemoteA2aAgent instance with automatic user ID propagation
     """
 
-    client = None
+    # Always create client with user ID propagation
     if headers:
-        client = httpx.AsyncClient(headers=headers, timeout=httpx.Timeout(timeout=timeout))
+        # Create client with user ID propagation AND custom headers
+        client = httpx.AsyncClient(
+            headers=headers,
+            timeout=httpx.Timeout(timeout=timeout),
+            event_hooks={"request": [_inject_user_id_header]},
+        )
+    else:
+        # Create client with user ID propagation only
+        client = create_user_propagating_httpx_client(timeout=timeout)
 
     return RemoteA2aAgent(
         name=name,
-        agent_card=f"{url}/{AGENT_CARD_WELL_KNOWN_PATH}",
+        agent_card=f"{url}{AGENT_CARD_WELL_KNOWN_PATH}",
         description=description,
         httpx_client=client,
     )
@@ -157,11 +204,16 @@ class WorkflowAgentConfig(BaseModel):
             # Construct the agent URL (assumes standard KAgent deployment)
             agent_url = f"http://{sub_agent_ref.name}.{sub_agent_ref.namespace}:8080"
 
+            # Create a dedicated HTTP client for this agent with user ID propagation
+            agent_client = create_user_propagating_httpx_client()
+
             # Create RemoteA2aAgent instance
+            # Note: AGENT_CARD_WELL_KNOWN_PATH already starts with '/', so don't add extra '/'
             remote_agent = RemoteA2aAgent(
                 name=sub_agent_ref.name.replace("-", "_"),  # Python identifier
-                agent_card=f"{agent_url}/{AGENT_CARD_WELL_KNOWN_PATH}",
+                agent_card=f"{agent_url}{AGENT_CARD_WELL_KNOWN_PATH}",
                 description=sub_agent_ref.description,
+                httpx_client=agent_client,
             )
             sub_agent_instances.append(remote_agent)
 

@@ -55,10 +55,16 @@ class KAgentApp:
         self.agent_card = agent_card
 
     def build(self) -> FastAPI:
+        from kagent.core.a2a._requests import _inject_user_id_header
+
         token_service = KAgentTokenService(self.app_name)
-        http_client = httpx.AsyncClient(  # TODO: add user  and agent headers
-            base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks()
-        )
+        # Combine token service event hooks with user ID propagation
+        event_hooks = token_service.event_hooks()
+        if "request" not in event_hooks:
+            event_hooks["request"] = []
+        event_hooks["request"].append(_inject_user_id_header)
+
+        http_client = httpx.AsyncClient(base_url=kagent_url_override or self.kagent_url, event_hooks=event_hooks)
         session_service = KAgentSessionService(http_client)
 
         def create_runner() -> Runner:
@@ -89,9 +95,15 @@ class KAgentApp:
         faulthandler.enable()
         app = FastAPI(lifespan=token_service.lifespan())
 
+        # Add middleware to extract X-User-ID header and set it in context variable
+        # This must be added before routes are added
+        from kagent.core.a2a import UserIdExtractionMiddleware
+
+        app.add_middleware(UserIdExtractionMiddleware)
+
         # Health check/readiness probe
-        app.add_route("/health", methods=["GET"], route=health_check)
-        app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
+        app.add_api_route("/health", health_check, methods=["GET"])
+        app.add_api_route("/thread_dump", thread_dump, methods=["GET"])
         a2a_app.add_routes_to_app(app)
 
         return app

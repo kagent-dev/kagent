@@ -110,7 +110,6 @@ test:
 
 .PHONY: e2e
 e2e:
-	#UPDATE_GOLDEN=true go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
 	go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
 
 .PHONY: install

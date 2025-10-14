@@ -78,9 +78,10 @@ class KAgentApp:
         Returns:
             Configured FastAPI application ready for deployment
         """
+        from kagent.core.a2a._requests import _inject_user_id_header
 
-        # Create HTTP client for KAgent API
-        http_client = httpx.AsyncClient(base_url=self.config.url)
+        # Create HTTP client for KAgent API with user ID propagation
+        http_client = httpx.AsyncClient(base_url=self.config.url, event_hooks={"request": [_inject_user_id_header]})
 
         # Create agent executor
         agent_executor = LangGraphAgentExecutor(
@@ -117,6 +118,12 @@ class KAgentApp:
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
         )
+
+        # Add middleware to extract X-User-ID header and set it in context variable
+        # This must be added before routes are added
+        from kagent.core.a2a import create_user_id_extraction_middleware
+
+        app.middleware("http")(create_user_id_extraction_middleware())
 
         # Configure tracing/instrumentation if enabled
         if self._enable_tracing:

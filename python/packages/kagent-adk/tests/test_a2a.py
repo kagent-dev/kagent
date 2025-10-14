@@ -123,7 +123,7 @@ class TestKAgentAppBuild:
         assert result == mock_fastapi_instance
 
         # Verify routes were added
-        assert mock_fastapi_instance.add_route.call_count == 2  # health and thread_dump
+        assert mock_fastapi_instance.add_api_route.call_count == 2  # health and thread_dump
         mock_a2a_instance.add_routes_to_app.assert_called_once_with(mock_fastapi_instance)
 
     @patch("kagent.adk._a2a.kagent_url_override", "https://override.example.com")
