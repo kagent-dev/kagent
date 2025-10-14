@@ -1,6 +1,6 @@
 import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
-import { convertToUserFriendlyName, messageUtils, isAgentToolName } from "@/lib/utils";
+import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
 import { TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
@@ -154,6 +154,11 @@ function isDataPart(part: Part): part is DataPart {
 }
 
 function  getSourceFromMetadata(metadata: ADKMetadata | undefined, fallback: string = "assistant"): string {
+  // Prioritize kagent_author for sub-agent messages
+  if (metadata?.kagent_author) {
+    return convertToUserFriendlyName(metadata.kagent_author);
+  }
+  // Fall back to kagent_app_name for regular messages
   if (metadata?.kagent_app_name) {
     return convertToUserFriendlyName(metadata.kagent_app_name);
   }
@@ -341,7 +346,20 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             const textContent = part.text || "";
             const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
 
+            // Check if this is a sub-agent message in a workflow
+            // Sub-agents have kagent_author that differs from the parent workflow's kagent_app_name
+            // Extract agent name from "kagent__NS__agent_name" format
+            const extractAgentName = (appName: string) => {
+              const parts = appName.split('__NS__');
+              return parts.length > 1 ? parts[1] : appName;
+            };
+            
+            const isSubAgentMessage = adkMetadata?.kagent_author && 
+                                     adkMetadata?.kagent_app_name &&
+                                     adkMetadata.kagent_author !== extractAgentName(adkMetadata.kagent_app_name);
+            
             if (statusUpdate.final) {
+              // Final message from parent workflow - treat as complete message
               const displayMessage = createMessage(
                 textContent,
                 source,
@@ -355,7 +373,67 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               if (handlers.setChatStatus) {
                 handlers.setChatStatus("ready");
               }
+            } else if (isSubAgentMessage && textContent.trim()) {
+              // Sub-agent message - format as agent tool call for collapsible display
+              const subAgentName = adkMetadata?.kagent_author || "sub_agent";
+              const toolCallId = `subagent_${statusUpdate.taskId}_${subAgentName}`;
+              
+              // Create tool call request message
+              const toolCallMessage = createMessage(
+                "",
+                source,
+                {
+                  originalType: "ToolCallRequestEvent",
+                  contextId: statusUpdate.contextId,
+                  taskId: statusUpdate.taskId,
+                  additionalMetadata: {
+                    toolCallData: [{
+                      id: toolCallId,
+                      name: subAgentName,
+                      args: {}
+                    }]
+                  }
+                }
+              );
+              
+              // Create tool result message
+              const toolResultMessage = createMessage(
+                "",
+                source,
+                {
+                  originalType: "ToolCallExecutionEvent",
+                  contextId: statusUpdate.contextId,
+                  taskId: statusUpdate.taskId,
+                  additionalMetadata: {
+                    toolResultData: [{
+                      call_id: toolCallId,
+                      name: subAgentName,
+                      content: textContent,
+                      is_error: false
+                    }]
+                  }
+                }
+              );
+              
+              // Create summary message to mark completion
+              const summaryMessage = createMessage(
+                "",
+                source,
+                {
+                  originalType: "ToolCallSummaryMessage",
+                  contextId: statusUpdate.contextId,
+                  taskId: statusUpdate.taskId
+                }
+              );
+              
+              handlers.setMessages(prevMessages => [
+                ...prevMessages, 
+                toolCallMessage,
+                toolResultMessage,
+                summaryMessage
+              ]);
             } else {
+              // Regular streaming for non-sub-agent messages
               handlers.setIsStreaming(true);
               handlers.setStreamingContent(prevContent => prevContent + textContent);
               if (handlers.setChatStatus) {
@@ -451,16 +529,38 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
       const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
       if (artifactText) {
-        const displayMessage = createMessage(
-          artifactText,
-          source,
-          {
-            originalType: "TextMessage",
-            contextId: artifactUpdate.contextId,
-            taskId: artifactUpdate.taskId
+        // Check if this artifact duplicates the last message (common in workflow agents)
+        // Get the last message to compare
+        let shouldDisplay = true;
+        handlers.setMessages(prevMessages => {
+          if (prevMessages.length > 0) {
+            const lastMessage = prevMessages[prevMessages.length - 1];
+            const lastMessageText = lastMessage.parts
+              ?.filter(p => p.kind === "text")
+              .map(p => (p as TextPart).text)
+              .join("")
+              .trim();
+            
+            // Skip if content is identical to last message
+            if (lastMessageText === artifactText.trim()) {
+              shouldDisplay = false;
+            }
           }
-        );
-        handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
+          return prevMessages;
+        });
+        
+        if (shouldDisplay) {
+          const displayMessage = createMessage(
+            artifactText,
+            source,
+            {
+              originalType: "TextMessage",
+              contextId: artifactUpdate.contextId,
+              taskId: artifactUpdate.taskId
+            }
+          );
+          handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
+        }
       }
 
       if (convertedMessages.length > 0) {

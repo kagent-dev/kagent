@@ -35,6 +35,12 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
     }
 
     const msgMetadata = message.metadata as ADKMetadata;
+    
+    // Check for sub-agent author first (most specific)
+    if (msgMetadata?.kagent_author) {
+      return convertToUserFriendlyName(msgMetadata.kagent_author);
+    }
+
     const displaySource = msgMetadata?.displaySource;
 
     if (displaySource && displaySource !== "assistant") {
@@ -119,12 +125,24 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
   };
 
   const messageBorderColor = source === "user" ? "border-l-blue-500" : "border-l-violet-500";
+  
+  // Check if this is a sub-agent message
+  const msgMetadata = message.metadata as ADKMetadata;
+  const isSubAgent = msgMetadata?.kagent_author && 
+                     (!agentContext || msgMetadata.kagent_author !== agentContext.agentName.replace(/-/g, '_'));
 
   return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${messageBorderColor}`}>
     <div className="flex flex-col gap-1 w-full">
-      {source !== "user" ? <div className="flex items-center gap-1">
+      {source !== "user" ? <div className="flex items-center gap-2">
         <KagentLogo className="w-4 h-4" />
-        <div className="text-xs font-bold">{displayName}</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-bold">{displayName}</div>
+          {isSubAgent && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300">
+              Sub-Agent
+            </span>
+          )}
+        </div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
       {source !== "user" && messageId !== undefined && (
