@@ -1,0 +1,32 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: a2a-inspector
+  namespace: kagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "a2a-inspector"
+  template:
+    metadata:
+      labels:
+        app: a2a-inspector
+    spec:
+      containers:
+        - name: a2a-inspector
+          image: localhost:5001/a2a-inspector:latest
+          ports:
+            - containerPort: 8080
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: a2a-inspector
+  namespace: kagent
+spec:
+  selector:
+    app: a2a-inspector
+  ports:
+    - port: 8080
+      targetPort: 8080
