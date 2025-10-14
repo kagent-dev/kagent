@@ -263,6 +263,19 @@ func (a *adkApiTranslator) buildManifest(
 		if err != nil {
 			return nil, err
 		}
+
+		// For workflow agents, inject workflow-specific metadata into the card JSON
+		if workflowConfig, ok := cfg.(*WorkflowAgentConfig); ok {
+			workflowMetadata, err := BuildWorkflowSkillMetadata(workflowConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build workflow skill metadata: %w", err)
+			}
+			bCard, err = InjectWorkflowMetadataIntoCard(bCard, workflowMetadata)
+			if err != nil {
+				return nil, fmt.Errorf("failed to inject workflow metadata into card: %w", err)
+			}
+		}
+
 		configHash = computeConfigHash(bCfg, bCard)
 
 		cfgJson = string(bCfg)
@@ -675,7 +688,13 @@ func (a *adkApiTranslator) translateWorkflowAgent(ctx context.Context, agent *v1
 
 	config.SubAgents = subAgents
 
-	// Create agent card
+	// Build the workflow skill
+	workflowSkill, err := BuildWorkflowSkill(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build workflow skill: %w", err)
+	}
+
+	// Create agent card with the workflow skill
 	agentCard := &server.AgentCard{
 		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
 		Description: agent.Spec.Description,
@@ -685,12 +704,56 @@ func (a *adkApiTranslator) translateWorkflowAgent(ctx context.Context, agent *v1
 			PushNotifications:      ptr.To(false),
 			StateTransitionHistory: ptr.To(true),
 		},
-		Skills:             []server.AgentSkill{},
+		Skills:             []server.AgentSkill{workflowSkill},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
 	}
 
+	// Fetch and merge sub-agent skills into the workflow card
+	subAgentCards, err := a.fetchSubAgentCards(ctx, subAgents)
+	if err != nil {
+		// Log warning but don't fail - we can still return the workflow card without sub-agent skills
+		// This allows the workflow to function even if some sub-agents are not yet ready
+		// TODO: Add proper logging here
+		_ = err
+	} else {
+		MergeSubAgentSkills(agentCard, subAgentCards)
+	}
+
 	return config, agentCard, nil
+}
+
+// fetchSubAgentCards retrieves the AgentCard for each sub-agent in the workflow.
+// This allows the workflow card to aggregate all sub-agent skills.
+func (a *adkApiTranslator) fetchSubAgentCards(ctx context.Context, subAgents []WorkflowSubAgentRef) ([]*server.AgentCard, error) {
+	var cards []*server.AgentCard
+
+	for _, subAgentRef := range subAgents {
+		// Fetch the sub-agent CRD
+		subAgent := &v1alpha2.Agent{}
+		err := a.kube.Get(ctx, types.NamespacedName{
+			Namespace: subAgentRef.Namespace,
+			Name:      subAgentRef.Name,
+		}, subAgent)
+		if err != nil {
+			// If we can't fetch a sub-agent, skip it but continue with others
+			// This prevents the entire workflow card from failing due to one unavailable sub-agent
+			continue
+		}
+
+		// Translate the sub-agent to get its card
+		// Note: This recursively translates workflow agents, allowing nested workflows
+		outputs, err := a.TranslateAgent(ctx, subAgent)
+		if err != nil {
+			// If translation fails, skip this sub-agent
+			continue
+		}
+
+		// Extract the AgentCard from the outputs
+		cards = append(cards, &outputs.AgentCard)
+	}
+
+	return cards, nil
 }
 
 func (a *adkApiTranslator) resolveWorkflowDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
