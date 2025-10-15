@@ -36,11 +36,15 @@ func setupMockServer(t *testing.T, mockFile string) (string, func()) {
 	require.NoError(t, err)
 
 	server := mockllm.NewServer(mockllmCfg)
-	baseURL, err := server.Start()
+	baseURL, err := server.Start(t.Context())
 	baseURL = buildK8sURL(baseURL)
 	require.NoError(t, err)
 
-	return baseURL, func() { server.Stop() } //nolint:errcheck
+	return baseURL, func() {
+		if err := server.Stop(t.Context()); err != nil {
+			t.Errorf("failed to stop server: %v", err)
+		}
+	}
 }
 
 // setupK8sClient creates a Kubernetes client with the appropriate schemes
@@ -139,7 +143,7 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		Role:  protocol.MessageRoleUser,
 		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
 	}
-	
+
 	// If contextID is provided, set it to maintain conversation context
 	if len(contextID) > 0 && contextID[0] != "" {
 		msg.ContextID = &contextID[0]
@@ -150,7 +154,7 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 
 	taskResult, ok := result.Result.(*protocol.Task)
 	require.True(t, ok)
-	
+
 	// Extract text based on useArtifacts flag
 	if useArtifacts != nil && *useArtifacts {
 		// Check artifacts (used by CrewAI flows)
@@ -163,7 +167,7 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		require.NoError(t, err)
 		require.Contains(t, text, expectedText, string(jsn))
 	}
-	
+
 	return taskResult
 }
 
@@ -179,7 +183,7 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 		Role:  protocol.MessageRoleUser,
 		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
 	}
-	
+
 	// If contextID is provided, set it to maintain conversation context
 	if len(contextID) > 0 && contextID[0] != "" {
 		msg.ContextID = &contextID[0]
@@ -421,25 +425,25 @@ func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 				Deployment: &v1alpha2.ByoDeploymentSpec{
 					Image: "localhost:5001/poem-flow:latest",
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
-					Env: []corev1.EnvVar{
-						{
-							Name: "OPENAI_API_KEY",
-							ValueFrom: &corev1.EnvVarSource{
-								SecretKeyRef: &corev1.SecretKeySelector{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "kagent-openai",
+						Env: []corev1.EnvVar{
+							{
+								Name: "OPENAI_API_KEY",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "kagent-openai",
+										},
+										Key: "OPENAI_API_KEY",
 									},
-									Key: "OPENAI_API_KEY",
 								},
 							},
-						},
-						// Inject the mock server's URL, CrewAI uses this environment variable
-						{
-							Name: "OPENAI_API_BASE",
-							Value: baseURL + "/v1",
+							// Inject the mock server's URL, CrewAI uses this environment variable
+							{
+								Name:  "OPENAI_API_BASE",
+								Value: baseURL + "/v1",
+							},
 						},
 					},
-				},
 				},
 			},
 		},
@@ -451,10 +455,15 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	server := mockllm.NewServer(mockllmCfg)
-	baseURL, err := server.Start()
+	baseURL, err := server.Start(t.Context())
 	baseURL = buildK8sURL(baseURL)
 	require.NoError(t, err)
-	defer server.Stop() //nolint:errcheck
+
+	defer func() {
+		if err := server.Stop(t.Context()); err != nil {
+			t.Errorf("failed to stop server: %v", err)
+		}
+	}()
 
 	cfg, err := config.GetConfig()
 	require.NoError(t, err)
