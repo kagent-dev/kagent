@@ -133,6 +133,12 @@ func (s *HTTPServer) NeedLeaderElection() bool {
 
 // setupRoutes configures all the routes for the server
 func (s *HTTPServer) setupRoutes() {
+	// Apply middleware FIRST so it applies to all routes including A2A
+	s.router.Use(auth.AuthnMiddleware(s.authenticator))
+	s.router.Use(contentTypeMiddleware)
+	s.router.Use(loggingMiddleware)
+	s.router.Use(errorHandlerMiddleware)
+
 	// Health check endpoint
 	s.router.HandleFunc(APIPathHealth, adaptHealthHandler(s.handlers.Health.HandleHealth)).Methods(http.MethodGet)
 
@@ -217,14 +223,8 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
 
-	// A2A
+	// A2A - authentication middleware is applied above, so X-User-ID header will be set
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
-
-	// Use middleware for common functionality
-	s.router.Use(auth.AuthnMiddleware(s.authenticator))
-	s.router.Use(contentTypeMiddleware)
-	s.router.Use(loggingMiddleware)
-	s.router.Use(errorHandlerMiddleware)
 }
 
 func adaptHandler(h func(handlers.ErrorResponseWriter, *http.Request)) http.HandlerFunc {

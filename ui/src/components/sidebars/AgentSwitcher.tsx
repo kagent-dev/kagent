@@ -31,6 +31,27 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
     selectedAgent.agent.metadata.name
   );
 
+  // Helper function to get agent display text
+  const getAgentDisplayText = (agentResponse: AgentResponse) => {
+    const { agent, model, modelProvider } = agentResponse;
+    const isBYO = agent.spec?.type === "BYO";
+    const isWorkflow = agent.spec?.type === "Workflow";
+    
+    if (isBYO) {
+      return "BYO Agent";
+    }
+    
+    if (isWorkflow) {
+      if (agent.spec?.workflow?.sequential) return "Sequential Workflow";
+      if (agent.spec?.workflow?.parallel) return "Parallel Workflow";
+      if (agent.spec?.workflow?.loop) return "Loop Workflow";
+      return "Workflow";
+    }
+    
+    // Declarative agent
+    return `${modelProvider}${model ? ` (${model})` : ''}`;
+  };
+
   // We don't want to show agents that are not ready or accepted
   const filteredAgentResponses = agentResponses.filter(({ deploymentReady, accepted }) => deploymentReady && accepted);
 
@@ -45,7 +66,7 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">{selectedAgentRef}</span>
-                <span className="truncate text-xs">{selectedAgent.modelProvider} {selectedAgent.model && `(${selectedAgent.model})`}</span>
+                <span className="truncate text-xs">{getAgentDisplayText(selectedAgent)}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>

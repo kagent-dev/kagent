@@ -152,6 +152,18 @@ func (a *adkApiTranslator) TranslateAgent(
 		}
 		return a.buildManifest(ctx, agent, dep, nil, agentCard)
 
+	case v1alpha2.AgentType_Workflow:
+
+		cfg, card, err := a.translateWorkflowAgent(ctx, agent)
+		if err != nil {
+			return nil, err
+		}
+		dep, err := a.resolveWorkflowDeployment(agent)
+		if err != nil {
+			return nil, err
+		}
+		return a.buildManifest(ctx, agent, dep, cfg, card)
+
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
@@ -231,7 +243,7 @@ func (a *adkApiTranslator) buildManifest(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
 	dep *resolvedDeployment,
-	cfg *adk.AgentConfig, // nil for BYO
+	cfg interface{}, // can be *adk.AgentConfig or *WorkflowAgentConfig; nil for BYO
 	card *server.AgentCard, // nil for BYO
 ) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
@@ -251,6 +263,19 @@ func (a *adkApiTranslator) buildManifest(
 		if err != nil {
 			return nil, err
 		}
+
+		// For workflow agents, inject workflow-specific metadata into the card JSON
+		if workflowConfig, ok := cfg.(*WorkflowAgentConfig); ok {
+			workflowMetadata, err := BuildWorkflowSkillMetadata(workflowConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build workflow skill metadata: %w", err)
+			}
+			bCard, err = InjectWorkflowMetadataIntoCard(bCard, workflowMetadata)
+			if err != nil {
+				return nil, fmt.Errorf("failed to inject workflow metadata into card: %w", err)
+			}
+		}
+
 		configHash = computeConfigHash(bCfg, bCard)
 
 		cfgJson = string(bCfg)
@@ -507,7 +532,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			}
 
 			switch toolAgent.Spec.Type {
-			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
+			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative, v1alpha2.AgentType_Workflow:
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
 				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 				if err != nil {
@@ -530,6 +555,251 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 	}
 
 	return cfg, agentCard, mdd, nil
+}
+
+// WorkflowSubAgentRef represents a reference to a sub-agent in workflow config
+type WorkflowSubAgentRef struct {
+	Name        string `json:"name"`
+	Namespace   string `json:"namespace"`
+	Kind        string `json:"kind"`
+	Description string `json:"description"`
+}
+
+// WorkflowAgentConfig represents the configuration for workflow agents
+type WorkflowAgentConfig struct {
+	Name          string                `json:"name"`
+	Description   string                `json:"description"`
+	Namespace     string                `json:"namespace"`
+	WorkflowType  string                `json:"workflow_type"`
+	SubAgents     []WorkflowSubAgentRef `json:"sub_agents"`
+	MaxWorkers    *int                  `json:"max_workers,omitempty"`    // For parallel agents
+	Timeout       *string               `json:"timeout,omitempty"`        // For parallel agents
+	MaxIterations *int                  `json:"max_iterations,omitempty"` // For loop agents
+}
+
+func (a *adkApiTranslator) translateWorkflowAgent(ctx context.Context, agent *v1alpha2.Agent) (interface{}, *server.AgentCard, error) {
+	if agent.Spec.Workflow == nil {
+		return nil, nil, fmt.Errorf("workflow spec is required for workflow agents")
+	}
+
+	// Determine workflow type and build config
+	var workflowType string
+	var subAgents []WorkflowSubAgentRef
+	config := &WorkflowAgentConfig{
+		Name:        agent.Name,
+		Description: agent.Spec.Description,
+		Namespace:   agent.Namespace,
+	}
+
+	if agent.Spec.Workflow.Parallel != nil {
+		workflowType = "parallel"
+		config.WorkflowType = workflowType
+		// Convert int32 to int
+		if agent.Spec.Workflow.Parallel.MaxWorkers != nil {
+			maxWorkers := int(*agent.Spec.Workflow.Parallel.MaxWorkers)
+			config.MaxWorkers = &maxWorkers
+		}
+		// Timeout is already a *string, just assign it
+		config.Timeout = agent.Spec.Workflow.Parallel.Timeout
+
+		// Resolve sub-agents
+		for _, ref := range agent.Spec.Workflow.Parallel.SubAgents {
+			subAgent := &v1alpha2.Agent{}
+			namespace := agent.Namespace
+			if ref.Namespace != "" {
+				namespace = ref.Namespace
+			}
+
+			err := a.kube.Get(ctx, types.NamespacedName{
+				Namespace: namespace,
+				Name:      ref.Name,
+			}, subAgent)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to resolve sub-agent %s/%s: %w", namespace, ref.Name, err)
+			}
+
+			subAgents = append(subAgents, WorkflowSubAgentRef{
+				Name:        ref.Name,
+				Namespace:   namespace,
+				Kind:        "Agent",
+				Description: subAgent.Spec.Description,
+			})
+		}
+	} else if agent.Spec.Workflow.Sequential != nil {
+		workflowType = "sequential"
+		config.WorkflowType = workflowType
+
+		// Resolve sub-agents
+		for _, ref := range agent.Spec.Workflow.Sequential.SubAgents {
+			subAgent := &v1alpha2.Agent{}
+			namespace := agent.Namespace
+			if ref.Namespace != "" {
+				namespace = ref.Namespace
+			}
+
+			err := a.kube.Get(ctx, types.NamespacedName{
+				Namespace: namespace,
+				Name:      ref.Name,
+			}, subAgent)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to resolve sub-agent %s/%s: %w", namespace, ref.Name, err)
+			}
+
+			subAgents = append(subAgents, WorkflowSubAgentRef{
+				Name:        ref.Name,
+				Namespace:   namespace,
+				Kind:        "Agent",
+				Description: subAgent.Spec.Description,
+			})
+		}
+	} else if agent.Spec.Workflow.Loop != nil {
+		workflowType = "loop"
+		config.WorkflowType = workflowType
+		// Convert int32 to int
+		maxIterations := int(agent.Spec.Workflow.Loop.MaxIterations)
+		config.MaxIterations = &maxIterations
+
+		// Resolve sub-agents
+		for _, ref := range agent.Spec.Workflow.Loop.SubAgents {
+			subAgent := &v1alpha2.Agent{}
+			namespace := agent.Namespace
+			if ref.Namespace != "" {
+				namespace = ref.Namespace
+			}
+
+			err := a.kube.Get(ctx, types.NamespacedName{
+				Namespace: namespace,
+				Name:      ref.Name,
+			}, subAgent)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to resolve sub-agent %s/%s: %w", namespace, ref.Name, err)
+			}
+
+			subAgents = append(subAgents, WorkflowSubAgentRef{
+				Name:        ref.Name,
+				Namespace:   namespace,
+				Kind:        "Agent",
+				Description: subAgent.Spec.Description,
+			})
+		}
+	} else {
+		return nil, nil, fmt.Errorf("workflow agent must specify one of: parallel, sequential, or loop")
+	}
+
+	config.SubAgents = subAgents
+
+	// Build the workflow skill
+	workflowSkill, err := BuildWorkflowSkill(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build workflow skill: %w", err)
+	}
+
+	// Create agent card with the workflow skill
+	agentCard := &server.AgentCard{
+		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
+		Description: agent.Spec.Description,
+		URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
+		Capabilities: server.AgentCapabilities{
+			Streaming:              ptr.To(true),
+			PushNotifications:      ptr.To(false),
+			StateTransitionHistory: ptr.To(true),
+		},
+		Skills:             []server.AgentSkill{workflowSkill},
+		DefaultInputModes:  []string{"text"},
+		DefaultOutputModes: []string{"text"},
+	}
+
+	// Fetch and merge sub-agent skills into the workflow card
+	subAgentCards, err := a.fetchSubAgentCards(ctx, subAgents)
+	if err != nil {
+		// Log warning but don't fail - we can still return the workflow card without sub-agent skills
+		// This allows the workflow to function even if some sub-agents are not yet ready
+		// TODO: Add proper logging here
+		_ = err
+	} else {
+		MergeSubAgentSkills(agentCard, subAgentCards)
+	}
+
+	return config, agentCard, nil
+}
+
+// fetchSubAgentCards retrieves the AgentCard for each sub-agent in the workflow.
+// This allows the workflow card to aggregate all sub-agent skills.
+func (a *adkApiTranslator) fetchSubAgentCards(ctx context.Context, subAgents []WorkflowSubAgentRef) ([]*server.AgentCard, error) {
+	var cards []*server.AgentCard
+
+	for _, subAgentRef := range subAgents {
+		// Fetch the sub-agent CRD
+		subAgent := &v1alpha2.Agent{}
+		err := a.kube.Get(ctx, types.NamespacedName{
+			Namespace: subAgentRef.Namespace,
+			Name:      subAgentRef.Name,
+		}, subAgent)
+		if err != nil {
+			// If we can't fetch a sub-agent, skip it but continue with others
+			// This prevents the entire workflow card from failing due to one unavailable sub-agent
+			continue
+		}
+
+		// Translate the sub-agent to get its card
+		// Note: This recursively translates workflow agents, allowing nested workflows
+		outputs, err := a.TranslateAgent(ctx, subAgent)
+		if err != nil {
+			// If translation fails, skip this sub-agent
+			continue
+		}
+
+		// Extract the AgentCard from the outputs
+		cards = append(cards, &outputs.AgentCard)
+	}
+
+	return cards, nil
+}
+
+func (a *adkApiTranslator) resolveWorkflowDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
+	// Defaults
+	port := int32(8080)
+	cmd := "kagent-adk"
+	args := []string{
+		"workflow",
+		"--host",
+		"0.0.0.0",
+		"--port",
+		fmt.Sprintf("%d", port),
+		"--filepath",
+		"/config",
+	}
+
+	// Use same image as declarative agents (workflow agents use the same runtime)
+	registry := DefaultImageConfig.Registry
+	repository := DefaultImageConfig.Repository
+	image := fmt.Sprintf("%s/%s:%s", registry, repository, DefaultImageConfig.Tag)
+
+	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
+
+	// Use default replicas (workflow agents typically run as single instance)
+	replicas := ptr.To(int32(1))
+
+	// Create deployment with defaults
+	// Workflow agents don't have custom deployment specs at the CRD level
+	// They use standard configuration
+	dep := &resolvedDeployment{
+		Image:            image,
+		Cmd:              cmd,
+		Args:             args,
+		Port:             port,
+		ImagePullPolicy:  imagePullPolicy,
+		Replicas:         replicas,
+		ImagePullSecrets: nil,
+		Volumes:          nil,
+		VolumeMounts:     nil,
+		Labels:           nil,
+		Annotations:      nil,
+		Env:              nil,
+		Resources:        getDefaultResources(nil), // Use default resources
+	}
+
+	return dep, nil
 }
 
 func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {

@@ -151,5 +151,9 @@ export function convertToUserFriendlyName(name: string): string {
 }
 
 export function isAgentToolName(name: string | undefined): boolean {
-  return typeof name === "string" && name.includes(NAMESPACE_SEPARATOR);
+  if (typeof name !== "string") return false;
+  // Check if it's a namespaced agent tool or a sub-agent
+  return name.includes(NAMESPACE_SEPARATOR) || 
+         name.startsWith("subagent_") ||
+         name.includes("_agent")
 }

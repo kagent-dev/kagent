@@ -103,6 +103,49 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         imagePullPolicy: agentFormData.imagePullPolicy,
       },
     };
+  } else if (type === "Workflow") {
+    const workflowType = agentFormData.workflowType;
+    if (!workflowType) {
+      throw new Error("Workflow type is required for workflow agents");
+    }
+
+    // Filter out sub-agents with empty names
+    const subAgents = (agentFormData.subAgents || [])
+      .filter(sa => sa.name && sa.name.trim())
+      .map(sa => ({
+        name: sa.name,
+        namespace: sa.namespace || "default",
+        kind: "Agent",
+      }));
+
+    if (subAgents.length < 2) {
+      throw new Error("At least 2 sub-agents with valid names are required for workflow");
+    }
+
+    const baseWorkflowSpec = {
+      subAgents,
+      timeout: agentFormData.timeout,
+    };
+
+    if (workflowType === "sequential") {
+      base.spec!.workflow = {
+        sequential: baseWorkflowSpec,
+      };
+    } else if (workflowType === "parallel") {
+      base.spec!.workflow = {
+        parallel: {
+          ...baseWorkflowSpec,
+          maxWorkers: agentFormData.maxWorkers,
+        },
+      };
+    } else if (workflowType === "loop") {
+      base.spec!.workflow = {
+        loop: {
+          ...baseWorkflowSpec,
+          maxIterations: agentFormData.maxIterations || 10,
+        },
+      };
+    }
   }
 
   return base as Agent;

@@ -2352,6 +2352,14 @@ spec:
       jsonPath: .status.conditions[?(@.type=='Accepted')].status
       name: Accepted
       type: string
+    - description: The current phase of the agent.
+      jsonPath: .status.phase
+      name: Status
+      type: string
+    - description: Human-readable message about the agent status.
+      jsonPath: .status.message
+      name: Message
+      type: string
     name: v1alpha2
     schema:
       openAPIV3Schema:
@@ -7031,24 +7039,188 @@ spec:
                 - enum:
                   - Declarative
                   - BYO
+                  - Workflow
                 - enum:
                   - Declarative
                   - BYO
+                  - Workflow
                 default: Declarative
                 description: AgentType represents the agent type
                 type: string
+              workflow:
+                description: WorkflowAgentSpec defines a workflow agent that orchestrates
+                  multiple sub-agents
+                properties:
+                  loop:
+                    description: Loop workflow executes sub-agents iteratively with
+                      configurable termination
+                    properties:
+                      description:
+                        description: Description of this workflow
+                        type: string
+                      maxIterations:
+                        description: |-
+                          Maximum number of iterations (required, minimum 1)
+                          Loop terminates when max_iterations is reached OR when exit_loop tool is called
+                        format: int32
+                        maximum: 100
+                        minimum: 1
+                        type: integer
+                      subAgents:
+                        description: SubAgents to execute (2-50 items required)
+                        items:
+                          description: SubAgentReference references an existing Agent
+                            to use as a sub-agent in a workflow
+                          properties:
+                            kind:
+                              default: Agent
+                              description: Kind of the referenced resource (must be
+                                "Agent")
+                              enum:
+                              - Agent
+                              type: string
+                            name:
+                              description: Name of the referenced Agent (required)
+                              minLength: 1
+                              type: string
+                            namespace:
+                              description: |-
+                                Namespace of the referenced Agent
+                                If empty, defaults to the same namespace as the parent workflow agent
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 50
+                        minItems: 2
+                        type: array
+                      timeout:
+                        description: |-
+                          Timeout for each sub-agent execution (e.g., "5m", "300s")
+                          Defaults to "5m" if not specified
+                        pattern: ^[0-9]+(ms|s|m|h)$
+                        type: string
+                    required:
+                    - maxIterations
+                    - subAgents
+                    type: object
+                  parallel:
+                    description: Parallel workflow executes sub-agents concurrently
+                      with isolated contexts
+                    properties:
+                      description:
+                        description: Description of this workflow
+                        type: string
+                      maxWorkers:
+                        default: 10
+                        description: |-
+                          Maximum number of sub-agents executing concurrently (default: 10)
+                          Controls resource usage by limiting parallel execution
+                        format: int32
+                        maximum: 50
+                        minimum: 1
+                        type: integer
+                      subAgents:
+                        description: SubAgents to execute (2-50 items required)
+                        items:
+                          description: SubAgentReference references an existing Agent
+                            to use as a sub-agent in a workflow
+                          properties:
+                            kind:
+                              default: Agent
+                              description: Kind of the referenced resource (must be
+                                "Agent")
+                              enum:
+                              - Agent
+                              type: string
+                            name:
+                              description: Name of the referenced Agent (required)
+                              minLength: 1
+                              type: string
+                            namespace:
+                              description: |-
+                                Namespace of the referenced Agent
+                                If empty, defaults to the same namespace as the parent workflow agent
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 50
+                        minItems: 2
+                        type: array
+                      timeout:
+                        description: |-
+                          Timeout for each sub-agent execution (e.g., "5m", "300s")
+                          Defaults to "5m" if not specified
+                        pattern: ^[0-9]+(ms|s|m|h)$
+                        type: string
+                    required:
+                    - subAgents
+                    type: object
+                  sequential:
+                    description: Sequential workflow executes sub-agents in order
+                      with context propagation
+                    properties:
+                      description:
+                        description: Description of this workflow
+                        type: string
+                      subAgents:
+                        description: SubAgents to execute (2-50 items required)
+                        items:
+                          description: SubAgentReference references an existing Agent
+                            to use as a sub-agent in a workflow
+                          properties:
+                            kind:
+                              default: Agent
+                              description: Kind of the referenced resource (must be
+                                "Agent")
+                              enum:
+                              - Agent
+                              type: string
+                            name:
+                              description: Name of the referenced Agent (required)
+                              minLength: 1
+                              type: string
+                            namespace:
+                              description: |-
+                                Namespace of the referenced Agent
+                                If empty, defaults to the same namespace as the parent workflow agent
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 50
+                        minItems: 2
+                        type: array
+                      timeout:
+                        description: |-
+                          Timeout for each sub-agent execution (e.g., "5m", "300s")
+                          Defaults to "5m" if not specified
+                        pattern: ^[0-9]+(ms|s|m|h)$
+                        type: string
+                    required:
+                    - subAgents
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of sequential, parallel, or loop must be specified
+                  rule: (has(self.sequential) && !has(self.parallel) && !has(self.loop))
+                    || (!has(self.sequential) && has(self.parallel) && !has(self.loop))
+                    || (!has(self.sequential) && !has(self.parallel) && has(self.loop))
             required:
             - type
             type: object
             x-kubernetes-validations:
             - message: type must be specified
               rule: has(self.type)
-            - message: type must be either Declarative or BYO
-              rule: self.type == 'Declarative' || self.type == 'BYO'
-            - message: declarative must be specified if type is Declarative, or byo
-                must be specified if type is BYO
+            - message: type must be either Declarative, BYO, or Workflow
+              rule: self.type == 'Declarative' || self.type == 'BYO' || self.type
+                == 'Workflow'
+            - message: declarative must be specified if type is Declarative, byo must
+                be specified if type is BYO, or workflow must be specified if type
+                is Workflow
               rule: (self.type == 'Declarative' && has(self.declarative)) || (self.type
-                == 'BYO' && has(self.byo))
+                == 'BYO' && has(self.byo)) || (self.type == 'Workflow' && has(self.workflow))
           status:
             description: AgentStatus defines the observed state of Agent.
             properties:
@@ -7108,9 +7280,21 @@ spec:
                   - type
                   type: object
                 type: array
+              message:
+                description: Message provides a human-readable message about the agent's
+                  current state.
+                type: string
               observedGeneration:
                 format: int64
                 type: integer
+              phase:
+                description: Phase represents the current lifecycle phase of the agent.
+                enum:
+                - Pending
+                - Ready
+                - Error
+                - Unknown
+                type: string
             required:
             - observedGeneration
             type: object

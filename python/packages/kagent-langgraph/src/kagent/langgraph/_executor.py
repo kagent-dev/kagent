@@ -27,7 +27,7 @@ from a2a.types import (
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
-from kagent.core.a2a import TaskResultAggregator
+from kagent.core.a2a import TaskResultAggregator, extract_user_id, set_current_user_id
 from langgraph.graph.state import CompiledStateGraph
 
 from ._converters import _convert_langgraph_event_to_a2a
@@ -71,14 +71,12 @@ class LangGraphAgentExecutor(AgentExecutor):
         self.app_name = app_name
         self._config = config or LangGraphAgentExecutorConfig()
 
-    def _create_graph_config(self, context: RequestContext) -> RunnableConfig:
+    def _create_graph_config(self, context: RequestContext, user_id: str, session_id: str) -> RunnableConfig:
         """Create LangGraph config from A2A request context."""
-        # Extract session information
-        session_id = getattr(context, "session_id", None) or context.context_id
-
         return {
             "configurable": {
                 "thread_id": session_id,
+                "user_id": user_id,
                 "app_name": self.app_name,
             },
             "project_name": self.app_name,
@@ -90,9 +88,11 @@ class LangGraphAgentExecutor(AgentExecutor):
                 f"task:{context.task_id}",
                 f"context:{context.context_id}",
                 f"session:{session_id}",
+                f"user:{user_id}",
             ],
             "metadata": {
                 "kagent_app_name": self.app_name,
+                "kagent_user_id": user_id,
                 "a2a_context_id": context.context_id,
                 "a2a_task_id": context.task_id,
                 "a2a_request_id": getattr(context, "request_id", None),
@@ -202,31 +202,37 @@ class LangGraphAgentExecutor(AgentExecutor):
                 )
             )
 
-        # Send working status
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                status=TaskStatus(
-                    state=TaskState.working,
-                    timestamp=datetime.now(UTC).isoformat(),
-                ),
-                context_id=context.context_id,
-                final=False,
-                metadata={
-                    "app_name": self.app_name,
-                    "session_id": getattr(context, "session_id", context.context_id),
-                },
-            )
-        )
-
         try:
-            # Resolve the graph
+            # Extract session and user IDs
+            session_id = getattr(context, "session_id", context.context_id)
+            user_id = extract_user_id(context)
+
+            # Set user_id in context variable for propagation (if using workflow agents with ADK)
+            set_current_user_id(user_id)
+
+            # Send working status
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.working,
+                        timestamp=datetime.now(UTC).isoformat(),
+                    ),
+                    context_id=context.context_id,
+                    final=False,
+                    metadata={
+                        "app_name": self.app_name,
+                        "user_id": user_id,
+                        "session_id": session_id,
+                    },
+                )
+            )
 
             # Convert A2A message to LangChain format
             inputs = {"messages": [("user", context.get_user_input())]}
 
             # Create graph config
-            config = self._create_graph_config(context)
+            config = self._create_graph_config(context, user_id, session_id)
 
             # Stream graph execution
             await asyncio.wait_for(

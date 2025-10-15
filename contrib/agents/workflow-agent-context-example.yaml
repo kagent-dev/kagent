@@ -1,0 +1,20 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: wf-context-agent
+  namespace: kagent
+spec:
+  description: You are a simple agent which answers user question using context
+  type: Declarative
+  declarative:
+    modelConfig: default-model-config
+    systemMessage: |-
+      - You are simple agent which answers user question using all your context
+      - Use `set-context-var` tool to set context for the agent
+      - Use `get-context-var` tool to get context for the agent
+    tools:
+      - type: McpServer
+        toolServer: context-mcp-server
+        toolNames:
+          - set-context-var
+          - get-context-var

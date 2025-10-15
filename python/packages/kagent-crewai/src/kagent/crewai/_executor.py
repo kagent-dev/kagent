@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Union, override
 
 import httpx
@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from crewai import Crew, Flow
 from crewai.memory import LongTermMemory
+from kagent.core.a2a import extract_user_id, set_current_user_id
 
 from ._listeners import A2ACrewAIListener
 from ._memory import KagentMemoryStorage
@@ -70,28 +71,12 @@ class CrewAIAgentExecutor(AgentExecutor):
                     status=TaskStatus(
                         state=TaskState.submitted,
                         message=context.message,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                     ),
                     context_id=context.context_id,
                     final=False,
                 )
             )
-
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                status=TaskStatus(
-                    state=TaskState.working,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                ),
-                context_id=context.context_id,
-                final=False,
-                metadata={
-                    "app_name": self.app_name,
-                    "session_id": context.context_id,
-                },
-            )
-        )
 
         # This listener will capture and convert CrewAI events and enqueue them to A2A event queue
         A2ACrewAIListener(context, event_queue, self.app_name)
@@ -108,7 +93,27 @@ class CrewAIAgentExecutor(AgentExecutor):
                 inputs = {"input": user_input} if user_input else {}
 
             session_id = getattr(context, "session_id", context.context_id)
-            user_id = getattr(context, "user_id", "admin@kagent.dev")
+            user_id = extract_user_id(context)
+
+            # Set user_id in context variable for propagation (if using workflow agents with ADK)
+            set_current_user_id(user_id)
+
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.working,
+                        timestamp=datetime.now(UTC).isoformat(),
+                    ),
+                    context_id=context.context_id,
+                    final=False,
+                    metadata={
+                        "app_name": self.app_name,
+                        "user_id": user_id,
+                        "session_id": session_id,
+                    },
+                )
+            )
 
             if isinstance(self._crew, Flow):
                 flow_class = type(self._crew)
@@ -155,7 +160,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.completed,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                     ),
                     context_id=context.context_id,
                     final=True,
@@ -169,7 +174,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.failed,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.agent,

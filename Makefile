@@ -139,6 +139,10 @@ push-test-agent: buildx-create build-kagent-adk
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
 
+.PHONY: test-e2e
+test-e2e:
+	bash python/packages/kagent-adk/tests/e2e/run_tests.sh 2>&1
+	
 .PHONY: create-kind-cluster
 create-kind-cluster:
 	bash ./scripts/kind/setup-kind.sh

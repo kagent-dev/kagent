@@ -18,6 +18,11 @@ interface ValidationErrors {
   tools?: string;
 }
 
+export interface SubAgentRef {
+  name: string;
+  namespace?: string;
+}
+
 export interface AgentFormData {
   name: string;
   namespace: string;
@@ -28,9 +33,16 @@ export interface AgentFormData {
   modelName?: string;
   tools: Tool[];
   stream?: boolean;
+  // BYO fields
   byoImage?: string;
   byoCmd?: string;
   byoArgs?: string[];
+  // Workflow fields
+  workflowType?: "sequential" | "parallel" | "loop";
+  subAgents?: SubAgentRef[];
+  maxWorkers?: number;
+  maxIterations?: number;
+  timeout?: string;
   // Shared deployment optional fields
   replicas?: number;
   imagePullSecrets?: Array<{ name: string }>;
@@ -160,6 +172,23 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } else if (type === "BYO") {
       if (!data.byoImage || data.byoImage.trim() === "") {
         errors.model = "Container image is required";
+      }
+    } else if (type === "Workflow") {
+      if (!data.workflowType) {
+        errors.type = "Workflow type is required";
+      }
+      // Only validate that we have at least 2 sub-agents with valid names
+      // Empty sub-agents will be filtered out before submission
+      if (data.subAgents) {
+        const validSubAgents = data.subAgents.filter(sa => sa.name && sa.name.trim());
+        if (validSubAgents.length < 2) {
+          errors.tools = "At least 2 sub-agents with valid names are required";
+        }
+      } else {
+        errors.tools = "At least 2 sub-agents are required for workflow";
+      }
+      if (data.workflowType === "loop" && (!data.maxIterations || data.maxIterations < 1)) {
+        errors.type = "Max iterations is required for loop workflow";
       }
     }
 

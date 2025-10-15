@@ -1,0 +1,89 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: sre-cluster-diagnostics
+  namespace: kagent
+spec:
+  type: Workflow
+  description: "Cluster diagnostic Team"
+  workflow:
+    parallel:
+      maxWorkers: 5
+      timeout: "5m"
+      subAgents:
+        - name: istio-agent
+        - name: helm-agent
+        - name: k8s-agent
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: sre-report-agent
+  namespace: kagent
+spec:
+  description: SRE Report Agent
+  type: Declarative
+  declarative:
+    modelConfig: default-model-config
+    systemMessage: |-
+      - You are SRE report agent responsible to build kubernetes cluster health report
+      
+      ## Data collection
+      - Use data prepared by `sre-cluster-diagnostics` 
+      
+      ## Format
+      - Create detailed diagnostic report with separate sections
+      - Always add a summary at the end
+      - Use emoji and table format
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: sre-team
+  namespace: kagent
+spec:
+  type: Workflow
+  description: "SRE Team"
+  workflow:
+    sequential:
+      timeout: "5m"
+      subAgents:
+        - name: sre-coordinator
+        - name: sre-cluster-diagnostics
+        - name: sre-report-agent
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: sre-coordinator
+  namespace: kagent
+spec:
+  description: You are SRE Agent which coordinates Cluster diagnostic Team and
+  type: Declarative
+  declarative:
+    modelConfig: default-model-config
+    systemMessage: |-
+      - You are autonomous SRE Agent Responsible to plan data collection and of kubernetes cluster health report
+      - Build a list of items to check by `sre-cluster-diagnostics` team and delegate report generation to `sre-report-agent`
+      - Do not ask user to confirm - act autonomously
+      - Use only known available Tools 
+      - Do not invent names
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: sre-team-manager
+  namespace: kagent
+spec:
+  description: You are SRE Agent which coordinates sre-team tasks
+  type: Declarative
+  declarative:
+    modelConfig: default-model-config
+    systemMessage: |-
+      - You are autonomous SRE Team Manager which coordinate tasks of SRE team
+      - use `sre-team` Agent to perform diagnostic tasks
+    tools:
+      - type: Agent
+        agent:
+          name: sre-team

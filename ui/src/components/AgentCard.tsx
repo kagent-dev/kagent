@@ -20,8 +20,18 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
     agent.metadata.name || ''
   );
   const isBYO = agent.spec?.type === "BYO";
+  const isWorkflow = agent.spec?.type === "Workflow";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
   const isReady = deploymentReady && accepted;
+
+  // Determine workflow type for display
+  const getWorkflowType = () => {
+    if (!isWorkflow) return "";
+    if (agent.spec?.workflow?.sequential) return "Sequential";
+    if (agent.spec?.workflow?.parallel) return "Parallel";
+    if (agent.spec?.workflow?.loop) return "Loop";
+    return "Workflow";
+  };
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -63,9 +73,17 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
         </p>
         <div className="mt-4 flex items-center text-xs text-muted-foreground">
           {isBYO ? (
-            <span title={byoImage} className="truncate">Image: {byoImage}</span>
+              <span title={byoImage} className="truncate">
+              Image: {byoImage}
+            </span>
+          ) : isWorkflow ? (
+              <span className="truncate">
+              {getWorkflowType()} Workflow
+            </span>
           ) : (
-            <span className="truncate">{modelProvider} ({model})</span>
+              <span className="truncate">
+                {modelProvider} ({model})
+            </span>
           )}
         </div>
       </CardContent>
@@ -73,8 +91,8 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
       {!isReady && (
         <div className={cn(
           "absolute inset-0 rounded-xl flex flex-col items-center justify-center z-20 backdrop-blur-[2px]",
-          !accepted 
-            ? "bg-destructive/90" 
+          !accepted
+            ? "bg-destructive/90"
             : "bg-secondary/90"
         )}>
           <div className="text-center px-6 py-8 max-w-[80%]">
@@ -95,8 +113,8 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
               "text-base drop-shadow",
               !accepted ? "text-destructive-foreground/95" : "text-secondary-foreground/90"
             )}>
-              {!accepted 
-                ? "Configuration needs review" 
+              {!accepted
+                ? "Configuration needs review"
                 : "Still deploying..."}
             </p>
           </div>
