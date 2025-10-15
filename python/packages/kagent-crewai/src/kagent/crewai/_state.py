@@ -40,13 +40,13 @@ class KagentFlowPersistence(FlowPersistence):
             thread_id=self.thread_id,
             flow_uuid=flow_uuid,
             method_name=method_name,
-            state_data=state_data.model_dump() if isinstance(state_data, BaseModel) else state_data,
+            state_data=state_data.model_dump(mode="json") if isinstance(state_data, BaseModel) else state_data,
         )
         logging.info(f"Saving flow state to Kagent backend: {payload}")
 
         try:
             with httpx.Client() as client:
-                response = client.post(url, json=payload.model_dump(), headers={"X-User-ID": self.user_id})
+                response = client.post(url, json=payload.model_dump(mode="json"), headers={"X-User-ID": self.user_id})
                 response.raise_for_status()
         except httpx.HTTPError as e:
             logging.error(f"Error saving flow state to Kagent backend: {e}")

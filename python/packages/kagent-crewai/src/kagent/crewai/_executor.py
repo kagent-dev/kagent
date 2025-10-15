@@ -1,3 +1,4 @@
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -126,7 +127,7 @@ class CrewAIAgentExecutor(AgentExecutor):
 
                 # output_text will be None if the last method in the flow does not return anything but updates the state instead
                 output_text = await flow_instance.kickoff_async(inputs=inputs)
-                result_text = output_text or flow_instance.state.model_dump_json()
+                result_text = output_text or json.dumps(flow_instance.state.model_dump(mode="json"))
             else:
                 if self._crew.memory:
                     self._crew.long_term_memory = LongTermMemory(
