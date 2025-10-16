@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from agw_status_client import TokenType
+from google.adk.agents.invocation_context import InvocationContext
 from google.adk.auth.auth_credential import AuthCredential, AuthCredentialTypes, HttpAuth, HttpCredentials
 from google.adk.events.event import Event
 from google.adk.plugins.base_plugin import BasePlugin
@@ -15,7 +16,6 @@ from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.mcp_tool import MCPTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 from google.adk.tools.tool_context import ToolContext
-from google.adk.agents.invocation_context import InvocationContext
 from typing_extensions import override
 
 from agw.base import STSIntegrationBase
@@ -65,12 +65,11 @@ class ADKTokenPropagationPlugin(BasePlugin):
 
     @override
     async def before_run_callback(
-      self,
-      *,
-      invocation_context: InvocationContext,
+        self,
+        *,
+        invocation_context: InvocationContext,
     ) -> Optional[dict]:
-        """Propagate token to model before execution.
-        """
+        """Propagate token to model before execution."""
         logger.debug("Setting up token propagation for ADK tool in before_model_callback")
 
         # get subject's access token from session state or access token from session state
@@ -88,7 +87,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
                     if isinstance(tool, MCPToolset):
                         if tool._connection_params.headers is None:
                             tool._connection_params.headers = {}
-                        tool._connection_params.headers['Authorization'] = f'Bearer {access_token}'
+                        tool._connection_params.headers["Authorization"] = f"Bearer {access_token}"
                         logger.debug("Updated tool connection params to include access token from STS server")
             except Exception as e:
                 logger.warning(f"Token exchange failed for tool: {e}")
@@ -98,7 +97,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 if isinstance(tool, MCPToolset):
                     if tool._connection_params.headers is None:
                         tool._connection_params.headers = {}
-                    tool._connection_params.headers['Authorization'] = f'Bearer {access_token}'
+                    tool._connection_params.headers["Authorization"] = f"Bearer {access_token}"
                     logger.debug("Updated tool connection params to include passthroughaccess token")
 
         return None

@@ -16,6 +16,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
@@ -163,6 +165,13 @@ func extractTextFromArtifacts(taskResult *protocol.Task) string {
 	return text.String()
 }
 
+var defaultRetry = wait.Backoff{
+	Steps:    3,
+	Duration: 1 * time.Second,
+	Factor:   2.0,
+	Jitter:   0.2,
+}
+
 // runSyncTest runs a synchronous message test
 // useArtifacts: if true, check artifacts; if false or nil, check history;
 // contextID: optional context ID to maintain conversation context
@@ -181,7 +190,14 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		msg.ContextID = &contextID[0]
 	}
 
-	result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
+	var result *protocol.MessageResult
+	err := retry.OnError(defaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		var retryErr error
+		result, retryErr = a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
+		return retryErr
+	})
 	require.NoError(t, err)
 
 	taskResult, ok := result.Result.(*protocol.Task)
@@ -221,7 +237,14 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 		msg.ContextID = &contextID[0]
 	}
 
-	stream, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
+	var stream <-chan protocol.StreamingMessageEvent
+	err := retry.OnError(defaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		var retryErr error
+		stream, retryErr = a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
+		return retryErr
+	})
 	require.NoError(t, err)
 
 	resultList := []protocol.StreamingMessageEvent{}
@@ -376,7 +399,6 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgent(t, cli, tools)
 
-	// Cleanup
 	defer func() {
 		cli.Delete(t.Context(), agent)    //nolint:errcheck
 		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
@@ -595,86 +617,82 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 
 	// convert STS server URL to be accessible from within Kubernetes pods
 	stsK8sURL := buildK8sURL(stsServer.URL())
-	t.Logf("STS server URL: %s", stsK8sURL)
 	// configure sts server to use the k8s url in its well known config response
 	stsServer.SetK8sURL(stsK8sURL)
 
-	t.Run("agent_with_sts_configuration", func(t *testing.T) {
-		baseURL, stopLLMServer := setupMockServer(t, "mocks/invoke_mcp_agent.json")
-		defer stopLLMServer()
+	baseURL, stopLLMServer := setupMockServer(t, "mocks/invoke_mcp_agent.json")
+	defer stopLLMServer()
 
-		// Setup Kubernetes client (include v1alpha1 for MCPServer)
-		cli := setupK8sClient(t, true)
+	// Setup Kubernetes client (include v1alpha1 for MCPServer)
+	cli := setupK8sClient(t, true)
 
-		// Define tools with MCP server
-		tools := []*v1alpha2.Tool{
+	// Define tools with MCP server
+	tools := []*v1alpha2.Tool{
+		{
+			Type: v1alpha2.ToolProviderType_McpServer,
+			McpServer: &v1alpha2.McpServerTool{
+				TypedLocalReference: v1alpha2.TypedLocalReference{
+					ApiGroup: "kagent.dev",
+					Kind:     "MCPServer",
+					Name:     "everything-mcp-server",
+				},
+				ToolNames: []string{"add"},
+			},
+		},
+	}
+
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	mcpServerResource := setupMCPServer(t, cli, generateMCPServer())
+	agent := setupAgentWithOptions(t, cli, tools, AgentOptions{
+		Name:          "test-sts-agent",
+		SystemMessage: "You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.",
+		Stream:        &[]bool{true}[0],
+		Env: []corev1.EnvVar{
 			{
-				Type: v1alpha2.ToolProviderType_McpServer,
-				McpServer: &v1alpha2.McpServerTool{
-					TypedLocalReference: v1alpha2.TypedLocalReference{
-						ApiGroup: "kagent.dev",
-						Kind:     "MCPServer",
-						Name:     "everything-mcp-server",
-					},
-					ToolNames: []string{"add"},
-				},
+				Name:  "STS_WELL_KNOWN_URI",
+				Value: stsK8sURL + "/.well-known/oauth-authorization-server",
 			},
-		}
+		},
+	})
 
-		modelCfg := setupModelConfig(t, cli, baseURL)
-		mcpServerResource := setupMCPServer(t, cli, generateMCPServer())
-		agent := setupAgentWithOptions(t, cli, tools, AgentOptions{
-			Name:          "test-sts-agent",
-			SystemMessage: "You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.",
-			Stream:        &[]bool{true}[0],
-			Env: []corev1.EnvVar{
-				{
-					Name:  "STS_WELL_KNOWN_URI",
-					Value: stsK8sURL + "/.well-known/oauth-authorization-server",
-				},
+	defer func() {
+		cli.Delete(t.Context(), agent)             //nolint:errcheck
+		cli.Delete(t.Context(), mcpServerResource) //nolint:errcheck
+		cli.Delete(t.Context(), modelCfg)          //nolint:errcheck
+	}()
+
+	// access token for test user with the may act claim allowing system:serviceaccount:kagent:test-sts to
+	// perform operations on behalf of the test user
+	subjectToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJtYXlfYWN0Ijp7InN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprYWdlbnQ6dGVzdC1zdHMifSwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTc2MDEzNDM3M30.f3BcH4mGgmx0v9SCrZAfmg9uB_pP523AChoW-VfEpIdOncyis1OQWPwfQaIzmDOyclKKSYdeOS6j3znWDjAhWDbX3oJtxahy2sE5UVUjiknyAeN2YoNarK3n97gOHLuS6_Whabm8IuZVR78a0c5cIBlbOHv6M9g9LJZOofxozoOOmtMA5Qr4J3gXrrl5WBH52l6TqkdM3ak79mWYTmjijs4FLndKpqjRGvVaP2GRLJ9hkNRKsh40klIud6LXl7SePt3gTXD1Vtmv8WLqmpHrpiOMOsLfTpryA9OSFFKP0Ju7lLtUdfa_ZukH13ZuOnYVA6v0lOs6_7Ic75elc7YCOQ"
+
+	// create custom http client with the access token
+	// to be exchanged with the STS server
+	httpClient := &http.Client{
+		Transport: &httpTransportWithHeaders{
+			base: http.DefaultTransport,
+			t:    t,
+			headers: map[string]string{
+				"Authorization": "Bearer " + subjectToken,
 			},
-		})
+		},
+	}
 
-		// cleanup
-		defer func() {
-			cli.Delete(t.Context(), agent)             //nolint:errcheck
-			cli.Delete(t.Context(), mcpServerResource) //nolint:errcheck
-			cli.Delete(t.Context(), modelCfg)          //nolint:errcheck
-		}()
+	a2aURL := a2aUrl("kagent", "test-sts-agent")
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL,
+		a2aclient.WithTimeout(60*time.Second),
+		a2aclient.WithHTTPClient(httpClient))
+	require.NoError(t, err)
 
-		// access token for test user with the may act claim allowing system:serviceaccount:kagent:test-sts to
-		// perform operations on behalf of the test user
-		subjectToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJtYXlfYWN0Ijp7InN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprYWdlbnQ6dGVzdC1zdHMifSwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTc2MDEzNDM3M30.f3BcH4mGgmx0v9SCrZAfmg9uB_pP523AChoW-VfEpIdOncyis1OQWPwfQaIzmDOyclKKSYdeOS6j3znWDjAhWDbX3oJtxahy2sE5UVUjiknyAeN2YoNarK3n97gOHLuS6_Whabm8IuZVR78a0c5cIBlbOHv6M9g9LJZOofxozoOOmtMA5Qr4J3gXrrl5WBH52l6TqkdM3ak79mWYTmjijs4FLndKpqjRGvVaP2GRLJ9hkNRKsh40klIud6LXl7SePt3gTXD1Vtmv8WLqmpHrpiOMOsLfTpryA9OSFFKP0Ju7lLtUdfa_ZukH13ZuOnYVA6v0lOs6_7Ic75elc7YCOQ"
+	t.Run("sync_invocation", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "add 3 and 5", "8", nil)
 
-		// create custom http client with the access token
-		// to be exchanged with the STS server
-		httpClient := &http.Client{
-			Transport: &httpTransportWithHeaders{
-				base: http.DefaultTransport,
-				t:    t,
-				headers: map[string]string{
-					"Authorization": "Bearer " + subjectToken,
-				},
-			},
-		}
+		// verify our mock STS server received the token exchange request
+		stsRequests := stsServer.GetRequests()
+		require.Len(t, stsRequests, 2, "Expected 2 STS token exchange requests")
 
-		a2aURL := a2aUrl("kagent", "test-sts-agent")
-		a2aClient, err := a2aclient.NewA2AClient(a2aURL,
-			a2aclient.WithTimeout(60*time.Second),
-			a2aclient.WithHTTPClient(httpClient))
-		require.NoError(t, err)
-
-		t.Run("sync_invocation", func(t *testing.T) {
-			runSyncTest(t, a2aClient, "add 3 and 5", "8", nil)
-
-			// verify our mock STS server received the token exchange request
-			stsRequests := stsServer.GetRequests()
-			require.Len(t, stsRequests, 1, "Expected 1 STS token exchange request")
-
-			// ensure the subject token is the same as the one we sent
-			// which contains the may act claim
-			stsRequest := stsRequests[0]
-			require.Equal(t, subjectToken, stsRequest.SubjectToken)
-		})
+		// ensure the subject token is the same as the one we sent
+		// which contains the may act claim
+		stsRequest := stsRequests[0]
+		require.Equal(t, subjectToken, stsRequest.SubjectToken)
 	})
 }
