@@ -92,6 +92,26 @@ spec:
                     description: Image defines the container image to to deploy the
                       MCP server.
                     type: string
+                  initContainer:
+                    description: |-
+                      InitContainer defines the configuration for the init container that copies
+                      the transport adapter binary. This is used for stdio transport type.
+                    properties:
+                      image:
+                        description: |-
+                          Image defines the full image reference for the init container.
+                          If specified, this overrides the default transport adapter image.
+                          Example: "myregistry.com/agentgateway/agentgateway:0.9.0-musl"
+                        type: string
+                      imagePullPolicy:
+                        description: ImagePullPolicy defines the pull policy for the
+                          init container image.
+                        enum:
+                        - Always
+                        - Never
+                        - IfNotPresent
+                        type: string
+                    type: object
                   port:
                     default: 3000
                     description: Port defines the port on which the MCP server will
