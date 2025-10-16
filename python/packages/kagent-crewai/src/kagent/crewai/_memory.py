@@ -47,7 +47,7 @@ class KagentMemoryStorage:
 
         try:
             with httpx.Client() as client:
-                response = client.post(url, json=payload.model_dump(), headers={"X-User-ID": self.user_id})
+                response = client.post(url, json=payload.model_dump(mode="json"), headers={"X-User-ID": self.user_id})
                 response.raise_for_status()
         except httpx.HTTPError as e:
             logging.error(f"Error saving memory to Kagent backend: {e}")

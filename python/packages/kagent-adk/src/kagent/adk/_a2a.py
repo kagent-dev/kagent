@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+import json
 import faulthandler
 import logging
 import os
@@ -132,5 +133,5 @@ class KAgentApp:
             # print(f"  [Event] Author: {event.author}, Type: {type(event).__name__}, Final: {event.is_final_response()}, Content: {event.content}")
 
             # Key Concept: is_final_response() marks the concluding message for the turn.
-            jsn = event.model_dump_json()
+            jsn = json.dumps(event.model_dump(mode="json"))
             logger.info(f"  [Event] {jsn}")

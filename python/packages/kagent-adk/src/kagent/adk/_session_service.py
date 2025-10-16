@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import Any, Optional
 
 import httpx
@@ -152,7 +153,7 @@ class KAgentSessionService(BaseSessionService):
         # Convert ADK Event to JSON format
         event_data = {
             "id": event.id,
-            "data": event.model_dump_json(),
+            "data": json.dumps(event.model_dump(mode="json")),
         }
 
         # Make API call to append event to session

@@ -24,7 +24,7 @@ dev = [
 
 [[package]]
 name = "a2a-sdk"
-version = "0.3.3"
+version = "0.3.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -33,9 +33,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f0/33/25ddb456829784575b5c693699162f7fa930d90a82e16fefaa53d8a02154/a2a_sdk-0.3.3.tar.gz", hash = "sha256:d32426a819d3305116d24e938787b0028c4240df862e7fc2c7bf039def0d60e2", size = 219695, upload-time = "2025-08-25T18:32:09.8Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/dc/253ca3a07a43f49d1cf029dcbbcde8b101a3dbee1c115e45deae9c79625b/a2a_sdk-0.3.8.tar.gz", hash = "sha256:7ce8bcddb431db3f29753d602e9fa97dd060ef6c5db64542b5109302941f0d17", size = 223907, upload-time = "2025-10-06T16:11:51.773Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/cb/03315694ea2f9536c796767da0a1dd6d0b7c48df4badbab19c2c9c570741/a2a_sdk-0.3.3-py3-none-any.whl", hash = "sha256:d433c7f13a7a4b426e3aef798f9ef6eff0d3aea68c9a595634af865111b5c7c2", size = 135159, upload-time = "2025-08-25T18:32:08.18Z" },
+    { url = "https://files.pythonhosted.org/packages/73/23/bf86f1d3a04a6d967176e20939a98207f8a8ed49480622ad6cf5ce232083/a2a_sdk-0.3.8-py3-none-any.whl", hash = "sha256:21254dd47d89a958b9d15576a69fe3d44aaef558858d148e187d1f1e26b320e7", size = 138098, upload-time = "2025-10-06T16:11:50.513Z" },
 ]
 
 [package.optional-dependencies]
@@ -1731,7 +1731,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", specifier = ">=0.3.1" },
+    { name = "a2a-sdk", specifier = ">=0.3.8" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "anthropic", extras = ["vertex"], specifier = ">=0.49.0" },
     { name = "anyio", specifier = ">=4.9.0" },
