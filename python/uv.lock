@@ -1,11 +1,9 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 
 [manifest]
 members = [
-    "agw-sts",
-    "agw-sts-client",
     "basic",
     "currency",
     "kagent-adk",
@@ -57,11 +55,11 @@ wheels = [
 ]
 
 [[package]]
-name = "agw-sts"
-version = "0.1.0"
-source = { editable = "packages/agw-sts" }
+name = "agentsts-adk"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "agw-sts-client" },
+    { name = "agentsts-core" },
     { name = "aiofiles" },
     { name = "anyio" },
     { name = "google-adk" },
@@ -71,35 +69,15 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-
-[package.optional-dependencies]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-mock" },
+sdist = { url = "https://files.pythonhosted.org/packages/d1/35/ba7ba031f83064ef3d37371403ed6158d8040775a9a0b39fb6852298567c/agentsts_adk-0.0.2.tar.gz", hash = "sha256:b7f6f80a610c107962b6cb11595169c53695110ba4f678380a526aace0030a62", size = 6749, upload-time = "2025-10-16T20:48:13.428Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/3c/42c152a6f159ba0a694fad0a5c55d9ad6be5bdae87cc881a371096951ab1/agentsts_adk-0.0.2-py3-none-any.whl", hash = "sha256:5588febec0bccaf105d7fad3375bfcde6c688bd8b7c2cb4983392568322563ad", size = 4214, upload-time = "2025-10-16T20:48:12.276Z" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "agw-sts-client", editable = "packages/agw-sts-client" },
-    { name = "aiofiles", specifier = ">=24.1.0" },
-    { name = "anyio", specifier = ">=4.9.0" },
-    { name = "google-adk", specifier = ">=1.11.0" },
-    { name = "google-auth", specifier = ">=2.40.2" },
-    { name = "google-genai", specifier = ">=1.21.1" },
-    { name = "httpx", specifier = ">=0.25.0" },
-    { name = "pydantic", specifier = ">=2.5.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.25.3" },
-    { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.0.0" },
-    { name = "typing-extensions", specifier = ">=4.8.0" },
-]
-provides-extras = ["test"]
 
 [[package]]
-name = "agw-sts-client"
-version = "0.1.0"
-source = { editable = "packages/agw-sts-client" }
+name = "agentsts-core"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
@@ -107,26 +85,10 @@ dependencies = [
     { name = "pyjwt" },
     { name = "typing-extensions" },
 ]
-
-[package.optional-dependencies]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-mock" },
+sdist = { url = "https://files.pythonhosted.org/packages/95/fc/e64a44f5ce3dd56a509507744be300c07c9c0d5d3699eb63460a35f0a162/agentsts_core-0.0.2.tar.gz", hash = "sha256:106e8a0ee2ff6e4c7fd770d6e9351e0376a3f62147380f9c55c864c275d976f0", size = 10399, upload-time = "2025-10-16T20:48:15.15Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/93/d99ab7b50164f7008c58d7a684d75ae7bdd8a06b4192d1e3618d2f20e7b4/agentsts_core-0.0.2-py3-none-any.whl", hash = "sha256:df6e72a6fac5c08dbd9121ae5edd4b966dae71c9a384ef6cbb0ec1959d876985", size = 9124, upload-time = "2025-10-16T20:48:14.21Z" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "cryptography", specifier = ">=41.0.0" },
-    { name = "httpx", specifier = ">=0.25.0" },
-    { name = "pydantic", specifier = ">=2.5.0" },
-    { name = "pyjwt", specifier = ">=2.8.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
-    { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.0.0" },
-    { name = "typing-extensions", specifier = ">=4.8.0" },
-]
-provides-extras = ["test"]
 
 [[package]]
 name = "aiofiles"
@@ -1805,7 +1767,8 @@ version = "0.3.0"
 source = { editable = "packages/kagent-adk" }
 dependencies = [
     { name = "a2a-sdk" },
-    { name = "agw-sts" },
+    { name = "agentsts-adk" },
+    { name = "agentsts-core" },
     { name = "aiofiles" },
     { name = "anthropic", extra = ["vertex"] },
     { name = "anyio" },
@@ -1838,7 +1801,8 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.3.1" },
-    { name = "agw-sts", editable = "packages/agw-sts" },
+    { name = "agentsts-adk", specifier = ">=0.0.2" },
+    { name = "agentsts-core", specifier = ">=0.0.2" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "anthropic", extras = ["vertex"], specifier = ">=0.49.0" },
     { name = "anyio", specifier = ">=4.9.0" },
@@ -3602,18 +3566,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4e/51/f8794af39eeb870e87a8c8068642fc07bce0c854d6865d7dd0f2a9d338c2/pytest_asyncio-1.1.0.tar.gz", hash = "sha256:796aa822981e01b68c12e4827b8697108f7205020f24b5793b3c41555dab68ea", size = 46652, upload-time = "2025-07-16T04:29:26.393Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/9d/bf86eddabf8c6c9cb1ea9a869d6873b46f105a5d292d3a6f7071f5b07935/pytest_asyncio-1.1.0-py3-none-any.whl", hash = "sha256:5fe2d69607b0bd75c656d1211f969cadba035030156745ee09e7d71740e58ecf", size = 15157, upload-time = "2025-07-16T04:29:24.929Z" },
-]
-
-[[package]]
-name = "pytest-mock"
-version = "3.15.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pytest" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/68/14/eb014d26be205d38ad5ad20d9a80f7d201472e08167f0bb4361e251084a9/pytest_mock-3.15.1.tar.gz", hash = "sha256:1849a238f6f396da19762269de72cb1814ab44416fa73a8686deac10b0d87a0f", size = 34036, upload-time = "2025-09-16T16:37:27.081Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/cc/06253936f4a7fa2e0f48dfe6d851d9c56df896a9ab09ac019d70b760619c/pytest_mock-3.15.1-py3-none-any.whl", hash = "sha256:0a25e2eb88fe5168d535041d09a4529a188176ae608a6d249ee65abc0949630d", size = 10095, upload-time = "2025-09-16T16:37:25.734Z" },
 ]
 
 [[package]]

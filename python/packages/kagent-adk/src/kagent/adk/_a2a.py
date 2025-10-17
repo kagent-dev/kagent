@@ -8,7 +8,7 @@ import httpx
 from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
-from agw.adk import ADKSessionService, ADKSTSIntegration, ADKRunner, ADKTokenPropagationPlugin
+from agentsts.adk import ADKRunner, ADKSessionService, ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
