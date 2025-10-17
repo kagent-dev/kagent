@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -41,7 +43,18 @@ func TestToolServersHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	setupHandler := func() (*handlers.ToolServersHandler, ctrl_client.Client, *database_fake.InMemoryFakeClient, *mockErrorResponseWriter) {
-		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+		// Create a RESTMapper that knows about the MCPServer type
+		restMapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{v1alpha1.GroupVersion})
+		restMapper.Add(schema.GroupVersionKind{
+			Group:   "kagent.dev",
+			Version: "v1alpha1",
+			Kind:    "MCPServer",
+		}, meta.RESTScopeNamespace)
+
+		kubeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithRESTMapper(restMapper).
+			Build()
 		dbClient := database_fake.NewClient()
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
@@ -49,6 +62,8 @@ func TestToolServersHandler(t *testing.T) {
 			DatabaseService:    dbClient,
 			Authorizer:         &auth.NoopAuthorizer{},
 		}
+		// Initialize the toolServerTypes by calling NewToolServerTypesHandler
+		_ = handlers.NewToolServerTypesHandler(base)
 		handler := handlers.NewToolServersHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
 		return handler, kubeClient, dbClient.(*database_fake.InMemoryFakeClient), responseRecorder

@@ -8,7 +8,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -63,6 +66,7 @@ func TestToolServerTypesHandler_NoKmcp(t *testing.T) {
 }
 
 func TestToolServerTypesHandler_WithKmcp(t *testing.T) {
+
 	scheme := runtime.NewScheme()
 
 	err := v1alpha2.AddToScheme(scheme)
@@ -73,7 +77,29 @@ func TestToolServerTypesHandler_WithKmcp(t *testing.T) {
 	require.NoError(t, err)
 
 	setupHandler := func() (*handlers.ToolServerTypesHandler, ctrl_client.Client, *mockErrorResponseWriter) {
-		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+		// Add a dummy MCPServer object to make the type known to the RESTMapper
+		dummyMCPServer := &kmcp.MCPServer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dummy-mcp-server",
+				Namespace: "default",
+			},
+		}
+
+		// Create a RESTMapper that knows about the MCPServer type
+		restMapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{kmcp.GroupVersion})
+		restMapper.Add(schema.GroupVersionKind{
+			Group:   "kagent.dev",
+			Version: "v1alpha1",
+			Kind:    "MCPServer",
+		}, meta.RESTScopeNamespace)
+
+		// Build the fake client with the MCPServer object
+		kubeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(dummyMCPServer).
+			WithRESTMapper(restMapper).
+			Build()
+
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},

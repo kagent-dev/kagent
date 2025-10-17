@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
@@ -20,7 +21,9 @@ func NewToolServerTypesHandler(base *Base) *ToolServerTypesHandler {
 	if _, err := base.KubeClient.RESTMapper().RESTMapping(mcpGk); err != nil {
 		ctrllog.Log.Info("Could not find CRD for tool server - API integration will be disabled", "toolServerType", mcpGk.String())
 	} else {
-		toolServerTypes = append(toolServerTypes, ToolServerTypeMCPServer)
+		toolServerInit.Do(func() {
+			toolServerTypes = append(toolServerTypes, ToolServerTypeMCPServer)
+		})
 	}
 
 	return &ToolServerTypesHandler{Base: base}
@@ -52,6 +55,8 @@ const (
 	ToolServerTypeRemoteMCPServer ToolServerType = "RemoteMCPServer"
 	ToolServerTypeMCPServer       ToolServerType = "MCPServer"
 )
+
+var toolServerInit = sync.Once{}
 
 var toolServerTypes = ToolServerTypes{
 	ToolServerTypeRemoteMCPServer,
