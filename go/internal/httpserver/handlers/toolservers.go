@@ -97,6 +97,12 @@ func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *ht
 		return
 	}
 
+	toolServerTypes, err := GetSupportedToolServerTypes(h.KubeClient)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list supported ToolServerTypes", err))
+		return
+	}
+
 	if !slices.Contains(toolServerTypes, toolServerRequest.Type) {
 		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Invalid tool server type. Must be one of %s", toolServerTypes.Join(", ")), nil))
 		return

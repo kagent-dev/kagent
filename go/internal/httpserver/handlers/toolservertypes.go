@@ -2,11 +2,12 @@ package handlers
 
 import (
 	"net/http"
-	"sync"
 
+	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -20,10 +21,6 @@ func NewToolServerTypesHandler(base *Base) *ToolServerTypesHandler {
 	mcpGk := schema.GroupKind{Group: "kagent.dev", Kind: string(ToolServerTypeMCPServer)}
 	if _, err := base.KubeClient.RESTMapper().RESTMapping(mcpGk); err != nil {
 		ctrllog.Log.Info("Could not find CRD for tool server - API integration will be disabled", "toolServerType", mcpGk.String())
-	} else {
-		toolServerInit.Do(func() {
-			toolServerTypes = append(toolServerTypes, ToolServerTypeMCPServer)
-		})
 	}
 
 	return &ToolServerTypesHandler{Base: base}
@@ -56,10 +53,16 @@ const (
 	ToolServerTypeMCPServer       ToolServerType = "MCPServer"
 )
 
-var toolServerInit = sync.Once{}
+func GetSupportedToolServerTypes(cli client.Client) (ToolServerTypes, error) {
+	types := ToolServerTypes{
+		ToolServerTypeRemoteMCPServer,
+	}
 
-var toolServerTypes = ToolServerTypes{
-	ToolServerTypeRemoteMCPServer,
+	if _, err := cli.RESTMapper().RESTMapping(schema.GroupKind{Group: "kagent.dev", Kind: string(ToolServerTypeMCPServer)}); err == nil {
+		types = append(types, ToolServerTypeMCPServer)
+	}
+
+	return types, nil
 }
 
 // HandleListToolServerTypes handles GET /api/toolservertypes requests
@@ -68,6 +71,12 @@ func (h *ToolServerTypesHandler) HandleListToolServerTypes(w ErrorResponseWriter
 	log.Info("Received request to list supported ToolServerTypes")
 	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServerType"}); err != nil {
 		w.RespondWithError(err)
+		return
+	}
+
+	toolServerTypes, err := GetSupportedToolServerTypes(h.KubeClient)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list supported ToolServerTypes", err))
 		return
 	}
 
