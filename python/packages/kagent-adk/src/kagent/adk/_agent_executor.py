@@ -156,6 +156,10 @@ class A2aAgentExecutor(AgentExecutor):
         # Convert the a2a request to ADK run args
         run_args = convert_a2a_request_to_adk_run_args(context)
 
+        # set request headers to session state
+        headers = context.call_context.state.get("headers", {})
+        run_args["headers"] = headers
+
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
 

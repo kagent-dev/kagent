@@ -19,7 +19,7 @@ lint:
 
 .PHONY: test
 test: update
-	uv run pytest tests
+	uv run pytest tests packages/*/tests
 
 .PHONY: build
 build: update format

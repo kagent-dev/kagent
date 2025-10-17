@@ -88,8 +88,14 @@ jobs:
         if: success()
         working-directory: go
         run: |
+          # Get the Kind network gateway IP that pods can reach
+          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+          echo "Detected Kind network gateway: $HOST_IP"
+          export KAGENT_LOCAL_HOST=$HOST_IP
+          
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
-          echo $KAGENT_URL
+          echo "KAGENT_URL: $KAGENT_URL"
+          echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
 
           go test -race -v github.com/kagent-dev/kagent/go/test/e2e
       - name: fail print info
