@@ -18,11 +18,11 @@ import (
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
-	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 func TestMemoryHandler(t *testing.T) {

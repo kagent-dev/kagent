@@ -131,8 +131,8 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 				}) {
 					requests = append(requests, reconcile.Request{
 						NamespacedName: types.NamespacedName{
-							Name:      agent.ObjectMeta.Name,
-							Namespace: agent.ObjectMeta.Namespace,
+							Name:      agent.Name,
+							Namespace: agent.Namespace,
 						},
 					})
 				}
@@ -154,8 +154,8 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 				}) {
 					requests = append(requests, reconcile.Request{
 						NamespacedName: types.NamespacedName{
-							Name:      agent.ObjectMeta.Name,
-							Namespace: agent.ObjectMeta.Namespace,
+							Name:      agent.Name,
+							Namespace: agent.Namespace,
 						},
 					})
 				}
