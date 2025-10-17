@@ -24,10 +24,7 @@ type Generator struct {
 // NewGenerator creates a new TypeScript generator
 func NewGenerator() *Generator {
 	return &Generator{
-		BaseGenerator: common.BaseGenerator{
-			TemplateFiles:    templateFiles,
-			ToolTemplateName: "src/tools/tool.ts.tmpl",
-		},
+		BaseGenerator: *common.NewBaseGenerator(templateFiles, "src/tools/tool.ts.tmpl"),
 	}
 }
 

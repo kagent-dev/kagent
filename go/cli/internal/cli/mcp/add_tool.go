@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	commonfs "github.com/kagent-dev/kagent/go/cli/internal/common/fs"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/mcp"
 	"github.com/kagent-dev/kagent/go/cli/internal/mcp/frameworks"
@@ -88,7 +89,7 @@ func runAddTool(_ *cobra.Command, args []string) error {
 
 	// Check if tool already exists
 	toolPath := filepath.Join("src", "tools", toolName+".py")
-	toolExists := fileExists(toolPath)
+	toolExists := commonfs.FileExists(toolPath)
 
 	if cfg.Verbose {
 		fmt.Printf("Tool file path: %s\n", toolPath)

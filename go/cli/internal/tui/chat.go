@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
+	"github.com/muesli/reflow/wordwrap"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -89,7 +90,7 @@ func newChatModel(agentRef string, sessionID string, send SendMessageFn, verbose
 }
 
 func (m *chatModel) Init() tea.Cmd {
-	return nil
+	return m.spin.Tick
 }
 
 func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -128,9 +129,16 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if vpHeight < 5 {
 			vpHeight = 5
 		}
+
+		oldWidth := m.vp.Width
 		m.vp.Width = msg.Width
 		m.vp.Height = vpHeight
 		m.input.SetWidth(msg.Width)
+
+		// Re-render content if width changed
+		if oldWidth != msg.Width && msg.Width > 0 {
+			m.vp.SetContent(m.history)
+		}
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -208,6 +216,7 @@ func (m *chatModel) submit(text string) tea.Cmd {
 
 	params := protocol.SendMessageParams{
 		Message: protocol.Message{
+			Kind:      protocol.KindMessage,
 			Role:      protocol.MessageRoleUser,
 			ContextID: &m.sessionID,
 			Parts:     []protocol.Part{protocol.NewTextPart(text)},
@@ -306,10 +315,15 @@ func (m *chatModel) appendError(err error) {
 }
 
 func (m *chatModel) appendLine(s string) {
+	wrapped := s
+	if m.vp.Width > 0 {
+		wrapped = wordwrap.String(s, m.vp.Width-2) // -2 for padding
+	}
+
 	if m.history == "" {
-		m.history = s
+		m.history = wrapped
 	} else {
-		m.history = m.history + "\n\n" + s
+		m.history = m.history + "\n\n" + wrapped
 	}
 	m.vp.SetContent(m.history)
 	m.vp.GotoBottom()

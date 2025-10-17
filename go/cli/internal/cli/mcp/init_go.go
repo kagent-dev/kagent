@@ -3,6 +3,7 @@ package mcp
 import (
 	"fmt"
 
+	commonprompt "github.com/kagent-dev/kagent/go/cli/internal/common/prompt"
 	"github.com/kagent-dev/kagent/go/cli/internal/mcp"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +43,7 @@ func runInitGo(_ *cobra.Command, args []string) error {
 		// Interactively get module name if not provided
 		if goModuleName == "" && !initNonInteractive {
 			var err error
-			goModuleName, err = promptForInput("Enter Go module name (e.g., github.com/my-org/my-project): ")
+			goModuleName, err = commonprompt.PromptForInput("Enter Go module name (e.g., github.com/my-org/my-project): ")
 			if err != nil {
 				return fmt.Errorf("failed to read module name: %w", err)
 			}
