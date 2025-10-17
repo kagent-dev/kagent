@@ -13,6 +13,10 @@ format:
 	uv run ruff format
 	uv run ruff check
 
+.PHONY: lint
+lint: 
+	uv run ruff format --diff
+
 .PHONY: test
 test: update
 	uv run pytest tests
@@ -29,3 +33,11 @@ audit: build
 .PHONY: basic-langchain-sample
 basic-langchain-sample:
 	docker build . -f samples/langgraph/currency/Dockerfile --tag localhost:5001/langgraph-currency:latest --push
+
+.PHONY: research-crew-sample
+research-crew-sample:
+	docker build . -f samples/crewai/research-crew/Dockerfile --tag localhost:5001/research-crew:latest --push
+
+.PHONY: poem-flow-sample
+poem-flow-sample:
+	docker build . -f samples/crewai/poem_flow/Dockerfile --tag localhost:5001/poem-flow:latest --push

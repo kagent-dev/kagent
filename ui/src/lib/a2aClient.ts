@@ -38,15 +38,17 @@ export class KagentA2AClient {
 
   /**
    * Send a streaming message using the A2A protocol via Next.js API route
+   * Accepts an optional AbortSignal for cancellation support
    */
   async sendMessageStream(
-    namespace: string, 
-    agentName: string, 
-    params: MessageSendParams
+    namespace: string,
+    agentName: string,
+    params: MessageSendParams,
+    signal?: AbortSignal
   ): Promise<AsyncIterable<any>> {
     const request = this.createStreamingRequest(params);
-    // This redirects to the Next.js API route 
-    // Note that this route CAN'T be the same 
+    // This redirects to the Next.js API route
+    // Note that this route CAN'T be the same
     // as the routes on the backend.
     const proxyUrl = `/a2a/${namespace}/${agentName}`;
 
@@ -57,6 +59,7 @@ export class KagentA2AClient {
         'Accept': 'text/event-stream',
       },
       body: JSON.stringify(request),
+      signal,
     });
 
     if (!response.ok) {
@@ -102,11 +105,11 @@ export class KagentA2AClient {
             for (const line of lines) {
               if (line.startsWith('data: ')) {
                 const dataString = line.substring(6);
-                
+
                 if (dataString === '[DONE]') {
                   return;
                 }
-                
+
                 try {
                   const eventData = JSON.parse(dataString);
                   yield eventData.result || eventData;

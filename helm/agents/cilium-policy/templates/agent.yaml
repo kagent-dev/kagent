@@ -453,12 +453,6 @@ spec:
     tools:
       - type: McpServer
         mcpServer:
-          name: kagent-querydoc
-          kind: Service
-          toolNames:
-            - query_documentation
-      - type: McpServer
-        mcpServer:
           name: kagent-tool-server
           kind: RemoteMCPServer
           apiGroup: kagent.dev
@@ -517,3 +511,6 @@ spec:
             - "I want to restrict traffic between pods in the same namespace, which policy should I use?"
             - "Can you create a Kubernetes NetworkPolicy for me?"
             - "What's the difference between CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy for securing my nodes?"
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}

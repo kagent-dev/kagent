@@ -330,12 +330,6 @@ spec:
     tools:
       - type: McpServer
         mcpServer:
-          name: kagent-querydoc
-          kind: Service
-          toolNames:
-            - query_documentation
-      - type: McpServer
-        mcpServer:
           name: kagent-tool-server
           kind: RemoteMCPServer
           apiGroup: kagent.dev
@@ -462,3 +456,6 @@ spec:
             - "I need a CiliumNetworkPolicy for my application."
             - "How do I write a policy to allow only specific DNS queries?"
             - "What's the syntax for creating a Cilium egress policy?"
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}

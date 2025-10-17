@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
-import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, Wrench, Database } from "lucide-react";
+import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import {
   DropdownMenu,
@@ -79,7 +79,7 @@ export function Header() {
                 <DropdownMenuItem asChild>
                   <Link href="/servers" className="gap-2 cursor-pointer w-full">
                     <Server className="h-4 w-4" />
-                    New Tool Server
+                    New MCP Server
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -115,7 +115,7 @@ export function Header() {
                 <DropdownMenuItem asChild>
                   <Link href="/servers" className="gap-2 cursor-pointer w-full">
                     <Server className="h-4 w-4" />
-                    Tool Servers
+                    MCP Servers
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -171,13 +171,13 @@ export function Header() {
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
                     <Link href="/tools" className="gap-2 cursor-pointer w-full">
                       <Hammer className="h-4 w-4" />
-                      Tools
+                      MCP Tools
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
                     <Link href="/servers" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
-                      Tool Servers
+                      MCP Servers
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -206,15 +206,9 @@ export function Header() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/tools/new" className="gap-2 cursor-pointer w-full">
-                      <Wrench className="h-4 w-4" />
-                      New Tool
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
                     <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
-                      New Tool Server
+                      New MCP Server
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>

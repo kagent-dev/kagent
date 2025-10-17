@@ -78,7 +78,7 @@ export const ModelSelectionSection = ({
                   <span>{model.model} ({model.ref})</span>
                   {isDifferentNamespace && (
                     <span className="text-xs text-muted-foreground">
-                      Change agent namespace to "{modelNamespace}" to use this model
+                      Change agent namespace to &quot;{modelNamespace}&quot; to use this model
                     </span>
                   )}
                 </div>

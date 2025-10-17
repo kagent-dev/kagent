@@ -7,6 +7,7 @@ from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._events import EventLoggerProvider
@@ -26,15 +27,27 @@ def configure(fastapi_app: FastAPI | None = None):
     # Configure tracing if enabled
     if tracing_enabled:
         logging.info("Enabling tracing")
-        tracer_provider = TracerProvider(resource=resource)
         # Check new env var first, fall back to old one for backward compatibility
         trace_endpoint = os.getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        logging.info("Trace endpoint: %s", trace_endpoint or "<default>")
         if trace_endpoint:
             processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=trace_endpoint))
         else:
             processor = BatchSpanProcessor(OTLPSpanExporter())
-        tracer_provider.add_span_processor(processor)
-        trace.set_tracer_provider(tracer_provider)
+
+        # Check if a TracerProvider already exists (e.g., set by CrewAI)
+        current_provider = trace.get_tracer_provider()
+        if isinstance(current_provider, TracerProvider):
+            # TracerProvider already exists, just add our processor to it
+            current_provider.add_span_processor(processor)
+            logging.info("Added OTLP processor to existing TracerProvider")
+        else:
+            # No provider set, create new one
+            tracer_provider = TracerProvider(resource=resource)
+            tracer_provider.add_span_processor(processor)
+            trace.set_tracer_provider(tracer_provider)
+            logging.info("Created new TracerProvider")
+
         HTTPXClientInstrumentor().instrument()
         if fastapi_app:
             FastAPIInstrumentor().instrument_app(fastapi_app)
@@ -65,3 +78,4 @@ def configure(fastapi_app: FastAPI | None = None):
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
         OpenAIInstrumentor().instrument()
         AnthropicInstrumentor().instrument()
+        GoogleGenerativeAiInstrumentor().instrument()

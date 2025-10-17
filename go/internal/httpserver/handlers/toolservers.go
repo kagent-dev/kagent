@@ -11,7 +11,7 @@ import (
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -38,7 +38,7 @@ type ToolServerCreateRequest struct {
 	RemoteMCPServer *v1alpha2.RemoteMCPServer `json:"remoteMCPServer,omitempty"`
 
 	// MCPServer is used when Type is "MCPServer"
-	MCPServer *kmcp.MCPServer `json:"mcpServer,omitempty"`
+	MCPServer *v1alpha1.MCPServer `json:"mcpServer,omitempty"`
 }
 
 // HandleListToolServers handles GET /api/toolservers requests
@@ -151,7 +151,7 @@ func (h *ToolServersHandler) handleCreateRemoteMCPServer(w ErrorResponseWriter, 
 }
 
 // handleCreateMCPServer handles the creation of an MCPServer (stdio-based)
-func (h *ToolServersHandler) handleCreateMCPServer(w ErrorResponseWriter, r *http.Request, toolServerRequest *kmcp.MCPServer, log logr.Logger) {
+func (h *ToolServersHandler) handleCreateMCPServer(w ErrorResponseWriter, r *http.Request, toolServerRequest *v1alpha1.MCPServer, log logr.Logger) {
 	if toolServerRequest.Namespace == "" {
 		toolServerRequest.Namespace = common.GetResourceNamespace()
 	}
@@ -267,7 +267,7 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 		}
 
 	case "MCPServer.kagent.dev":
-		toolServer := &kmcp.MCPServer{}
+		toolServer := &v1alpha1.MCPServer{}
 		err = h.KubeClient.Get(
 			r.Context(),
 			client.ObjectKey{

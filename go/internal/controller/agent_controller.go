@@ -36,7 +36,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
-	"github.com/kagent-dev/kagent/go/internal/controller/translator"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
@@ -48,12 +48,16 @@ var (
 type AgentController struct {
 	Scheme        *runtime.Scheme
 	Reconciler    reconciler.KagentReconciler
-	AdkTranslator translator.AdkApiTranslator
+	AdkTranslator agent_translator.AdkApiTranslator
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 
 func (r *AgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
@@ -66,7 +70,7 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
+		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}))
 
 	// Setup owns relationships for resources created by the Agent controller -
 	// for now ownership of agent resources is handled by the ADK translator

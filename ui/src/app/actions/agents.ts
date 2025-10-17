@@ -5,42 +5,8 @@ import { Agent, AgentResponse, Tool } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { isMcpTool, isAgentTool } from "@/lib/toolUtils";
+import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
-
-/**
- * Converts a tool to AgentTool format
- * @param tool The tool to convert
- * @param allAgents List of all available agents to look up descriptions
- * @returns An AgentTool object, potentially augmented with description
- */
-function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
-  const typedTool = tool as Partial<Tool>;
-  if (isMcpTool(typedTool)) {
-    return tool as Tool;
-  } else if (isAgentTool(typedTool)) {
-    const foundAgent = allAgents.find(a => {
-      const aRef = k8sRefUtils.toRef(
-        a.agent.metadata.namespace || "",
-        a.agent.metadata.name,
-      )
-      return aRef === typedTool.agent.name
-    });
-    const description = foundAgent?.agent.spec.description;
-    return {
-      ...typedTool,
-      type: "Agent",
-      agent: {
-        ...typedTool.agent,
-        name: typedTool.agent.name,
-        description: description
-      }
-    } as Tool;
-  }
-
-  throw new Error(`Unknown tool type: ${tool}`);
-}
-
 
 /**
  * Converts AgentFormData to Agent format
@@ -57,7 +23,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
   const convertTools = (tools: Tool[]) =>
     tools.map((tool) => {
       if (isMcpTool(tool)) {
-        const mcpServer = (tool as Tool).mcpServer;
+        const mcpServer = tool.mcpServer;
         if (!mcpServer) {
           throw new Error("MCP server not found");
         }
@@ -85,8 +51,8 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         } as Tool;
       }
 
-      if ((tool as any).agent) {
-        const agentObj = (tool as any).agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
+      if (tool.type === "Agent") {
+        const agentObj = tool.agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
         const refOrName = agentObj.ref || agentObj.name || "";
         const nameOnly = k8sRefUtils.isValidRef(refOrName) ? k8sRefUtils.fromRef(refOrName).name : refOrName;
         return {
@@ -96,7 +62,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
             kind: agentObj.kind || "Agent",
             apiGroup: agentObj.apiGroup || "kagent.dev",
           },
-        } as unknown as Tool;
+        } as Tool;
       }
 
       console.warn("Unknown tool type:", tool);

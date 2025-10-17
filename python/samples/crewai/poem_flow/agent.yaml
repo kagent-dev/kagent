@@ -1,0 +1,17 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: poem-flow-agent
+  namespace: kagent
+spec:
+  description: A flow that uses a crew to generate a poem.
+  type: BYO
+  byo:
+    deployment:
+      image: localhost:5001/poem-flow:latest
+      env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kagent-openai
+              key: OPENAI_API_KEY

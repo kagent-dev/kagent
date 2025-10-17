@@ -219,3 +219,18 @@ func GetList[T client.Object](ctx context.Context, cl client.Client, l T, option
 	}
 	return ownedObjects, nil
 }
+
+func UpsertOutput(ctx context.Context, kube client.Client, output client.Object) error {
+	existing := output.DeepCopyObject().(client.Object)
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(existing), existing); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		return kube.Create(ctx, output)
+	}
+	output.SetResourceVersion(existing.GetResourceVersion())
+	if err := kube.Update(ctx, output); err != nil {
+		return err
+	}
+	return nil
+}

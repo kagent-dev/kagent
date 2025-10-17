@@ -185,9 +185,9 @@ export function ToolSelectionStep({
                 </div>
 
                 {!hasAnyTools ? (
-                    <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Tools Available</AlertTitle><AlertDescription>No tools found. Connect Tool Servers or define tools later.</AlertDescription></Alert>
+                    <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Tools Available</AlertTitle><AlertDescription>No tools found. Connect MCP Servers or define tools later.</AlertDescription></Alert>
                 ) : !hasCategoryToolsBeforeSearch ? (
-                    <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Kubernetes Tools Found</AlertTitle><AlertDescription>Couldn&apos;t find specific K8s tools. Connect tool servers or define tools later.</AlertDescription></Alert>
+                    <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Kubernetes Tools Found</AlertTitle><AlertDescription>Couldn&apos;t find specific K8s tools. Connect MCP Servers or define tools later.</AlertDescription></Alert>
                 ) : !hasSearchedTools ? (
                     <Alert variant="default"><Info className="h-4 w-4" /><AlertTitle>No Matching Tools</AlertTitle><AlertDescription>No tools match your search. Try a different query or clear the search.</AlertDescription></Alert>
                 ) : (

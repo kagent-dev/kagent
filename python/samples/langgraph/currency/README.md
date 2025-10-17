@@ -86,3 +86,27 @@ The agent can be configured via environment variables:
 - `KAGENT_URL`: KAgent server URL (default: http://localhost:8080)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
+
+## Tracing (OTel)
+
+High-level options for tracing this sample:
+
+- **OpenTelemetry → Jaeger (or any OTLP backend)**
+  - Already wired by `kagent-core` when enabled.
+  - Set:
+    ```bash
+    export OTEL_TRACING_ENABLED=true
+    export LANGSMITH_TRACING=true
+    export LANGSMITH_OTEL_ENABLED=true
+    export LANGSMITH_WORKSPACE_ID=<workspace-id>
+    export LANGSMITH_ENDPOINT=http://<any-otlp-compatible-backend>:4317
+    export OTEL_EXPORTER_OTLP_ENDPOINT=http://<any-otlp-compatible-backend>:4317
+    ```
+  - You should see logs like "Enabling tracing" and "Trace endpoint: ..." at startup.
+
+- **Instrumenting tools**
+  - If you create custom tools, decorate them with the LangSmith SDK's `@traceable` decorator; this sample shows it for the exchange-rate tool.
+
+References:
+- LangSmith SDK: `https://github.com/langchain-ai/langsmith-sdk`
+- Trace with OpenTelemetry: `https://docs.langchain.com/langsmith/trace-with-opentelemetry`

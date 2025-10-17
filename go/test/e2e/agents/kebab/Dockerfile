@@ -1,7 +1,8 @@
 ### STAGE 1: base image
 ARG DOCKER_REGISTRY=ghcr.io
 ARG VERSION=latest
-FROM $DOCKER_REGISTRY/kagent-dev/kagent/kagent-adk:$VERSION
+ARG DOCKER_REPO=kagent-dev/kagent
+FROM $DOCKER_REGISTRY/$DOCKER_REPO/kagent-adk:$VERSION
 
 WORKDIR /app
 

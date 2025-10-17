@@ -17,9 +17,13 @@ limitations under the License.
 package v1alpha2
 
 import (
+	"context"
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
@@ -51,9 +55,14 @@ type AgentSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
-	// +kubebuilder:validation:MinLength=1
+	// SystemMessage is a string specifying the system message for the agent
+	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
+	// SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+	// +optional
+	SystemMessageFrom *ValueSource `json:"systemMessageFrom,omitempty"`
 	// The name of the model config to use.
 	// If not specified, the default value is "default-model-config".
 	// Must be in the same namespace as the Agent.
@@ -122,6 +131,8 @@ type SharedDeploymentSpec struct {
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type
@@ -144,6 +155,29 @@ type Tool struct {
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
 	Agent *TypedLocalReference `json:"agent,omitempty"`
+
+	// HeadersFrom specifies a list of configuration values to be added as
+	// headers to requests sent to the Tool from this agent. The value of
+	// each header is resolved from either a Secret or ConfigMap in the same
+	// namespace as the Agent. Headers specified here will override any
+	// headers of the same name/key specified on the tool.
+	// +optional
+	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
+}
+
+func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespace string) (map[string]string, error) {
+	result := map[string]string{}
+
+	for _, h := range s.HeadersFrom {
+		k, v, err := h.Resolve(ctx, client, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve header: %v", err)
+		}
+
+		result[k] = v
+	}
+
+	return result, nil
 }
 
 type McpServerTool struct {

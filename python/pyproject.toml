@@ -1,11 +1,12 @@
 [tool.uv.workspace]
-members = ["packages/*", "samples/adk/*", "samples/langgraph/*"]
+members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai/*"]
 
 [dependency-groups]
 dev = [
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
   "ruff>=0.11.5",
+  "authlib>=1.6.4"
 ]
 
 [tool.uv.sources]

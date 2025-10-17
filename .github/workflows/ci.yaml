@@ -67,7 +67,7 @@ jobs:
       - name: Install Kagent
         id: install-kagent
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: fake
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
@@ -81,6 +81,7 @@ jobs:
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
           make push-test-agent
+          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
@@ -90,7 +91,7 @@ jobs:
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
           echo $KAGENT_URL
 
-          go test -v github.com/kagent-dev/kagent/go/test/e2e
+          go test -race -v github.com/kagent-dev/kagent/go/test/e2e
       - name: fail print info
         if: failure()
         run: |
@@ -112,14 +113,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache: true
           cache-dependency-path: go/go.sum
 
       - name: Run cmd/main.go tests
         working-directory: go
         run: |
-          go test -skip 'TestInvokeInlineAgent|TestInvokeExternalAgent|TestE2E|TestAutogenClient' -v ./...
+          go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
 
   helm-unit-tests:
     env:
@@ -162,6 +163,10 @@ jobs:
       - name: Install dependencies
         working-directory: ./ui
         run: npm ci
+
+      - name: Run lint
+        working-directory: ./ui
+        run: npm run lint
 
       - name: Run tests
         working-directory: ./ui
@@ -223,13 +228,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache: true
           cache-dependency-path: go/go.sum
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.1
+          version: v2.5.0
           working-directory: go
 
   python-test:

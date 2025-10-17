@@ -37,13 +37,23 @@ type Model interface {
 }
 
 type BaseModel struct {
-	Type  string `json:"type"`
-	Model string `json:"model"`
+	Type    string            `json:"type"`
+	Model   string            `json:"model"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 type OpenAI struct {
 	BaseModel
-	BaseUrl string `json:"base_url"`
+	BaseUrl          string   `json:"base_url"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	MaxTokens        *int     `json:"max_tokens,omitempty"`
+	N                *int     `json:"n,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	ReasoningEffort  *string  `json:"reasoning_effort,omitempty"`
+	Seed             *int     `json:"seed,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	Timeout          *int     `json:"timeout,omitempty"`
+	TopP             *float64 `json:"top_p,omitempty"`
 }
 
 const (
@@ -57,10 +67,14 @@ const (
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
-		"type":     ModelTypeOpenAI,
-		"model":    o.Model,
-		"base_url": o.BaseUrl,
+	type Alias OpenAI
+
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeOpenAI,
+		Alias: (*Alias)(o),
 	})
 }
 
@@ -78,8 +92,9 @@ func (a *AzureOpenAI) GetType() string {
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeAzureOpenAI,
-		"model": a.Model,
+		"type":    ModelTypeAzureOpenAI,
+		"model":   a.Model,
+		"headers": a.Headers,
 	})
 }
 
@@ -93,6 +108,7 @@ func (a *Anthropic) MarshalJSON() ([]byte, error) {
 		"type":     ModelTypeAnthropic,
 		"model":    a.Model,
 		"base_url": a.BaseUrl,
+		"headers":  a.Headers,
 	})
 }
 
@@ -105,10 +121,10 @@ type GeminiVertexAI struct {
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGeminiVertexAI,
-		"model": g.Model,
+		"type":    ModelTypeGeminiVertexAI,
+		"model":   g.Model,
+		"headers": g.Headers,
 	})
 }
 
@@ -121,10 +137,10 @@ type GeminiAnthropic struct {
 }
 
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGeminiAnthropic,
-		"model": g.Model,
+		"type":    ModelTypeGeminiAnthropic,
+		"model":   g.Model,
+		"headers": g.Headers,
 	})
 }
 
@@ -138,8 +154,9 @@ type Ollama struct {
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeOllama,
-		"model": o.Model,
+		"type":    ModelTypeOllama,
+		"model":   o.Model,
+		"headers": o.Headers,
 	})
 }
 
@@ -152,10 +169,10 @@ type Gemini struct {
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
-
 	return json.Marshal(map[string]interface{}{
-		"type":  ModelTypeGemini,
-		"model": g.Model,
+		"type":    ModelTypeGemini,
+		"model":   g.Model,
+		"headers": g.Headers,
 	})
 }
 
@@ -216,9 +233,10 @@ func ParseModel(bytes []byte) (Model, error) {
 }
 
 type RemoteAgentConfig struct {
-	Name        string `json:"name"`
-	Url         string `json:"url"`
-	Description string `json:"description,omitempty"`
+	Name        string            `json:"name"`
+	Url         string            `json:"url"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Description string            `json:"description,omitempty"`
 }
 
 type AgentConfig struct {

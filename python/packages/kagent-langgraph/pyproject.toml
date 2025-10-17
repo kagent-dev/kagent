@@ -14,6 +14,7 @@ dependencies = [
   "uvicorn>=0.20.0",
   "a2a-sdk>=0.2.16",
   "kagent-core",
+  "langsmith[otel]>=0.4.30",
 ]
 
 [project.optional-dependencies]

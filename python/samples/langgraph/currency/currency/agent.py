@@ -6,6 +6,7 @@ from kagent.langgraph import KAgentCheckpointer
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.prebuilt import create_react_agent
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,8 @@ kagent_checkpointer = KAgentCheckpointer(
 )
 
 
-@tool
-def get_exchange_rate(
+@traceable(name="get_exchange_rate")
+def _get_exchange_rate(
     currency_from: str = "USD",
     currency_to: str = "EUR",
     currency_date: str = "latest",
@@ -49,6 +50,9 @@ def get_exchange_rate(
     except ValueError:
         return {"error": "Invalid JSON response from API."}
 
+
+# Convert the traceable function into a LangChain tool
+get_exchange_rate = tool(_get_exchange_rate)
 
 SYSTEM_INSTRUCTION = (
     "You are a specialized assistant for currency conversions. "

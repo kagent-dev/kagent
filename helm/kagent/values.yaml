@@ -72,7 +72,7 @@ controller:
   streaming: # Streaming buffer size for A2A communication
     maxBufSize: 1Mi # 1024 * 1024
     initialBufSize: 4Ki # 4 * 1024
-    timeout: 60s # 60 seconds
+    timeout: 600s # 600 seconds
   # -- Namespaces the controller should watch.
   # If empty, the controller will watch ALL available namespaces.
   # @default -- [] (watches all available namespaces)
@@ -103,7 +103,7 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-  env: {}
+  env: []
 
 # ==============================================================================
 # UI CONFIGURATION
@@ -126,7 +126,7 @@ ui:
   service:
     type: ClusterIP
     ports:
-      port: 80
+      port: 8080
       targetPort: 8080
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
 
@@ -156,7 +156,7 @@ providers:
       host: host.docker.internal:11434
   anthropic:
     provider: Anthropic
-    model: "claude-3-sonnet-20240229"
+    model: "claude-3-5-haiku-20241022"
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
     # apiKey: ""
@@ -171,6 +171,12 @@ providers:
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
+  gemini:
+    provider: Gemini
+    model: "gemini-2.0-flash-lite"
+    apiKeySecretRef: kagent-gemini
+    apiKeySecretKey: GOOGLE_API_KEY
+    # apiKey: ""
 
 # ==============================================================================
 # KMCP
@@ -193,6 +199,13 @@ kagent-tools:
   fullnameOverride: kagent-tools
   enabled: true
   replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
   tools:
     loglevel: "debug"
 
@@ -203,24 +216,94 @@ kagent-tools:
 agents:
   k8s-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   kgateway-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   istio-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   promql-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   observability-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   argo-rollouts-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   helm-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   cilium-policy-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   cilium-manager-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   cilium-debug-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
 
 # ==============================================================================
 # MCP TOOLS
@@ -236,13 +319,20 @@ grafana-mcp:
   grafana:
     url: "grafana.kagent:3000/api"
     apiKey: "-"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 querydoc:
   replicas: 1
   image:
     registry: ghcr.io
     repository: kagent-dev/doc2vec/mcp
-    tag: 1.1.12
+    tag: 1.1.13
     pullPolicy: IfNotPresent
   resources:
     requests:

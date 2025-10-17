@@ -11,12 +11,15 @@ const MCP_SERVER_TYPE = "McpServer" as const;
 
 export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: TypedLocalReference } => {
   if (!value || typeof value !== "object") return false;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const obj = value as any;
   return obj.type === "Agent" && obj.agent && typeof obj.agent === "object" && typeof obj.agent.name === "string";
 };
 
 export const isAgentResponse = (value: unknown): value is AgentResponse => {
   if (!value || typeof value !== "object") return false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const obj = value as any;
   return !!obj.agent && typeof obj.agent === "object" && !!obj.agent.metadata && typeof obj.agent.metadata?.name === "string";
 };

@@ -1,0 +1,20 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: add-numbers-agent
+  namespace: kagent
+spec:
+  declarative:
+    modelConfig: default-model-config
+    systemMessage: You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.
+    stream: true
+    tools:
+    - mcpServer:
+        apiGroup: kagent.dev
+        kind: MCPServer
+        name: everything-mcp-server
+        toolNames:
+        - add
+      type: McpServer
+  description: This agent adds numbers.
+  type: Declarative

@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -20,10 +21,10 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
-	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	mcp_client "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -48,7 +49,7 @@ type KagentReconciler interface {
 }
 
 type kagentReconciler struct {
-	adkTranslator translator.AdkApiTranslator
+	adkTranslator agent_translator.AdkApiTranslator
 	a2aReconciler a2a.A2AReconciler
 
 	kube     client.Client
@@ -61,7 +62,7 @@ type kagentReconciler struct {
 }
 
 func NewKagentReconciler(
-	translator translator.AdkApiTranslator,
+	translator agent_translator.AdkApiTranslator,
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
@@ -148,7 +149,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		if deployment.Spec.Replicas != nil {
 			replicas = *deployment.Spec.Replicas
 		}
-		if deployment.Status.AvailableReplicas == replicas {
+		if deployment.Status.AvailableReplicas >= replicas {
 			deployedCondition.Status = metav1.ConditionTrue
 			deployedCondition.Reason = "DeploymentReady"
 			deployedCondition.Message = "Deployment is ready"
@@ -199,7 +200,7 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 		GroupKind:   schema.GroupKind{Group: "", Kind: "Service"}.String(),
 	}
 
-	if remoteService, err := translator.ConvertServiceToRemoteMCPServer(service); err != nil {
+	if remoteService, err := agent_translator.ConvertServiceToRemoteMCPServer(service); err != nil {
 		reconcileLog.Error(err, "failed to convert service to remote mcp service", "service", utils.GetObjectRef(service))
 	} else {
 		if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService, service.Namespace); err != nil {
@@ -296,7 +297,7 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 		GroupKind:   schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
 	}
 
-	if remoteSpec, err := translator.ConvertMCPServerToRemoteMCPServer(mcpServer); err != nil {
+	if remoteSpec, err := agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer); err != nil {
 		reconcileLog.Error(err, "failed to convert mcp server to remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
 	} else {
 		if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec, mcpServer.Namespace); err != nil {
@@ -557,7 +558,7 @@ func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.
 	return errors.Join(pruneErrs...)
 }
 
-func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *translator.AgentOutputs) error {
+func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *agent_translator.AgentOutputs) error {
 	// lock to prevent races
 	a.upsertLock.Lock()
 	defer a.upsertLock.Unlock()

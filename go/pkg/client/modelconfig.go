@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
 
@@ -12,7 +12,7 @@ import (
 type ModelConfigInterface interface {
 	ListModelConfigs(ctx context.Context) (*api.StandardResponse[[]api.ModelConfigResponse], error)
 	GetModelConfig(ctx context.Context, namespace, name string) (*api.StandardResponse[*api.ModelConfigResponse], error)
-	CreateModelConfig(ctx context.Context, request *api.CreateModelConfigRequest) (*api.StandardResponse[*v1alpha1.ModelConfig], error)
+	CreateModelConfig(ctx context.Context, request *api.CreateModelConfigRequest) (*api.StandardResponse[*v1alpha2.ModelConfig], error)
 	UpdateModelConfig(ctx context.Context, namespace, name string, request *api.UpdateModelConfigRequest) (*api.StandardResponse[*api.ModelConfigResponse], error)
 	DeleteModelConfig(ctx context.Context, namespace, name string) error
 }
@@ -59,13 +59,13 @@ func (c *ModelConfigClient) GetModelConfig(ctx context.Context, namespace, name 
 }
 
 // CreateModelConfig creates a new model configuration
-func (c *ModelConfigClient) CreateModelConfig(ctx context.Context, request *api.CreateModelConfigRequest) (*api.StandardResponse[*v1alpha1.ModelConfig], error) {
+func (c *ModelConfigClient) CreateModelConfig(ctx context.Context, request *api.CreateModelConfigRequest) (*api.StandardResponse[*v1alpha2.ModelConfig], error) {
 	resp, err := c.client.Post(ctx, "/api/modelconfigs", request, "")
 	if err != nil {
 		return nil, err
 	}
 
-	var config api.StandardResponse[*v1alpha1.ModelConfig]
+	var config api.StandardResponse[*v1alpha2.ModelConfig]
 	if err := DecodeResponse(resp, &config); err != nil {
 		return nil, err
 	}

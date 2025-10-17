@@ -8,6 +8,37 @@ When making changes to `kagent`, the most important thing is to figure out which
 - [go](go): Contains the code for the kubernetes controller, and the CLI.
 - [ui](ui): Contains the code for the web UI.
 
+## Dependencies
+
+Before you can run kagent in Kubernetes, you need to have the following tools installed:
+
+### Required Dependencies
+
+- **Kind** (v0.27.0+)
+- **kubectl** (v1.33.4+)
+- **Helm**
+- **Go** (v1.24.6+)
+- **Docker**
+- **Docker Buildx** (v0.23.0+)
+- **Make**
+
+
+
+### Installation Verification
+
+You can verify your installation by running:
+
+```shell
+# Check core dependencies
+kind version
+kubectl version
+helm version
+go version
+docker version
+docker buildx version
+make --version
+```
+
 
 ## How to run everything in Kubernetes
 
@@ -17,7 +48,15 @@ When making changes to `kagent`, the most important thing is to figure out which
 make create-kind-cluster
 ```
 
-2. Set your providers API_KEY:
+2. Set your model provider:
+
+```shell
+export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+#or
+export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
+```
+
+3. Set your providers API_KEY:
 
 ```shell
 export OPENAI_API_KEY=your-openai-api-key
@@ -25,7 +64,7 @@ export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-3. Build images, load them into kind cluster and deploy everything using Helm:
+4. Build images, load them into kind cluster and deploy everything using Helm:
 
 ```shell
 make helm-install

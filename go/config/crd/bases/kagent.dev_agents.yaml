@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: agents.kagent.dev
 spec:
   group: kagent.dev
@@ -2584,6 +2584,66 @@ spec:
                         format: int32
                         minimum: 1
                         type: integer
+                      resources:
+                        description: ResourceRequirements describes the compute resource
+                          requirements.
+                        properties:
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
+
+                              This field depends on the
+                              DynamicResourceAllocation feature gate.
+
+                              This field is immutable. It can only be set for containers.
+                            items:
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
+                                  type: string
+                                request:
+                                  description: |-
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                        type: object
                       volumeMounts:
                         items:
                           description: VolumeMount describes a mounting of a Volume
@@ -4803,6 +4863,66 @@ spec:
                         format: int32
                         minimum: 1
                         type: integer
+                      resources:
+                        description: ResourceRequirements describes the compute resource
+                          requirements.
+                        properties:
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
+
+                              This field depends on the
+                              DynamicResourceAllocation feature gate.
+
+                              This field is immutable. It can only be set for containers.
+                            items:
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
+                                  type: string
+                                request:
+                                  description: |-
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                        type: object
                       volumeMounts:
                         items:
                           description: VolumeMount describes a mounting of a Volume
@@ -6779,8 +6899,29 @@ spec:
                       If not specified, the default value is true.
                     type: boolean
                   systemMessage:
-                    minLength: 1
+                    description: SystemMessage is a string specifying the system message
+                      for the agent
                     type: string
+                  systemMessageFrom:
+                    description: SystemMessageFrom is a reference to a ConfigMap or
+                      Secret containing the system message.
+                    properties:
+                      key:
+                        description: The key of the ConfigMap or Secret.
+                        type: string
+                      name:
+                        description: The name of the ConfigMap or Secret.
+                        type: string
+                      type:
+                        enum:
+                        - ConfigMap
+                        - Secret
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - type
+                    type: object
                   tools:
                     items:
                       properties:
@@ -6795,6 +6936,48 @@ spec:
                           required:
                           - name
                           type: object
+                        headersFrom:
+                          description: |-
+                            HeadersFrom specifies a list of configuration values to be added as
+                            headers to requests sent to the Tool from this agent. The value of
+                            each header is resolved from either a Secret or ConfigMap in the same
+                            namespace as the Agent. Headers specified here will override any
+                            headers of the same name/key specified on the tool.
+                          items:
+                            description: ValueRef represents a configuration value
+                            properties:
+                              name:
+                                type: string
+                              value:
+                                type: string
+                              valueFrom:
+                                description: ValueSource defines a source for configuration
+                                  values from a Secret or ConfigMap
+                                properties:
+                                  key:
+                                    description: The key of the ConfigMap or Secret.
+                                    type: string
+                                  name:
+                                    description: The name of the ConfigMap or Secret.
+                                    type: string
+                                  type:
+                                    enum:
+                                    - ConfigMap
+                                    - Secret
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                - type
+                                type: object
+                            required:
+                            - name
+                            type: object
+                            x-kubernetes-validations:
+                            - message: Exactly one of value or valueFrom must be specified
+                              rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                                && has(self.valueFrom))
+                          type: array
                         mcpServer:
                           properties:
                             apiGroup:
@@ -6838,6 +7021,9 @@ spec:
                     maxItems: 20
                     type: array
                 type: object
+                x-kubernetes-validations:
+                - message: systemMessage and systemMessageFrom are mutually exclusive
+                  rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
               type:

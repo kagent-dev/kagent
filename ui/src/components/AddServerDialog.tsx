@@ -8,7 +8,7 @@ import { Terminal, Globe, Loader2, PlusCircle, Trash2, Code, InfoIcon, AlertCirc
 import type { RemoteMCPServer, MCPServer, ToolServerCreateRequest } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { isResourceNameValid } from "@/lib/utils";
+import { createRFC1123ValidName, isResourceNameValid } from "@/lib/utils";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Checkbox } from "./ui/checkbox";
 
@@ -52,52 +52,6 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
   const [timeout, setTimeout] = useState("5s");
   const [sseReadTimeout, setSseReadTimeout] = useState("300s");
   const [terminateOnClose, setTerminateOnClose] = useState(true);
-  
-
-  // Clean up package name for server name
-  const cleanPackageName = (pkgName: string): string => {
-    let cleaned = pkgName.trim().replace(/^@[\w-]+\//, "");
-
-    if (cleaned.startsWith("mcp-") && cleaned.length > 4) {
-      cleaned = cleaned.substring(4);
-    }
-
-    // Convert to lowercase
-    cleaned = cleaned.toLowerCase();
-    // Replace spaces and invalid characters with hyphens
-    cleaned = cleaned.replace(/[^a-z0-9.-]/g, "-");
-    // Replace multiple consecutive hyphens with a single hyphen
-    cleaned = cleaned.replace(/-+/g, "-");
-    // Remove hyphens at the beginning and end
-    cleaned = cleaned.replace(/^-+|-+$/g, "");
-    // If the string starts with a dot, prepend an 'a'
-    if (cleaned.startsWith(".")) {
-      cleaned = "a" + cleaned;
-    }
-    
-    // If the string ends with a dot, append an 'a'
-    if (cleaned.endsWith(".")) {
-      cleaned = cleaned + "a";
-    }
-    
-    // Ensure the name starts and ends with an alphanumeric character
-    // If it doesn't start with alphanumeric, prepend 'server-'
-    if (!/^[a-z0-9]/.test(cleaned)) {
-      cleaned = "server-" + cleaned;
-    }
-    
-    // If it doesn't end with alphanumeric, append '-server'
-    if (!/[a-z0-9]$/.test(cleaned)) {
-      cleaned = cleaned + "-server";
-    }
-    
-    // If the string is empty (could happen after all the replacements), use a default name
-    if (!cleaned) {
-      cleaned = "tool-server";
-    }
-    
-    return cleaned;
-  };
 
   // Handle server name input changes
   const handleServerNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,7 +73,7 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
     let generatedName = "";
 
     if (activeTab === "command" && packageName.trim()) {
-      generatedName = cleanPackageName(packageName.trim());
+      generatedName = createRFC1123ValidName([packageName.trim()]);
     } else if (activeTab === "url" && url.trim()) {
       try {
         const urlObj = new URL(url.trim());
@@ -218,22 +172,6 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
     const updatedPairs = [...envPairs];
     updatedPairs[index][field] = newValue;
     setEnvPairs(updatedPairs);
-  };
-
-  const formatArgs = (): string[] => {
-    const args: string[] = [];
-
-    if (commandPrefix.trim()) {
-      args.push(...commandPrefix.trim().split(/\s+/));
-    }
-
-    if (packageName.trim()) {
-      args.push(packageName.trim());
-    }
-
-    argPairs.filter((arg) => arg.value.trim() !== "").forEach((arg) => args.push(arg.value.trim()));
-
-    return args;
   };
 
   const formatEnvVars = (): Record<string, string> => {
@@ -357,6 +295,7 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
             parsedHeaders = JSON.parse(headers);
           } catch (e) {
             setError("Headers must be valid JSON");
+            console.error(`❌ Error parsing headers: ${e}`);
             setIsSubmitting(false);
             return;
           }
@@ -499,7 +438,7 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
         <DialogHeader className="px-6 pt-6 pb-2 border-b flex-shrink-0">
-          <DialogTitle>Add Tool Server</DialogTitle>
+          <DialogTitle>Add MCP Server</DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6">

@@ -13,6 +13,12 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+default: help
+
+.PHONY: help
+help: ## list makefile targets
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
 ##@ Development
 
 .PHONY: manifests
@@ -52,7 +58,7 @@ govulncheck:
 ##@ Build
 
 bin/kagent-local:
-	CGO_ENABLED=0 go test ./cli/...
+	CGO_ENABLED=0 go test -race ./cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/kagent-local ./cli/cmd/kagent
 
 bin/kagent-linux-amd64:
@@ -99,13 +105,13 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: test
 test:
 	CGO_ENABLED=0 go mod tidy -v
-	CGO_ENABLED=0 go test ./cli/...
+	CGO_ENABLED=0 go test -race ./cli/...
 #	CGO_ENABLED=0 go test ./controller/...
 
 .PHONY: e2e
 e2e:
-	#UPDATE_GOLDEN=true go test -skip 'TestInvokeInlineAgent|TestE2E|TestAutogenClient' -v ./...
-	go test -skip 'TestInvokeInlineAgent|TestE2E|TestAutogenClient' -v ./...
+	#UPDATE_GOLDEN=true go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
+	go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
 
 .PHONY: install
 install: manifests
@@ -129,12 +135,12 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.17.1
+CONTROLLER_TOOLS_VERSION ?= v0.19.0
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v2.4.0
+GOLANGCI_LINT_VERSION ?= v2.5.0
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
