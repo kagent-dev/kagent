@@ -4,14 +4,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
 func TestGetModelProvider(t *testing.T) {
 	testCases := []struct {
 		name            string
 		envVarValue     string
-		expectedResult  v1alpha1.ModelProvider
+		expectedResult  v1alpha2.ModelProvider
 		expectedAPIKey  string
 		expectedHelmKey string
 	}{
@@ -24,29 +24,29 @@ func TestGetModelProvider(t *testing.T) {
 		},
 		{
 			name:            "OpenAI provider",
-			envVarValue:     string(v1alpha1.ModelProviderOpenAI),
-			expectedResult:  v1alpha1.ModelProviderOpenAI,
+			envVarValue:     string(v1alpha2.ModelProviderOpenAI),
+			expectedResult:  v1alpha2.ModelProviderOpenAI,
 			expectedAPIKey:  OPENAI_API_KEY,
 			expectedHelmKey: "openAI",
 		},
 		{
 			name:            "AzureOpenAI provider",
-			envVarValue:     string(v1alpha1.ModelProviderAzureOpenAI),
-			expectedResult:  v1alpha1.ModelProviderAzureOpenAI,
+			envVarValue:     string(v1alpha2.ModelProviderAzureOpenAI),
+			expectedResult:  v1alpha2.ModelProviderAzureOpenAI,
 			expectedAPIKey:  AZUREOPENAI_API_KEY,
 			expectedHelmKey: "azureOpenAI",
 		},
 		{
 			name:            "Anthropic provider",
-			envVarValue:     string(v1alpha1.ModelProviderAnthropic),
-			expectedResult:  v1alpha1.ModelProviderAnthropic,
+			envVarValue:     string(v1alpha2.ModelProviderAnthropic),
+			expectedResult:  v1alpha2.ModelProviderAnthropic,
 			expectedAPIKey:  "ANTHROPIC_API_KEY",
 			expectedHelmKey: "anthropic",
 		},
 		{
 			name:            "Ollama provider",
-			envVarValue:     string(v1alpha1.ModelProviderOllama),
-			expectedResult:  v1alpha1.ModelProviderOllama,
+			envVarValue:     string(v1alpha2.ModelProviderOllama),
+			expectedResult:  v1alpha2.ModelProviderOllama,
 			expectedAPIKey:  "",
 			expectedHelmKey: "ollama",
 		},

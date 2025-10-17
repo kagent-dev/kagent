@@ -14,6 +14,7 @@ import { Checkbox } from "./ui/checkbox";
 
 interface AddServerDialogProps {
   open: boolean;
+  supportedToolServerTypes: string[];
   onOpenChange: (open: boolean) => void;
   onAddServer: (serverRequest: ToolServerCreateRequest) => void;
   onError?: (error: string) => void;
@@ -28,8 +29,8 @@ interface EnvPair {
   value: string;
 }
 
-export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
-  const [activeTab, setActiveTab] = useState<"command" | "url">("command");
+export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
+  const [activeTab, setActiveTab] = useState<"command" | "url">("url");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverName, setServerName] = useState("");
@@ -56,6 +57,10 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const handleServerNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setServerName(e.target.value);
     setUserEditedName(true);
+  };
+
+  const isToolServerTypeSupported = (type: string): boolean => {
+    return supportedToolServerTypes.includes(type);
   };
 
   // Auto-generate server name when package name or URL changes, but only if user hasn't manually edited the name
@@ -396,6 +401,39 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     setUseStreamableHttp(checked);
   };
 
+  const renderTabTrigger = (
+    value: string,
+    icon: React.ReactNode,
+    label: string,
+    disabled: boolean,
+    tooltip?: string
+  ) => {
+    const trigger = (
+      <TabsTrigger
+        value={value}
+        className="flex items-center gap-2 justify-center w-full"
+        disabled={disabled}
+      >
+        {icon}
+        {label}
+      </TabsTrigger>
+    );
+    return disabled && tooltip ? (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="block w-full">{trigger}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <span>{tooltip}</span>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    ) : (
+      trigger
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
@@ -465,16 +503,19 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
               />
             </div>
 
-            <Tabs defaultValue="command" value={activeTab} onValueChange={(v) => setActiveTab(v as "command" | "url")}>
+            <Tabs defaultValue="url" value={activeTab} onValueChange={(v) => setActiveTab(v as "command" | "url")}>
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="command" className="flex items-center gap-2">
-                  <Terminal className="h-4 w-4" />
-                  Command
-                </TabsTrigger>
                 <TabsTrigger value="url" className="flex items-center gap-2">
                   <Globe className="h-4 w-4" />
                   URL
                 </TabsTrigger>
+                {renderTabTrigger(
+                  "command",
+                  <Terminal className="h-4 w-4" />,
+                  "Command",
+                  !isToolServerTypeSupported("MCPServer"),
+                  "KMCP integration disabled: MCPServer CRD not found in cluster."
+                )}
               </TabsList>
 
               <TabsContent value="command" className="pt-4 space-y-4">

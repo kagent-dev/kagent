@@ -63,3 +63,24 @@ export async function createServer(serverData: ToolServerCreateRequest): Promise
     return createErrorResponse<RemoteMCPServer | MCPServer>(error, "Error creating MCP server");
   }
 }
+
+/**
+ * Fetches all supported tool server types
+ * @returns Promise with server data
+ */
+export async function getToolServerTypes(): Promise<BaseResponse<string[]>> {
+  try {
+    const response = await fetchApi<BaseResponse<string[]>>(`/toolservertypes`);
+
+    if (!response) {
+      throw new Error("Failed to get tool server types");
+    }
+
+    return {
+      message: "Tool server types fetched successfully",
+      data: response.data,
+    };  
+  } catch (error) {
+    return createErrorResponse<string[]>(error, "Error getting tool server types");
+  }
+}

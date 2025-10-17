@@ -4,6 +4,10 @@ description: A Helm chart for kagent, built with Google ADK
 type: application
 version: ${VERSION}
 dependencies:
+  - name: kmcp
+    version: ${KMCP_VERSION}
+    repository: oci://ghcr.io/kagent-dev/kmcp/helm
+    condition: kmcp.enabled
   - name: kagent-tools
     version: 0.0.12
     repository: oci://ghcr.io/kagent-dev/tools/helm

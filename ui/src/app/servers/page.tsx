@@ -5,7 +5,7 @@ import { Server, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, Functi
 import { Button } from "@/components/ui/button";
 import { ToolServerResponse, ToolServerCreateRequest } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { createServer, deleteServer, getServers } from "../actions/servers";
+import { createServer, deleteServer, getServers, getToolServerTypes } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 export default function ServersPage() {
   // State for servers and tools
   const [servers, setServers] = useState<ToolServerResponse[]>([]);
+  const [toolServerTypes, setToolServerTypes] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
 
@@ -25,6 +26,7 @@ export default function ServersPage() {
   // Fetch data on component mount
   useEffect(() => {
     fetchServers();
+    fetchToolServerTypes();
   }, []);
 
   // Fetch servers
@@ -52,6 +54,25 @@ export default function ServersPage() {
       setIsLoading(false);
     }
   };
+  
+  const fetchToolServerTypes = async () => {
+    try {
+      setIsLoading(true);
+
+      const toolServerTypes = await getToolServerTypes();
+      if (!toolServerTypes.error && toolServerTypes.data) {
+        setToolServerTypes(toolServerTypes.data);
+      } else {
+        console.error("Failed to fetch tool server types:", toolServerTypes);
+        toast.error(toolServerTypes.error || "Failed to fetch tool server types.");
+      }
+    } catch (error) {
+      console.error("Error fetching supported tool server types:", error);
+      toast.error("An error occurred while fetching supported tool server types.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   // Handle server deletion
   const handleDeleteServer = async (serverName: string) => {
@@ -235,6 +256,7 @@ export default function ServersPage() {
       {/* Add server dialog */}
       <AddServerDialog 
         open={showAddServer} 
+        supportedToolServerTypes={toolServerTypes}
         onOpenChange={setShowAddServer} 
         onAddServer={handleAddServer}
       />

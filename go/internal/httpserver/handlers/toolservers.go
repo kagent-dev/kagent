@@ -3,14 +3,15 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,14 +28,6 @@ type ToolServersHandler struct {
 func NewToolServersHandler(base *Base) *ToolServersHandler {
 	return &ToolServersHandler{Base: base}
 }
-
-// ToolServerType represents the type of tool server to create
-type ToolServerType string
-
-const (
-	ToolServerTypeRemoteMCPServer ToolServerType = "RemoteMCPServer"
-	ToolServerTypeMCPServer       ToolServerType = "MCPServer"
-)
 
 // ToolServerCreateRequest represents a request to create either a RemoteMCPServer or MCPServer
 type ToolServerCreateRequest struct {
@@ -104,6 +97,17 @@ func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *ht
 		return
 	}
 
+	toolServerTypes, err := GetSupportedToolServerTypes(h.KubeClient)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list supported ToolServerTypes", err))
+		return
+	}
+
+	if !slices.Contains(toolServerTypes, toolServerRequest.Type) {
+		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Invalid tool server type. Must be one of %s", toolServerTypes.Join(", ")), nil))
+		return
+	}
+
 	switch toolServerRequest.Type {
 	case ToolServerTypeRemoteMCPServer:
 		if toolServerRequest.RemoteMCPServer == nil {
@@ -118,7 +122,7 @@ func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *ht
 		}
 		h.handleCreateMCPServer(w, r, toolServerRequest.MCPServer, log)
 	default:
-		w.RespondWithError(errors.NewBadRequestError("Invalid tool server type. Must be either 'RemoteMCPServer' or 'MCPServer'", nil))
+		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Invalid tool server type. Must be one of %s", toolServerTypes.Join(", ")), nil))
 	}
 }
 

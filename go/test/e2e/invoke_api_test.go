@@ -17,9 +17,9 @@ import (
 	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"

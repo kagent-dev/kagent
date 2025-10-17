@@ -20,11 +20,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/internal/controller/predicates"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -32,6 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
+
+var mcpServerGK = schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}
 
 // MCPServerToolController handles reconciliation of a MCPServer object for tool discovery purposes
 type MCPServerToolController struct {
@@ -52,6 +55,10 @@ func (r *MCPServerToolController) Reconcile(ctx context.Context, req ctrl.Reques
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MCPServerToolController) SetupWithManager(mgr ctrl.Manager) error {
+	if _, err := mgr.GetRESTMapper().RESTMapping(mcpServerGK); err != nil {
+		ctrl.Log.Info("MCPServer CRD not found - controller will not be started", "controller", "mcpserver")
+		return nil
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
