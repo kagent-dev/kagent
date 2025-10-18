@@ -137,6 +137,140 @@ ui:
   nodeSelector: {}
 
 # ==============================================================================
+# SLACKBOT CONFIGURATION
+# ==============================================================================
+# Slack bot integration for interacting with kagent agents via Slack
+# Requires Slack app with Socket Mode enabled
+# See slackbot/SLACK_SETUP.md for detailed setup instructions
+
+slackbot:
+  # -- Enable or disable the Slackbot deployment
+  enabled: false
+
+  # -- Number of Slackbot replicas
+  replicas: 2
+
+  image:
+    registry: ""
+    repository: kagent-dev/kagent/slackbot
+    tag: ""
+    pullPolicy: ""
+
+  # -- Slack API credentials (required for Slackbot to function)
+  # IMPORTANT: Set these via Helm values or external secrets management
+  # DO NOT commit actual tokens to version control
+  secrets:
+    # Slack Bot User OAuth Token (starts with xoxb-)
+    # Obtain from: Slack App > OAuth & Permissions > Bot User OAuth Token
+    slackBotToken: ""
+
+    # Slack App-Level Token for Socket Mode (starts with xapp-)
+    # Obtain from: Slack App > Basic Information > App-Level Tokens
+    slackAppToken: ""
+
+    # Slack Signing Secret for request verification
+    # Obtain from: Slack App > Basic Information > App Credentials
+    slackSigningSecret: ""
+
+  # -- Slackbot configuration
+  config:
+    # Kagent timeout for agent requests (seconds)
+    kagentTimeout: "30"
+
+    # Health server configuration
+    serverHost: "0.0.0.0"
+    serverPort: 8080
+
+    # Logging level (DEBUG, INFO, WARNING, ERROR)
+    logLevel: "INFO"
+
+  # -- Agent access permissions for RBAC
+  # Configure which Slack users/groups can access which agents
+  permissions:
+    agent_permissions: {}
+    # Example configuration:
+    # agent_permissions:
+    #   kagent/k8s-agent:
+    #     user_groups:
+    #       - S0T8FCWSB  # Slack user group ID
+    #     users:
+    #       - admin@company.com
+    #     deny_message: "K8s agent requires @sre-team membership"
+    settings:
+      user_group_cache_ttl: 300  # 5 minutes
+
+  # -- Resource limits and requests
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # -- Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      port: 8080
+      targetPort: 8080
+    annotations: {}
+    # Example: Expose metrics for Prometheus scraping
+    # annotations:
+    #   prometheus.io/scrape: "true"
+    #   prometheus.io/port: "8080"
+    #   prometheus.io/path: "/metrics"
+
+  # -- Additional environment variables
+  env: []
+  # Example:
+  # env:
+  #   - name: CUSTOM_VAR
+  #     value: "custom-value"
+
+  # -- Pod annotations
+  podAnnotations: {}
+
+  # -- Node taints which will be tolerated for Pod scheduling
+  tolerations: []
+
+  # -- Node labels to match for Pod scheduling
+  nodeSelector: {}
+
+  # -- Horizontal Pod Autoscaler configuration
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+    # behavior:
+    #   scaleDown:
+    #     stabilizationWindowSeconds: 300
+    #     policies:
+    #       - type: Percent
+    #         value: 50
+    #         periodSeconds: 60
+
+  # -- Pod Disruption Budget configuration
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    # maxUnavailable: 1  # Use either minAvailable or maxUnavailable, not both
+
+  # -- RBAC configuration
+  rbac:
+    create: false
+    # Slackbot doesn't need K8s API access by default
+    # Enable this only if you add features that need to query K8s resources
+    rules: []
+    # Example rules if needed:
+    # rules:
+    #   - apiGroups: [""]
+    #     resources: ["pods"]
+    #     verbs: ["get", "list"]
+
+# ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
 # https://kagent.dev/docs/getting-started/configuring-providers

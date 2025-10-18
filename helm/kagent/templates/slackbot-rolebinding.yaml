@@ -1,0 +1,17 @@
+{{- if and .Values.slackbot.enabled .Values.slackbot.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kagent.fullname" . }}-slackbot
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.slackbot.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kagent.fullname" . }}-slackbot
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagent.fullname" . }}-slackbot
+    namespace: {{ include "kagent.namespace" . }}
+{{- end }}

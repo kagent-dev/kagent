@@ -1,0 +1,15 @@
+{{- if and .Values.slackbot.enabled .Values.slackbot.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kagent.fullname" . }}-slackbot
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.slackbot.labels" . | nindent 4 }}
+rules:
+  # Slackbot doesn't need K8s API access - it only talks to Slack and kagent HTTP API
+  # These minimal permissions are for potential future features (e.g., checking pod status)
+  {{- with .Values.slackbot.rbac.rules }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}
