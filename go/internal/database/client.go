@@ -9,6 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -514,7 +515,11 @@ func (c *clientImpl) StoreCheckpoint(checkpoint *LangGraphCheckpoint) error {
 func (c *clientImpl) StoreCheckpointWrites(writes []*LangGraphCheckpointWrite) error {
 	return c.db.Transaction(func(tx *gorm.DB) error {
 		for _, write := range writes {
-			if err := save(tx, write); err != nil {
+			// Use GORM's OnConflict clause for proper upsert behavior
+			// DoNothing = ignore duplicates (checkpoint writes are idempotent)
+			if err := tx.Clauses(clause.OnConflict{
+				DoNothing: true,
+			}).Create(write).Error; err != nil {
 				return fmt.Errorf("failed to store checkpoint write: %w", err)
 			}
 		}
