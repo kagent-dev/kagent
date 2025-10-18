@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -45,13 +46,13 @@ func get[T Model](db *gorm.DB, clauses ...Clause) (*T, error) {
 	return &model, nil
 }
 
-// TODO: Make this upsert actually idempotent
+// Upsert: Insert or update if duplicate key exists
 // args:
 // - db: the database connection
 // - model: the model to save
 func save[T Model](db *gorm.DB, model *T) error {
 	if err := db.Create(model).Error; err != nil {
-		if err == gorm.ErrDuplicatedKey {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return db.Save(model).Error
 		}
 		return fmt.Errorf("failed to create model: %w", err)
