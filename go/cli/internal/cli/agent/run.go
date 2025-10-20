@@ -169,7 +169,7 @@ func waitForAgent(ctx context.Context, agentURL string, timeout time.Duration) e
 			resp, err := client.Do(req)
 			if err == nil {
 				if err = resp.Body.Close(); err != nil {
-					return nil
+					return err
 				}
 
 				if resp.StatusCode == 200 {
