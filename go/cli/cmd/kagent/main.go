@@ -253,7 +253,7 @@ Examples:
 	buildCmd := &cobra.Command{
 		Use:   "build [project-directory]",
 		Short: "Build a Docker images for an agent project",
-		Long: `Build a Docker images for an agent project created with the init command.
+		Long: `Build Docker images for an agent project created with the init command.
 
 This command will look for a kagent.yaml file in the specified project directory and build Docker images using docker build. The images can optionally be pushed to a registry.
 
