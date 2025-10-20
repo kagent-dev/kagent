@@ -26,10 +26,7 @@ type Generator struct {
 // NewGenerator creates a new Java generator
 func NewGenerator() *Generator {
 	return &Generator{
-		BaseGenerator: common.BaseGenerator{
-			TemplateFiles:    templateFiles,
-			ToolTemplateName: "src/main/java/com/example/tools/ToolTemplate.java.tmpl",
-		},
+		BaseGenerator: *common.NewBaseGenerator(templateFiles, "src/main/java/com/example/tools/ToolTemplate.java.tmpl"),
 	}
 }
 

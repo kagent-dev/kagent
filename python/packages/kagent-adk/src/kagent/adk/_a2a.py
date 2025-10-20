@@ -96,6 +96,60 @@ class KAgentApp:
 
         return app
 
+    def build_local(self) -> FastAPI:
+        session_service = InMemorySessionService()
+
+        def create_runner() -> Runner:
+            return Runner(
+                agent=self.root_agent,
+                app_name=self.app_name,
+                session_service=session_service,
+            )
+
+        agent_executor = A2aAgentExecutor(
+            runner=create_runner,
+        )
+
+        # Use a simple in-memory task store (no backend needed)
+        from a2a.server.tasks import TaskStore
+        from a2a.types import Task
+
+        class InMemoryTaskStore(TaskStore):
+            def __init__(self):
+                self._tasks: dict[str, Task] = {}
+
+            async def save(self, task: Task) -> None:
+                self._tasks[task.id] = task
+
+            async def get(self, task_id: str) -> Task | None:
+                return self._tasks.get(task_id)
+
+            async def delete(self, task_id: str) -> None:
+                self._tasks.pop(task_id, None)
+
+        task_store = InMemoryTaskStore()
+
+        request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
+        request_handler = DefaultRequestHandler(
+            agent_executor=agent_executor,
+            task_store=task_store,
+            request_context_builder=request_context_builder,
+        )
+
+        a2a_app = A2AFastAPIApplication(
+            agent_card=self.agent_card,
+            http_handler=request_handler,
+        )
+
+        faulthandler.enable()
+        app = FastAPI()
+
+        app.add_route("/health", methods=["GET"], route=health_check)
+        app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
+        a2a_app.add_routes_to_app(app)
+
+        return app
+
     async def test(self, task: str):
         session_service = InMemorySessionService()
         SESSION_ID = "12345"

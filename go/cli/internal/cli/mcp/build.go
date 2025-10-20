@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	commonexec "github.com/kagent-dev/kagent/go/cli/internal/common/exec"
+	commonk8s "github.com/kagent-dev/kagent/go/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/mcp/builder"
 	"github.com/kagent-dev/kagent/go/cli/internal/mcp/manifests"
@@ -102,10 +104,10 @@ func runBuild(_ *cobra.Command, _ []string) error {
 
 	if buildPush {
 		fmt.Printf("Pushing Docker image %s...\n", imageName)
-		if err := runDocker("push", imageName); err != nil {
+		docker := commonexec.NewDockerExecutor(cfg.Verbose, "")
+		if err := docker.Push(imageName); err != nil {
 			return fmt.Errorf("docker push failed: %w", err)
 		}
-		fmt.Printf("✅ Docker image pushed successfully\n")
 	}
 	if buildKindLoad || buildKindLoadCluster != "" {
 		fmt.Printf("Loading Docker image %s into kind cluster...\n", imageName)
@@ -113,7 +115,7 @@ func runBuild(_ *cobra.Command, _ []string) error {
 		clusterName := buildKindLoadCluster
 		if clusterName == "" {
 			var err error
-			clusterName, err = getCurrentKindClusterName()
+			clusterName, err = commonk8s.GetCurrentKindClusterName()
 			if err != nil {
 				if cfg.Verbose {
 					fmt.Printf("could not detect kind cluster name: %v, using default\n", err)
@@ -131,20 +133,6 @@ func runBuild(_ *cobra.Command, _ []string) error {
 	}
 
 	return nil
-}
-
-func runDocker(args ...string) error {
-	cfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-	if cfg.Verbose {
-		fmt.Printf("Running: docker %s\n", strings.Join(args, " "))
-	}
-	cmd := exec.Command("docker", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
 
 func runKind(args ...string) error {

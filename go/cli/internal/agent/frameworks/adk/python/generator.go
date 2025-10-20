@@ -9,7 +9,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
 )
 
-//go:embed templates/* templates/agent/* dice-agent-instruction.md
+//go:embed templates/* templates/agent/* templates/mcp_server/* dice-agent-instruction.md
 var templatesFS embed.FS
 
 // PythonGenerator generates Python ADK projects
@@ -51,6 +51,8 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 		ModelProvider: modelProvider,
 		ModelName:     modelName,
 		KagentVersion: kagentVersion,
+		// Empty MCP servers on init
+		McpServers:    nil,
 	}
 
 	// Use the base generator to create the project
@@ -66,6 +68,7 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 		agentConfig.ModelProvider,
 		agentConfig.ModelName,
 		description,
+		agentConfig.McpServers,
 	)
 
 	// Save the manifest using the Manager
@@ -107,17 +110,22 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 	fmt.Printf("   ├── %s/\n", agentConfig.Name)
 	fmt.Printf("   │   ├── __init__.py\n")
 	fmt.Printf("   │   ├── agent.py\n")
+	fmt.Printf("   │   ├── mcp_tools.py\n")
 	fmt.Printf("   │   └── agent-card.json\n")
 	fmt.Printf("   ├── %s\n", common.ManifestFileName)
 	fmt.Printf("   ├── pyproject.toml\n")
 	fmt.Printf("   ├── Dockerfile\n")
+	fmt.Printf("   ├── docker-compose.yaml\n")
 	fmt.Printf("   └── README.md\n")
+	fmt.Printf("   Note: MCP server directories are created when you run 'kagent add-mcp'\n")
 	fmt.Printf("\n🚀 Next steps:\n")
 	fmt.Printf("   1. cd %s\n", agentConfig.Name)
 	fmt.Printf("   2. Customize the agent in %s/agent.py\n", agentConfig.Name)
-	fmt.Printf("   3. Build the agent image and push it to the local registry\n")
+	fmt.Printf("   3. Build the agent and MCP servers and push it to the local registry\n")
 	fmt.Printf("      kagent build %s --push\n", agentConfig.Name)
-	fmt.Printf("   4. Deploy the agent to your local cluster\n")
+	fmt.Printf("   4. Run the agent locally\n")
+	fmt.Printf("      kagent run\n")
+	fmt.Printf("   5. Deploy the agent to your local cluster\n")
 	fmt.Printf("      kagent deploy %s --api-key-secret <secret-name>\n", agentConfig.Name)
 	fmt.Printf("      Or use --api-key for convenience: kagent deploy %s --api-key <api-key>\n", agentConfig.Name)
 	fmt.Printf("      Support for using a credential file is coming soon\n")

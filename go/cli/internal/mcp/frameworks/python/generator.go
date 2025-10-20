@@ -23,10 +23,7 @@ type Generator struct {
 // NewGenerator creates a new Python generator
 func NewGenerator() *Generator {
 	return &Generator{
-		BaseGenerator: common.BaseGenerator{
-			TemplateFiles:    templateFiles,
-			ToolTemplateName: "src/tools/tool.py.tmpl",
-		},
+		BaseGenerator: *common.NewBaseGenerator(templateFiles, "src/tools/tool.py.tmpl"),
 	}
 }
 
