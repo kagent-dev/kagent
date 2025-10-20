@@ -1077,7 +1077,7 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 		labels.AppPartOf:    labels.ManagedByKagent,
 		labels.AppName:      agentName,
 	}
-	maps.Copy(defaultLabels, maps.Clone(incoming))
+	maps.Copy(defaultLabels, incoming)
 	return defaultLabels
 }
 
