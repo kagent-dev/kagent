@@ -47,7 +47,11 @@ class KAgentSessionService(BaseSessionService):
             json=request_data,
             headers={"X-User-ID": user_id},
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            logger.error(f"Failed to create session: {response.text}")
+            raise
 
         data = response.json()
         if not data.get("data"):
@@ -116,13 +120,18 @@ class KAgentSessionService(BaseSessionService):
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 return None
+            logger.error(f"Failed to get session: {response.text}")
             raise
 
     @override
     async def list_sessions(self, *, app_name: str, user_id: str) -> ListSessionsResponse:
         # Make API call to list sessions
         response = await self.client.get(f"/api/sessions?user_id={user_id}", headers={"X-User-ID": user_id})
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            logger.error(f"Failed to list sessions: {response.text}")
+            raise
 
         data = response.json()
         sessions_data = data.get("data", [])
@@ -145,7 +154,11 @@ class KAgentSessionService(BaseSessionService):
             f"/api/sessions/{session_id}?user_id={user_id}",
             headers={"X-User-ID": user_id},
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            logger.error(f"Failed to delete session: {response.text}")
+            raise
 
     @override
     async def append_event(self, session: Session, event: Event) -> Event:
@@ -161,7 +174,11 @@ class KAgentSessionService(BaseSessionService):
             json=event_data,
             headers={"X-User-ID": session.user_id},
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            logger.error(f"Failed to append event: {response.text}")
+            raise
 
         # TODO: potentially pull and update the session from the server
         # Update the in-memory session.
