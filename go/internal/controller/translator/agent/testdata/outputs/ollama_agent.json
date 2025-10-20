@@ -38,6 +38,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "ollama-agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "ollama-agent"
         },
         "name": "ollama-agent",
@@ -64,6 +67,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "ollama-agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "ollama-agent"
         },
         "name": "ollama-agent",
@@ -86,6 +92,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "ollama-agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "ollama-agent"
         },
         "name": "ollama-agent",
@@ -123,6 +132,9 @@
             },
             "labels": {
               "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "ollama-agent",
+              "app.kubernetes.io/part-of": "kagent",
               "kagent": "ollama-agent"
             }
           },
@@ -241,6 +253,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "ollama-agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "ollama-agent"
         },
         "name": "ollama-agent",

@@ -37,6 +37,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "anthropic-agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "anthropic-agent"
         },
         "name": "anthropic-agent",
@@ -63,6 +66,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "anthropic-agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "anthropic-agent"
         },
         "name": "anthropic-agent",
@@ -85,6 +91,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "anthropic-agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "anthropic-agent"
         },
         "name": "anthropic-agent",
@@ -122,6 +131,9 @@
             },
             "labels": {
               "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "anthropic-agent",
+              "app.kubernetes.io/part-of": "kagent",
               "kagent": "anthropic-agent"
             }
           },
@@ -245,6 +257,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "anthropic-agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "anthropic-agent"
         },
         "name": "anthropic-agent",
