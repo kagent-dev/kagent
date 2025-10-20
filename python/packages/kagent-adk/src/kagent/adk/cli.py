@@ -98,13 +98,14 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
 @app.command()
 def test(
     task: Annotated[str, typer.Option("--task", help="The task to test the agent with")],
-    filepath: Annotated[str, typer.Option("--filepath", help="The path to the agent config file")],
+    config_file: Annotated[str, typer.Option("--agent-config", help="The path to the agent config file")],
+    card_file: Annotated[str, typer.Option("--agent-card", help="The path to the agent card file")],
 ):
-    with open(filepath, "r") as f:
+    with open(config_file, "r") as f:
         content = f.read()
         config = json.loads(content)
 
-    with open(os.path.join(filepath, "agent-card.json"), "r") as f:
+    with open(card_file, "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
     agent_config = AgentConfig.model_validate(config)
