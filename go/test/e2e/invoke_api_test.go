@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,7 +20,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
-	"github.com/kagent-dev/kagent/go/test/mockllm"
+	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
@@ -35,11 +36,15 @@ func setupMockServer(t *testing.T, mockFile string) (string, func()) {
 	require.NoError(t, err)
 
 	server := mockllm.NewServer(mockllmCfg)
-	baseURL, err := server.Start()
+	baseURL, err := server.Start(t.Context())
 	baseURL = buildK8sURL(baseURL)
 	require.NoError(t, err)
 
-	return baseURL, func() { server.Stop() } //nolint:errcheck
+	return baseURL, func() {
+		if err := server.Stop(t.Context()); err != nil {
+			t.Errorf("failed to stop server: %v", err)
+		}
+	}
 }
 
 // setupK8sClient creates a Kubernetes client with the appropriate schemes
@@ -113,45 +118,83 @@ func setupA2AClient(t *testing.T) *a2aclient.A2AClient {
 	return a2aClient
 }
 
+// extractTextFromArtifacts extracts all text content from task artifacts
+func extractTextFromArtifacts(taskResult *protocol.Task) string {
+	var text strings.Builder
+	for _, artifact := range taskResult.Artifacts {
+		for _, part := range artifact.Parts {
+			if textPart, ok := part.(*protocol.TextPart); ok {
+				text.WriteString(textPart.Text)
+			}
+		}
+	}
+	return text.String()
+}
+
 // runSyncTest runs a synchronous message test
-func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string) {
+// useArtifacts: if true, check artifacts; if false or nil, check history;
+// contextID: optional context ID to maintain conversation context
+func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string, useArtifacts *bool, contextID ...string) *protocol.Task {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	msg, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
-		Message: protocol.Message{
-			Kind:  protocol.KindMessage,
-			Role:  protocol.MessageRoleUser,
-			Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
-		},
-	})
+	msg := protocol.Message{
+		Kind:  protocol.KindMessage,
+		Role:  protocol.MessageRoleUser,
+		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
+	}
+
+	// If contextID is provided, set it to maintain conversation context
+	if len(contextID) > 0 && contextID[0] != "" {
+		msg.ContextID = &contextID[0]
+	}
+
+	result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
 	require.NoError(t, err)
 
-	taskResult, ok := msg.Result.(*protocol.Task)
+	taskResult, ok := result.Result.(*protocol.Task)
 	require.True(t, ok)
-	text := a2a.ExtractText(taskResult.History[len(taskResult.History)-1])
-	jsn, err := json.Marshal(taskResult)
-	require.NoError(t, err)
-	require.Contains(t, text, expectedText, string(jsn))
+
+	// Extract text based on useArtifacts flag
+	if useArtifacts != nil && *useArtifacts {
+		// Check artifacts (used by CrewAI flows)
+		text := extractTextFromArtifacts(taskResult)
+		require.Contains(t, text, expectedText)
+	} else {
+		// Check history (used by declarative agents) - default
+		text := a2a.ExtractText(taskResult.History[len(taskResult.History)-1])
+		jsn, err := json.Marshal(taskResult)
+		require.NoError(t, err)
+		require.Contains(t, text, expectedText, string(jsn))
+	}
+
+	return taskResult
 }
 
 // runStreamingTest runs a streaming message test
-func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string) {
+// If contextID is provided, it will be included in the message to maintain conversation context
+// Checks the full JSON output to support both artifacts and history from different agent types
+func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string, contextID ...string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	msg, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
-		Message: protocol.Message{
-			Kind:  protocol.KindMessage,
-			Role:  protocol.MessageRoleUser,
-			Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
-		},
-	})
+	msg := protocol.Message{
+		Kind:  protocol.KindMessage,
+		Role:  protocol.MessageRoleUser,
+		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
+	}
+
+	// If contextID is provided, set it to maintain conversation context
+	if len(contextID) > 0 && contextID[0] != "" {
+		msg.ContextID = &contextID[0]
+	}
+
+	stream, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
 	require.NoError(t, err)
 
 	resultList := []protocol.StreamingMessageEvent{}
 	var text string
-	for event := range msg {
+	for event := range stream {
 		msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
 		if !ok {
 			continue
@@ -287,7 +330,7 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -303,7 +346,7 @@ func TestE2EInvokeExternalAgent(t *testing.T) {
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "What can you do?", "kebab")
+		runSyncTest(t, a2aClient, "What can you do?", "kebab", nil)
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -315,7 +358,7 @@ func TestE2EInvokeExternalAgent(t *testing.T) {
 		authClient, err := a2aclient.NewA2AClient(a2aURL, a2aclient.WithAPIKeyAuth("user@example.com", "x-user-id"))
 		require.NoError(t, err)
 
-		runSyncTest(t, authClient, "What can you do?", "kebab for user@example.com")
+		runSyncTest(t, authClient, "What can you do?", "kebab for user@example.com", nil)
 	})
 }
 
@@ -359,10 +402,134 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "add 3 and 5", "8")
+		runSyncTest(t, a2aClient, "add 3 and 5", "8", nil)
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "add 3 and 5", "8")
+	})
+}
+
+// This function generates a CrewAI agent that uses a mock LLM server
+// Assumes that the image is built and pushed to registry, the agent can be found in python/samples/crewai/poem_flow
+func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
+	return &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "poem-flow-test",
+			Namespace: "kagent",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Description: "A flow that uses a crew to generate a poem.",
+			Type:        v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "localhost:5001/poem-flow:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						Env: []corev1.EnvVar{
+							{
+								Name: "OPENAI_API_KEY",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "kagent-openai",
+										},
+										Key: "OPENAI_API_KEY",
+									},
+								},
+							},
+							// Inject the mock server's URL, CrewAI uses this environment variable
+							{
+								Name:  "OPENAI_API_BASE",
+								Value: baseURL + "/v1",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestE2EInvokeCrewAIAgent(t *testing.T) {
+	mockllmCfg, err := mockllm.LoadConfigFromFile("mocks/invoke_crewai_agent.json", mocks)
+	require.NoError(t, err)
+
+	server := mockllm.NewServer(mockllmCfg)
+	baseURL, err := server.Start(t.Context())
+	baseURL = buildK8sURL(baseURL)
+	require.NoError(t, err)
+
+	defer func() {
+		if err := server.Stop(t.Context()); err != nil {
+			t.Errorf("failed to stop server: %v", err)
+		}
+	}()
+
+	cfg, err := config.GetConfig()
+	require.NoError(t, err)
+
+	scheme := k8s_runtime.NewScheme()
+	err = v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+	err = corev1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	cli, err := client.New(cfg, client.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
+
+	// Clean up any leftover agent from a previous failed run
+	_ = cli.Delete(t.Context(), &v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "poem-flow-test", Namespace: "kagent"}})
+
+	// Generate the CrewAI agent and inject the mock server's URL
+	agent := generateCrewAIAgent(baseURL)
+
+	// Create the agent on the cluster
+	err = cli.Create(t.Context(), agent)
+	require.NoError(t, err)
+
+	defer func() {
+		cli.Delete(t.Context(), agent) //nolint:errcheck
+	}()
+
+	// Wait for the agent to become Ready
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=1m",
+		"agents.kagent.dev",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	// Give the agent pod extra time to fully initialize its A2A endpoint
+	time.Sleep(5 * time.Second)
+
+	// Setup A2A client
+	a2aURL := a2aUrl(agent.Namespace, agent.Name)
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	require.NoError(t, err)
+
+	t.Run("two_turn_conversation", func(t *testing.T) {
+		// First turn: Generate initial poem
+		// Use artifacts only (true) for CrewAI flows
+		useArtifacts := true
+		taskResult1 := runSyncTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.", &useArtifacts)
+
+		// Second turn: Continue poem (tests persistence)
+		// Use the same ContextID to maintain conversation context
+		runSyncTest(t, a2aClient, "Continue the poem", "In harmony with the code, it flows so smooth.", &useArtifacts, taskResult1.ContextID)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 	})
 }

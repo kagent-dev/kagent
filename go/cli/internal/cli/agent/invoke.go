@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
@@ -23,10 +24,9 @@ type InvokeCfg struct {
 }
 
 func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
-
 	clientSet := cfg.Config.Client()
 
-	if err := CheckServerConnection(clientSet); err != nil {
+	if err := CheckServerConnection(ctx, clientSet); err != nil {
 		// If a connection does not exist, start a short-lived port-forward.
 		pf, err := NewPortForward(ctx, cfg.Config)
 		if err != nil {
@@ -76,6 +76,12 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 	} else {
 		if cfg.Agent == "" {
 			fmt.Fprintln(os.Stderr, "Agent is required")
+			return
+		}
+
+		// Error out if the agent is provided with the namespace (e.g., namespace/agent-name)
+		if strings.Contains(cfg.Agent, "/") {
+			fmt.Fprintf(os.Stderr, "Invalid agent format: use --namespace to specify the namespace. Got'%s'\n", cfg.Agent)
 			return
 		}
 

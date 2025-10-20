@@ -65,7 +65,7 @@ func (r *MCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha1.MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha1.MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
 		Owns(&corev1.Service{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
 		Owns(&corev1.ConfigMap{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).

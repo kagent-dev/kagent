@@ -1,0 +1,56 @@
+{
+  "openai": [
+    {
+      "name": "continue_poem_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Continue this poem",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-poem-2",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "In harmony with the code, it flows so smooth.\nBuilding AI agents, it's the truth.\nCrewAI rocks, day by day.\nMaking development a joyful play."
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generate_poem_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Write a poem about how CrewAI is awesome.",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-poem-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "CrewAI is awesome, it makes coding fun.\nWith agents and tools, the work is done.\nBuilding AI flows, it's a breeze.\nIn the world of code, it brings ease."
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

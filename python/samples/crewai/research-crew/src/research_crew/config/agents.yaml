@@ -10,7 +10,6 @@ researcher:
     finding relevant information from various sources. You excel at
     organizing information in a clear and structured manner, making
     complex topics accessible to others.
-  llm: gemini/gemini-2.0-flash
 
 analyst:
   role: >
@@ -23,4 +22,3 @@ analyst:
     and technical writing. You have a talent for identifying patterns
     and extracting meaningful insights from research data, then
     communicating those insights effectively through well-crafted reports.
-  llm: gemini/gemini-2.0-flash

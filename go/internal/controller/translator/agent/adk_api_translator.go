@@ -169,6 +169,10 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 		&corev1.ServiceAccount{},
 	}
 
+	for _, plugin := range r.plugins {
+		ownedResources = append(ownedResources, plugin.GetOwnedResourceTypes()...)
+	}
+
 	return ownedResources
 }
 
@@ -1197,7 +1201,7 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error {
 	var errs error
 	for _, plugin := range a.plugins {
-		if err := plugin(ctx, agent, outputs); err != nil {
+		if err := plugin.ProcessAgent(ctx, agent, outputs); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}

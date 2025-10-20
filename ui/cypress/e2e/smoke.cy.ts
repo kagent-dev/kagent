@@ -53,3 +53,20 @@ describe('Main page', () => {
     cy.contains('h1', 'MCP Servers').should('be.visible');
   })
 })
+
+
+describe('Regressions', () => {
+  it('model edit page should load correctly', () => {
+    cy.window().then((win) => {
+      win.localStorage.setItem('kagent-onboarding', 'true');
+    })
+
+    cy.visit('/models')
+    cy.contains('h1', 'Models').should('be.visible');
+
+    cy.get('[data-test="edit-model-default/default-model-config"]').should('be.visible').click();
+
+    cy.contains('h1', 'Edit Model').should('be.visible');
+    cy.get('[data-test="edit-model-name-button"]').should('be.visible').click();
+  })
+})

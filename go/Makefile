@@ -13,6 +13,12 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+default: help
+
+.PHONY: help
+help: ## list makefile targets
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
 ##@ Development
 
 .PHONY: manifests
@@ -52,7 +58,7 @@ govulncheck:
 ##@ Build
 
 bin/kagent-local:
-	CGO_ENABLED=0 go test ./cli/...
+	CGO_ENABLED=0 go test -race ./cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/kagent-local ./cli/cmd/kagent
 
 bin/kagent-linux-amd64:
@@ -99,13 +105,13 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: test
 test:
 	CGO_ENABLED=0 go mod tidy -v
-	CGO_ENABLED=0 go test ./cli/...
+	CGO_ENABLED=0 go test -race ./cli/...
 #	CGO_ENABLED=0 go test ./controller/...
 
 .PHONY: e2e
 e2e:
-	#UPDATE_GOLDEN=true go test -skip 'TestE2E.*|TestAutogenClient' -v ./...
-	go test -skip 'TestE2E.*|TestAutogenClient' -v ./...
+	#UPDATE_GOLDEN=true go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
+	go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
 
 .PHONY: install
 install: manifests

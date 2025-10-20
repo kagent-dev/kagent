@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -26,6 +27,8 @@ type InMemoryFakeClient struct {
 	pushNotifications map[string]*protocol.TaskPushNotificationConfig // key: taskID
 	checkpoints       map[string]*database.LangGraphCheckpoint        // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	checkpointWrites  map[string][]*database.LangGraphCheckpointWrite // key: user_id:thread_id:checkpoint_ns:checkpoint_id
+	crewaiMemory      map[string][]*database.CrewAIAgentMemory        // key: user_id:thread_id:agent_id
+	crewaiFlowStates  map[string]*database.CrewAIFlowState            // key: user_id:thread_id
 	nextFeedbackID    int
 }
 
@@ -43,6 +46,8 @@ func NewClient() database.Client {
 		pushNotifications: make(map[string]*protocol.TaskPushNotificationConfig),
 		checkpoints:       make(map[string]*database.LangGraphCheckpoint),
 		checkpointWrites:  make(map[string][]*database.LangGraphCheckpointWrite),
+		crewaiMemory:      make(map[string][]*database.CrewAIAgentMemory),
+		crewaiFlowStates:  make(map[string]*database.CrewAIFlowState),
 		nextFeedbackID:    1,
 	}
 }
@@ -723,4 +728,144 @@ func (c *InMemoryFakeClient) ListWrites(userID, threadID, checkpointNS, checkpoi
 	}
 
 	return writes[start:end], nil
+}
+
+// CrewAI methods
+
+// StoreCrewAIMemory stores CrewAI agent memory
+func (c *InMemoryFakeClient) StoreCrewAIMemory(memory *database.CrewAIAgentMemory) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.crewaiMemory == nil {
+		c.crewaiMemory = make(map[string][]*database.CrewAIAgentMemory)
+	}
+	
+	key := fmt.Sprintf("%s:%s", memory.UserID, memory.ThreadID)
+	c.crewaiMemory[key] = append(c.crewaiMemory[key], memory)
+	
+	return nil
+}
+
+// SearchCrewAIMemoryByTask searches CrewAI agent memory by task description across all agents for a session
+func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDescription string, limit int) ([]*database.CrewAIAgentMemory, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.crewaiMemory == nil {
+		return []*database.CrewAIAgentMemory{}, nil
+	}
+	
+	var allMemories []*database.CrewAIAgentMemory
+	
+	// Search across all agents for this user/thread
+	for key, memories := range c.crewaiMemory {
+		// Key format is "user_id:thread_id"
+		if strings.HasPrefix(key, userID+":"+threadID) {
+			for _, memory := range memories {
+				// Parse the JSON memory data and search for task_description
+				var memoryData map[string]interface{}
+				if err := json.Unmarshal([]byte(memory.MemoryData), &memoryData); err == nil {
+					if taskDesc, ok := memoryData["task_description"].(string); ok {
+						if strings.Contains(strings.ToLower(taskDesc), strings.ToLower(taskDescription)) {
+							allMemories = append(allMemories, memory)
+						}
+					}
+				}
+				// Fallback to simple string search if JSON parsing fails
+				if len(allMemories) == 0 && strings.Contains(strings.ToLower(memory.MemoryData), strings.ToLower(taskDescription)) {
+					allMemories = append(allMemories, memory)
+				}
+			}
+		}
+	}
+	
+	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
+	sort.Slice(allMemories, func(i, j int) bool {
+		// First sort by created_at DESC (most recent first)
+		if !allMemories[i].CreatedAt.Equal(allMemories[j].CreatedAt) {
+			return allMemories[i].CreatedAt.After(allMemories[j].CreatedAt)
+		}
+		
+		// If created_at is equal, sort by score ASC
+		var scoreI, scoreJ float64
+		var memoryDataI, memoryDataJ map[string]interface{}
+		
+		if err := json.Unmarshal([]byte(allMemories[i].MemoryData), &memoryDataI); err == nil {
+			if score, ok := memoryDataI["score"].(float64); ok {
+				scoreI = score
+			}
+		}
+		
+		if err := json.Unmarshal([]byte(allMemories[j].MemoryData), &memoryDataJ); err == nil {
+			if score, ok := memoryDataJ["score"].(float64); ok {
+				scoreJ = score
+			}
+		}
+		
+		return scoreI < scoreJ
+	})
+	
+	// Apply limit
+	if limit > 0 && len(allMemories) > limit {
+		allMemories = allMemories[:limit]
+	}
+	
+	return allMemories, nil
+}
+
+// ResetCrewAIMemory deletes all CrewAI agent memory for a session
+func (c *InMemoryFakeClient) ResetCrewAIMemory(userID, threadID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.crewaiMemory == nil {
+		return nil
+	}
+	
+	// Find and delete all memory entries for this user/thread combination
+	keysToDelete := make([]string, 0)
+	for key := range c.crewaiMemory {
+		// Key format is "user_id:thread_id"
+		if strings.HasPrefix(key, userID+":"+threadID) {
+			keysToDelete = append(keysToDelete, key)
+		}
+	}
+	
+	// Delete the entries
+	for _, key := range keysToDelete {
+		delete(c.crewaiMemory, key)
+	}
+	
+	return nil
+}
+
+// StoreCrewAIFlowState stores CrewAI flow state
+func (c *InMemoryFakeClient) StoreCrewAIFlowState(state *database.CrewAIFlowState) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.crewaiFlowStates == nil {
+		c.crewaiFlowStates = make(map[string]*database.CrewAIFlowState)
+	}
+	
+	key := fmt.Sprintf("%s:%s", state.UserID, state.ThreadID)
+	c.crewaiFlowStates[key] = state
+	
+	return nil
+}
+
+// GetCrewAIFlowState retrieves CrewAI flow state
+func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID string) (*database.CrewAIFlowState, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.crewaiFlowStates == nil {
+		return nil, nil
+	}
+	
+	key := fmt.Sprintf("%s:%s", userID, threadID)
+	state := c.crewaiFlowStates[key]
+	
+	return state, nil
 }

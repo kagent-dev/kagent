@@ -254,7 +254,7 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelConfigName, providers, providerModelsData, isLoading, modelConfigNamespace]);
+  }, [isEditMode, modelConfigName, providers, providerModelsData, modelConfigNamespace]);
 
   useEffect(() => {
     if (selectedProvider) {

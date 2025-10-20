@@ -91,7 +91,7 @@ jobs:
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
           echo $KAGENT_URL
 
-          go test -v github.com/kagent-dev/kagent/go/test/e2e
+          go test -race -v github.com/kagent-dev/kagent/go/test/e2e
       - name: fail print info
         if: failure()
         run: |
@@ -120,7 +120,7 @@ jobs:
       - name: Run cmd/main.go tests
         working-directory: go
         run: |
-          go test -skip 'TestE2E.*|TestAutogenClient' -v ./...
+          go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
 
   helm-unit-tests:
     env:

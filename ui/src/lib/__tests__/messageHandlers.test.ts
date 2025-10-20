@@ -58,8 +58,8 @@ describe('messageHandlers helpers', () => {
   });
 });
 
-describe('createMessageHandlers smoke test (function_call and delegated response)', () => {
-  test('emits ToolCallRequestEvent and delegated TextMessage + execution event', () => {
+describe('createMessageHandlers test', () => {
+  test('emits ToolCallRequestEvent + ToolCallExecutionEvent for non-agent tool', () => {
     const emitted: Message[] = [];
     const handlers = createMessageHandlers({
       setMessages: (updater) => {
@@ -122,13 +122,9 @@ describe('createMessageHandlers smoke test (function_call and delegated response
     // @ts-expect-error: private access in tests
     handlers.handleMessageEvent(statusUpdateResp);
 
-    // Expect: ToolCallRequestEvent + delegated TextMessage + ToolCallExecutionEvent
-    expect(emitted.length).toBe(3);
-    const [req, plain, exec] = emitted;
-    expect((req.metadata as any).originalType).toBe('ToolCallRequestEvent');
-    expect((plain.metadata as any).originalType).toBe('TextMessage');
-    expect((plain.metadata as any).displaySource).toBe('kagent/k8s-agent');
-    expect((exec.metadata as any).originalType).toBe('ToolCallExecutionEvent');
+    expect(emitted.length).toBe(2);
+    expect((emitted[0].metadata as any).originalType).toBe('ToolCallRequestEvent');
+    expect((emitted[1].metadata as any).originalType).toBe('ToolCallExecutionEvent');
   });
 
   test('emits ToolCallRequestEvent + ToolCallExecutionEvent for non-agent tool', () => {

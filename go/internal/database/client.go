@@ -2,6 +2,7 @@ package database
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -57,6 +58,13 @@ type Client interface {
 	StoreCheckpointWrites(writes []*LangGraphCheckpointWrite) error
 	ListCheckpoints(userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*LangGraphCheckpointTuple, error)
 	DeleteCheckpoint(userID, threadID string) error
+
+	// CrewAI methods
+	StoreCrewAIMemory(memory *CrewAIAgentMemory) error
+	SearchCrewAIMemoryByTask(userID, threadID, taskDescription string, limit int) ([]*CrewAIAgentMemory, error)
+	ResetCrewAIMemory(userID, threadID string) error
+	StoreCrewAIFlowState(state *CrewAIFlowState) error
+	GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error)
 }
 
 type LangGraphCheckpointTuple struct {
@@ -577,4 +585,84 @@ func (c *clientImpl) DeleteCheckpoint(userID, threadID string) error {
 		return nil
 	})
 
+}
+
+// CrewAI methods
+
+// StoreCrewAIMemory stores CrewAI agent memory
+func (c *clientImpl) StoreCrewAIMemory(memory *CrewAIAgentMemory) error {
+	err := save(c.db, memory)
+	if err != nil {
+		return fmt.Errorf("failed to store CrewAI agent memory: %w", err)
+	}
+	return nil
+}
+
+// SearchCrewAIMemoryByTask searches CrewAI agent memory by task description across all agents for a session
+func (c *clientImpl) SearchCrewAIMemoryByTask(userID, threadID, taskDescription string, limit int) ([]*CrewAIAgentMemory, error) {
+	var memories []*CrewAIAgentMemory
+	
+	// Search for task_description within the JSON memory_data field
+	// Using JSON_EXTRACT or JSON_UNQUOTE for MySQL/PostgreSQL, or simple LIKE for SQLite
+	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
+	query := c.db.Where(
+		"user_id = ? AND thread_id = ? AND (memory_data LIKE ? OR JSON_EXTRACT(memory_data, '$.task_description') LIKE ?)",
+		userID, threadID, "%"+taskDescription+"%", "%"+taskDescription+"%",
+	).Order("created_at DESC, JSON_EXTRACT(memory_data, '$.score') ASC")
+	
+	// Apply limit
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	
+	err := query.Find(&memories).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to search CrewAI agent memory by task: %w", err)
+	}
+	
+	return memories, nil
+}
+
+// ResetCrewAIMemory deletes all CrewAI agent memory for a session
+func (c *clientImpl) ResetCrewAIMemory(userID, threadID string) error {
+	result := c.db.Where(
+		"user_id = ? AND thread_id = ?",
+		userID, threadID,
+	).Delete(&CrewAIAgentMemory{})
+	
+	if result.Error != nil {
+		return fmt.Errorf("failed to reset CrewAI agent memory: %w", result.Error)
+	}
+	
+	return nil
+}
+
+// StoreCrewAIFlowState stores CrewAI flow state
+func (c *clientImpl) StoreCrewAIFlowState(state *CrewAIFlowState) error {
+	err := save(c.db, state)
+	if err != nil {
+		return fmt.Errorf("failed to store CrewAI flow state: %w", err)
+	}
+	return nil
+}
+
+// GetCrewAIFlowState retrieves the most recent CrewAI flow state
+func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error) {
+	var state CrewAIFlowState
+
+	// Get the most recent state by ordering by created_at DESC
+	// Thread_id is equivalent to flow_uuid used by CrewAI because in each session there is only one flow
+	err := c.db.Where(
+		"user_id = ? AND thread_id = ?",
+		userID, threadID,
+	).Order("created_at DESC").First(&state).Error
+	
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil // Return nil for not found, as expected by the Python client
+		}
+		return nil, fmt.Errorf("failed to get CrewAI flow state: %w", err)
+	}
+	
+	return &state, nil
 }
