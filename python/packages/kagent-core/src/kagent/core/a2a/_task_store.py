@@ -28,7 +28,7 @@ class KAgentTaskStore(TaskStore):
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
-        response = await self.client.post("/api/tasks", json=task.model_dump())
+        response = await self.client.post("/api/tasks", json=task.model_dump(mode="json"))
         response.raise_for_status()
 
     @override
