@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -192,7 +193,10 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         return tool.agent?.name === compare || tool.agent?.name === compare.split('/').pop();
       } else if (isMcpTool(tool)) {
         const mcpTool = tool as Tool;
-        return mcpTool.mcpServer?.name === identifier.split('-')[1];
+        const toolIdentifier = getToolResponseIdentifier(item as ToolsResponse);
+        // Match both server name and specific tool ID
+        return toolIdentifier.startsWith(`${mcpTool.mcpServer?.name}-`) && 
+               mcpTool.mcpServer?.toolNames?.includes((item as ToolsResponse).id);
       }
       return false;
     });
@@ -380,11 +384,30 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                         if (toolToRemove) handleRemoveTool(toolToRemove);
                                       } else {
                                         const tool = item as ToolsResponse;
-                                        const toolToRemove = localSelectedTools.find(t =>  {
+                                        const toolToRemove = localSelectedTools.find(t => {
+                                          if (!isMcpTool(t)) return false;
                                           const mcpTool = t as Tool;
-                                          return mcpTool.mcpServer?.name === tool.server_name && mcpTool.mcpServer?.toolNames?.includes(tool.id)
+                                          // Match by server name and check if this specific tool ID is in the toolNames array
+                                          return mcpTool.mcpServer?.name === tool.server_name && 
+                                                 mcpTool.mcpServer?.toolNames?.includes(tool.id);
                                         });
-                                        if (toolToRemove) handleRemoveTool(toolToRemove);
+                                        if (toolToRemove) {
+                                          // If this is the only tool in the server, remove the entire entry
+                                          const mcpTool = toolToRemove as Tool;
+                                          if (mcpTool.mcpServer?.toolNames?.length === 1) {
+                                            handleRemoveTool(toolToRemove);
+                                          } else {
+                                            // Otherwise, just remove this specific tool from the toolNames array
+                                            const updatedTool = {
+                                              ...mcpTool,
+                                              mcpServer: {
+                                                ...mcpTool.mcpServer!,
+                                                toolNames: mcpTool.mcpServer!.toolNames!.filter(name => name !== tool.id)
+                                              }
+                                            };
+                                            setLocalSelectedTools(prev => prev.map(t => t === toolToRemove ? updatedTool : t));
+                                          }
+                                        }
                                       }
                                     }}>
                                        <XCircle className="h-4 w-4"/>
@@ -433,10 +456,10 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                   {localSelectedTools.flatMap((tool) => {
                     if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
                       return tool.mcpServer.toolNames.map((toolName: string) => {
-                        const foundServer = availableTools.find(
-                          server => server.server_name === tool.mcpServer?.name
+                        const foundTool = availableTools.find(
+                          t => t.server_name === tool.mcpServer?.name && t.id === toolName
                         );
-                        const specificDescription = foundServer?.description;
+                        const specificDescription = foundTool?.description || "Description not available";
                         
                         return (
                         <div key={`${tool.mcpServer?.name}-${toolName}`} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
@@ -444,9 +467,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                             <FunctionSquare className="h-4 w-4 flex-shrink-0 text-blue-400" />
                             <div className="flex-1 overflow-hidden">
                               <p className="text-sm font-medium truncate">{toolName}</p>
-                              {specificDescription && (
-                                <p className="text-xs text-muted-foreground truncate">{specificDescription}</p>
-                              )}
+                              <p className="text-xs text-muted-foreground truncate">{specificDescription}</p>
                             </div>
                           </div>
                           <Button
