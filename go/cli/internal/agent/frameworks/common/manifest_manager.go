@@ -126,8 +126,17 @@ func (m *Manager) Validate(manifest *AgentManifest) error {
 				return fmt.Errorf("mcpServers[%d]: url is required for type 'remote'", i)
 			}
 			parsed, err := url.Parse(srv.URL)
-			if err != nil || parsed.Scheme == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-				return fmt.Errorf("mcpServers[%d]: url must be a valid http(s) URL", i)
+			if err != nil {
+				return fmt.Errorf("mcpServers[%d]: url is not a valid URL: %v", i, err)
+			}
+			if parsed.Scheme == "" {
+				return fmt.Errorf("mcpServers[%d]: url is missing scheme (http or https required)", i)
+			}
+			if parsed.Scheme != "http" && parsed.Scheme != "https" {
+				return fmt.Errorf("mcpServers[%d]: url scheme must be http or https (got '%s')", i, parsed.Scheme)
+			}
+			if parsed.Host == "" {
+				return fmt.Errorf("mcpServers[%d]: url is missing host", i)
 			}
 		case "command":
 			// Command is required only if neither image nor build is provided
