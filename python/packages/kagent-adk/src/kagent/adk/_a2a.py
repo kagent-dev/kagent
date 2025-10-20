@@ -123,14 +123,23 @@ class KAgentApp:
         content = types.Content(role="user", parts=[types.Part(text=task)])
         # Key Concept: run_async executes the agent logic and yields Events.
         # We iterate through events to find the final answer.
-        async for event in runner.run_async(
-            user_id=USER_ID,
-            session_id=SESSION_ID,
-            new_message=content,
-        ):
-            # You can uncomment the line below to see *all* events during execution
-            # print(f"  [Event] Author: {event.author}, Type: {type(event).__name__}, Final: {event.is_final_response()}, Content: {event.content}")
-
-            # Key Concept: is_final_response() marks the concluding message for the turn.
-            jsn = event.model_dump_json()
-            logger.info(f"  [Event] {jsn}")
+        try:
+            async for event in runner.run_async(
+                user_id=USER_ID,
+                session_id=SESSION_ID,
+                new_message=content,
+            ):
+                # You can uncomment the line below to see *all* events during execution
+                # print(f"  [Event] Author: {event.author}, Type: {type(event).__name__}, Final: {event.is_final_response()}, Content: {event.content}")
+    
+                # Key Concept: is_final_response() marks the concluding message for the turn.
+                jsn = event.model_dump_json()
+                logger.info(f"  [Event] {jsn}")
+        finally:
+            # Ensure proper cleanup of any async resources
+            try:
+                # Close any open connections or resources
+                if hasattr(runner, 'close'):
+                    await runner.close()
+            except Exception as cleanup_error:
+                logger.warning(f"Error during cleanup: {cleanup_error}")
