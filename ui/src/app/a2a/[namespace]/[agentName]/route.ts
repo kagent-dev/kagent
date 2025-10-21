@@ -13,22 +13,15 @@ export async function POST(
     const backendUrl = getBackendUrl();
     const targetUrl = `${backendUrl}/a2a/${namespace}/${agentName}/`;
 
-    const requestHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'User-Agent': 'kagent-ui',
-    };
-
-    const authHeader = request.headers.get('authorization');
-    if (authHeader) {
-      requestHeaders['Authorization'] = authHeader;
-    }
-
     const backendResponse = await fetch(targetUrl, {
       method: 'POST',
-      headers: requestHeaders,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'User-Agent': 'kagent-ui',
+      },
       body: JSON.stringify(a2aRequest),
     });
 
