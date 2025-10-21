@@ -1,12 +1,9 @@
 package common
 
 import (
-	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
-	"strings"
-	"text/template"
+
+	"github.com/kagent-dev/kagent/go/cli/internal/common/generator"
 )
 
 // AgentConfig holds the configuration for agent project generation
@@ -20,90 +17,49 @@ type AgentConfig struct {
 	Framework     string
 	Language      string
 	KagentVersion string
+	McpServers    []McpServerType
+	EnvVars       []string
 }
 
-// BaseGenerator provides common functionality for all project generators
+// Implement ProjectConfig interface for AgentConfig
+func (c AgentConfig) GetDirectory() string {
+	return c.Directory
+}
+
+func (c AgentConfig) IsVerbose() bool {
+	return c.Verbose
+}
+
+func (c AgentConfig) ShouldInitGit() bool {
+	return true
+}
+
+func (c AgentConfig) ShouldSkipPath(path string) bool {
+	// Skip mcp_server directory - these templates are processed separately
+	return path == "mcp_server"
+}
+
+// BaseGenerator provides common functionality for all project generators.
+// This now wraps the shared generator.BaseGenerator.
 type BaseGenerator struct {
-	TemplateFiles fs.FS
+	*generator.BaseGenerator
 }
 
-// NewBaseGenerator creates a new base generator
+// NewBaseGenerator creates a new base generator that uses the shared generator
 func NewBaseGenerator(templateFiles fs.FS) *BaseGenerator {
 	return &BaseGenerator{
-		TemplateFiles: templateFiles,
+		BaseGenerator: generator.NewBaseGenerator(templateFiles, "templates"),
 	}
 }
 
-// GenerateProject generates a new project using the provided templates
+// GenerateProject generates a new project using the provided templates.
+// This delegates to the shared generator implementation.
 func (g *BaseGenerator) GenerateProject(config AgentConfig) error {
-	// Get templates subdirectory
-	templateRoot, err := fs.Sub(g.TemplateFiles, "templates")
-	if err != nil {
-		return fmt.Errorf("failed to get templates subdirectory: %w", err)
-	}
-
-	// Walk through all template files
-	err = fs.WalkDir(templateRoot, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip directories, we'll create them as needed
-		if d.IsDir() {
-			return nil
-		}
-
-		// Determine destination path by removing .tmpl extension
-		destPath := filepath.Join(config.Directory, strings.TrimSuffix(path, ".tmpl"))
-
-		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(destPath), err)
-		}
-
-		// Read template file
-		templateContent, err := fs.ReadFile(templateRoot, path)
-		if err != nil {
-			return fmt.Errorf("failed to read template file %s: %w", path, err)
-		}
-
-		// Render template content
-		renderedContent, err := g.renderTemplate(string(templateContent), config)
-		if err != nil {
-			return fmt.Errorf("failed to render template for %s: %w", path, err)
-		}
-
-		// Create file
-		if err := os.WriteFile(destPath, []byte(renderedContent), 0644); err != nil {
-			return fmt.Errorf("failed to write file %s: %w", destPath, err)
-		}
-
-		if config.Verbose {
-			// print the generated files
-			fmt.Printf("  Generated: %s\n", destPath)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to walk templates: %w", err)
-	}
-
-	return nil
+	return g.BaseGenerator.GenerateProject(config)
 }
 
-// renderTemplate renders a template string with the provided data
-func (g *BaseGenerator) renderTemplate(tmplContent string, data interface{}) (string, error) {
-	tmpl, err := template.New("template").Parse(tmplContent)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, data); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	return result.String(), nil
+// RenderTemplate renders a template string with the provided data.
+// This delegates to the shared generator implementation.
+func (g *BaseGenerator) RenderTemplate(tmplContent string, data interface{}) (string, error) {
+	return g.BaseGenerator.RenderTemplate(tmplContent, data)
 }

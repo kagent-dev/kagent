@@ -3,6 +3,7 @@ import random
 from google.adk import Agent
 from google.adk.tools.tool_context import ToolContext
 from google.adk.models.lite_llm import LiteLlm
+from .mcp_tools import get_mcp_tools
 
 
 def roll_die(sides: int, tool_context: ToolContext) -> int:
@@ -65,7 +66,7 @@ def create_model():
     return "{{.ModelName}}"
 {{end}}
 
-
+mcp_tools = get_mcp_tools()
 root_agent = Agent(
     model=create_model(),
     name="{{.Name}}_agent",
@@ -76,5 +77,5 @@ root_agent = Agent(
     tools=[
         roll_die,
         check_prime,
-    ],
+    ] + (mcp_tools if mcp_tools else []),
 )

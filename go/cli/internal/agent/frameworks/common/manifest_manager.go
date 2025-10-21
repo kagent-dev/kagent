@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,13 +14,27 @@ const ManifestFileName = "kagent.yaml"
 
 // AgentManifest represents the agent project configuration and metadata
 type AgentManifest struct {
-	Name          string    `yaml:"agentName"`
-	Language      string    `yaml:"language"`
-	Framework     string    `yaml:"framework"`
-	ModelProvider string    `yaml:"modelProvider"`
-	ModelName     string    `yaml:"modelName"`
-	Description   string    `yaml:"description"`
-	UpdatedAt     time.Time `yaml:"updatedAt,omitempty"`
+	Name          string          `yaml:"agentName"`
+	Language      string          `yaml:"language"`
+	Framework     string          `yaml:"framework"`
+	ModelProvider string          `yaml:"modelProvider"`
+	ModelName     string          `yaml:"modelName"`
+	Description   string          `yaml:"description"`
+	McpServers    []McpServerType `yaml:"mcpServers,omitempty" json:"mcpServers,omitempty"`
+	UpdatedAt     time.Time       `yaml:"updatedAt,omitempty"`
+}
+
+// McpServerType represents a single MCP server configuration
+type McpServerType struct {
+	Type    string            `yaml:"type" json:"type"`
+	Name    string            `yaml:"name" json:"name"`
+	Image   string            `yaml:"image,omitempty" json:"image,omitempty"`
+	Build   string            `yaml:"build,omitempty" json:"build,omitempty"`
+	Command string            `yaml:"command,omitempty" json:"command,omitempty"`
+	Args    []string          `yaml:"args,omitempty" json:"args,omitempty"`
+	Env     []string          `yaml:"env,omitempty" json:"env,omitempty"`
+	URL     string            `yaml:"url,omitempty" json:"url,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
 }
 
 // Manager handles loading and saving of agent manifests
@@ -93,11 +108,50 @@ func (m *Manager) Validate(manifest *AgentManifest) error {
 	if manifest.Framework == "" {
 		return fmt.Errorf("framework is required")
 	}
+	// McpServers are optional; validate only if provided
+	for i, srv := range manifest.McpServers {
+		if srv.Type == "" {
+			return fmt.Errorf("mcpServers[%d]: type is required", i)
+		}
+		if srv.Name == "" {
+			return fmt.Errorf("mcpServers[%d]: name is required", i)
+		}
+		// Enforce that only one of image or build is set
+		if srv.Image != "" && srv.Build != "" {
+			return fmt.Errorf("mcpServers[%d]: only one of image or build may be set", i)
+		}
+		switch srv.Type {
+		case "remote":
+			if srv.URL == "" {
+				return fmt.Errorf("mcpServers[%d]: url is required for type 'remote'", i)
+			}
+			parsed, err := url.Parse(srv.URL)
+			if err != nil {
+				return fmt.Errorf("mcpServers[%d]: url is not a valid URL: %v", i, err)
+			}
+			if parsed.Scheme == "" {
+				return fmt.Errorf("mcpServers[%d]: url is missing scheme (http or https required)", i)
+			}
+			if parsed.Scheme != "http" && parsed.Scheme != "https" {
+				return fmt.Errorf("mcpServers[%d]: url scheme must be http or https (got '%s')", i, parsed.Scheme)
+			}
+			if parsed.Host == "" {
+				return fmt.Errorf("mcpServers[%d]: url is missing host", i)
+			}
+		case "command":
+			// Command is required only if neither image nor build is provided
+			if srv.Command == "" && srv.Image == "" && srv.Build == "" {
+				return fmt.Errorf("mcpServers[%d]: at least one of command, image, or build is required for type 'command'", i)
+			}
+		default:
+			return fmt.Errorf("mcpServers[%d]: unsupported type '%s' (expected 'command' or 'remote')", i, srv.Type)
+		}
+	}
 	return nil
 }
 
 // NewProjectManifest creates a new AgentManifest with the given values
-func NewProjectManifest(agentName, language, framework, modelProvider, modelName, description string) *AgentManifest {
+func NewProjectManifest(agentName, language, framework, modelProvider, modelName, description string, mcpServers []McpServerType) *AgentManifest {
 	return &AgentManifest{
 		Name:          agentName,
 		Language:      language,
@@ -106,5 +160,6 @@ func NewProjectManifest(agentName, language, framework, modelProvider, modelName
 		ModelName:     modelName,
 		Description:   description,
 		UpdatedAt:     time.Now(),
+		McpServers:    mcpServers,
 	}
 }
