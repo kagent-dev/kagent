@@ -11,7 +11,8 @@ import (
 )
 
 type SimpleSession struct {
-	P auth.Principal
+	P          auth.Principal
+	authHeader string
 }
 
 func (s *SimpleSession) Principal() auth.Principal {
@@ -29,6 +30,8 @@ func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 		userID = "admin@kagent.dev"
 	}
 	agentId := reqHeaders.Get("X-Agent-Name")
+	authHeader := reqHeaders.Get("Authorization")
+
 	return &SimpleSession{
 		P: auth.Principal{
 			User: auth.User{
@@ -38,6 +41,7 @@ func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 				ID: agentId,
 			},
 		},
+		authHeader: authHeader,
 	}, nil
 }
 
@@ -47,6 +51,11 @@ func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Sessi
 		return nil
 	}
 	r.Header.Set("X-User-Id", session.Principal().User.ID)
+
+	if simpleSession, ok := session.(*SimpleSession); ok && simpleSession.authHeader != "" {
+		r.Header.Set("Authorization", simpleSession.authHeader)
+	}
+
 	return nil
 }
 

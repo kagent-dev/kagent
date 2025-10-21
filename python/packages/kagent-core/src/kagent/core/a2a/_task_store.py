@@ -1,8 +1,7 @@
-from typing import override
-
 import httpx
 from a2a.server.tasks import TaskStore
 from a2a.types import Task
+from typing_extensions import override
 
 
 class KAgentTaskStore(TaskStore):
