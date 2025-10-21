@@ -7,6 +7,7 @@ from typing import Callable
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agentsts.adk import ADKRunner, ADKSessionService, ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
@@ -132,25 +133,7 @@ class KAgentApp:
             runner=create_runner,
         )
 
-        # Use a simple in-memory task store (no backend needed)
-        from a2a.server.tasks import TaskStore
-        from a2a.types import Task
-
-        class InMemoryTaskStore(TaskStore):
-            def __init__(self):
-                self._tasks: dict[str, Task] = {}
-
-            async def save(self, task: Task) -> None:
-                self._tasks[task.id] = task
-
-            async def get(self, task_id: str) -> Task | None:
-                return self._tasks.get(task_id)
-
-            async def delete(self, task_id: str) -> None:
-                self._tasks.pop(task_id, None)
-
         task_store = InMemoryTaskStore()
-
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,

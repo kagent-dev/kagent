@@ -31,7 +31,7 @@ func (c AgentConfig) IsVerbose() bool {
 }
 
 func (c AgentConfig) ShouldInitGit() bool {
-	return false // Agent projects don't auto-init git
+	return true
 }
 
 func (c AgentConfig) ShouldSkipPath(path string) bool {
