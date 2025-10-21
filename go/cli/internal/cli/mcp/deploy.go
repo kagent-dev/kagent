@@ -14,6 +14,8 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
+	commonexec "github.com/kagent-dev/kagent/go/cli/internal/common/exec"
+	commonk8s "github.com/kagent-dev/kagent/go/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/mcp/manifests"
 )
@@ -82,7 +84,7 @@ var (
 
 func init() {
 	// Get current namespace from kubeconfig
-	currentNamespace, err := getCurrentNamespaceFromKubeconfig()
+	currentNamespace, err := commonk8s.GetCurrentNamespace()
 	if err != nil {
 		// Fallback to default if unable to get current namespace
 		currentNamespace = "default"
@@ -556,9 +558,17 @@ func parseEnvVars(envVars []string) map[string]string {
 }
 
 func applyToCluster(projectDir, yamlContent string, mcpServer *v1alpha1.MCPServer) error {
+	cfg, err := config.Get()
+	if err != nil {
+		return fmt.Errorf("failed to get config: %w", err)
+	}
+
+	// Create kubectl executor with namespace and verbose settings
+	kubectl := commonexec.NewKubectlExecutor(cfg.Verbose, mcpServer.Namespace)
+
 	fmt.Printf("🚀 Applying MCPServer to cluster...\n")
 
-	if err := applyResourcesToCluster([]byte(yamlContent)); err != nil {
+	if err := kubectl.Apply([]byte(yamlContent)); err != nil {
 		return err
 	}
 
@@ -566,7 +576,7 @@ func applyToCluster(projectDir, yamlContent string, mcpServer *v1alpha1.MCPServe
 
 	// Wait for the deployment to be ready
 	fmt.Printf("⌛ Waiting for deployment '%s' to be ready...\n", mcpServer.Name)
-	if err := waitForDeployment(mcpServer.Name, mcpServer.Namespace, 2*time.Minute); err != nil {
+	if err := kubectl.WaitForDeployment(mcpServer.Name, 2*time.Minute); err != nil {
 		return fmt.Errorf("deployment not ready: %w", err)
 	}
 

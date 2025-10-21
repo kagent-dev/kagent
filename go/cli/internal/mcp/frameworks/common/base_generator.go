@@ -4,86 +4,61 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"text/template"
 
 	"github.com/stoewer/go-strcase"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	commongenerator "github.com/kagent-dev/kagent/go/cli/internal/common/generator"
 	"github.com/kagent-dev/kagent/go/cli/internal/mcp"
 )
 
-// Base Generator for MCP projects
+// mcpConfigAdapter adapts mcp.ProjectConfig to implement generator.ProjectConfig
+type mcpConfigAdapter struct {
+	mcp.ProjectConfig
+	toolTemplateName string
+}
+
+func (a mcpConfigAdapter) GetDirectory() string {
+	return a.Directory
+}
+
+func (a mcpConfigAdapter) IsVerbose() bool {
+	return a.Verbose
+}
+
+func (a mcpConfigAdapter) ShouldInitGit() bool {
+	return !a.NoGit
+}
+
+func (a mcpConfigAdapter) ShouldSkipPath(path string) bool {
+	// Skip tool template during project generation
+	return path == a.toolTemplateName
+}
+
+// BaseGenerator for MCP projects
 type BaseGenerator struct {
-	TemplateFiles    fs.FS
+	*commongenerator.BaseGenerator
 	ToolTemplateName string
 }
 
-// GenerateProject generates a new project
+// NewBaseGenerator creates a new MCP base generator
+func NewBaseGenerator(templateFiles fs.FS, toolTemplateName string) *BaseGenerator {
+	return &BaseGenerator{
+		BaseGenerator:    commongenerator.NewBaseGenerator(templateFiles, "templates"),
+		ToolTemplateName: toolTemplateName,
+	}
+}
+
+// GenerateProject generates a new project using the shared generator
 func (g *BaseGenerator) GenerateProject(config mcp.ProjectConfig) error {
-
-	templateRoot, err := fs.Sub(g.TemplateFiles, "templates")
-	if err != nil {
-		return fmt.Errorf("failed to get templates subdirectory: %w", err)
+	adapter := mcpConfigAdapter{
+		ProjectConfig:    config,
+		toolTemplateName: g.ToolTemplateName,
 	}
-
-	err = fs.WalkDir(templateRoot, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip tool.*.tmpl during project generation - it's for individual tool generation
-		if path == g.ToolTemplateName {
-			return nil
-		}
-
-		destPath := filepath.Join(config.Directory, strings.TrimSuffix(path, ".tmpl"))
-
-		if d.IsDir() {
-			// Create the directory if it doesn't exist
-			if err := os.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
-			}
-			return nil
-		}
-
-		// Read template file
-		templateContent, err := fs.ReadFile(templateRoot, path)
-		if err != nil {
-			return fmt.Errorf("failed to read template file %s: %w", path, err)
-		}
-
-		// Render template content
-		renderedContent, err := renderTemplate(string(templateContent), config)
-		if err != nil {
-			return fmt.Errorf("failed to render template for %s: %w", path, err)
-		}
-
-		// Create file
-		if err := os.WriteFile(destPath, []byte(renderedContent), 0644); err != nil {
-			return fmt.Errorf("failed to write file %s: %w", destPath, err)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to walk templates: %w", err)
-	}
-
-	// Initialize git repository
-	if !config.NoGit {
-		if err := g.initGitRepo(config.Directory, config.Verbose); err != nil {
-			// Don't fail the whole operation if git init fails
-			if config.Verbose {
-				fmt.Printf("Warning: failed to initialize git repository: %v\n", err)
-			}
-		}
-	}
-
-	return nil
+	return g.BaseGenerator.GenerateProject(adapter)
 }
 
 // GenerateTool generates a new tool for a project.
@@ -124,7 +99,8 @@ func (g *BaseGenerator) GenerateTool(projectRoot string, config mcp.ToolConfig) 
 	})
 }
 
-// GenerateToolFile generates a new tool file from the unified template
+// GenerateToolFile generates a new tool file from the unified template.
+// This uses the shared generator's RenderTemplate method.
 func (g *BaseGenerator) GenerateToolFile(filePath string, config mcp.ToolConfig) error {
 	// Prepare template data
 	toolName := config.ToolName
@@ -146,60 +122,22 @@ func (g *BaseGenerator) GenerateToolFile(filePath string, config mcp.ToolConfig)
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Parse and execute the template
-	templateContent, err := fs.ReadFile(g.TemplateFiles, filepath.Join("templates", g.ToolTemplateName))
+	// Read tool template
+	templateContent, err := g.ReadTemplateFile(g.ToolTemplateName)
 	if err != nil {
 		return fmt.Errorf("failed to read tool template: %w", err)
 	}
 
-	tmpl, err := template.New("tool").Parse(string(templateContent))
+	// Render template using shared generator
+	renderedContent, err := g.RenderTemplate(string(templateContent), data)
 	if err != nil {
-		return fmt.Errorf("failed to parse template: %w", err)
+		return fmt.Errorf("failed to render tool template: %w", err)
 	}
 
-	// Create the output file
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-
-	// Execute the template
-	err = tmpl.Execute(file, data)
-
-	// Close the file and check for errors
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	return err
-}
-
-// initGitRepo initializes a git repository in the specified directory
-func (g *BaseGenerator) initGitRepo(dir string, verbose bool) error {
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-
-	if verbose {
-		fmt.Printf("  Initializing git repository...\n")
-	}
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run git init: %w", err)
+	// Write the rendered content
+	if err := os.WriteFile(filePath, []byte(renderedContent), 0644); err != nil {
+		return fmt.Errorf("failed to write tool file: %w", err)
 	}
 
 	return nil
-}
-
-// renderTemplate renders a template string with the provided data
-func renderTemplate(tmplContent string, data interface{}) (string, error) {
-	tmpl, err := template.New("template").Parse(tmplContent)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, data); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	return result.String(), nil
 }

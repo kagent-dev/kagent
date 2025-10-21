@@ -3,10 +3,16 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"time"
 
+	pygen "github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/adk/python"
+	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/pkg/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
@@ -96,4 +102,198 @@ func StreamA2AEvents(ch <-chan protocol.StreamingMessageEvent, verbose bool) {
 		}
 	}
 	fmt.Fprintln(os.Stdout) //nolint:errcheck // Add a newline after streaming is complete
+}
+
+// ResolveProjectDir resolves the project directory to an absolute path
+func ResolveProjectDir(projectDir string) (string, error) {
+	if projectDir == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current directory: %w", err)
+		}
+		return cwd, nil
+	}
+
+	if filepath.IsAbs(projectDir) {
+		return projectDir, nil
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	return filepath.Join(cwd, projectDir), nil
+}
+
+// ValidateProjectDir checks if a project directory exists
+func ValidateProjectDir(projectDir string) error {
+	if projectDir == "" {
+		return fmt.Errorf("project directory is required")
+	}
+
+	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
+		return fmt.Errorf("project directory does not exist: %s", projectDir)
+	}
+
+	return nil
+}
+
+// LoadManifest loads the kagent.yaml file from the project directory
+func LoadManifest(projectDir string) (*common.AgentManifest, error) {
+	manager := common.NewManifestManager(projectDir)
+	manifest, err := manager.Load()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load kagent.yaml: %w", err)
+	}
+	return manifest, nil
+}
+
+// IsVerbose checks if verbose mode is enabled
+func IsVerbose(cfg *config.Config) bool {
+	return cfg != nil && cfg.Verbose
+}
+
+// Template utilities
+
+// ReadTemplateFile reads a template file from the embedded filesystem
+func ReadTemplateFile(templatePath string) ([]byte, error) {
+	gen := pygen.NewPythonGenerator()
+	return fs.ReadFile(gen.TemplateFiles, templatePath)
+}
+
+// RenderTemplate reads and renders a template file with the given data
+func RenderTemplate(templatePath string, data interface{}) (string, error) {
+	gen := pygen.NewPythonGenerator()
+	tmplBytes, err := fs.ReadFile(gen.TemplateFiles, templatePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read template: %w", err)
+	}
+
+	return gen.RenderTemplate(string(tmplBytes), data)
+}
+
+// CopyTemplateIfNotExists copies a template file to the target directory if it doesn't exist
+func CopyTemplateIfNotExists(targetDir, filename, templatePath string, verbose bool) error {
+	targetPath := filepath.Join(targetDir, filename)
+	if _, err := os.Stat(targetPath); err == nil {
+		// File already exists
+		return nil
+	}
+
+	templateBytes, err := ReadTemplateFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("failed to read template %s: %w", templatePath, err)
+	}
+
+	if err := os.WriteFile(targetPath, templateBytes, 0o644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", filename, err)
+	}
+
+	if verbose {
+		fmt.Printf("Created %s\n", targetPath)
+	}
+
+	return nil
+}
+
+// RegenerateDockerCompose regenerates the docker-compose.yaml file with updated MCP server configuration
+func RegenerateDockerCompose(projectDir string, manifest *common.AgentManifest, verbose bool) error {
+	// Extract environment variables referenced in MCP server headers
+	envVars := extractEnvVarsFromHeaders(manifest.McpServers)
+
+	// Template data for docker-compose.yaml
+	templateData := struct {
+		Name          string
+		ModelProvider string
+		ModelName     string
+		EnvVars       []string
+		McpServers    []common.McpServerType
+	}{
+		Name:          manifest.Name,
+		ModelProvider: manifest.ModelProvider,
+		ModelName:     manifest.ModelName,
+		EnvVars:       envVars,
+		McpServers:    manifest.McpServers,
+	}
+
+	// Render the docker-compose.yaml template
+	renderedContent, err := RenderTemplate("templates/Docker-compose.yaml.tmpl", templateData)
+	if err != nil {
+		return fmt.Errorf("failed to render docker-compose.yaml template: %w", err)
+	}
+
+	// Write the docker-compose.yaml file
+	composePath := filepath.Join(projectDir, "docker-compose.yaml")
+	if err := os.WriteFile(composePath, []byte(renderedContent), 0o644); err != nil {
+		return fmt.Errorf("failed to write docker-compose.yaml: %w", err)
+	}
+
+	if verbose {
+		fmt.Printf("Updated %s\n", composePath)
+	}
+
+	return nil
+}
+
+// extractEnvVarsFromHeaders extracts environment variable names from MCP server headers
+// It looks for ${VAR_NAME} patterns in header values
+func extractEnvVarsFromHeaders(mcpServers []common.McpServerType) []string {
+	envVarSet := make(map[string]bool)
+
+	for _, server := range mcpServers {
+		if server.Type == "remote" && server.Headers != nil {
+			for _, value := range server.Headers {
+				// Find all ${VAR_NAME} patterns
+				matches := regexp.MustCompile(`\$\{([^}]+)\}`).FindAllStringSubmatch(value, -1)
+				for _, match := range matches {
+					if len(match) > 1 {
+						envVarSet[match[1]] = true
+					}
+				}
+			}
+		}
+	}
+
+	// Convert set to sorted slice for consistent output
+	envVars := make([]string, 0, len(envVarSet))
+	for varName := range envVarSet {
+		envVars = append(envVars, varName)
+	}
+	sort.Strings(envVars)
+
+	return envVars
+}
+
+// regenerateMcpToolsFile regenerates mcp_tools.py with the current MCP servers from the manifest
+func regenerateMcpToolsFile(projectDir string, manifest *common.AgentManifest, verbose bool) error {
+	// Expected agent directory for ADK Python: <projectDir>/<agentName>
+	agentDir := filepath.Join(projectDir, manifest.Name)
+	if _, err := os.Stat(agentDir); err != nil {
+		// If not present, nothing to do (not an ADK Python layout)
+		return nil
+	}
+
+	// Prepare template data with MCP servers
+	templateData := struct {
+		McpServers []common.McpServerType
+	}{
+		McpServers: manifest.McpServers,
+	}
+
+	// Render the mcp_tools.py template
+	renderedContent, err := RenderTemplate("templates/agent/mcp_tools.py.tmpl", templateData)
+	if err != nil {
+		return fmt.Errorf("failed to render mcp_tools.py template: %w", err)
+	}
+
+	// Write the mcp_tools.py file
+	target := filepath.Join(agentDir, "mcp_tools.py")
+	if err := os.WriteFile(target, []byte(renderedContent), 0o644); err != nil {
+		return fmt.Errorf("failed to write mcp_tools.py: %w", err)
+	}
+
+	if verbose {
+		fmt.Printf("Regenerated %s\n", target)
+	}
+	return nil
 }

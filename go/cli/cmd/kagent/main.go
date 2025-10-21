@@ -38,7 +38,7 @@ func main() {
 		Use:   "kagent",
 		Short: "kagent is a CLI and TUI for kagent",
 		Long:  "kagent is a CLI and TUI for kagent",
-		Run: runInteractive,
+		Run:   runInteractive,
 	}
 
 	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", "http://localhost:8083", "KAgent URL")
@@ -252,11 +252,10 @@ Examples:
 
 	buildCmd := &cobra.Command{
 		Use:   "build [project-directory]",
-		Short: "Build a Docker image for an agent project",
-		Long: `Build a Docker image for an agent project created with the init command.
+		Short: "Build a Docker images for an agent project",
+		Long: `Build Docker images for an agent project created with the init command.
 
-This command will look for a Dockerfile in the specified project directory and build
-a Docker image using docker build. The image can optionally be pushed to a registry.
+This command will look for a kagent.yaml file in the specified project directory and build Docker images using docker build. The images can optionally be pushed to a registry.
 
 Image naming:
 - If --image is provided, it will be used as the full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)
@@ -303,10 +302,15 @@ API Key Options:
   --api-key: Convenience option to create a new secret with the provided API key
   --api-key-secret: Canonical way to reference an existing secret by name
 
+Dry-Run Mode:
+  --dry-run: Output YAML manifests without applying them to the cluster. This is useful
+             for previewing changes or for use with GitOps workflows.
+
 Examples:
   kagent deploy ./my-agent --api-key-secret "my-existing-secret"
   kagent deploy ./my-agent --api-key "your-api-key-here" --image "myregistry/myagent:v1.0"
-  kagent deploy ./my-agent --api-key-secret "my-secret" --namespace "my-namespace"`,
+  kagent deploy ./my-agent --api-key-secret "my-secret" --namespace "my-namespace"
+  kagent deploy ./my-agent --api-key "your-api-key" --dry-run > manifests.yaml`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			deployCfg.ProjectDir = args[0]
@@ -324,8 +328,70 @@ Examples:
 	deployCmd.Flags().StringVar(&deployCfg.APIKey, "api-key", "", "API key for the model provider (convenience option to create secret)")
 	deployCmd.Flags().StringVar(&deployCfg.APIKeySecret, "api-key-secret", "", "Name of existing secret containing API key")
 	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "", "Kubernetes namespace to deploy to")
+	deployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Output YAML manifests without applying them to the cluster")
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, mcp.NewMCPCmd())
+	// add-mcp command
+	addMcpCfg := &cli.AddMcpCfg{Config: cfg}
+	addMcpCmd := &cobra.Command{
+		Use:   "add-mcp [name] [args...]",
+		Short: "Add an MCP server entry to kagent.yaml",
+		Long:  `Add an MCP server entry to kagent.yaml. Use flags for non-interactive setup or run without flags to open the wizard.`,
+		Args:  cobra.ArbitraryArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) > 0 {
+				addMcpCfg.Name = args[0]
+				if len(args) > 1 && addMcpCfg.Command != "" {
+					addMcpCfg.Args = append(addMcpCfg.Args, args[1:]...)
+				}
+			}
+			if err := cli.AddMcpCmd(addMcpCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
+	// Flags for non-interactive usage
+	addMcpCmd.Flags().StringVar(&addMcpCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
+	addMcpCmd.Flags().StringVar(&addMcpCfg.RemoteURL, "remote", "", "Remote MCP server URL (http/https)")
+	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Headers, "header", nil, "HTTP header for remote MCP in KEY=VALUE format (repeatable, supports ${VAR} for env vars)")
+	addMcpCmd.Flags().StringVar(&addMcpCfg.Command, "command", "", "Command to run MCP server (e.g., npx, uvx, kmcp, or a binary)")
+	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Args, "arg", nil, "Command argument (repeatable)")
+	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Env, "env", nil, "Environment variable in KEY=VALUE format (repeatable)")
+	addMcpCmd.Flags().StringVar(&addMcpCfg.Image, "image", "", "Container image (optional; mutually exclusive with --build)")
+	addMcpCmd.Flags().StringVar(&addMcpCfg.Build, "build", "", "Container build (optional; mutually exclusive with --image)")
+
+	runCfg := &cli.RunCfg{
+		Config: cfg,
+	}
+
+	runCmd := &cobra.Command{
+		Use:   "run [project-directory]",
+		Short: "Run agent project locally with docker-compose and launch chat interface",
+		Long: `Run an agent project locally using docker-compose and launch an interactive chat session.
+
+Examples:
+  kagent run ./my-agent
+  kagent run .`,
+		Args: cobra.MaximumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) > 0 {
+				runCfg.ProjectDir = args[0]
+			} else {
+				runCfg.ProjectDir = "."
+			}
+
+			if err := cli.RunCmd(cmd.Context(), runCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+		Example: `kagent run ./my-agent`,
+	}
+
+	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
+
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd())
 
 	// Initialize config
 	if err := config.Init(); err != nil {

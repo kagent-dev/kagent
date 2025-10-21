@@ -57,6 +57,9 @@ def run(
     host: str = "127.0.0.1",
     port: int = 8080,
     workers: int = 1,
+    local: Annotated[
+        bool, typer.Option("--local", help="Run with in-memory session service (for local development)")
+    ] = False,
 ):
     app_cfg = KAgentConfig()
 
@@ -66,8 +69,15 @@ def run(
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
+
     kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
-    server = kagent_app.build()
+
+    if local:
+        logger.info("Running in local mode with InMemorySessionService")
+        server = kagent_app.build_local()
+    else:
+        server = kagent_app.build()
+
     configure_tracing(server)
 
     uvicorn.run(

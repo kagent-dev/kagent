@@ -21,10 +21,7 @@ type Generator struct {
 // NewGenerator creates a new Go generator.
 func NewGenerator() *Generator {
 	return &Generator{
-		BaseGenerator: common.BaseGenerator{
-			TemplateFiles:    templateFiles,
-			ToolTemplateName: "internal/tools/tool.go.tmpl",
-		},
+		BaseGenerator: *common.NewBaseGenerator(templateFiles, "internal/tools/tool.go.tmpl"),
 	}
 }
 
