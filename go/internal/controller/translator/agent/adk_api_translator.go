@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/adk"
+	"github.com/kagent-dev/kagent/go/internal/controller/translator/labels"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/translator"
@@ -268,7 +269,7 @@ func (a *adkApiTranslator) buildManifest(
 	}
 
 	selectorLabels := map[string]string{
-		"app":    "kagent",
+		"app":    labels.ManagedByKagent,
 		"kagent": agent.Name,
 	}
 	podLabels := func() map[string]string {
@@ -1070,6 +1071,16 @@ func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequi
 	return *spec
 }
 
+func getDefaultLabels(agentName string, incoming map[string]string) map[string]string {
+	defaultLabels := map[string]string{
+		labels.AppManagedBy: labels.ManagedByKagent,
+		labels.AppPartOf:    labels.ManagedByKagent,
+		labels.AppName:      agentName,
+	}
+	maps.Copy(defaultLabels, incoming)
+	return defaultLabels
+}
+
 func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	// Defaults
 	port := int32(8080)
@@ -1119,7 +1130,7 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		ImagePullSecrets: slices.Clone(spec.ImagePullSecrets),
 		Volumes:          append(slices.Clone(spec.Volumes), mdd.Volumes...),
 		VolumeMounts:     append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
-		Labels:           maps.Clone(spec.Labels),
+		Labels:           getDefaultLabels(agent.Name, spec.Labels),
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
 		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
@@ -1189,7 +1200,7 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 		ImagePullSecrets: slices.Clone(spec.ImagePullSecrets),
 		Volumes:          slices.Clone(spec.Volumes),
 		VolumeMounts:     slices.Clone(spec.VolumeMounts),
-		Labels:           maps.Clone(spec.Labels),
+		Labels:           getDefaultLabels(agent.Name, spec.Labels),
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              slices.Clone(spec.Env),
 		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified

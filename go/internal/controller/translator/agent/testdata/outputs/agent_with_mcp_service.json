@@ -46,6 +46,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "agent"
         },
         "name": "agent",
@@ -72,6 +75,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "agent"
         },
         "name": "agent",
@@ -94,6 +100,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "agent"
         },
         "name": "agent",
@@ -131,6 +140,9 @@
             },
             "labels": {
               "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "agent",
+              "app.kubernetes.io/part-of": "kagent",
               "kagent": "agent"
             }
           },
@@ -254,6 +266,9 @@
       "metadata": {
         "labels": {
           "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent",
+          "app.kubernetes.io/part-of": "kagent",
           "kagent": "agent"
         },
         "name": "agent",
