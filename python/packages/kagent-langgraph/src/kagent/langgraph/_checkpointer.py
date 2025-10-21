@@ -5,6 +5,7 @@ for LangGraph checkpoint persistence via HTTP API.
 """
 
 import base64
+import json
 import logging
 import random
 from collections.abc import AsyncIterator, Iterator, Sequence
@@ -141,7 +142,8 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
         thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
         type_, serialized_checkpoint = self.serde.dumps_typed(checkpoint)
-        serialized_metadata = self.jsonplus_serde.dumps(get_checkpoint_metadata(config, metadata))
+        # Serialize metadata as JSON (simpler, no type needed)
+        serialized_metadata = json.dumps(get_checkpoint_metadata(config, metadata)).encode()
         # Prepare request data
         request_data = KAgentCheckpointPayload(
             thread_id=thread_id,
@@ -233,7 +235,7 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
             ),
             metadata=cast(
                 CheckpointMetadata,
-                self.jsonplus_serde.loads(base64.b64decode(checkpoint_tuple.metadata.encode("ascii"))),
+                json.loads(base64.b64decode(checkpoint_tuple.metadata.encode("ascii"))),
             ),
             parent_config=(
                 {
