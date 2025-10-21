@@ -256,12 +256,35 @@ class A2aAgentExecutor(AgentExecutor):
             session_id=session_id,
         )
         if session is None:
-            session = await runner.session_service.create_session(
-                app_name=runner.app_name,
-                user_id=user_id,
-                state={},
-                session_id=session_id,
-            )
+            # Extract session name from the first TextPart (like the UI does)
+            session_name = None
+            if context.message and context.message.parts:
+                for part in context.message.parts:
+                    # A2A parts have a .root property that contains the actual part (TextPart, FilePart, etc.)
+                    if isinstance(part, Part):
+                        root_part = part.root
+                        if isinstance(root_part, TextPart) and root_part.text:
+                            # Take first 20 chars + "..." if longer (matching UI behavior)
+                            text = root_part.text.strip()
+                            session_name = text[:20] + ("..." if len(text) > 20 else "")
+                            break
+
+            # Prepare kwargs for create_session
+            create_session_kwargs = {
+                "app_name": runner.app_name,
+                "user_id": user_id,
+                "state": {},
+                "session_id": session_id,
+            }
+
+            if session_name is not None:
+                create_session_kwargs["session_name"] = session_name
+
+            # We pass the kwargs using ** to avoid issues with optional
+            # parameters like `session_name` that exist within
+            # `KAgentSessionService` but not in ADK `BaseSessionService`
+            session = await runner.session_service.create_session(**create_session_kwargs)
+
             # Update run_args with the new session_id
             run_args["session_id"] = session.id
 
