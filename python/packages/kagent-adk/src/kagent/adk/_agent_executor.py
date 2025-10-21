@@ -273,21 +273,12 @@ class A2aAgentExecutor(AgentExecutor):
                             session_name = text[:20] + ("..." if len(text) > 20 else "")
                             break
 
-            # Prepare kwargs for create_session
-            create_session_kwargs = {
-                "app_name": runner.app_name,
-                "user_id": user_id,
-                "state": {},
-                "session_id": session_id,
-            }
-
-            if session_name is not None:
-                create_session_kwargs["session_name"] = session_name
-
-            # We pass the kwargs using ** to avoid issues with optional
-            # parameters like `session_name` that exist within
-            # `KAgentSessionService` but not in ADK `BaseSessionService`
-            session = await runner.session_service.create_session(**create_session_kwargs)
+            session = await runner.session_service.create_session(
+                app_name=runner.app_name,
+                user_id=user_id,
+                state={"session_name": session_name},
+                session_id=session_id,
+            )
 
             # Update run_args with the new session_id
             run_args["session_id"] = session.id
