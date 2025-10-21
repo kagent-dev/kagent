@@ -1,8 +1,7 @@
-from typing import override
-
 import httpx
 from a2a.server.tasks import TaskStore
 from a2a.types import Task
+from typing_extensions import override
 
 
 class KAgentTaskStore(TaskStore):
@@ -28,7 +27,7 @@ class KAgentTaskStore(TaskStore):
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
-        response = await self.client.post("/api/tasks", json=task.model_dump())
+        response = await self.client.post("/api/tasks", json=task.model_dump(mode="json"))
         response.raise_for_status()
 
     @override

@@ -101,7 +101,7 @@ class AgentConfig(BaseModel):
             for http_tool in self.http_tools:  # add http tools
                 tools.append(MCPToolset(connection_params=http_tool.params, tool_filter=http_tool.tools))
         if self.sse_tools:
-            for sse_tool in self.sse_tools:  # add stdio tools
+            for sse_tool in self.sse_tools:  # add sse tools
                 tools.append(MCPToolset(connection_params=sse_tool.params, tool_filter=sse_tool.tools))
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools

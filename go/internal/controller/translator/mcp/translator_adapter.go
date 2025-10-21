@@ -137,9 +137,21 @@ func (t *transportAdapterTranslator) translateTransportAdapterDeployment(
 	// Create volume mounts from the MCPServer spec
 	volumeMounts := t.createVolumeMounts(server.Spec.Deployment)
 
+	// Determine the init container image and pull policy to use
+	// Start with the default transport adapter image
 	transportAdapterContainerImage, err := getTransportAdapterImage()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transport adapter image: %w", err)
+	}
+	initContainerPullPolicy := corev1.PullIfNotPresent
+
+	// Override with custom image if specified in the MCPServer spec
+	if server.Spec.Deployment.InitContainer != nil && server.Spec.Deployment.InitContainer.Image != "" {
+		transportAdapterContainerImage = server.Spec.Deployment.InitContainer.Image
+		initContainerPullPolicy = server.Spec.Deployment.InitContainer.ImagePullPolicy
+		if initContainerPullPolicy == "" {
+			initContainerPullPolicy = corev1.PullIfNotPresent
+		}
 	}
 
 	var template corev1.PodSpec
@@ -151,7 +163,7 @@ func (t *transportAdapterTranslator) translateTransportAdapterDeployment(
 			InitContainers: []corev1.Container{{
 				Name:            "copy-binary",
 				Image:           transportAdapterContainerImage,
-				ImagePullPolicy: corev1.PullIfNotPresent,
+				ImagePullPolicy: initContainerPullPolicy,
 				Command:         []string{},
 				Args: []string{
 					"--copy-self",
