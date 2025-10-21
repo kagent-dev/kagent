@@ -41,3 +41,4 @@ python_files = "test_*.py"
 python_functions = "test_*"
 log_cli = true
 log_cli_level = "INFO"
+testpaths = ["tests", "packages/*/tests"]

@@ -7,8 +7,10 @@ name = "kagent-adk"
 version = "0.3.0"
 description = "kagent-adk is an sdk for integrating adk agents with kagent"
 readme = "README.md"
-requires-python = ">=3.12.11"
+requires-python = ">=3.11.0"
 dependencies = [
+  "agentsts-adk >= 0.0.5",
+  "agentsts-core >= 0.0.5",
   "kagent-core",
   "aiofiles>=24.1.0",
   "anyio>=4.9.0",
