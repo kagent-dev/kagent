@@ -177,34 +177,36 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   }, [filteredAvailableItems]);
 
   const isItemSelected = (item: ToolsResponse | AgentResponse): boolean => {
-    let identifier: string;
     if (isAgentResponse(item)) {
       const agentResp = item as AgentResponse;
-      identifier = `agent-${k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name)}`;
+      const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
+      
+      return localSelectedTools.some(tool => {
+        if (!isAgentTool(tool)) return false;
+        return tool.agent?.name === agentRef || tool.agent?.name === agentResp.agent.metadata.name;
+      });
     } else {
-      const tool = item as ToolsResponse;
-      identifier = getToolResponseIdentifier(tool);
-    }
-    
-    return localSelectedTools.some(tool => {
-      if (isAgentTool(tool)) {
-        const compare = identifier.replace('agent-', '');
-        return tool.agent?.name === compare || tool.agent?.name === compare.split('/').pop();
-      } else if (isMcpTool(tool)) {
+      const toolItem = item as ToolsResponse;
+      
+      return localSelectedTools.some(tool => {
+        if (!isMcpTool(tool)) return false;
         const mcpTool = tool as Tool;
-        const toolIdentifier = getToolResponseIdentifier(item as ToolsResponse);
-        // Match both server name and specific tool ID
-        return toolIdentifier.startsWith(`${mcpTool.mcpServer?.name}-`) && 
-               mcpTool.mcpServer?.toolNames?.includes((item as ToolsResponse).id);
-      }
-      return false;
-    });
+        
+        return mcpTool.mcpServer?.name === toolItem.server_name && 
+               mcpTool.mcpServer?.toolNames?.includes(toolItem.id);
+      });
+    }
   };
 
   const handleAddItem = (item: ToolsResponse | AgentResponse) => {
-    // CRITICAL FIX: Check if item is already selected before adding
+
     if (isItemSelected(item)) {
       console.log("Item already selected, skipping add");
+      return;
+    }
+
+    if (actualSelectedCount >= MAX_TOOLS_LIMIT) {
+      console.warn(`Cannot add tool. Limit reached. Current: ${actualSelectedCount}, Limit: ${MAX_TOOLS_LIMIT}`);
       return;
     }
 
@@ -221,15 +223,35 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           apiGroup: "kagent.dev",
         }
       };
-    } else {
-      const tool = item as ToolsResponse;
-      toolToAdd = toolResponseToAgentTool(tool, tool.server_name);
-    }
-
-    if (actualSelectedCount + 1 <= MAX_TOOLS_LIMIT) {
+      
       setLocalSelectedTools(prev => [...prev, toolToAdd]);
     } else {
-      console.warn(`Cannot add tool. Limit reached. Current: ${actualSelectedCount}, Limit: ${MAX_TOOLS_LIMIT}`);
+      const tool = item as ToolsResponse;
+      
+      // Check if we already have an entry for this server
+      const existingServerToolIndex = localSelectedTools.findIndex(
+        t => isMcpTool(t) && t.mcpServer?.name === tool.server_name
+      );
+
+      if (existingServerToolIndex >= 0) {
+        // Add to existing server's toolNames
+        const existingTool = localSelectedTools[existingServerToolIndex];
+        const updatedTool = {
+          ...existingTool,
+          mcpServer: {
+            ...existingTool.mcpServer!,
+            toolNames: [...(existingTool.mcpServer!.toolNames || []), tool.id]
+          }
+        };
+        
+        setLocalSelectedTools(prev => 
+          prev.map((t, idx) => idx === existingServerToolIndex ? updatedTool : t)
+        );
+      } else {
+        // Create new entry for this server
+        toolToAdd = toolResponseToAgentTool(tool, tool.server_name);
+        setLocalSelectedTools(prev => [...prev, toolToAdd]);
+      }
     }
   };
 
@@ -384,7 +406,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                         const agentResp = item as AgentResponse;
                                         const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
                                         const toolToRemove = localSelectedTools.find(tool => 
-                                          isAgentTool(tool) && tool.agent?.name === agentRef
+                                          isAgentTool(tool) && (tool.agent?.name === agentRef || tool.agent?.name === agentResp.agent.metadata.name)
                                         );
                                         if (toolToRemove) handleRemoveTool(toolToRemove);
                                       } else {
