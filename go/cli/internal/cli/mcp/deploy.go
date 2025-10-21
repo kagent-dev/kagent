@@ -13,11 +13,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	commonexec "github.com/kagent-dev/kagent/go/cli/internal/common/exec"
 	commonk8s "github.com/kagent-dev/kagent/go/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/mcp/manifests"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 const (

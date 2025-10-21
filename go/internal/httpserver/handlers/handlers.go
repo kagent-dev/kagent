@@ -10,20 +10,21 @@ import (
 
 // Handlers holds all the HTTP handler components
 type Handlers struct {
-	Health      *HealthHandler
-	ModelConfig *ModelConfigHandler
-	Model       *ModelHandler
-	Provider    *ProviderHandler
-	Sessions    *SessionsHandler
-	Agents      *AgentsHandler
-	Tools       *ToolsHandler
-	ToolServers *ToolServersHandler
-	Memory      *MemoryHandler
-	Feedback    *FeedbackHandler
-	Namespaces  *NamespacesHandler
-	Tasks       *TasksHandler
-	Checkpoints *CheckpointsHandler
-	CrewAI      *CrewAIHandler
+	Health          *HealthHandler
+	ModelConfig     *ModelConfigHandler
+	Model           *ModelHandler
+	Provider        *ProviderHandler
+	Sessions        *SessionsHandler
+	Agents          *AgentsHandler
+	Tools           *ToolsHandler
+	ToolServers     *ToolServersHandler
+	ToolServerTypes *ToolServerTypesHandler
+	Memory          *MemoryHandler
+	Feedback        *FeedbackHandler
+	Namespaces      *NamespacesHandler
+	Tasks           *TasksHandler
+	Checkpoints     *CheckpointsHandler
+	CrewAI          *CrewAIHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -44,19 +45,20 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 	}
 
 	return &Handlers{
-		Health:      NewHealthHandler(),
-		ModelConfig: NewModelConfigHandler(base),
-		Model:       NewModelHandler(base),
-		Provider:    NewProviderHandler(base),
-		Sessions:    NewSessionsHandler(base),
-		Agents:      NewAgentsHandler(base),
-		Tools:       NewToolsHandler(base),
-		ToolServers: NewToolServersHandler(base),
-		Memory:      NewMemoryHandler(base),
-		Feedback:    NewFeedbackHandler(base),
-		Namespaces:  NewNamespacesHandler(base, watchedNamespaces),
-		Tasks:       NewTasksHandler(base),
-		Checkpoints: NewCheckpointsHandler(base),
-		CrewAI:      NewCrewAIHandler(base),
+		Health:          NewHealthHandler(),
+		ModelConfig:     NewModelConfigHandler(base),
+		Model:           NewModelHandler(base),
+		Provider:        NewProviderHandler(base),
+		Sessions:        NewSessionsHandler(base),
+		Agents:          NewAgentsHandler(base),
+		Tools:           NewToolsHandler(base),
+		ToolServers:     NewToolServersHandler(base),
+		ToolServerTypes: NewToolServerTypesHandler(base),
+		Memory:          NewMemoryHandler(base),
+		Feedback:        NewFeedbackHandler(base),
+		Namespaces:      NewNamespacesHandler(base, watchedNamespaces),
+		Tasks:           NewTasksHandler(base),
+		Checkpoints:     NewCheckpointsHandler(base),
+		CrewAI:          NewCrewAIHandler(base),
 	}
 }

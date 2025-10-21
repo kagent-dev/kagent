@@ -9,8 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
-
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/version"
 
 	"github.com/abiosoft/ishell/v2"
@@ -153,7 +152,7 @@ type helmConfig struct {
 
 // setupHelmConfig sets up the helm config for the kagent chart
 // This sets up the general configuration for a helm installation without the profile, which is calculated later based on the installation type (interactive or non-interactive)
-func setupHelmConfig(modelProvider v1alpha1.ModelProvider, apiKeyValue string) helmConfig {
+func setupHelmConfig(modelProvider v1alpha2.ModelProvider, apiKeyValue string) helmConfig {
 	// Build Helm values
 	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
 	values := []string{
@@ -178,7 +177,7 @@ func setupHelmConfig(modelProvider v1alpha1.ModelProvider, apiKeyValue string) h
 }
 
 // install installs kagent and kagent-crds using the helm config
-func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, modelProvider v1alpha1.ModelProvider) *PortForward {
+func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, modelProvider v1alpha2.ModelProvider) *PortForward {
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -340,4 +339,3 @@ func checkHelmAvailable() error {
 	}
 	return nil
 }
-

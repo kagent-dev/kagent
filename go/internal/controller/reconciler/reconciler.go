@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/kagent-dev/kagent/go/internal/controller/reconciler/status"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -18,12 +18,10 @@ import (
 	"k8s.io/client-go/util/retry"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
-	mcp_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/mcp"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
@@ -47,13 +45,11 @@ type KagentReconciler interface {
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) (bool, error)
 	GetOwnedResourceTypes() []client.Object
 }
 
 type kagentReconciler struct {
 	adkTranslator agent_translator.AdkApiTranslator
-	mcpTranslator mcp_translator.Translator
 	a2aReconciler a2a.A2AReconciler
 
 	kube     client.Client
@@ -67,7 +63,6 @@ type kagentReconciler struct {
 
 func NewKagentReconciler(
 	translator agent_translator.AdkApiTranslator,
-	mcpTranslator mcp_translator.Translator,
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
@@ -75,7 +70,6 @@ func NewKagentReconciler(
 ) KagentReconciler {
 	return &kagentReconciler{
 		adkTranslator:      translator,
-		mcpTranslator:      mcpTranslator,
 		kube:               kube,
 		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
@@ -312,44 +306,6 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 	}
 
 	return nil
-}
-
-func (a *kagentReconciler) ReconcileKagentMCPServerDeployment(ctx context.Context, req ctrl.Request) (bool, error) {
-	mcpServer := &v1alpha1.MCPServer{}
-	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
-		if k8s_errors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-
-	outputs, err := a.mcpTranslator.TranslateTransportAdapterOutputs(ctx, mcpServer)
-	if err != nil {
-		reconcileLog.Error(err, "Failed to translate MCPServer outputs", "mcpServer", req.NamespacedName)
-		shouldRequeue, statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, err)
-		if statusErr != nil {
-			reconcileLog.Error(statusErr, "Failed to reconcile MCPServer status", "mcpServer", req.NamespacedName)
-		}
-		return shouldRequeue, statusErr
-	}
-
-	// upsert the outputs which include the mcp server deployment, svc, sa and configmap
-	// containing the config for the transport adapter
-	var reconcileErr error
-	for _, output := range outputs {
-		if err := reconcilerutils.UpsertOutput(ctx, a.kube, output); err != nil {
-			reconcileLog.Error(err, "Failed to upsert output", "mcpServer", req.NamespacedName, "output", output.GetObjectKind().GroupVersionKind())
-			reconcileErr = err
-			break
-		}
-	}
-
-	shouldRequeue, statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, reconcileErr)
-	if statusErr != nil {
-		reconcileLog.Error(statusErr, "Failed to reconcile MCPServer status", "mcpServer", req.NamespacedName)
-	}
-
-	return shouldRequeue, reconcileErr
 }
 
 func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {

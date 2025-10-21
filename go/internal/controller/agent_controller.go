@@ -34,10 +34,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 var (
@@ -79,7 +79,7 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	// Setup watches for secondary resources that are not owned by the Agent
-	return build.Watches(
+	build = build.Watches(
 		&v1alpha2.ModelConfig{},
 		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			requests := []reconcile.Request{}
@@ -121,27 +121,6 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 		).
 		Watches(
-			&v1alpha1.MCPServer{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				requests := []reconcile.Request{}
-
-				for _, agent := range r.findAgentsUsingMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      agent.ObjectMeta.Name,
-							Namespace: agent.ObjectMeta.Namespace,
-						},
-					})
-				}
-
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		).
-		Watches(
 			&corev1.Service{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
@@ -152,8 +131,8 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 				}) {
 					requests = append(requests, reconcile.Request{
 						NamespacedName: types.NamespacedName{
-							Name:      agent.ObjectMeta.Name,
-							Namespace: agent.ObjectMeta.Namespace,
+							Name:      agent.Name,
+							Namespace: agent.Namespace,
 						},
 					})
 				}
@@ -161,9 +140,33 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 				return requests
 			}),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		).
-		Named("agent").
-		Complete(r)
+		)
+
+	if _, err := mgr.GetRESTMapper().RESTMapping(mcpServerGK); err == nil {
+		build = build.Watches(
+			&v1alpha1.MCPServer{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, agent := range r.findAgentsUsingMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      agent.Name,
+							Namespace: agent.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		)
+	}
+
+	return build.Named("agent").Complete(r)
 }
 
 func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {

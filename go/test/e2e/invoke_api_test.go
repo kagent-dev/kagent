@@ -20,10 +20,10 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
 	e2emocks "github.com/kagent-dev/kagent/go/test/e2e/mocks"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"

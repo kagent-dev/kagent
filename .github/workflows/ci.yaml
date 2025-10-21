@@ -126,7 +126,7 @@ jobs:
       - name: Run cmd/main.go tests
         working-directory: go
         run: |
-          go test -race -skip 'TestE2E.*|TestAutogenClient' -v ./...
+          go test -race -skip 'TestE2E.*' -v ./...
 
   helm-unit-tests:
     env:

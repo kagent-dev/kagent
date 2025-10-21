@@ -42,7 +42,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
-	mcp_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/mcp"
 	"github.com/kagent-dev/kagent/go/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 
@@ -51,6 +50,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/kagent-dev/kagent/go/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/mcp_translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -65,10 +65,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller"
 	"github.com/kagent-dev/kagent/go/internal/goruntime"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -345,29 +345,15 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		extensionCfg.Authenticator,
 	)
 
-	mcpTranslator := mcp_translator.NewTransportAdapterTranslator(
-		mgr.GetScheme(),
-		extensionCfg.MCPServerPlugins,
-	)
-
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
-		mcpTranslator,
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
 		a2aReconciler,
 	)
 
-	if err = (&controller.MCPServerController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
-		os.Exit(1)
-	}
-
-	if err := (&controller.MCPServerToolController{
+	if err := (&controller.ServiceController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -375,7 +361,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	if err := (&controller.ServiceController{
+	if err := (&controller.MCPServerToolController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
@@ -391,6 +377,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		setupLog.Error(err, "unable to create controller", "controller", "Agent")
 		os.Exit(1)
 	}
+
 	if err = (&controller.ModelConfigController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
@@ -398,18 +385,12 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelConfig")
 		os.Exit(1)
 	}
+
 	if err = (&controller.RemoteMCPServerController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
-		os.Exit(1)
-	}
-	if err = (&controller.MemoryController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Memory")
 		os.Exit(1)
 	}
 

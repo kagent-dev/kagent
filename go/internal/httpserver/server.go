@@ -20,23 +20,24 @@ import (
 
 const (
 	// API Path constants
-	APIPathHealth      = "/health"
-	APIPathVersion     = "/version"
-	APIPathModelConfig = "/api/modelconfigs"
-	APIPathRuns        = "/api/runs"
-	APIPathSessions    = "/api/sessions"
-	APIPathTasks       = "/api/tasks"
-	APIPathTools       = "/api/tools"
-	APIPathToolServers = "/api/toolservers"
-	APIPathAgents      = "/api/agents"
-	APIPathProviders   = "/api/providers"
-	APIPathModels      = "/api/models"
-	APIPathMemories    = "/api/memories"
-	APIPathNamespaces  = "/api/namespaces"
-	APIPathA2A         = "/api/a2a"
-	APIPathFeedback    = "/api/feedback"
-	APIPathLangGraph   = "/api/langgraph"
-	APIPathCrewAI      = "/api/crewai"
+	APIPathHealth          = "/health"
+	APIPathVersion         = "/version"
+	APIPathModelConfig     = "/api/modelconfigs"
+	APIPathRuns            = "/api/runs"
+	APIPathSessions        = "/api/sessions"
+	APIPathTasks           = "/api/tasks"
+	APIPathTools           = "/api/tools"
+	APIPathToolServers     = "/api/toolservers"
+	APIPathToolServerTypes = "/api/toolservertypes"
+	APIPathAgents          = "/api/agents"
+	APIPathProviders       = "/api/providers"
+	APIPathModels          = "/api/models"
+	APIPathMemories        = "/api/memories"
+	APIPathNamespaces      = "/api/namespaces"
+	APIPathA2A             = "/api/a2a"
+	APIPathFeedback        = "/api/feedback"
+	APIPathLangGraph       = "/api/langgraph"
+	APIPathCrewAI          = "/api/crewai"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -175,6 +176,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
+
+	// Tool Server Types
+	s.router.HandleFunc(APIPathToolServerTypes, adaptHandler(s.handlers.ToolServerTypes.HandleListToolServerTypes)).Methods(http.MethodGet)
 
 	// Agents - using database handlers
 	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleListAgents)).Methods(http.MethodGet)

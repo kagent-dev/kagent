@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
