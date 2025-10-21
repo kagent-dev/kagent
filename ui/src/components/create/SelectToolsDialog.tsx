@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -203,6 +202,12 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   };
 
   const handleAddItem = (item: ToolsResponse | AgentResponse) => {
+    // CRITICAL FIX: Check if item is already selected before adding
+    if (isItemSelected(item)) {
+      console.log("Item already selected, skipping add");
+      return;
+    }
+
     let toolToAdd: Tool;
 
     if (isAgentResponse(item)) {
@@ -358,8 +363,8 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                               return (
                                 <div
                                   key={identifier}
-                                  className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-muted/50'}`}
-                                  onClick={() => !isDisabled && handleAddItem(item)}
+                                  className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : isSelected ? 'cursor-default' : 'cursor-pointer hover:bg-muted/50'}`}
+                                  onClick={() => !isDisabled && !isSelected && handleAddItem(item)}
                                 >
                                   <div className="flex-1 overflow-hidden pr-2">
                                     <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(displayName, searchTerm)}</p>
