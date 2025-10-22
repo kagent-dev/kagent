@@ -23,6 +23,8 @@ from a2a.types import (
 )
 from google.adk.runners import Runner
 from google.adk.utils.context_utils import Aclosing
+from google.adk.events import Event, EventActions
+from google.genai.types import Part
 from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override
@@ -156,12 +158,23 @@ class A2aAgentExecutor(AgentExecutor):
         # Convert the a2a request to ADK run args
         run_args = convert_a2a_request_to_adk_run_args(context)
 
-        # set request headers to session state
-        headers = context.call_context.state.get("headers", {})
-        run_args["headers"] = headers
-
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
+
+        # set request headers to session state
+        headers = context.call_context.state.get("headers", {})
+        state_changes = {
+            "headers": headers,
+        }
+
+        actions_with_update = EventActions(state_delta=state_changes)
+        system_event = Event(
+            invocation_id="header_update",
+            author="system",
+            actions=actions_with_update,
+        )
+
+        await runner.session_service.append_event(session, system_event)
 
         current_span = trace.get_current_span()
         if run_args["user_id"]:
@@ -259,6 +272,7 @@ class A2aAgentExecutor(AgentExecutor):
             user_id=user_id,
             session_id=session_id,
         )
+
         if session is None:
             # Extract session name from the first TextPart (like the UI does)
             session_name = None
