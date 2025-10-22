@@ -21,10 +21,9 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from google.adk.events import Event, EventActions
 from google.adk.runners import Runner
 from google.adk.utils.context_utils import Aclosing
-from google.adk.events import Event, EventActions
-from google.genai.types import Part
 from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override

@@ -60,7 +60,7 @@ wheels = [
 
 [[package]]
 name = "agentsts-adk"
-version = "0.0.5"
+version = "0.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "agentsts-core" },
@@ -73,14 +73,14 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/be/c8996188a0cb3b0cdb1be6644d84c345c5842fc5cac03740d042890399cf/agentsts_adk-0.0.5.tar.gz", hash = "sha256:4db0d1527c688661cf21a1c1f25ea20b89a940b0d25e78c4ad4cb427f53c48fc", size = 7042, upload-time = "2025-10-21T11:33:18.095Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/ea/6aa23985ddd3f46f381f4151dd4e14dd41cd992eea87a12197671ac639a2/agentsts_adk-0.0.6.tar.gz", hash = "sha256:1939034d68ff83a5ab226bcfdb9e3d26232a570e7cc8f25a86ad70a88d9742d3", size = 5903, upload-time = "2025-10-22T18:42:35.221Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/d9/0545ac5d5d61a19774eb6ce896be9d35803e0016178e73dc67e6ae7b2513/agentsts_adk-0.0.5-py3-none-any.whl", hash = "sha256:0e454916010b72b2f93b79c97672a5911a8fe6728b3cead0cab81724db306220", size = 4177, upload-time = "2025-10-21T11:33:17.364Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/ad/407f92df73e1a54046e684d7d0568e4729ed1f1df6e74974b43b034451ff/agentsts_adk-0.0.6-py3-none-any.whl", hash = "sha256:0bebad625980843b85048a1d2697287a05af9b58a4d4d0d49e2d22443ac66fc6", size = 3213, upload-time = "2025-10-22T18:42:34.476Z" },
 ]
 
 [[package]]
 name = "agentsts-core"
-version = "0.0.5"
+version = "0.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -89,9 +89,9 @@ dependencies = [
     { name = "pyjwt" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c7/ed/004c4d9aacf07e022c2cc30c7d4348b6912d577657ab627d4432654044fe/agentsts_core-0.0.5.tar.gz", hash = "sha256:2ea1f643df194a45f22f246bb71960ae38ccaa1d553f55e221b9a13f2606e56a", size = 10403, upload-time = "2025-10-21T11:33:20.184Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/de/53e4ca60095cae096361198c4034411b45a50fd2b863234d37d84907a1ae/agentsts_core-0.0.6.tar.gz", hash = "sha256:4441927378a6e70e0077a2dd7b72dfd7b2af2fe732a30d52e7bcb53a7e968757", size = 10403, upload-time = "2025-10-22T18:42:37.038Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/79/10/f7cc034893ba2b9d02f3cec3649420f3a233543f44fac2453436e37f7c3f/agentsts_core-0.0.5-py3-none-any.whl", hash = "sha256:ed57a599de58fd2d20c4fe298a34fa440b20ca370582f4a5a7b30d147b0468bf", size = 9123, upload-time = "2025-10-21T11:33:19.131Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/06/14b7ea6a6612ddb50a302efef3e339c4e48ea7db5e56edd96358c1347821/agentsts_core-0.0.6-py3-none-any.whl", hash = "sha256:9243676d8e912f38cd504f13b56fa5fc1c96e54c9a53dd6e53df69b5d837edae", size = 9125, upload-time = "2025-10-22T18:42:36.017Z" },
 ]
 
 [[package]]
@@ -1862,8 +1862,8 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.3.1" },
-    { name = "agentsts-adk", specifier = ">=0.0.5" },
-    { name = "agentsts-core", specifier = ">=0.0.5" },
+    { name = "agentsts-adk", specifier = ">=0.0.6" },
+    { name = "agentsts-core", specifier = ">=0.0.6" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "anthropic", extras = ["vertex"], specifier = ">=0.49.0" },
     { name = "anyio", specifier = ">=4.9.0" },
