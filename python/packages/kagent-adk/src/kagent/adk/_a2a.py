@@ -122,10 +122,11 @@ class KAgentApp:
     def build_local(self) -> FastAPI:
         session_service = InMemorySessionService()
 
+        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=[])
+
         def create_runner() -> Runner:
-            return Runner(
-                agent=self.root_agent,
-                app_name=self.app_name,
+            return ADKRunner(
+                app=adk_app,
                 session_service=session_service,
             )
 
