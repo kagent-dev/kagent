@@ -9,7 +9,7 @@ from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
-from agentsts.adk import ADKRunner, ADKSessionService, ADKSTSIntegration, ADKTokenPropagationPlugin
+from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
@@ -80,13 +80,12 @@ class KAgentApp:
         plugins = []
         if sts_well_known_uri:
             sts_integration = ADKSTSIntegration(sts_well_known_uri)
-            session_service = ADKSessionService(sts_integration, session_service)
             plugins.append(ADKTokenPropagationPlugin(sts_integration))
 
         adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=plugins)
 
         def create_runner() -> Runner:
-            return ADKRunner(
+            return Runner(
                 app=adk_app,
                 session_service=session_service,
             )
