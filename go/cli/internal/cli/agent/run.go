@@ -45,6 +45,11 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 		return fmt.Errorf("failed to load kagent.yaml: %v", err)
 	}
 
+	// Validate API key before starting docker-compose
+	if err := ValidateAPIKey(manifest.ModelProvider); err != nil {
+		return fmt.Errorf("API key validation failed: %v", err)
+	}
+
 	verbose := IsVerbose(cfg.Config)
 
 	fmt.Printf("Starting agent and tools...\n")
