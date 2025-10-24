@@ -9,7 +9,6 @@ import type { Tool, AgentResponse, ToolsResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import KagentLogo from "../kagent-logo";
-import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ToolsSectionProps {
   selectedTools: Tool[];
@@ -106,10 +105,9 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
             // get the descriptions from the db
             let displayDescription = "Description not available.";
             const toolFromDB = availableTools.find(server => {
-              // The server_name is the full ref, so we need to get the name part of it
-              // as the name from the mcpServer is just a name (no namespace)
-              const { name } = k8sRefUtils.fromRef(server.server_name);
-              return name === mcpTool.mcpServer?.name && server.id === mcpToolName;
+              // Both server.server_name and mcpTool.mcpServer?.name contain full refs
+              // so we can compare them directly
+              return server.server_name === mcpTool.mcpServer?.name && server.id === mcpToolName;
             });
 
             if (toolFromDB) {
