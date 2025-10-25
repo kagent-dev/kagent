@@ -31,7 +31,7 @@ class KAgentTaskStore(TaskStore):
         response.raise_for_status()
 
     @override
-    async def get(self, task_id: str) -> Task | None:
+    async def get(self, task_id: str, context: dict | None = None) -> Task | None:
         """Retrieve a task from KAgent.
 
         Args:
