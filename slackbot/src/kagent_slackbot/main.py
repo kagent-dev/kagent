@@ -11,6 +11,7 @@ from slack_bolt.async_app import AsyncApp
 from .auth.permissions import PermissionChecker
 from .auth.slack_groups import SlackGroupChecker
 from .config import load_config
+from .constants import AGENT_CACHE_TTL
 from .handlers.actions import register_action_handlers
 from .handlers.commands import register_command_handlers
 from .handlers.mentions import register_mention_handlers
@@ -100,7 +101,7 @@ async def main() -> None:
     # Initialize RBAC components
     slack_group_checker = SlackGroupChecker(
         client=app.client,
-        cache_ttl=300,
+        cache_ttl=AGENT_CACHE_TTL,
     )
 
     permission_checker = PermissionChecker(

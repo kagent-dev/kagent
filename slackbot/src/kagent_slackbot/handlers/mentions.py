@@ -20,7 +20,13 @@ from slack_sdk.web.async_client import AsyncWebClient
 from structlog import get_logger
 
 from ..auth.permissions import PermissionChecker
-from ..constants import EMOJI_THINKING, SESSION_ID_PREFIX
+from ..constants import (
+    EMOJI_THINKING,
+    PREVIEW_MAX_LENGTH,
+    SESSION_ID_PREFIX,
+    SLACK_TEXT_SUMMARY_LENGTH,
+    UPDATE_THROTTLE_SECONDS,
+)
 from ..models.interrupt import ActionRequest, InterruptData, ReviewConfig
 from ..services.a2a_client import A2AClient
 from ..services.agent_discovery import AgentDiscovery
@@ -29,6 +35,31 @@ from ..slack.formatters import format_agent_response, format_error
 from ..slack.validators import sanitize_message, strip_bot_mention, validate_message
 
 logger = get_logger(__name__)
+
+
+async def _remove_reaction(
+    client: AsyncWebClient,
+    channel: str,
+    timestamp: str,
+    name: str = "eyes",
+) -> None:
+    """
+    Remove a reaction from a message.
+
+    Args:
+        client: Slack client
+        channel: Channel ID
+        timestamp: Message timestamp
+        name: Reaction name (default: "eyes")
+    """
+    try:
+        await client.reactions_remove(
+            channel=channel,
+            timestamp=timestamp,
+            name=name,
+        )
+    except Exception as e:
+        logger.warning("Failed to remove reaction", error=str(e))
 
 
 async def handle_interrupt_approval(
@@ -93,7 +124,7 @@ async def handle_interrupt_approval(
     # Update message with approval UI
     # Extract text summary for the text field (Slack requires non-empty text)
     if response_text and response_text.strip():
-        text_summary = response_text[:200]
+        text_summary = response_text[:SLACK_TEXT_SUMMARY_LENGTH]
     else:
         text_summary = "⚠️ Approval Required - Agent needs your decision"
 
@@ -143,10 +174,11 @@ def register_mention_handlers(
         )
 
         # Acknowledge with reaction
+        original_msg_ts = event["ts"]
         try:
             await client.reactions_add(
                 channel=channel,
-                timestamp=event["ts"],
+                timestamp=original_msg_ts,
                 name="eyes",
             )
         except Exception as e:
@@ -164,6 +196,7 @@ def register_mention_handlers(
                 blocks=format_error("Please provide a message after mentioning me!"),
                 thread_ts=thread_ts,
             )
+            await _remove_reaction(client, channel, original_msg_ts)
             return
 
         # Build session ID (includes thread_ts to isolate thread contexts)
@@ -189,6 +222,7 @@ def register_mention_handlers(
                     agent=agent_ref,
                     reason=access_reason,
                 )
+                await _remove_reaction(client, channel, original_msg_ts)
                 return
 
             # Check if agent supports streaming
@@ -244,8 +278,8 @@ def register_mention_handlers(
                             response_text = artifact_text
 
                             # Update every 2 seconds (only if we have content)
-                            if time.time() - last_update > 2 and response_text.strip():
-                                preview = response_text[:1000] + ("..." if len(response_text) > 1000 else "")
+                            if time.time() - last_update > UPDATE_THROTTLE_SECONDS and response_text.strip():
+                                preview = response_text[:PREVIEW_MAX_LENGTH] + ("..." if len(response_text) > PREVIEW_MAX_LENGTH else "")
                                 await client.chat_update(
                                     channel=channel,
                                     ts=working_ts,
@@ -279,7 +313,7 @@ def register_mention_handlers(
                     )
 
                     # Ensure text is non-empty (Slack API requirement)
-                    text_field = response_text[:200] if response_text and response_text.strip() else "Agent response"
+                    text_field = response_text[:SLACK_TEXT_SUMMARY_LENGTH] if response_text and response_text.strip() else "Agent response"
 
                     await client.chat_update(
                         channel=channel,
@@ -287,6 +321,9 @@ def register_mention_handlers(
                         text=text_field,
                         blocks=blocks,
                     )
+
+                    # Remove acknowledgment reaction
+                    await _remove_reaction(client, channel, original_msg_ts)
 
                     logger.info(
                         "Successfully processed streaming message",
@@ -303,6 +340,10 @@ def register_mention_handlers(
                         ts=working_ts,
                         blocks=format_error(f"Sorry, streaming failed: {str(e)}"),
                     )
+
+                    # Remove acknowledgment reaction
+                    await _remove_reaction(client, channel, original_msg_ts)
+
                     return  # Exit cleanly - error already shown to user
 
             else:
@@ -344,6 +385,9 @@ def register_mention_handlers(
 
                 await say(blocks=blocks, thread_ts=thread_ts)
 
+                # Remove acknowledgment reaction
+                await _remove_reaction(client, channel, original_msg_ts)
+
                 logger.info(
                     "Successfully processed mention",
                     user=user_id,
@@ -366,6 +410,9 @@ def register_mention_handlers(
                 ),
                 thread_ts=thread_ts,
             )
+
+            # Remove acknowledgment reaction
+            await _remove_reaction(client, channel, original_msg_ts)
 
     # Register event handlers
     @app.event("app_mention")

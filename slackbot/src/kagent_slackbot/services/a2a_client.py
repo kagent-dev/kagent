@@ -149,6 +149,45 @@ class A2AClient:
             )
             raise
 
+    async def _parse_sse_stream(
+        self, response
+    ) -> AsyncIterator[TaskStatusUpdateEvent | TaskArtifactUpdateEvent]:
+        """
+        Parse SSE stream and yield typed events.
+
+        Args:
+            response: HTTPX streaming response
+
+        Yields:
+            TaskStatusUpdateEvent | TaskArtifactUpdateEvent: Typed events from stream
+        """
+        async for line in response.aiter_lines():
+            if line.startswith("data: "):
+                data = line[6:]
+                if data.strip() and data.strip() != "[DONE]":
+                    try:
+                        # Parse SSE event
+                        event_dict = json.loads(data)
+
+                        # Extract result from JSON-RPC wrapper
+                        a2a_response = A2AResponse(event_dict)
+
+                        # Try to validate as status-update or artifact-update
+                        kind = a2a_response.result.get("kind")
+                        if kind == "status-update":
+                            event = TaskStatusUpdateEvent.model_validate(a2a_response.result)
+                            yield event
+                        elif kind == "artifact-update":
+                            event = TaskArtifactUpdateEvent.model_validate(a2a_response.result)
+                            yield event
+                        else:
+                            logger.warning("Unknown event kind", kind=kind)
+
+                    except json.JSONDecodeError as e:
+                        logger.warning("Failed to parse SSE data", error=str(e), data=data)
+                    except Exception as e:
+                        logger.warning("Failed to validate event", error=str(e), data=data)
+
     async def stream_agent(
         self,
         namespace: str,
@@ -210,33 +249,8 @@ class A2AClient:
 
         async with self.streaming_client.stream("POST", url, json=request_dict, headers=headers) as response:
             response.raise_for_status()
-
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    data = line[6:]
-                    if data.strip() and data.strip() != "[DONE]":
-                        try:
-                            # Parse SSE event
-                            event_dict = json.loads(data)
-
-                            # Extract result from JSON-RPC wrapper
-                            a2a_response = A2AResponse(event_dict)
-
-                            # Try to validate as status-update or artifact-update
-                            kind = a2a_response.result.get("kind")
-                            if kind == "status-update":
-                                event = TaskStatusUpdateEvent.model_validate(a2a_response.result)
-                                yield event
-                            elif kind == "artifact-update":
-                                event = TaskArtifactUpdateEvent.model_validate(a2a_response.result)
-                                yield event
-                            else:
-                                logger.warning("Unknown event kind", kind=kind)
-
-                        except json.JSONDecodeError as e:
-                            logger.warning("Failed to parse SSE data", error=str(e), data=data)
-                        except Exception as e:
-                            logger.warning("Failed to validate event", error=str(e), data=data)
+            async for event in self._parse_sse_stream(response):
+                yield event
 
     async def stream_agent_with_parts(
         self,
@@ -298,30 +312,8 @@ class A2AClient:
 
         async with self.streaming_client.stream("POST", url, json=request_dict, headers=headers) as response:
             response.raise_for_status()
-
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    data = line[6:]
-                    if data.strip() and data.strip() != "[DONE]":
-                        try:
-                            event_dict = json.loads(data)
-                            a2a_response = A2AResponse(event_dict)
-
-                            # Try to validate as status-update or artifact-update
-                            kind = a2a_response.result.get("kind")
-                            if kind == "status-update":
-                                event = TaskStatusUpdateEvent.model_validate(a2a_response.result)
-                                yield event
-                            elif kind == "artifact-update":
-                                event = TaskArtifactUpdateEvent.model_validate(a2a_response.result)
-                                yield event
-                            else:
-                                logger.warning("Unknown event kind", kind=kind)
-
-                        except json.JSONDecodeError as e:
-                            logger.warning("Failed to parse SSE data", error=str(e), data=data)
-                        except Exception as e:
-                            logger.warning("Failed to validate event", error=str(e), data=data)
+            async for event in self._parse_sse_stream(response):
+                yield event
 
     async def close(self) -> None:
         """Close HTTP clients"""

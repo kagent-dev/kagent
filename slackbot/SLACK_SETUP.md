@@ -17,13 +17,13 @@ Using the app manifest automatically configures everything for you.
 
 The manifest creates an app named **"kagent-bot"** with all scopes, Socket Mode, event subscriptions, and slash commands pre-configured.
 
-### Enable Socket Mode Token:
+### Generate Socket Mode Token:
 
-After creating the app, you need to generate the Socket Mode token:
+Socket Mode is already enabled by the manifest. You just need to generate a token:
 
 1. Go to **Socket Mode** in the sidebar
-2. The toggle should already be ON
-3. Click **"Generate"** to create a new token
+2. Verify the toggle is **ON** (it should already be enabled)
+3. Under **App-Level Tokens**, click **"Generate"** to create a new token
 4. Name it: `kagent-socket-token`
 5. **SAVE THIS TOKEN** - you'll need it for `SLACK_APP_TOKEN` (format: `xapp-1-...`)
 
@@ -49,7 +49,7 @@ If you prefer to configure everything manually instead of using the manifest.
 4. Choose your workspace
 5. Click **"Create App"**
 
-### Step 2: Configure OAuth & Permissions
+### Step 2: Configure OAuth & Permissions (Manual Setup Only)
 
 Go to **OAuth & Permissions** in the sidebar and add these bot token scopes:
 
@@ -64,16 +64,16 @@ Go to **OAuth & Permissions** in the sidebar and add these bot token scopes:
 
 Click **"Save Changes"**
 
-### Step 3: Enable Socket Mode
+### Step 3: Enable Socket Mode (Manual Setup Only)
 
 Go to **Socket Mode** in the sidebar:
 
 1. Toggle **"Enable Socket Mode"** to **ON**
-2. Give your token a name: `kagent-socket-token`
+2. Under **App-Level Tokens**, give your token a name: `kagent-socket-token`
 3. Click **"Generate"**
 4. **SAVE THIS TOKEN** - you'll need it for `SLACK_APP_TOKEN` (format: `xapp-1-...`)
 
-### Step 4: Configure Event Subscriptions
+### Step 4: Configure Event Subscriptions (Manual Setup Only)
 
 Go to **Event Subscriptions** in the sidebar:
 
@@ -84,7 +84,7 @@ Go to **Event Subscriptions** in the sidebar:
 
 Note: With Socket Mode, you don't need a Request URL!
 
-### Step 5: Enable Interactivity
+### Step 5: Enable Interactivity (Manual Setup Only)
 
 Go to **Interactivity & Shortcuts** in the sidebar:
 
@@ -94,7 +94,7 @@ Go to **Interactivity & Shortcuts** in the sidebar:
 
 This enables button actions for HITL approval workflows.
 
-### Step 6: Create Slash Commands
+### Step 6: Create Slash Commands (Manual Setup Only)
 
 Go to **Slash Commands** in the sidebar and create two commands:
 
@@ -110,7 +110,7 @@ Go to **Slash Commands** in the sidebar and create two commands:
 - **Usage Hint**: `<namespace>/<name> or reset`
 - Click **"Save"**
 
-### Step 7: Install App to Workspace
+### Step 7: Install App to Workspace (Manual Setup Only)
 
 1. Go to **Install App** in the sidebar
 2. Click **"Install to Workspace"**
@@ -118,7 +118,7 @@ Go to **Slash Commands** in the sidebar and create two commands:
 
 ---
 
-## Step 3: Collect Your Tokens (Both Options)
+## Collect Your Tokens (Required for Both Options)
 
 After creating and installing the app (via either option above), you'll need **3 tokens**:
 
@@ -140,7 +140,7 @@ After creating and installing the app (via either option above), you'll need **3
 - Format: alphanumeric string
 - Save as: `SLACK_SIGNING_SECRET`
 
-## Step 4: Configure the Bot
+## Configure the Bot (Required for Both Options)
 
 Create a `.env` file in the slackbot directory:
 
@@ -169,7 +169,7 @@ SERVER_PORT=8080
 LOG_LEVEL=INFO
 ```
 
-## Step 5: Invite Bot to Channels
+## Invite Bot to Channels (Required for Both Options)
 
 In Slack:
 
@@ -179,7 +179,7 @@ In Slack:
 
 **Or** just DM the bot directly (no invite needed for DMs)
 
-## Step 6: Test the Bot
+## Test the Bot (Required for Both Options)
 
 ### Start the bot locally:
 

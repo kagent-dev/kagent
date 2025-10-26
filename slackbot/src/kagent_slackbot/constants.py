@@ -4,10 +4,15 @@ import os
 
 # Slack message limits
 SLACK_BLOCK_LIMIT = 2900  # Characters per block
+SLACK_TEXT_SUMMARY_LENGTH = 200  # Characters for message text field
+PREVIEW_MAX_LENGTH = 1000  # Characters for streaming preview
 
 # User input limits
 MAX_MESSAGE_LENGTH = 4000
 MIN_MESSAGE_LENGTH = 1
+
+# UI update timing
+UPDATE_THROTTLE_SECONDS = 2  # Seconds between streaming UI updates
 
 # Agent discovery
 AGENT_CACHE_TTL = 300  # 5 minutes

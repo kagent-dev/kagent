@@ -24,6 +24,7 @@ USER appuser
 # Copy pyproject and install package structure first
 COPY --chown=appuser:appuser pyproject.toml .
 COPY --chown=appuser:appuser src/ src/
+COPY --chown=appuser:appuser config/ config/
 
 # Install dependencies and package
 RUN pip install --upgrade pip && \

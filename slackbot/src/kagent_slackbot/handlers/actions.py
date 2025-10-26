@@ -18,6 +18,66 @@ from ..services.a2a_client import A2AClient
 logger = get_logger(__name__)
 
 
+def _parse_button_value(action: dict[str, Any]) -> tuple[str, str | None, str]:
+    """
+    Parse approval button value into components.
+
+    Args:
+        action: Slack action dict containing button value
+
+    Returns:
+        Tuple of (session_id, task_id, agent_full_name)
+    """
+    button_value = action["value"]
+    parts = button_value.split("|")
+    session_id = parts[0]
+    task_id = parts[1] if len(parts) > 1 else None
+    agent_full_name = parts[2] if len(parts) > 2 else ""
+    return session_id, task_id, agent_full_name
+
+
+def _extract_original_message_ts(session_id: str) -> str | None:
+    """
+    Extract original message timestamp from session ID.
+
+    Session ID format: slack-{user_id}-{channel}-{thread_ts}
+    For top-level messages, thread_ts == original message ts
+
+    Args:
+        session_id: Session ID string
+
+    Returns:
+        Original message timestamp or None if parsing fails
+    """
+    parts = session_id.split("-")
+    if len(parts) >= 4:
+        return parts[3]  # thread_ts
+    return None
+
+
+async def _remove_reaction(
+    client: AsyncWebClient,
+    channel: str,
+    timestamp: str,
+) -> None:
+    """
+    Remove eyes reaction from a message.
+
+    Args:
+        client: Slack client
+        channel: Channel ID
+        timestamp: Message timestamp
+    """
+    try:
+        await client.reactions_remove(
+            channel=channel,
+            timestamp=timestamp,
+            name="eyes",
+        )
+    except Exception as e:
+        logger.warning("Failed to remove reaction", error=str(e))
+
+
 def register_action_handlers(app: AsyncApp, a2a_client: A2AClient) -> None:
     """Register action handlers for interactive buttons"""
 
@@ -31,11 +91,7 @@ def register_action_handlers(app: AsyncApp, a2a_client: A2AClient) -> None:
         """Handle approval button click"""
         await ack()
 
-        button_value = action["value"]
-        parts = button_value.split("|")
-        session_id = parts[0]
-        task_id = parts[1] if len(parts) > 1 else None
-        agent_full_name = parts[2] if len(parts) > 2 else ""
+        session_id, task_id, agent_full_name = _parse_button_value(action)
 
         user_id = body["user"]["id"]
         channel = body["container"]["channel_id"]
@@ -133,6 +189,11 @@ def register_action_handlers(app: AsyncApp, a2a_client: A2AClient) -> None:
                     ],
                 )
 
+                # Remove acknowledgment reaction from original message
+                original_msg_ts = _extract_original_message_ts(session_id)
+                if original_msg_ts:
+                    await _remove_reaction(client, channel, original_msg_ts)
+
                 logger.info("Approval completed", session=session_id, agent=agent_full_name)
 
             except Exception as e:
@@ -142,6 +203,11 @@ def register_action_handlers(app: AsyncApp, a2a_client: A2AClient) -> None:
                     user=user_id,
                     text=f"❌ Failed to send approval to agent: {str(e)}",
                 )
+
+                # Remove acknowledgment reaction even on error
+                original_msg_ts = _extract_original_message_ts(session_id)
+                if original_msg_ts:
+                    await _remove_reaction(client, channel, original_msg_ts)
 
     @app.action("approval_deny")
     async def handle_approval_deny(
@@ -153,11 +219,7 @@ def register_action_handlers(app: AsyncApp, a2a_client: A2AClient) -> None:
         """Handle denial button click"""
         await ack()
 
-        button_value = action["value"]
-        parts = button_value.split("|")
-        session_id = parts[0]
-        task_id = parts[1] if len(parts) > 1 else None
-        agent_full_name = parts[2] if len(parts) > 2 else ""
+        session_id, task_id, agent_full_name = _parse_button_value(action)
 
         user_id = body["user"]["id"]
         channel = body["container"]["channel_id"]
@@ -203,6 +265,11 @@ def register_action_handlers(app: AsyncApp, a2a_client: A2AClient) -> None:
                     ],
                 )
 
+                # Remove acknowledgment reaction from original message
+                original_msg_ts = _extract_original_message_ts(session_id)
+                if original_msg_ts:
+                    await _remove_reaction(client, channel, original_msg_ts)
+
                 logger.info("Denial sent to agent", session=session_id, agent=agent_full_name)
 
             except Exception as e:
@@ -212,3 +279,8 @@ def register_action_handlers(app: AsyncApp, a2a_client: A2AClient) -> None:
                     user=user_id,
                     text=f"❌ Failed to send denial to agent: {str(e)}",
                 )
+
+                # Remove acknowledgment reaction even on error
+                original_msg_ts = _extract_original_message_ts(session_id)
+                if original_msg_ts:
+                    await _remove_reaction(client, channel, original_msg_ts)
