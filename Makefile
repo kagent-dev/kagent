@@ -26,7 +26,7 @@ BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
 DOCKER_BUILDER ?= docker buildx
-DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
+DOCKER_BUILD_ARGS ?= --load --platform linux/$(LOCALARCH)
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.34.0
@@ -127,7 +127,7 @@ check-api-key:
 .PHONY: buildx-create
 buildx-create:
 	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
-	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
+	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64 --driver docker-container --use --driver-opt network=host || true
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null

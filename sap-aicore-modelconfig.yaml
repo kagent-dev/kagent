@@ -1,0 +1,54 @@
+---
+# Example: SAP AI Core ModelConfig for KAgent
+# This demonstrates how to configure SAP AI Core as a model provider
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kagent-sap-aicore
+  namespace: kagent
+type: Opaque
+stringData:
+  SAP_AI_CORE_API_KEY: "your-sap-ai-core-api-key-here"
+  CLIENT_SECRET: "your-oauth-client-secret-here"  # Optional: for OAuth
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: sap-aicore-gpt4
+  namespace: kagent
+spec:
+  provider: SAPAICore
+  model: "gpt-4"  # Model name depends on your deployment
+  apiKeySecret: kagent-sap-aicore
+  apiKeySecretKey: SAP_AI_CORE_API_KEY
+  sapAICore:
+    baseUrl: "https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com"
+    resourceGroup: "default"
+    deploymentId: "d1234567890"  # Replace with your actual deployment ID
+    # Optional OAuth configuration
+    authUrl: "https://your-oauth-server.authentication.eu10.hana.ondemand.com/oauth/token"
+    clientId: "your-client-id"
+    # Optional model parameters (as strings for CRD compatibility)
+    temperature: "0.7"
+    maxTokens: 2048
+    topP: "0.9"
+    frequencyPenalty: "0.0"
+    presencePenalty: "0.0"
+
+---
+# Example: Agent using SAP AI Core
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: sap-aicore-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  description: "An agent powered by SAP AI Core"
+  declarative:
+    modelConfig: sap-aicore-gpt4
+    systemMessage: "You are a helpful AI assistant powered by SAP AI Core."
+    tools: []
+

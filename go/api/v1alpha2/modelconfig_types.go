@@ -25,7 +25,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;SAPAICore
 type ModelProvider string
 
 const (
@@ -36,6 +36,7 @@ const (
 	ModelProviderGemini            ModelProvider = "Gemini"
 	ModelProviderGeminiVertexAI    ModelProvider = "GeminiVertexAI"
 	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
+	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
 )
 
 type BaseVertexAIConfig struct {
@@ -210,6 +211,57 @@ type OllamaConfig struct {
 
 type GeminiConfig struct{}
 
+// SAPAICoreConfig contains SAP AI Core-specific configuration options
+type SAPAICoreConfig struct {
+	// Base URL for the SAP AI Core API
+	// +required
+	BaseURL string `json:"baseUrl"`
+
+	// Resource group for the SAP AI Core deployment
+	// +required
+	ResourceGroup string `json:"resourceGroup"`
+
+	// Deployment ID for the specific model deployment
+	// +required
+	DeploymentID string `json:"deploymentId"`
+
+	// Auth URL for OAuth token generation
+	// +optional
+	AuthURL string `json:"authUrl,omitempty"`
+
+	// Client ID for OAuth authentication
+	// +optional
+	ClientID string `json:"clientId,omitempty"`
+
+	// Temperature for sampling
+	// +optional
+	// +kubebuilder:validation:Type=string
+	Temperature *string `json:"temperature,omitempty"`
+
+	// Maximum tokens to generate
+	// +optional
+	MaxTokens *int `json:"maxTokens,omitempty"`
+
+	// Top-p sampling parameter
+	// +optional
+	// +kubebuilder:validation:Type=string
+	TopP *string `json:"topP,omitempty"`
+
+	// Top-k sampling parameter
+	// +optional
+	TopK *int `json:"topK,omitempty"`
+
+	// Frequency penalty
+	// +optional
+	// +kubebuilder:validation:Type=string
+	FrequencyPenalty *string `json:"frequencyPenalty,omitempty"`
+
+	// Presence penalty
+	// +optional
+	// +kubebuilder:validation:Type=string
+	PresencePenalty *string `json:"presencePenalty,omitempty"`
+}
+
 // ModelConfigSpec defines the desired state of ModelConfig.
 //
 // +kubebuilder:validation:XValidation:message="provider.openAI must be nil if the provider is not OpenAI",rule="!(has(self.openAI) && self.provider != 'OpenAI')"
@@ -219,6 +271,7 @@ type GeminiConfig struct{}
 // +kubebuilder:validation:XValidation:message="provider.gemini must be nil if the provider is not Gemini",rule="!(has(self.gemini) && self.provider != 'Gemini')"
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
+// +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))"
 type ModelConfigSpec struct {
@@ -266,6 +319,10 @@ type ModelConfigSpec struct {
 	// Anthropic-specific configuration
 	// +optional
 	AnthropicVertexAI *AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+
+	// SAP AI Core-specific configuration
+	// +optional
+	SAPAICore *SAPAICoreConfig `json:"sapAICore,omitempty"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.

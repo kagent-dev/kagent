@@ -177,6 +177,20 @@ providers:
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""
+  sapAICore:
+    provider: SAPAICore
+    model: "gpt-4"  # Model name depends on your SAP AI Core deployment
+    apiKeySecretRef: kagent-sap-aicore
+    apiKeySecretKey: SAP_AI_CORE_API_KEY
+    # apiKey: ""
+    config:
+      baseUrl: "https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com"
+      resourceGroup: "default"
+      deploymentId: ""  # Set your deployment ID
+      authUrl: ""  # Optional: OAuth token endpoint
+      clientId: ""  # Optional: OAuth client ID
+      temperature: "0.7"
+      maxTokens: 2048    
 
 # ==============================================================================
 # KMCP

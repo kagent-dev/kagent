@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
+from .models import SAPAICore as SAPAICoreNative
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +84,25 @@ class Gemini(BaseLLM):
     type: Literal["gemini"]
 
 
+class SAPAICore(BaseLLM):
+    base_url: str
+    resource_group: str
+    deployment_id: str
+    auth_url: str | None = None
+    client_id: str | None = None
+    temperature: str | None = None
+    max_tokens: int | None = None
+    top_p: str | None = None
+    top_k: int | None = None
+    frequency_penalty: str | None = None
+    presence_penalty: str | None = None
+    timeout: int | None = None
+
+    type: Literal["sap_ai_core"]
+
+
 class AgentConfig(BaseModel):
-    model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini] = Field(
+    model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, SAPAICore] = Field(
         discriminator="type"
     )
     description: str
@@ -153,6 +171,24 @@ class AgentConfig(BaseModel):
             model = OpenAIAzure(model=self.model.model, type="azure_openai", default_headers=extra_headers)
         elif self.model.type == "gemini":
             model = self.model.model
+        elif self.model.type == "sap_ai_core":
+            model = SAPAICoreNative(
+                type="sap_ai_core",
+                model=self.model.model,
+                base_url=self.model.base_url,
+                resource_group=self.model.resource_group,
+                deployment_id=self.model.deployment_id,
+                auth_url=self.model.auth_url,
+                client_id=self.model.client_id,
+                default_headers=extra_headers,
+                temperature=self.model.temperature,
+                max_tokens=self.model.max_tokens,
+                top_p=self.model.top_p,
+                top_k=self.model.top_k,
+                frequency_penalty=self.model.frequency_penalty,
+                presence_penalty=self.model.presence_penalty,
+                timeout=self.model.timeout,
+            )
         else:
             raise ValueError(f"Invalid model type: {self.model.type}")
         return Agent(

@@ -64,6 +64,7 @@ const (
 	ModelTypeGeminiAnthropic = "gemini_anthropic"
 	ModelTypeOllama          = "ollama"
 	ModelTypeGemini          = "gemini"
+	ModelTypeSAPAICore       = "sap_ai_core"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -180,6 +181,44 @@ func (g *Gemini) GetType() string {
 	return ModelTypeGemini
 }
 
+type SAPAICore struct {
+	BaseModel
+	BaseUrl          string  `json:"base_url"`
+	ResourceGroup    string  `json:"resource_group"`
+	DeploymentID     string  `json:"deployment_id"`
+	AuthUrl          string  `json:"auth_url,omitempty"`
+	ClientID         string  `json:"client_id,omitempty"`
+	Temperature      *string `json:"temperature,omitempty"`
+	MaxTokens        *int    `json:"max_tokens,omitempty"`
+	TopP             *string `json:"top_p,omitempty"`
+	TopK             *int    `json:"top_k,omitempty"`
+	FrequencyPenalty *string `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *string `json:"presence_penalty,omitempty"`
+}
+
+func (s *SAPAICore) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"type":              ModelTypeSAPAICore,
+		"model":             s.Model,
+		"base_url":          s.BaseUrl,
+		"resource_group":    s.ResourceGroup,
+		"deployment_id":     s.DeploymentID,
+		"auth_url":          s.AuthUrl,
+		"client_id":         s.ClientID,
+		"temperature":       s.Temperature,
+		"max_tokens":        s.MaxTokens,
+		"top_p":             s.TopP,
+		"top_k":             s.TopK,
+		"frequency_penalty": s.FrequencyPenalty,
+		"presence_penalty":  s.PresencePenalty,
+		"headers":           s.Headers,
+	})
+}
+
+func (s *SAPAICore) GetType() string {
+	return ModelTypeSAPAICore
+}
+
 func ParseModel(bytes []byte) (Model, error) {
 	var model BaseModel
 	if err := json.Unmarshal(bytes, &model); err != nil {
@@ -228,6 +267,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &ollama, nil
+	case ModelTypeSAPAICore:
+		var sapAICore SAPAICore
+		if err := json.Unmarshal(bytes, &sapAICore); err != nil {
+			return nil, err
+		}
+		return &sapAICore, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
