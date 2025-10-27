@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	pygen "github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/adk/python"
 	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
@@ -262,6 +263,30 @@ func extractEnvVarsFromHeaders(mcpServers []common.McpServerType) []string {
 	sort.Strings(envVars)
 
 	return envVars
+}
+
+// ValidateAPIKey checks if the required API key environment variable is set for the given model provider
+func ValidateAPIKey(modelProvider string) error {
+	// Get the environment variable name for the provider
+	apiKeyEnvVar := GetProviderAPIKey(v1alpha2.ModelProvider(modelProvider))
+	
+	// If no API key is required for this provider (e.g., Ollama, local models), skip validation
+	if apiKeyEnvVar == "" {
+		return nil
+	}
+	
+	// Check if the environment variable is set and non-empty
+	apiKey := os.Getenv(apiKeyEnvVar)
+	if apiKey == "" {
+		return fmt.Errorf(`required API key not set
+
+The model provider '%s' requires the %s environment variable to be set.
+
+Please set it before running this command:
+  export %s="your-api-key-here"`, modelProvider, apiKeyEnvVar, apiKeyEnvVar)
+	}
+	
+	return nil
 }
 
 // regenerateMcpToolsFile regenerates mcp_tools.py with the current MCP servers from the manifest
