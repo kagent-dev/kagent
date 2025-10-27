@@ -1,0 +1,13 @@
+---
+name: Global Coding Style
+description: Follow language-specific naming conventions, code organization patterns, and formatting standards for the multi-language Kagent codebase (Go, Python, TypeScript/React). Use this skill when writing Go code with PascalCase for types (ServerConfig, AgentHandler), constants with APIPath* prefix, snake_case JSON tags, and short variable names for local scope (w, r, h, err), when writing Python code with PascalCase classes (KAgentApp, AgentConfig), snake_case functions (convert_event, _private_func with underscore prefix), async functions with 'a' prefix (aput, aget), ALL_CAPS constants (ARTIFACT_ID_SEPARATOR), modern type hints using | for unions instead of Union and dict/list directly instead of Dict/List from typing, when writing TypeScript/React code with PascalCase components (ChatInterface, AgentCard), camelCase functions (handleSubmit, fetchAgents), event handlers following handle{Action} pattern, hooks following use{Name} pattern (useAgents, useIsMobile), when organizing Go code with grouped imports (stdlib, external, internal), constants, types, constructors, then methods, when organizing Python code with type hints on all function parameters and return values, Google-style docstrings with Args/Returns/Raises sections, async methods prefixed with 'a', when organizing React components with imports first, then types, then component with hooks first, effects second, event handlers third, and render logic last, when using consistent indentation (tabs for Go via gofmt, 4 spaces for Python via ruff, 2 spaces for TypeScript via Prettier), when following DRY principles to extract common patterns into generic or shared functions, when keeping functions small and focused (< 50 lines ideal) with one responsibility per function, when using meaningful descriptive names instead of single letters except for common short names in Go (w for http.ResponseWriter, r for http.Request), when wrapping Go errors with context using fmt.Errorf with %w verb, when using Pydantic BaseModel classes for Python data validation with model_dump() override to exclude None values, or when removing dead code including unused imports, commented-out code, and unused functions. This skill ensures code consistency across the multi-language monorepo by following established language-specific conventions and general software engineering principles.
+---
+
+# Global Coding Style
+
+This Skill provides Claude Code with specific guidance on how to adhere to coding standards as they relate to how it should handle global coding style.
+
+## Instructions
+
+For details, refer to the information provided in this file:
+[global coding style](../../../agent-os/standards/global/coding-style.md)
