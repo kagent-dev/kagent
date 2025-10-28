@@ -1,22 +1,27 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
+	commonexec "github.com/kagent-dev/kagent/go/cli/internal/common/exec"
 	commonimage "github.com/kagent-dev/kagent/go/cli/internal/common/image"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,13 +52,10 @@ type DeployCfg struct {
 	// Image is the Docker image name (e.g., "registry/name:tag"). If empty, defaults to localhost:5001/name:latest
 	Image string
 
-	// APIKey is the model provider API key value. If provided, a new secret will be created.
-	// Either APIKey or APIKeySecret must be provided, but not both.
-	APIKey string
-
-	// APIKeySecret is the name of an existing Kubernetes secret containing the API key.
-	// Either APIKey or APIKeySecret must be provided, but not both.
-	APIKeySecret string
+	// EnvFile is the path to a .env file containing environment variables to be loaded into the agent.
+	// This MUST include the model provider API key (e.g., ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY).
+	// A Secret will be created with these values and mounted in the agent deployment.
+	EnvFile string
 
 	// Config contains CLI configuration (namespace, verbosity, etc.)
 	Config *config.Config
@@ -70,37 +72,52 @@ func DeployCmd(ctx context.Context, cfg *DeployCfg) error {
 		return err
 	}
 
-	// Step 2: Build Docker image (skip in dry-run mode)
-	if err := buildAndPushImage(cfg); err != nil {
-		return err
-	}
-
-	// Step 3: Validate deployment requirements
+	// Step 2: Validate deployment requirements
 	apiKeyEnvVar, err := validateDeploymentRequirements(manifest)
 	if err != nil {
 		return err
 	}
 
-	// Step 4: Setup Kubernetes client and namespace
+	// Step 3: Extract environment variable references from manifest
+	requiredEnvVars := extractEnvVarsFromManifest(manifest)
+
+	// Step 4: Validate environment variables and prompt user if needed
+	if err := validateAndPromptEnvVars(cfg, requiredEnvVars, apiKeyEnvVar); err != nil {
+		return err
+	}
+
+	// Step 5: Build Docker image (skip in dry-run mode)
+	if err := buildAndPushImage(cfg); err != nil {
+		return err
+	}
+
+	// Step 6: Setup Kubernetes client and namespace
 	k8sClient, err := setupKubernetesEnvironment(cfg)
 	if err != nil {
 		return err
 	}
 
-	// Step 5: Handle API key secret
-	secretName, err := handleAPIKeySecret(ctx, k8sClient, cfg, manifest, apiKeyEnvVar)
+	// Step 7: Handle env file secret (contains API key and other env vars)
+	envData, err := handleEnvFileSecret(ctx, k8sClient, cfg, manifest)
 	if err != nil {
 		return err
 	}
 
-	// Step 6: Deploy Agent CRD
-	if err := createAgentCRD(ctx, k8sClient, cfg, manifest, secretName, apiKeyEnvVar, IsVerbose(cfg.Config)); err != nil {
+	// Step 8: Deploy Agent CRD
+	if err := createAgentCRD(ctx, k8sClient, cfg, manifest, envData, IsVerbose(cfg.Config)); err != nil {
 		return err
 	}
 
-	// Step 7: Deploy MCP servers if defined
+	// Step 9: Deploy MCP servers if defined
 	if err := deployMCPServersIfNeeded(ctx, k8sClient, cfg, manifest); err != nil {
 		return err
+	}
+
+	// Step 10: Restart deployment if not in dry-run mode
+	if !cfg.DryRun {
+		if err := restartAgentDeployment(ctx, k8sClient, cfg, manifest); err != nil {
+			fmt.Printf("Warning: failed to restart deployment: %v\n", err)
+		}
 	}
 
 	printDeploymentResult(cfg, manifest)
@@ -175,49 +192,306 @@ func setupKubernetesEnvironment(cfg *DeployCfg) (client.Client, error) {
 	return k8sClient, nil
 }
 
-// handleAPIKeySecret manages API key secret creation or validation
-func handleAPIKeySecret(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest, apiKeyEnvVar string) (string, error) {
-	// Case 1: Using existing secret
-	if cfg.APIKeySecret != "" {
-		return useExistingSecret(ctx, k8sClient, cfg, apiKeyEnvVar)
-	}
-
-	// Case 2: Creating new secret with provided API key
-	if cfg.APIKey != "" {
-		return createNewSecret(ctx, k8sClient, cfg, manifest, apiKeyEnvVar)
-	}
-
-	// Case 3: No API key provided
-	return "", fmt.Errorf("either --api-key or --api-key-secret must be provided")
+// envFileData holds both the secret name and the parsed env var keys
+type envFileData struct {
+	SecretName string
+	EnvVarKeys []string
 }
 
-// useExistingSecret verifies and uses an existing Kubernetes secret
-func useExistingSecret(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, apiKeyEnvVar string) (string, error) {
-	secretName := cfg.APIKeySecret
+// extractEnvVarsFromManifest extracts all environment variable references from the manifest
+func extractEnvVarsFromManifest(manifest *common.AgentManifest) []string {
+	envVarRegex := regexp.MustCompile(envVarPattern)
+	envVarSet := make(map[string]bool)
 
-	// Verify the secret exists (skip in dry-run)
-	if !cfg.DryRun {
-		if err := verifySecretExists(ctx, k8sClient, cfg.Config.Namespace, secretName, apiKeyEnvVar); err != nil {
-			return "", err
+	// Extract from MCP servers
+	for _, mcpServer := range manifest.McpServers {
+		if mcpServer.URL != "" {
+			matches := envVarRegex.FindAllStringSubmatch(mcpServer.URL, -1)
+			for _, match := range matches {
+				varName := extractEnvVarName(match)
+				envVarSet[varName] = true
+			}
+		}
+
+		// Check headers
+		for _, headerValue := range mcpServer.Headers {
+			matches := envVarRegex.FindAllStringSubmatch(headerValue, -1)
+			for _, match := range matches {
+				varName := extractEnvVarName(match)
+				envVarSet[varName] = true
+			}
+		}
+
+		// Check env vars
+		for _, envVar := range mcpServer.Env {
+			// Parse KEY=VALUE format
+			parts := strings.SplitN(envVar, "=", 2)
+			if len(parts) == 2 {
+				matches := envVarRegex.FindAllStringSubmatch(parts[1], -1)
+				for _, match := range matches {
+					varName := extractEnvVarName(match)
+					envVarSet[varName] = true
+				}
+			}
 		}
 	}
 
-	if IsVerbose(cfg.Config) && !cfg.DryRun {
-		fmt.Printf("Using existing secret '%s' in namespace '%s'\n", secretName, cfg.Config.Namespace)
+	// Convert set to sorted slice
+	envVars := make([]string, 0, len(envVarSet))
+	for varName := range envVarSet {
+		envVars = append(envVars, varName)
 	}
+	sort.Strings(envVars)
 
-	return secretName, nil
+	return envVars
 }
 
-// createNewSecret creates a new Kubernetes secret with the provided API key
-func createNewSecret(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest, apiKeyEnvVar string) (string, error) {
-	secretName := fmt.Sprintf("%s-%s", manifest.Name, strings.ToLower(manifest.ModelProvider))
-
-	if err := createSecret(ctx, k8sClient, cfg.Config.Namespace, secretName, apiKeyEnvVar, cfg.APIKey, IsVerbose(cfg.Config), cfg.DryRun); err != nil {
-		return "", err
+// promptUserConfirmation prompts the user with a yes/no question and returns an error if they decline
+func promptUserConfirmation(message string) error {
+	fmt.Print(message)
+	var response string
+	if _, err := fmt.Scanln(&response); err != nil {
+		return fmt.Errorf("failed to read input: %v", err)
 	}
 
-	return secretName, nil
+	response = strings.ToLower(strings.TrimSpace(response))
+	if response != "y" && response != "yes" {
+		return fmt.Errorf("deployment cancelled by user")
+	}
+	fmt.Println()
+	return nil
+}
+
+// validateAndPromptEnvVars validates environment variables and prompts user if needed
+func validateAndPromptEnvVars(cfg *DeployCfg, requiredEnvVars []string, apiKeyEnvVar string) error {
+	if cfg.EnvFile == "" {
+		return fmt.Errorf("--env-file is required and must contain %s for the model provider", apiKeyEnvVar)
+	}
+
+	// Env file provided, check if it contains the API key
+	envFileVars, err := parseEnvFile(cfg.EnvFile)
+	if err != nil {
+		return fmt.Errorf("failed to parse env file for validation: %v", err)
+	}
+
+	if _, exists := envFileVars[apiKeyEnvVar]; !exists {
+		return fmt.Errorf(".env file must contain %s for the model provider", apiKeyEnvVar)
+	}
+
+	// Check for other missing variables referenced in kagent.yaml
+	missingVars := []string{}
+	for _, varName := range requiredEnvVars {
+		if varName == apiKeyEnvVar {
+			continue
+		}
+		if _, exists := envFileVars[varName]; !exists {
+			missingVars = append(missingVars, varName)
+		}
+	}
+
+	if len(missingVars) > 0 {
+		fmt.Printf("\n⚠️  Warning: The following variables are referenced in kagent.yaml but missing from %s:\n", cfg.EnvFile)
+		for _, varName := range missingVars {
+			fmt.Printf("  - %s\n", varName)
+		}
+		fmt.Printf("\nWithout these variables, your MCP servers or agents may fail to start or work correctly.\n")
+		fmt.Printf("Consider adding them to your .env file or ensure they're available at runtime.\n")
+
+		if !cfg.DryRun {
+			if err := promptUserConfirmation("\nContinue anyway? (y/N): "); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// handleEnvFileSecret manages environment file secret creation
+func handleEnvFileSecret(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest) (*envFileData, error) {
+	if cfg.EnvFile == "" {
+		return nil, nil
+	}
+
+	envVars, err := parseEnvFile(cfg.EnvFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse env file: %v", err)
+	}
+
+	secretName := fmt.Sprintf("%s-env", manifest.Name)
+	if err := createEnvFileSecret(ctx, k8sClient, cfg.Config.Namespace, secretName, envVars, IsVerbose(cfg.Config), cfg.DryRun); err != nil {
+		return nil, fmt.Errorf("failed to create env file secret: %v", err)
+	}
+
+	keys := make([]string, 0, len(envVars))
+	for k := range envVars {
+		keys = append(keys, k)
+	}
+
+	return &envFileData{
+		SecretName: secretName,
+		EnvVarKeys: keys,
+	}, nil
+}
+
+// parseEnvFile reads and parses a .env file, returning a map of environment variables
+func parseEnvFile(filePath string) (map[string]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open env file: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	envVars := make(map[string]string)
+	scanner := bufio.NewScanner(file)
+	lineNum := 0
+
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Parse KEY=VALUE format
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid format at line %d: expected KEY=VALUE, got %q", lineNum, line)
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		// Remove surrounding quotes if present
+		value = strings.Trim(value, `"'`)
+
+		if key == "" {
+			return nil, fmt.Errorf("empty key at line %d", lineNum)
+		}
+
+		envVars[key] = value
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading env file: %v", err)
+	}
+
+	return envVars, nil
+}
+
+// createEnvFileSecret creates a Kubernetes secret from env file variables
+func createEnvFileSecret(ctx context.Context, k8sClient client.Client, namespace, secretName string, envVars map[string]string, verbose bool, dryRun bool) error {
+	// Convert string map to byte map
+	secretData := make(map[string][]byte)
+	for k, v := range envVars {
+		secretData[k] = []byte(v)
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+		},
+		Data: secretData,
+	}
+	secret.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
+
+	// In dry-run mode, just output the YAML
+	if dryRun {
+		return outputYAML(secret)
+	}
+
+	existingSecret := &corev1.Secret{}
+	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, existingSecret)
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			if err := k8sClient.Create(ctx, secret); err != nil {
+				return fmt.Errorf("failed to create env file secret: %v", err)
+			}
+			if verbose {
+				fmt.Printf("Created env file secret '%s' in namespace '%s' with %d variables\n", secretName, namespace, len(envVars))
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to check if env file secret exists: %v", err)
+	}
+
+	existingSecret.Data = secretData
+	if err := k8sClient.Update(ctx, existingSecret); err != nil {
+		return fmt.Errorf("failed to update existing env file secret: %v", err)
+	}
+	if verbose {
+		fmt.Printf("Updated existing env file secret '%s' in namespace '%s' with %d variables\n", secretName, namespace, len(envVars))
+	}
+	return nil
+}
+
+// waitForDeployment polls for a deployment to be created, with a timeout
+func waitForDeployment(ctx context.Context, k8sClient client.Client, namespace, name string, timeout time.Duration, config *config.Config) (*appsv1.Deployment, error) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+
+	deployment := &appsv1.Deployment{}
+
+	for {
+		select {
+		case <-timeoutTimer.C:
+			return nil, errors.NewNotFound(appsv1.Resource("deployment"), name)
+		case <-ticker.C:
+			err := k8sClient.Get(ctx, types.NamespacedName{
+				Name:      name,
+				Namespace: namespace,
+			}, deployment)
+
+			if err == nil {
+				if IsVerbose(config) {
+					fmt.Printf("Deployment '%s' found in namespace '%s'\n", name, namespace)
+				}
+				return deployment, nil
+			}
+
+			if !errors.IsNotFound(err) {
+				return nil, fmt.Errorf("error checking for deployment: %v", err)
+			}
+		}
+	}
+}
+
+// restartAgentDeployment restarts the agent deployment using kubectl rollout restart
+func restartAgentDeployment(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest) error {
+	deploymentName := manifest.Name
+	namespace := cfg.Config.Namespace
+
+	_, err := waitForDeployment(ctx, k8sClient, namespace, deploymentName, 30*time.Second, cfg.Config)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			if IsVerbose(cfg.Config) {
+				fmt.Printf("Deployment '%s' not found after timeout, it may still be being created by the controller\n", deploymentName)
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to wait for deployment: %v", err)
+	}
+
+	kubectl := commonexec.NewKubectlExecutor(IsVerbose(cfg.Config), namespace)
+
+	if err := kubectl.RolloutRestart(deploymentName); err != nil {
+		return fmt.Errorf("failed to restart deployment: %v", err)
+	}
+
+	if err := kubectl.WaitForDeployment(deploymentName, 2*time.Minute); err != nil {
+		if IsVerbose(cfg.Config) {
+			fmt.Printf("Warning: failed to check rollout status: %v\n", err)
+		}
+	}
+
+	return nil
 }
 
 // deployMCPServersIfNeeded deploys MCP servers if any are defined in the manifest
@@ -240,7 +514,10 @@ func deployMCPServersIfNeeded(ctx context.Context, k8sClient client.Client, cfg 
 // printDeploymentResult prints the appropriate success/dry-run message
 func printDeploymentResult(cfg *DeployCfg, manifest *common.AgentManifest) {
 	if !cfg.DryRun {
-		fmt.Printf("Successfully deployed agent '%s' to namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
+		fmt.Printf("\n✅ Successfully deployed agent '%s' to namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
+		fmt.Printf("\nTo check the deployment status:\n")
+		fmt.Printf("  kubectl get agent %s -n %s\n", manifest.Name, cfg.Config.Namespace)
+		fmt.Printf("  kubectl get pods -l kagent=%s -n %s\n", manifest.Name, cfg.Config.Namespace)
 	}
 }
 
@@ -300,25 +577,6 @@ func createKubernetesClient() (client.Client, error) {
 	}
 
 	return k8sClient, nil
-}
-
-// verifySecretExists verifies that a secret exists and contains the required key
-func verifySecretExists(ctx context.Context, k8sClient client.Client, namespace, secretName, apiKeyEnvVar string) error {
-	secret := &corev1.Secret{}
-	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return fmt.Errorf("secret '%s' not found in namespace '%s'", secretName, namespace)
-		}
-		return fmt.Errorf("failed to check if secret exists: %v", err)
-	}
-
-	// Verify the secret contains the required key
-	if _, exists := secret.Data[apiKeyEnvVar]; !exists {
-		return fmt.Errorf("secret '%s' does not contain key '%s'", secretName, apiKeyEnvVar)
-	}
-
-	return nil
 }
 
 // createSecret creates or updates a Kubernetes secret with the specified key-value pair
@@ -381,9 +639,9 @@ func createOrUpdateSecret(ctx context.Context, k8sClient client.Client, secret *
 }
 
 // createAgentCRD creates or updates the Agent CRD
-func createAgentCRD(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest, secretName, apiKeyEnvVar string, verbose bool) error {
+func createAgentCRD(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest, envData *envFileData, verbose bool) error {
 	imageName := determineImageName(cfg.Image, manifest.Name)
-	agent := buildAgentCRD(cfg.Config.Namespace, manifest, imageName, secretName, apiKeyEnvVar)
+	agent := buildAgentCRD(cfg.Config.Namespace, manifest, imageName, envData)
 
 	// In dry-run mode, just output the YAML
 	if cfg.DryRun {
@@ -400,7 +658,33 @@ func determineImageName(configImage, agentName string) string {
 }
 
 // buildAgentCRD constructs an Agent CRD object
-func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName, secretName, apiKeyEnvVar string) *v1alpha2.Agent {
+func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName string, envData *envFileData) *v1alpha2.Agent {
+	var envVars []corev1.EnvVar
+
+	// Add all environment variables from the env file secret
+	if envData != nil {
+		for _, key := range envData.EnvVarKeys {
+			envVars = append(envVars, corev1.EnvVar{
+				Name: key,
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: envData.SecretName,
+						},
+						Key: key,
+					},
+				},
+			})
+		}
+	}
+
+	deploymentSpec := v1alpha2.ByoDeploymentSpec{
+		Image: imageName,
+		SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+			Env: envVars,
+		},
+	}
+
 	agent := &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      manifest.Name,
@@ -410,34 +694,12 @@ func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName, 
 			Type:        v1alpha2.AgentType_BYO,
 			Description: manifest.Description,
 			BYO: &v1alpha2.BYOAgentSpec{
-				Deployment: &v1alpha2.ByoDeploymentSpec{
-					Image: imageName,
-					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
-						Env: []corev1.EnvVar{
-							buildSecretEnvVar(apiKeyEnvVar, secretName),
-						},
-					},
-				},
+				Deployment: &deploymentSpec,
 			},
 		},
 	}
 	agent.SetGroupVersionKind(v1alpha2.GroupVersion.WithKind("Agent"))
 	return agent
-}
-
-// buildSecretEnvVar constructs an environment variable that references a Kubernetes secret
-func buildSecretEnvVar(envVarName, secretName string) corev1.EnvVar {
-	return corev1.EnvVar{
-		Name: envVarName,
-		ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: secretName,
-				},
-				Key: envVarName,
-			},
-		},
-	}
 }
 
 // createOrUpdateAgent creates a new agent or updates an existing one
