@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import json
 import logging
 import os
@@ -93,7 +94,16 @@ def run(
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
+    # Attempt to import optional user-defined lifespan(app) from the agent package
+    lifespan = None
+    try:
+        module_candidate = importlib.import_module(name)
+        if hasattr(module_candidate, "lifespan"):
+            lifespan = module_candidate.lifespan
+    except Exception:
+        logger.exception(f"Failed to load agent module '{name}' for lifespan")
+
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, lifespan=lifespan)
 
     if local:
         logger.info("Running in local mode with InMemorySessionService")
