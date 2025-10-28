@@ -12,6 +12,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
+	commonexec "github.com/kagent-dev/kagent/go/cli/internal/common/exec"
 	commonimage "github.com/kagent-dev/kagent/go/cli/internal/common/image"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
@@ -462,12 +463,12 @@ func waitForDeployment(ctx context.Context, k8sClient client.Client, namespace, 
 	}
 }
 
-// restartAgentDeployment restarts the agent deployment by patching it with a restart annotation
+// restartAgentDeployment restarts the agent deployment using kubectl rollout restart
 func restartAgentDeployment(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest) error {
 	deploymentName := manifest.Name
 	namespace := cfg.Config.Namespace
 
-	deployment, err := waitForDeployment(ctx, k8sClient, namespace, deploymentName, 30*time.Second, cfg.Config)
+	_, err := waitForDeployment(ctx, k8sClient, namespace, deploymentName, 30*time.Second, cfg.Config)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			if IsVerbose(cfg.Config) {
@@ -478,30 +479,16 @@ func restartAgentDeployment(ctx context.Context, k8sClient client.Client, cfg *D
 		return fmt.Errorf("failed to wait for deployment: %v", err)
 	}
 
-	// Patch the deployment with a restart annotation
-	patchDeployment := &appsv1.Deployment{
-		Spec: appsv1.DeploymentSpec{
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kubectl.kubernetes.io/restartedAt": time.Now().Format(time.RFC3339),
-					},
-				},
-			},
-		},
-	}
+	kubectl := commonexec.NewKubectlExecutor(IsVerbose(cfg.Config), namespace)
 
-	patchBytes, err := yaml.Marshal(patchDeployment)
-	if err != nil {
-		return fmt.Errorf("failed to marshal restart patch: %v", err)
-	}
-
-	if err := k8sClient.Patch(ctx, deployment, client.RawPatch(types.StrategicMergePatchType, patchBytes)); err != nil {
+	if err := kubectl.RolloutRestart(deploymentName); err != nil {
 		return fmt.Errorf("failed to restart deployment: %v", err)
 	}
 
-	if IsVerbose(cfg.Config) {
-		fmt.Printf("Restarted deployment '%s' in namespace '%s'\n", deploymentName, namespace)
+	if err := kubectl.WaitForDeployment(deploymentName, 2*time.Minute); err != nil {
+		if IsVerbose(cfg.Config) {
+			fmt.Printf("Warning: failed to check rollout status: %v\n", err)
+		}
 	}
 
 	return nil
