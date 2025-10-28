@@ -131,6 +131,7 @@ class KAgentApp:
                 agent=self.root_agent,
                 app_name=self.app_name,
                 session_service=session_service,
+                artifact_service=InMemoryArtifactService(),
             )
 
         agent_executor = A2aAgentExecutor(
@@ -178,6 +179,7 @@ class KAgentApp:
             agent=root_agent,
             app_name=self.app_name,
             session_service=session_service,
+            artifact_service=InMemoryArtifactService(),
         )
 
         logger.info(f"\n>>> User Query: {task}")

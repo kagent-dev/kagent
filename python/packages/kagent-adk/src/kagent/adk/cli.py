@@ -10,6 +10,7 @@ from a2a.types import AgentCard
 from google.adk.cli.utils.agent_loader import AgentLoader
 
 from kagent.core import KAgentConfig, configure_tracing
+from .sandbox_code_executer import SandboxedLocalCodeExecutor
 
 from . import AgentConfig, KAgentApp
 
@@ -25,6 +26,7 @@ def static(
     workers: int = 1,
     filepath: str = "/config",
     reload: Annotated[bool, typer.Option("--reload")] = False,
+    code: Annotated[bool, typer.Option("--code")] = False,
 ):
     app_cfg = KAgentConfig()
 
@@ -34,7 +36,8 @@ def static(
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
-    root_agent = agent_config.to_agent(app_cfg.name)
+    code_executor = SandboxedLocalCodeExecutor() if code else None
+    root_agent = agent_config.to_agent(app_cfg.name, code_executor=code_executor)
 
     kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
 

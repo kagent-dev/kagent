@@ -11,7 +11,9 @@ from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams, StreamableHTTPConnectionParams
+from google.adk.code_executors.base_code_executor import BaseCodeExecutor
 from pydantic import BaseModel, Field
+from typing import Optional
 
 from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
@@ -93,7 +95,7 @@ class AgentConfig(BaseModel):
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
 
-    def to_agent(self, name: str) -> Agent:
+    def to_agent(self, name: str, code_executor: Optional[BaseCodeExecutor] = None) -> Agent:
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
@@ -161,4 +163,5 @@ class AgentConfig(BaseModel):
             description=self.description,
             instruction=self.instruction,
             tools=tools,
+            code_executor=code_executor,
         )

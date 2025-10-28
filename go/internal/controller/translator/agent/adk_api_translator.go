@@ -404,6 +404,9 @@ func (a *adkApiTranslator) buildManifest(
 							TimeoutSeconds:      15,
 							PeriodSeconds:       15,
 						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged: ptr.To(true),
+						},
 						VolumeMounts: volumeMounts,
 					}},
 					Volumes: volumes,
@@ -1084,7 +1087,6 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	// Defaults
 	port := int32(8080)
-	cmd := "kagent-adk"
 	args := []string{
 		"static",
 		"--host",
@@ -1093,6 +1095,7 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		fmt.Sprintf("%d", port),
 		"--filepath",
 		"/config",
+		"--code",
 	}
 
 	// Start with spec deployment spec
@@ -1122,7 +1125,6 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 
 	dep := &resolvedDeployment{
 		Image:            image,
-		Cmd:              cmd,
 		Args:             args,
 		Port:             port,
 		ImagePullPolicy:  imagePullPolicy,

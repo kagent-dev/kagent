@@ -47,6 +47,13 @@ RUN addgroup -g 1001 pythongroup                           && \
     mkdir    -p /python                                    && \
     chown    -vR 1001:1001 /.kagent /python
 
+# Install anthropic sandbox runtime and dependencies
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    apk update && apk add \
+    nodejs npm bubblewrap socat ripgrep
+
+RUN npm install -g @anthropic-ai/sandbox-runtime@0.0.1
+
 USER python
 WORKDIR /.kagent
 
@@ -59,7 +66,7 @@ WORKDIR /.kagent
 ENV PATH=$PATH:/.kagent/bin:/.kagent/.venv/bin
 
 # Copy dependency files first for better layer caching
-COPY --chown=python:pythongroup pyproject.toml  .
+COPY --chown=python:pythongroup pyproject.toml .
 COPY --chown=python:pythongroup .python-version .
 COPY --chown=python:pythongroup uv.lock .
 COPY --chown=python:pythongroup packages/kagent-adk packages/kagent-adk
