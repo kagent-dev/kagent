@@ -342,9 +342,8 @@ func (a *adkApiTranslator) buildManifest(
 
 	if len(skills) > 0 {
 		initContainers = append(initContainers, corev1.Container{
-			Name:  "kagent-skills-init",
-			Image: dep.Image,
-			// Args:  []string{"sh", "-c", "mkdir -p /skills && cp -r /config/skills/* /skills/"},
+			Name:    "skills-init",
+			Image:   dep.Image,
 			Command: []string{"kagent-adk", "pull-skills"},
 			Args:    skills,
 			VolumeMounts: []corev1.VolumeMount{
@@ -1125,7 +1124,6 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	// Defaults
 	port := int32(8080)
 	args := []string{
-		"static",
 		"--host",
 		"0.0.0.0",
 		"--port",

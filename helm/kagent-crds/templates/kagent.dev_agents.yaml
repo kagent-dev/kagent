@@ -6893,6 +6893,10 @@ spec:
                       If not specified, the default value is "default-model-config".
                       Must be in the same namespace as the Agent.
                     type: string
+                  skills:
+                    items:
+                      type: string
+                    type: array
                   stream:
                     description: |-
                       Whether to stream the response from the model.

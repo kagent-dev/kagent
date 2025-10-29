@@ -80,7 +80,7 @@ jobs:
           make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
-          make push-test-agent
+          make push-test-agent push-test-skill
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 

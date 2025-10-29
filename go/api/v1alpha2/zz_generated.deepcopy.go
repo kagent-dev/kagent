@@ -335,6 +335,11 @@ func (in *DeclarativeAgentSpec) DeepCopyInto(out *DeclarativeAgentSpec) {
 			}
 		}
 	}
+	if in.Skills != nil {
+		in, out := &in.Skills, &out.Skills
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.A2AConfig != nil {
 		in, out := &in.A2AConfig, &out.A2AConfig
 		*out = new(A2AConfig)
