@@ -45,9 +45,6 @@ interface ModelParam {
   value: string;
 }
 
-// Helper function to process parameters before submission
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelParam[]): Record<string, any> => {
   const allParams = [...requiredParams, ...optionalParams]
     .filter(p => p.key.trim() !== "")
@@ -56,7 +53,6 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
       return acc;
     }, {} as Record<string, string>);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const providerParams: Record<string, any> = {};
   const numericKeys = new Set([
     'maxTokens',
@@ -254,13 +250,12 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelConfigName, providers, providerModelsData, modelConfigNamespace]);
+  }, [isEditMode, modelConfigName, providers, providerModelsData, modelConfigNamespace, isLoading]);
 
   useEffect(() => {
     if (selectedProvider) {
       const requiredKeys = selectedProvider.requiredParams || [];
       const optionalKeys = selectedProvider.optionalParams || [];
-
       const currentModelRequiresReset = !isEditMode;
 
       if (currentModelRequiresReset) {
@@ -610,3 +605,9 @@ export default function ModelPage() {
     </React.Suspense>
   );
 }
+
+
+
+
+
+

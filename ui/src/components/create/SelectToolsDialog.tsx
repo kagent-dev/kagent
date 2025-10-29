@@ -26,6 +26,25 @@ interface SelectToolsDialogProps {
   loadingAgents: boolean;
 }
 
+// Compare server names it handle both "namespace/name" refs and plain names
+const serverNamesMatch = (serverName1: string, serverName2: string): boolean => {
+  if (!serverName1 || !serverName2) return false;
+  if (serverName1 === serverName2) return true;
+  
+  try {
+    const name1 = k8sRefUtils.isValidRef(serverName1) 
+      ? k8sRefUtils.fromRef(serverName1).name 
+      : serverName1;
+    const name2 = k8sRefUtils.isValidRef(serverName2) 
+      ? k8sRefUtils.fromRef(serverName2).name 
+      : serverName2;
+    
+    return name1 === name2;
+  } catch {
+    return false;
+  }
+};
+
 // Helper function to get display info for a tool or agent
 const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
   displayName: string;
@@ -71,7 +90,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   const [showFilters, setShowFilters] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
 
-  // Initialize state when dialog opens
+  // Initialize the state when dialog opens
   useEffect(() => {
     if (open) {
       setLocalSelectedTools(selectedTools);
@@ -80,7 +99,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       const uniqueCategories = new Set<string>();
       const categoryCollapseState: { [key: string]: boolean } = {};
       
-      // Process available tools to extract categories
       availableTools.forEach((tool) => {
           const category = getToolResponseCategory(tool);
           uniqueCategories.add(category);
@@ -111,11 +129,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   const isLimitReached = actualSelectedCount >= MAX_TOOLS_LIMIT;
 
-  // Filter tools based on search and category selections
   const filteredAvailableItems = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
 
-    // Flatten all tools from all servers
     const allTools: Array<{ tool: ToolsResponse; server: ToolsResponse }> = [];
     availableTools.forEach((tool) => {
       allTools.push({ tool, server: tool });
@@ -133,19 +149,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       return matchesSearch && matchesCategory;
     });
 
-    // Filter agents if "Agents" category is selected or no category is selected
     const agentCategorySelected = selectedCategories.size === 0 || selectedCategories.has("Agents");
     const agents = agentCategorySelected ? availableAgents.filter(agentResp => {
         const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name).toLowerCase();
         const agentDesc = agentResp.agent.spec.description?.toLowerCase();
-        return agentRef.includes(searchLower) || agentDesc.includes(searchLower);
+        return agentRef.includes(searchLower) || (agentDesc && agentDesc.includes(searchLower));
       })
     : [];
 
     return { tools, agents };
   }, [availableTools, availableAgents, searchTerm, selectedCategories]);
 
-  // Group available tools and agents by category
   const groupedAvailableItems = useMemo(() => {
     const groups: { [key: string]: Array< ToolsResponse | AgentResponse> } = {};
     
@@ -161,7 +175,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       groups[category].push(tool);
     });
 
-    // Add agents to the "Agents" category
     if (filteredAvailableItems.agents.length > 0) {
       groups["Agents"] = filteredAvailableItems.agents.sort((a, b) => {
         const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name)
@@ -170,7 +183,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       });
     }
     
-    // Sort categories alphabetically
     return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
            .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
            
@@ -192,21 +204,20 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         if (!isMcpTool(tool)) return false;
         const mcpTool = tool as Tool;
         
-        return mcpTool.mcpServer?.name === toolItem.server_name && 
-               mcpTool.mcpServer?.toolNames?.includes(toolItem.id);
+        const serverMatch = serverNamesMatch(mcpTool.mcpServer?.name || "", toolItem.server_name);
+        const toolIdMatch = mcpTool.mcpServer?.toolNames?.includes(toolItem.id);
+        
+        return serverMatch && toolIdMatch;
       });
     }
   };
 
   const handleAddItem = (item: ToolsResponse | AgentResponse) => {
-
     if (isItemSelected(item)) {
-      console.log("Item already selected, skipping add");
       return;
     }
 
     if (actualSelectedCount >= MAX_TOOLS_LIMIT) {
-      console.warn(`Cannot add tool. Limit reached. Current: ${actualSelectedCount}, Limit: ${MAX_TOOLS_LIMIT}`);
       return;
     }
 
@@ -228,14 +239,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     } else {
       const tool = item as ToolsResponse;
       
-      // Check if we already have an entry for this server
       const existingServerToolIndex = localSelectedTools.findIndex(
-        t => isMcpTool(t) && t.mcpServer?.name === tool.server_name
+        t => isMcpTool(t) && serverNamesMatch(t.mcpServer?.name || "", tool.server_name)
       );
 
       if (existingServerToolIndex >= 0) {
-        // Add to existing server's toolNames
         const existingTool = localSelectedTools[existingServerToolIndex];
+        
+        if (existingTool.mcpServer?.toolNames?.includes(tool.id)) {
+          return;
+        }
+        
         const updatedTool = {
           ...existingTool,
           mcpServer: {
@@ -248,7 +262,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           prev.map((t, idx) => idx === existingServerToolIndex ? updatedTool : t)
         );
       } else {
-        // Create new entry for this server
         toolToAdd = toolResponseToAgentTool(tool, tool.server_name);
         setLocalSelectedTools(prev => [...prev, toolToAdd]);
       }
@@ -298,7 +311,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   const clearCategories = () => setSelectedCategories(new Set());
   const clearAllSelectedTools = () => setLocalSelectedTools([]);
 
-  // Helper to highlight search term
   const highlightMatch = (text: string, highlight: string) => {
     if (!highlight || !text) return text;
     const parts = text.split(new RegExp(`(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
@@ -400,8 +412,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                    )}
                                   {isSelected && (
                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={(e) => {
-                                      e.stopPropagation(); 
-                                      // Find and remove the tool
+                                      e.stopPropagation();
                                       if ('agent' in item) {
                                         const agentResp = item as AgentResponse;
                                         const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
@@ -414,17 +425,15 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                         const toolToRemove = localSelectedTools.find(t => {
                                           if (!isMcpTool(t)) return false;
                                           const mcpTool = t as Tool;
-                                          // Match by server name and check if this specific tool ID is in the toolNames array
-                                          return mcpTool.mcpServer?.name === tool.server_name && 
-                                                 mcpTool.mcpServer?.toolNames?.includes(tool.id);
+                                          const serverMatch = serverNamesMatch(mcpTool.mcpServer?.name || "", tool.server_name);
+                                          const toolIdMatch = mcpTool.mcpServer?.toolNames?.includes(tool.id);
+                                          return serverMatch && toolIdMatch;
                                         });
                                         if (toolToRemove) {
-                                          // If this is the only tool in the server, remove the entire entry
                                           const mcpTool = toolToRemove as Tool;
                                           if (mcpTool.mcpServer?.toolNames?.length === 1) {
                                             handleRemoveTool(toolToRemove);
                                           } else {
-                                            // Otherwise, just remove this specific tool from the toolNames array
                                             const updatedTool = {
                                               ...mcpTool,
                                               mcpServer: {
@@ -484,7 +493,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                     if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
                       return tool.mcpServer.toolNames.map((toolName: string) => {
                         const foundTool = availableTools.find(
-                          t => t.server_name === tool.mcpServer?.name && t.id === toolName
+                          t => serverNamesMatch(t.server_name, tool.mcpServer?.name || "") && t.id === toolName
                         );
                         const specificDescription = foundTool?.description || "Description not available";
                         
@@ -502,8 +511,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                             size="icon"
                             className="h-6 w-6 ml-2 flex-shrink-0"
                             onClick={() => {
-                              // For MCP tools, we need to remove the specific tool from the toolNames array
-                              // or remove the entire entry if it's the last tool
                               const updatedTool = {
                                 ...tool,
                                 mcpServer: {
@@ -513,10 +520,8 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                               };
                               
                               if (updatedTool.mcpServer.toolNames.length === 0) {
-                                // Remove the entire entry if no tools left
                                 handleRemoveTool(tool);
                               } else {
-                                // Update the entry with the remaining tools
                                 setLocalSelectedTools((prev) => 
                                   prev.map(t => t === tool ? updatedTool : t)
                                 );
@@ -537,7 +542,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                         : undefined;
 
                       const matchedTool = !isAgentTool(tool)
-                        ? availableTools.find(s => s.server_name === tool.mcpServer?.name)
+                        ? availableTools.find(s => serverNamesMatch(s.server_name, tool.mcpServer?.name || ""))
                         : undefined;
 
                       const { displayName, description, Icon, iconColor } = getItemDisplayInfo(
