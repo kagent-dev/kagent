@@ -49,10 +49,15 @@ RUN addgroup -g 1001 pythongroup                           && \
 
 # Install anthropic sandbox runtime and dependencies
 RUN --mount=type=cache,target=/var/cache/apk,rw \
-    apk update && apk add \
+    apk add \
     nodejs npm bubblewrap socat ripgrep
 
 RUN npm install -g @anthropic-ai/sandbox-runtime@0.0.1
+
+# Install anthropic sandbox runtime and dependencies
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    apk add \
+    crane
 
 USER python
 WORKDIR /.kagent

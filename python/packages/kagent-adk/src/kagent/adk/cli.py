@@ -61,9 +61,7 @@ def pull_skills(
     skill_dir = os.environ.get("SKILLS_FOLDER", ".")
     print("Pulling skills")
     for skill in skills:
-        current_skill_dir = os.path.join(skill_dir, skill)
-        print(f"Fetching skill {skill} into {current_skill_dir}")
-        fetch_skill(skill, current_skill_dir)
+        fetch_skill(skill, skill_dir)
     pass
 
 
