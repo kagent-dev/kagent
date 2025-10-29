@@ -57,6 +57,9 @@ type DeployCfg struct {
 	// A Secret will be created with these values and mounted in the agent deployment.
 	EnvFile string
 
+	// Platform specifies the target platform for Docker builds (e.g., "linux/amd64", "linux/arm64")
+	Platform string
+
 	// Config contains CLI configuration (namespace, verbosity, etc.)
 	Config *config.Config
 
@@ -153,6 +156,7 @@ func buildAndPushImage(cfg *DeployCfg) error {
 		ProjectDir: cfg.ProjectDir,
 		Image:      cfg.Image,
 		Push:       true, // Always push when deploying
+		Platform:   cfg.Platform,
 		Config:     cfg.Config,
 	}
 

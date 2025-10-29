@@ -280,6 +280,7 @@ Examples:
 	// Add flags for build command
 	buildCmd.Flags().StringVar(&buildCfg.Image, "image", "", "Full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)")
 	buildCmd.Flags().BoolVar(&buildCfg.Push, "push", false, "Push the image to the registry")
+	buildCmd.Flags().StringVar(&buildCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
 
 	deployCfg := &cli.DeployCfg{
 		Config: cfg,
@@ -335,6 +336,7 @@ Examples:
 	deployCmd.Flags().StringVar(&deployCfg.EnvFile, "env-file", "", "Path to .env file containing environment variables (including API keys)")
 	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "", "Kubernetes namespace to deploy to")
 	deployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Output YAML manifests without applying them to the cluster")
+	deployCmd.Flags().StringVar(&deployCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
 
 	// add-mcp command
 	addMcpCfg := &cli.AddMcpCfg{Config: cfg}
