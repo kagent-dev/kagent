@@ -188,7 +188,7 @@ kmcp:
   fullnameOverride: "" # Override if desired
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
   image:
-    tag: "v0.1.9" # Required until https://github.com/kagent-dev/kmcp/issues/74 is resolved
+    tag: "0.1.9" # Required until https://github.com/kagent-dev/kmcp/issues/74 is resolved
   # See https://github.com/kagent-dev/kmcp/blob/main/helm/kmcp/values.yaml for chart values
 
 # ==============================================================================
