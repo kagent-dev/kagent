@@ -30,6 +30,14 @@ func StatusStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(ColorMuted)
 }
 
-func ToolStyle() lipgloss.Style {
+func ToolCallStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#059669", Dark: "#10B981"}).Bold(true) // emerald
+}
+
+func ToolResultStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#0284C7", Dark: "#0EA5E9"}).Bold(true) // sky
+}
+
+func DimStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(ColorMuted)
 }

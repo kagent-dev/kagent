@@ -15,6 +15,7 @@ type BuildCfg struct {
 	ProjectDir string
 	Image      string
 	Push       bool
+	Platform   string
 	Config     *config.Config
 }
 
@@ -52,7 +53,11 @@ func BuildCmd(cfg *BuildCfg) error {
 	}
 
 	imageName := constructImageName(cfg)
-	if err := docker.Build(imageName, "."); err != nil {
+	var extraArgs []string
+	if cfg.Platform != "" {
+		extraArgs = append(extraArgs, "--platform", cfg.Platform)
+	}
+	if err := docker.Build(imageName, ".", extraArgs...); err != nil {
 		return fmt.Errorf("failed to build Docker image: %v", err)
 	}
 
@@ -144,7 +149,11 @@ func buildMcpServerImages(cfg *BuildCfg, manifest *common.AgentManifest) error {
 		imageName := constructMcpServerImageName(cfg, srv.Name)
 		docker := commonexec.NewDockerExecutor(cfg.Config.Verbose, mcpServerDir)
 
-		if err := docker.Build(imageName, "."); err != nil {
+		var extraArgs []string
+		if cfg.Platform != "" {
+			extraArgs = append(extraArgs, "--platform", cfg.Platform)
+		}
+		if err := docker.Build(imageName, ".", extraArgs...); err != nil {
 			return fmt.Errorf("docker build failed for %s: %v", srv.Name, err)
 		}
 	}
