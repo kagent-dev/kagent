@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai/*"]
+members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai/*", "samples/openai/*"]
 
 [dependency-groups]
 dev = [
