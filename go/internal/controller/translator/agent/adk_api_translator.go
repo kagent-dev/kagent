@@ -330,9 +330,45 @@ func (a *adkApiTranslator) buildManifest(
 		},
 	)
 
+	var skills []string
+	if agent.Spec.Declarative != nil && len(agent.Spec.Declarative.Skills) != 0 {
+		skills = agent.Spec.Declarative.Skills
+	}
+
 	// Build Deployment
 	volumes := append(secretVol, dep.Volumes...)
 	volumeMounts := append(secretMounts, dep.VolumeMounts...)
+	var initContainers []corev1.Container
+
+	if len(skills) > 0 {
+		initContainers = append(initContainers, corev1.Container{
+			Name:  "kagent-skills-init",
+			Image: dep.Image,
+			// Args:  []string{"sh", "-c", "mkdir -p /skills && cp -r /config/skills/* /skills/"},
+			Command: []string{"kagent-adk", "pull-skills"},
+			Args:    skills,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "kagent-skills", MountPath: "/skills"},
+			},
+			Env: []corev1.EnvVar{
+				{
+					Name:  "SKILLS_FOLDER",
+					Value: "/skills",
+				},
+			},
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: "kagent-skills",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "kagent-skills",
+			MountPath: "/skills",
+			ReadOnly:  true,
+		})
+	}
 
 	// Token volume
 	volumes = append(volumes, corev1.Volume{
@@ -387,6 +423,7 @@ func (a *adkApiTranslator) buildManifest(
 				Spec: corev1.PodSpec{
 					ServiceAccountName: agent.Name,
 					ImagePullSecrets:   dep.ImagePullSecrets,
+					InitContainers:     initContainers,
 					Containers: []corev1.Container{{
 						Name:            "kagent",
 						Image:           dep.Image,

@@ -73,7 +73,8 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Stream *bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
-	Tools []*Tool `json:"tools,omitempty"`
+	Tools  []*Tool  `json:"tools,omitempty"`
+	Skills []string `json:"skills,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).

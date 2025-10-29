@@ -11,6 +11,7 @@ from google.adk.cli.utils.agent_loader import AgentLoader
 
 from kagent.core import KAgentConfig, configure_tracing
 from .sandbox_code_executer import SandboxedLocalCodeExecutor
+from .skill_fetcher import fetch_skill
 
 from . import AgentConfig, KAgentApp
 
@@ -51,6 +52,19 @@ def static(
         workers=workers,
         reload=reload,
     )
+
+
+@app.command()
+def pull_skills(
+    skills: Annotated[list[str], typer.Argument()],
+):
+    skill_dir = os.environ.get("SKILLS_FOLDER", ".")
+    print("Pulling skills")
+    for skill in skills:
+        current_skill_dir = os.path.join(skill_dir, skill)
+        print(f"Fetching skill {skill} into {current_skill_dir}")
+        fetch_skill(skill, current_skill_dir)
+    pass
 
 
 @app.command()
