@@ -20,15 +20,17 @@ logger = logging.getLogger("kagent_adk." + __name__)
 
 
 class SkillsToolset(BaseToolset):
-    """Toolset that provides Skills functionality through two focused tools.
+    """Toolset that provides Skills functionality for domain expertise execution.
 
-    This toolset provides skills access through two complementary tools following
-    progressive disclosure:
+    This toolset provides skills access through two focused tools:
     1. SkillsTool - Discover and load skill instructions
     2. BashTool - Execute commands based on skill guidance
 
-    This separation provides clear semantic distinction between skill discovery
-    (what can I do?) and skill execution (how do I do it?).
+    Skills provide specialized domain knowledge and scripts that the agent can use
+    to solve complex tasks. The toolset enables discovery of available skills and
+    execution of skill-based commands.
+
+    Note: For file upload/download, use the ArtifactsToolset separately.
     """
 
     def __init__(self, skills_directory: str | Path):
@@ -40,8 +42,8 @@ class SkillsToolset(BaseToolset):
         super().__init__()
         self.skills_directory = Path(skills_directory)
 
-        # Create the two tools for skills operations
-        self.skills_invoke_tool = SkillsTool(skills_directory)
+        # Create skills tools
+        self.skills_tool = SkillsTool(skills_directory)
         self.bash_tool = BashTool(skills_directory)
 
     @override
@@ -51,4 +53,7 @@ class SkillsToolset(BaseToolset):
         Returns:
           List containing SkillsTool and BashTool.
         """
-        return [self.skills_invoke_tool, self.bash_tool]
+        return [
+            self.skills_tool,
+            self.bash_tool,
+        ]
