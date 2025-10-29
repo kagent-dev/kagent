@@ -254,6 +254,34 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      
+      # we need this to install srt for now
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install srt
+        run: |
+          export TMP_DIR=$(mktemp -d)
+          cd $TMP_DIR
+          git clone https://github.com/anthropic-experimental/sandbox-runtime.git
+          cd sandbox-runtime
+          npm install
+          npm run build
+          chmod +x dist/cli.js
+          mv dist/cli.js dist/srt
+          # Just check if srt is working
+          ./dist/srt || true
+          echo "SRT_PATH=$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_ENV
+          echo "$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_PATH
+          sudo apt install bubblewrap socat ripgrep -y
+          cd -
+
+      - name: Print SRT path
+        run: |
+          echo $TMP_DIR
+          srt --version
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
