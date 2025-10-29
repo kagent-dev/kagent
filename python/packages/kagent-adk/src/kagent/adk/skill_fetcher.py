@@ -17,6 +17,12 @@ def _parse_image_ref(image: str) -> Tuple[str, str, str]:
     ref = "latest"
     if "@" in image:
         name_part, ref = image.split("@", 1)
+        # cover the case of both tag and digest present
+        # Split tag vs registry port: use last ':' after last '/'
+        slash = name_part.rfind("/")
+        colon = name_part.rfind(":")
+        if colon > slash:
+            name_part, ref = name_part[:colon], name_part[colon + 1 :]
     else:
         colon = name_part.rfind(":")
         name_part, ref = name_part[:colon], name_part[colon + 1 :]
