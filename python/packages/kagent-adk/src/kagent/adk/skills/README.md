@@ -1,89 +1,217 @@
-# ADK Skills: Architecture and Design
+# ADK Skills
 
-This document outlines the architecture for the filesystem-based Skills feature in ADK.
-
----
-
-## 1. Core Philosophy
-
-The design is centered around a **shell-based interaction model**. This empowers the agent with a flexible, universal interface (a secure shell) to interact with a structured filesystem of skills. This model is favored over a programmatic "managed" model because it offers superior flexibility and extensibility, better aligning with the goal of creating autonomous, capable agents.
-
-The agent is taught a "Progressive Disclosure" pattern: it first discovers what skills are available, then investigates the instructions for a relevant skill, and only then executes its scripts or uses its detailed knowledge.
+Filesystem-based skills with progressive disclosure and two-tool architecture.
 
 ---
 
-## 2. Current Implementation
+## Overview
 
-The implementation consists of three main components that work together to provide the skills functionality.
+Skills enable agents to specialize in domain expertise without bloating the main context. The **two-tool pattern** separates concerns:
 
-### a. Skill Directory Structure
+- **SkillsTool** - Loads skill instructions
+- **BashTool** - Executes commands
+- **Semantic clarity** leads to better LLM reasoning
 
-Skills are organized in a simple, conventional filesystem structure. Each skill is a self-contained directory that must contain a `SKILL.md` file and can optionally include scripts and a `requirements.txt`.
+### Skill Structure
 
-```
+```text
 skills/
 ├── data-analysis/
-│   ├── SKILL.md            # Metadata (frontmatter) and instructions (markdown)
-│   ├── requirements.txt    # (Optional) Python dependencies for this skill
+│   ├── SKILL.md        # Metadata + instructions (YAML frontmatter)
 │   └── scripts/
-│       └── data_quality_check.py
+│       └── analyze.py
 └── pdf-processing/
-    └── SKILL.md
+    ├── SKILL.md
+    └── scripts/
 ```
 
-### b. The `SkillsPlugin`
+**SKILL.md:**
 
-This plugin is the primary entry point for enabling skills in an ADK application. It automates the integration process and has two main responsibilities:
+```markdown
+---
+name: data-analysis
+description: Analyze CSV/Excel files
+---
 
-1.  **Inject the Tool:** It adds an instance of the `SkillsShellTool` to the agent's toolset.
-2.  **Inject the "Level 1" Prompt:** On startup, it scans the `skills/` directory, parses the YAML frontmatter (`name`, `description`) from all `SKILL.md` files, and prepends a concise summary of available skills to the agent's system prompt.
+# Data Analysis
 
-### c. The `SkillsShellTool`
-
-This is the core execution engine. It is a single, secure tool that provides a `shell(command: str)` function.
-
-- **Functionality:** It allows the agent to run basic shell commands like `ls`, `cat`, `head`, `grep`, `find`, `python`, and `pip`.
-- **Security:** It is a hardened, sandboxed shell, not a full `bash` equivalent. It enforces a command whitelist, prevents directory traversal (`..`), and blocks access outside of its root directory to ensure safe execution.
+...instructions...
+```
 
 ---
 
-## 3. Architectural Challenge & Proposed Solution: File Handling
+## Quick Start
 
-### a. The Problem: Disconnected Contexts
+**Two-Tool Pattern (Recommended):**
 
-A critical challenge arises when a user uploads a file (e.g., a CSV for analysis). The file's content is passed to the LLM via its API context, but this file **does not exist on the filesystem** that the `SkillsShellTool` operates on.
+```python
+from kagent.adk.skills import SkillsTool, BashTool, StageArtifactsTool
 
-This creates a disconnect. The agent is aware of the file's content but cannot use any of its file-based tools (like a Python script) on it directly. Forcing the agent to manually recreate the file using `echo` is inefficient, error-prone, and fails for binary files.
+agent = Agent(
+    tools=[
+        SkillsTool(skills_directory="./skills"),
+        BashTool(skills_directory="./skills"),
+        StageArtifactsTool(skills_directory="./skills"),
+    ]
+)
+```
 
-### b. The Solution: Runner-Managed Staging Area
+**With Plugin (Multi-Agent Apps):**
 
-The ADK Runner itself must be responsible for bridging this context gap. This makes the process seamless for the agent.
+```python
+from kagent.adk.skills import SkillsPlugin
 
-**Proposed Workflow:**
+app = App(root_agent=agent, plugins=[SkillsPlugin(skills_directory="./skills")])
+```
 
-1.  **File Ingestion:** The ADK Runner receives a message containing a user-uploaded file.
-2.  **Save to Staging Area:** The Runner saves the file's bytes to a temporary, session-specific directory. For example: `.../adk_sessions/<session_id>/uploads/my_data.csv`.
-3.  **Augment the Prompt:** The Runner modifies the prompt sent to the LLM, adding a message that informs the agent of the file's existence and its path within the tool environment (e.g., "The user uploaded `my_data.csv`, which is available at `uploads/my_data.csv`").
-4.  **Seamless Tool Use:** The agent, now aware of the file's location on its virtual filesystem, can use its `shell` tool to run scripts on that path directly and naturally.
+**Legacy Single-Tool (Backward Compat):**
 
-**Diagram of the Proposed Flow:**
+```python
+from kagent.adk.skills import SkillsShellTool
+
+agent = Agent(tools=[SkillsShellTool(skills_directory="./skills")])
+```
+
+---
+
+## How It Works
+
+### Two-Tool Workflow
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant ADK Runner
-    participant Agent (LLM)
-    participant Shell Tool
+    participant A as Agent
+    participant S as SkillsTool
+    participant B as BashTool
 
-    User->>ADK Runner: Run command with file bytes
-    Note over ADK Runner: 1. Intercepts file bytes
-    ADK Runner->>ADK Runner: 2. Saves bytes to <br> `/staging/uploads/file.csv`
-    Note over ADK Runner: 3. Augments prompt with <br> "File is at 'uploads/file.csv'"
-    ADK Runner->>Agent (LLM): 4. Executes with augmented prompt
-    Agent (LLM)->>ADK Runner: I need to run a script on the file
-    ADK Runner->>Shell Tool: `shell("... skills/script.py uploads/file.csv")`
-    Shell Tool-->>ADK Runner: Script output
-    ADK Runner-->>Agent (LLM): Tool result
-    Agent (LLM)-->>ADK Runner: Final Answer
-    ADK Runner-->>User: Displays final answer
+    A->>S: skills(command='data-analysis')
+    S-->>A: Full SKILL.md + base path
+    A->>B: bash("cd skills/data-analysis && python scripts/analyze.py file.csv")
+    B-->>A: Results
 ```
+
+**Three Phases:**
+
+1. **Discovery** - Agent sees available skills in tool description
+2. **Loading** - Invoke skill with `command='skill-name'` → returns full SKILL.md
+3. **Execution** - Use BashTool with instructions from SKILL.md
+
+---
+
+## Architecture
+
+```mermaid
+graph LR
+    Agent[Agent] -->|Load<br/>skill details| SkillsTool["SkillsTool<br/>(Discovery)"]
+    Agent -->|Execute<br/>commands| BashTool["BashTool<br/>(Execution)"]
+    SkillsTool -->|Embedded in<br/>description| Skills["Available<br/>Skills List"]
+```
+
+| Tool                   | Purpose             | Input                  | Output                    |
+| ---------------------- | ------------------- | ---------------------- | ------------------------- |
+| **SkillsTool**         | Load skill metadata | `command='skill-name'` | Full SKILL.md + base path |
+| **BashTool**           | Execute safely      | Command string         | Script output             |
+| **StageArtifactsTool** | Stage uploads       | Artifact names         | File paths in `uploads/`  |
+
+---
+
+## File Handling
+
+User uploads → Artifact → Stage → Execute:
+
+```python
+# 1. Stage uploaded file
+stage_artifacts(artifact_names=["artifact_123"])
+
+# 2. Use in skill script
+bash("cd skills/data-analysis && python scripts/analyze.py uploads/artifact_123")
+```
+
+---
+
+## Security
+
+**SkillsTool:**
+
+- ✅ Read-only (no execution)
+- ✅ Validates skill existence
+- ✅ Caches results
+
+**BashTool:**
+
+- ✅ Whitelisted commands only (`ls`, `cat`, `python`, `pip`, etc.)
+- ✅ No destructive ops (`rm`, `mv`, `chmod` blocked)
+- ✅ Directory restrictions (no `..`)
+- ✅ 30-second timeout
+- ✅ Subprocess isolation
+
+---
+
+## Components
+
+| File                      | Purpose                      |
+| ------------------------- | ---------------------------- |
+| `skills_invoke_tool.py`   | Discovery & loading          |
+| `bash_tool.py`            | Command execution            |
+| `stage_artifacts_tool.py` | File staging                 |
+| `skills_plugin.py`        | Auto-registration (optional) |
+| `skills_shell_tool.py`    | Legacy all-in-one            |
+
+---
+
+## Examples
+
+### Example 1: Data Analysis
+
+```python
+# Agent loads skill
+agent.invoke(tools=[
+    SkillsTool(skills_directory="./skills"),
+    BashTool(skills_directory="./skills"),
+], prompt="Analyze this CSV file")
+
+# Agent flow:
+# 1. Calls: skills(command='data-analysis')
+# 2. Gets: Full SKILL.md with instructions
+# 3. Calls: bash("cd skills/data-analysis && python scripts/analyze.py file.csv")
+# 4. Returns: Analysis results
+```
+
+### Example 2: Multi-Agent App
+
+```python
+# Register skills on all agents
+app = App(
+    root_agent=agent,
+    plugins=[SkillsPlugin(skills_directory="./skills")]
+)
+```
+
+---
+
+## Comparison with Claude
+
+ADK follows Claude's two-tool pattern exactly:
+
+| Aspect         | Claude              | ADK                    |
+| -------------- | ------------------- | ---------------------- |
+| Discovery tool | Skills tool         | SkillsTool ✅          |
+| Execution tool | Bash tool           | BashTool ✅            |
+| Parameter      | `command`           | `command` ✅           |
+| Pattern        | Two-tool separation | Two-tool separation ✅ |
+
+---
+
+## What Changed
+
+**Before:** Single `SkillsShellTool` (all-in-one)  
+**Now:** Two-tool architecture (discovery + execution)
+
+| Feature                | Before    | After             |
+| ---------------------- | --------- | ----------------- |
+| Semantic clarity       | Mixed     | Separated ✅      |
+| LLM reasoning          | Implicit  | Explicit ✅       |
+| Progressive disclosure | Guideline | Enforced ✅       |
+| Industry alignment     | Custom    | Claude pattern ✅ |
+
+All previous code still works (backward compatible via `SkillsShellTool`).

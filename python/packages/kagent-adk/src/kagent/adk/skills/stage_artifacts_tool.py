@@ -1,34 +1,17 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""A tool for staging artifacts from the artifact service to a local filesystem path."""
-
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any, List
 import os
 import tempfile
+from pathlib import Path
+from typing import Any, List
 
-from google.genai import types
 from typing_extensions import override
 
-from google.adk.tools.base_tool import BaseTool
-from google.adk.tools.tool_context import ToolContext
+from google.adk.tools import BaseTool, ToolContext
+from google.genai import types
 
-logger = logging.getLogger("google_adk." + __name__)
+logger = logging.getLogger("kagent_adk." + __name__)
 
 
 def get_session_staging_path(session_id: str, app_name: str, skills_directory: Path) -> Path:
@@ -56,24 +39,52 @@ def get_session_staging_path(session_id: str, app_name: str, skills_directory: P
     if skills_directory and skills_directory.exists():
         skills_symlink = session_path / "skills"
         if not skills_symlink.exists():
-            os.symlink(
-                skills_directory.resolve(),
-                skills_symlink,
-                target_is_directory=True,
-            )
+            try:
+                os.symlink(
+                    skills_directory.resolve(),
+                    skills_symlink,
+                    target_is_directory=True,
+                )
+            except OSError as e:
+                logger.error(f"Failed to create skills symlink: {e}")
 
     return session_path.resolve()
 
 
 class StageArtifactsTool(BaseTool):
-    """A tool to stage artifacts from the artifact service to the local filesystem."""
+    """A tool to stage artifacts from the artifact service to the local filesystem.
+
+    This tool bridges the gap between the artifact store and the skills system,
+    enabling skills to work with user-uploaded files through a two-phase workflow:
+    1. Stage: Copy artifacts from artifact store to local 'uploads/' directory
+    2. Execute: Use the staged files in bash commands with skills
+
+    This is essential for the skills workflow where user-uploaded files must be
+    accessible to skill scripts and commands.
+    """
 
     def __init__(self, skills_directory: Path):
         super().__init__(
             name="stage_artifacts",
             description=(
-                "Copies artifacts from the artifact store to a local filesystem path, "
-                "making them available for file-based tools like the shell."
+                "Stage artifacts from the artifact store to a local filesystem path, "
+                "making them available for use with skills and the bash tool.\n\n"
+                "WORKFLOW:\n"
+                "1. When a user uploads a file, it's stored as an artifact (e.g., 'artifact_xyz')\n"
+                "2. Use this tool to copy the artifact to your local 'uploads/' directory\n"
+                "3. Then reference the staged file path in bash commands\n\n"
+                "USAGE EXAMPLE:\n"
+                "- stage_artifacts(artifact_names=['artifact_xyz'])\n"
+                "  Returns: 'Successfully staged 1 artifact(s) to: uploads/artifact_xyz'\n"
+                "- Use the returned path in bash: bash('python skills/data-analysis/scripts/process.py uploads/artifact_xyz')\n\n"
+                "PARAMETERS:\n"
+                "- artifact_names: List of artifact names to stage (required)\n"
+                "- destination_path: Target directory within session (default: 'uploads/')\n\n"
+                "BEST PRACTICES:\n"
+                "- Always stage artifacts before using them in skills\n"
+                "- Use default 'uploads/' destination for consistency\n"
+                "- Stage all artifacts at the start of your workflow\n"
+                "- Check returned paths to confirm successful staging"
             ),
         )
         self._skills_directory = skills_directory
@@ -87,12 +98,21 @@ class StageArtifactsTool(BaseTool):
                 properties={
                     "artifact_names": types.Schema(
                         type=types.Type.ARRAY,
-                        description="A list of artifact names to stage.",
+                        description=(
+                            "List of artifact names to stage. These are artifact identifiers "
+                            "provided by the system when files are uploaded (e.g., 'artifact_abc123'). "
+                            "The tool will copy each artifact from the artifact store to the destination directory."
+                        ),
                         items=types.Schema(type=types.Type.STRING),
                     ),
                     "destination_path": types.Schema(
                         type=types.Type.STRING,
-                        description="The local directory path to save the files to. Defaults to 'uploads/'.",
+                        description=(
+                            "Relative path within the session directory to save the files. "
+                            "Default is 'uploads/' where user-uploaded files are conventionally stored. "
+                            "Path must be within the session directory for security. "
+                            "Useful for organizing different types of artifacts (e.g., 'uploads/input/', 'uploads/processed/')."
+                        ),
                         default="uploads/",
                     ),
                 },

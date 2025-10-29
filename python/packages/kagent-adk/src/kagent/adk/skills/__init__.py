@@ -12,20 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .skill import Skill
-from .skill_system_prompt import (
-    generate_shell_skills_system_prompt,
-)
+from .bash_tool import BashTool
+from .skill_system_prompt import generate_shell_skills_system_prompt
+from .skill_tool import SkillsTool
 from .skills_plugin import SkillsPlugin
-from .skills_shell_tool import SkillsShellTool
 from .skills_toolset import SkillsToolset
 from .stage_artifacts_tool import StageArtifactsTool
 
 __all__ = [
-    "Skill",
+    "BashTool",
+    "SkillsTool",
     "SkillsPlugin",
-    "SkillsShellTool",
     "SkillsToolset",
-    "generate_shell_skills_system_prompt",
     "StageArtifactsTool",
+    "generate_shell_skills_system_prompt",
 ]

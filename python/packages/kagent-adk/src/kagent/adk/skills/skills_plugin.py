@@ -16,26 +16,43 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
-from google.genai import types
-import yaml
-
-from google.adk.agents.base_agent import BaseAgent
+from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.callback_context import CallbackContext
-from google.adk.plugins.base_plugin import BasePlugin
-from .skills_shell_tool import SkillsShellTool
+from google.adk.plugins import BasePlugin
+from google.genai import types
 
-logger = logging.getLogger("google_adk." + __name__)
+from .bash_tool import BashTool
+from .skill_tool import SkillsTool
+
+logger = logging.getLogger("kagent_adk." + __name__)
 
 
 class SkillsPlugin(BasePlugin):
-    """Plugin that provides shell-based Skills functionality.
+    """Convenience plugin for multi-agent apps to automatically register Skills tools.
 
-    This plugin provides global skills access by:
-    1. Adding a shell tool for skills operations to all LLM agents.
-    2. Injecting a "Level 1" discovery prompt (names and descriptions of
-       available skills) into the agent's instructions.
+    This plugin is purely a convenience wrapper that automatically adds the SkillsTool
+    and BashTool to all LLM agents in an application. It does not add any additional
+    functionality beyond tool registration.
+
+    For single-agent use cases or when you prefer explicit control, you can skip this plugin
+    and directly add both tools to your agent's tools list.
+
+    Example:
+        # Without plugin (direct tool usage):
+        agent = Agent(
+            tools=[
+                SkillsTool(skills_directory="./skills"),
+                BashTool(skills_directory="./skills"),
+            ]
+        )
+
+        # With plugin (auto-registration for multi-agent apps):
+        app = App(
+            root_agent=agent,
+            plugins=[SkillsPlugin(skills_directory="./skills")]
+        )
     """
 
     def __init__(self, skills_directory: str | Path, name: str = "skills_plugin"):
@@ -47,76 +64,27 @@ class SkillsPlugin(BasePlugin):
         """
         super().__init__(name)
         self.skills_directory = Path(skills_directory)
-        self.shell_tool = SkillsShellTool(skills_directory)
-        self._skill_metadata = self._parse_skill_metadata()
-
-    def _parse_skill_metadata(self) -> List[Dict[str, str]]:
-        """Parse the YAML frontmatter of all SKILL.md files."""
-        metadata_list = []
-        if not self.skills_directory.exists():
-            logger.warning(f"Skills directory not found: {self.skills_directory}")
-            return metadata_list
-
-        for skill_dir in self.skills_directory.iterdir():
-            skill_file = skill_dir / "SKILL.md"
-            if not (skill_dir.is_dir() and skill_file.exists()):
-                continue
-
-            try:
-                with open(skill_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                if not content.startswith("---"):
-                    continue
-
-                parts = content.split("---", 2)
-                if len(parts) < 3:
-                    continue
-
-                metadata = yaml.safe_load(parts[1])
-                if isinstance(metadata, dict) and "name" in metadata and "description" in metadata:
-                    metadata_list.append({
-                        "name": metadata["name"],
-                        "description": metadata["description"]
-                    })
-            except Exception as e:
-                logger.error(f"Failed to parse metadata for skill in {skill_dir}: {e}")
-        return metadata_list
+        self.skills_invoke_tool = SkillsTool(skills_directory)
+        self.bash_tool = BashTool(skills_directory)
 
     async def before_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
     ) -> Optional[types.Content]:
-        """Add shell tool and skills context to agents."""
-        from ..agents.llm_agent import LlmAgent
+        """Add skills tools to agents if not already present."""
+
         if not isinstance(agent, LlmAgent):
             return None
 
-        # 1. Add shell tool if not already present
-        if "shell" not in {getattr(t, "name", None) for t in agent.tools}:
-             agent.tools.append(self.shell_tool)
-             logger.debug(f"Added shell tool to agent: {agent.name}")
+        existing_tool_names = {getattr(t, "name", None) for t in agent.tools}
 
-        # 2. Add skills context to agent instruction
-        if hasattr(agent, "instruction") and isinstance(agent.instruction, str):
-            if "## Available Skills" not in agent.instruction:
-                skills_context = self._generate_skills_instruction()
-                agent.instruction += skills_context
-                logger.debug(f"Enhanced agent instruction for agent: {agent.name}")
+        # Add SkillsTool if not already present
+        if "skills" not in existing_tool_names:
+            agent.tools.append(self.skills_invoke_tool)
+            logger.debug(f"Added skills invoke tool to agent: {agent.name}")
 
-        callback_context.state["skills_available"] = True
+        # Add BashTool if not already present
+        if "bash" not in existing_tool_names:
+            agent.tools.append(self.bash_tool)
+            logger.debug(f"Added bash tool to agent: {agent.name}")
+
         return None
-
-    def _generate_skills_instruction(self) -> str:
-        """Generate the concise 'Level 1' skills instruction."""
-        if not self._skill_metadata:
-            return ""
-
-        lines = ["## Available Skills",
-                 "You have access to the following specialized skills. Use the `shell` tool to interact with them.",
-                 "---"]
-        for metadata in self._skill_metadata:
-            lines.append(f"- **{metadata['name']}**: {metadata['description']}")
-        lines.append("---")
-        lines.append("To use a skill, read its instructions with `shell(\"cat skills/<skill-name>/SKILL.md\")`.")
-
-        return "\n".join(lines)

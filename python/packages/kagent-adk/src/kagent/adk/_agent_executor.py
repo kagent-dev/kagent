@@ -33,7 +33,7 @@ from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
-logger = logging.getLogger("google_adk." + __name__)
+logger = logging.getLogger("kagent_adk." + __name__)
 
 
 class A2aAgentExecutorConfig(BaseModel):
