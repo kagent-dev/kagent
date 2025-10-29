@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from agents.exceptions import UserError
 
-from kagent.openai.agents.tools import BASH_TOOL
+from kagent.openai.agents.tools import SRT_SHELL_TOOL
 
 
 class TestBashTool:
@@ -14,7 +14,7 @@ class TestBashTool:
     def test_bash_success(self):
         """Test executing a bash command successfully."""
         result = asyncio.run(
-            BASH_TOOL.on_invoke_tool(None, '{"command": "echo Hello, World!"}')  # type: ignore
+            SRT_SHELL_TOOL.on_invoke_tool(None, '{"command": "echo Hello, World!"}')  # type: ignore
         )
 
         assert "Exit code: 0" in result
@@ -23,7 +23,7 @@ class TestBashTool:
     def test_bash_error(self):
         """Test executing a bash command that fails."""
         result = asyncio.run(
-            BASH_TOOL.on_invoke_tool(None, '{"command": "ls /nonexistent"}')  # type: ignore
+            SRT_SHELL_TOOL.on_invoke_tool(None, '{"command": "ls /nonexistent"}')  # type: ignore
         )
 
         # Should return error in the output (not raise)
@@ -33,7 +33,7 @@ class TestBashTool:
     def test_bash_chained_commands(self):
         """Test executing chained bash commands."""
         result = asyncio.run(
-            BASH_TOOL.on_invoke_tool(
+            SRT_SHELL_TOOL.on_invoke_tool(
                 None,  # type: ignore
                 '{"command": "echo first && echo second"}',
             )

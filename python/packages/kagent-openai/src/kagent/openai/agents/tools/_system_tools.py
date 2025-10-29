@@ -210,7 +210,7 @@ def edit_file(
 
 
 @function_tool(
-    name_override="bash",
+    name_override="str_shell",
     description_override="""Executes a bash command with optional timeout.
 
 IMPORTANT: This tool is for terminal operations like git, npm, docker, ls, grep, find, echo, cat, head, tail, sed, awk, etc.
@@ -265,14 +265,17 @@ editing files:
   This parameter is useful if you want to rename a variable for instance
 """,
 )
-def bash(
+def srt_shell(
     command: str,
     timeout: int = 120000,
 ) -> str:
-    """Execute a bash command.
+    """Execute a shell command with an srt sandbox.
+
+    srt sandbox is a sandboxed environment that allows you to execute shell commands with a limited set of allowed commands.
+    https://github.com/anthropic-experimental/sandbox-runtime
 
     Args:
-        command: The bash command to execute.
+        command: The shell command to execute.
         timeout: Optional timeout in milliseconds (default 120000ms = 2 minutes).
 
     Returns:
@@ -283,6 +286,7 @@ def bash(
     """
     try:
         timeout_seconds = timeout / 1000.0
+        command = f'srt "{command}"'
         result = subprocess.run(
             command,
             shell=True,
@@ -312,4 +316,4 @@ def bash(
 READ_FILE_TOOL: FunctionTool = read_file
 WRITE_FILE_TOOL: FunctionTool = write_file
 EDIT_FILE_TOOL: FunctionTool = edit_file
-BASH_TOOL: FunctionTool = bash
+SRT_SHELL_TOOL: FunctionTool = srt_shell
