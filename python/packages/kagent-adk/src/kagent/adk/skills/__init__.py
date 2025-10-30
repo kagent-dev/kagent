@@ -12,14 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .bash_tool import BashTool
 from .skill_system_prompt import generate_shell_skills_system_prompt
 from .skill_tool import SkillsTool
 from .skills_plugin import SkillsPlugin
 from .skills_toolset import SkillsToolset
 
 __all__ = [
-    "BashTool",
     "SkillsTool",
     "SkillsPlugin",
     "SkillsToolset",

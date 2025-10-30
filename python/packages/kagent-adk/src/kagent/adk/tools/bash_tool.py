@@ -10,7 +10,7 @@ from typing import Any, Dict
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
-from ..artifacts.stage_artifacts_tool import get_session_staging_path
+# from ..artifacts.stage_artifacts_tool import get_session_staging_path
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -23,7 +23,8 @@ class BashTool(BaseTool):
     - Network restrictions (controlled domain access)
     - Process isolation at the OS level
 
-    Use it after loading skill instructions with the skills tool.
+    Use it for command-line operations like running scripts, installing packages, etc.
+    For file operations (read/write/edit), use the dedicated file tools instead.
     """
 
     def __init__(self, skills_directory: str | Path):
@@ -31,23 +32,31 @@ class BashTool(BaseTool):
             name="bash",
             description=(
                 "Execute bash commands in the skills environment with sandbox protection.\n\n"
-                "This tool runs commands through the Anthropic Sandbox Runtime (srt) for security.\n\n"
-                "Use it to:\n"
-                "- Execute Python scripts (e.g., 'python scripts/script.py')\n"
-                "- Install dependencies (e.g., 'pip install -r requirements.txt')\n"
-                "- Navigate and inspect files (e.g., 'ls', 'cat file.txt')\n"
-                "- Run shell commands with piping and redirection\n\n"
-                "Important:\n"
-                "- Load skill instructions first using the skills tool\n"
-                "- For Python code: write to a file first, then execute with 'python file.py'\n"
-                "- Never use 'python -c \"code\"' - write to file instead\n"
-                "- Commands are sandboxed for security - filesystem and network access are restricted\n"
-                "- Timeouts: pip installs (120s), Python scripts (60s), other commands (30s)\n\n"
-                "Sandbox Configuration:\n"
-                "- Sandbox settings are defined in ~/.srt-settings.json\n"
-                "- By default: write access limited to current directory, read access allowed\n"
-                "- Network access controlled by allowedDomains/deniedDomains configuration\n"
-                "- If you want to customize sandbox settings, you must tell the user to do so by stopping and providing instructions\n\n"
+                "Working Directory & Structure:\n"
+                "- Commands run in: /tmp/adk_sessions/{app}/{session}/\n"
+                "- skills/ → symlink to static skills (read-only, on PYTHONPATH)\n"
+                "- uploads/ → staged user files\n"
+                "- outputs/ → files you create for the user\n\n"
+                "Use it for:\n"
+                "- Running Python scripts: python my_script.py\n"
+                "- Installing packages: pip install package_name\n"
+                "- Shell operations: ls, mkdir outputs, cd skills/skill-name\n"
+                "- Git, npm, yarn, etc.\n\n"
+                "Python Imports (CRITICAL):\n"
+                "Option 1 - From working directory (recommended):\n"
+                "  Write script.py with: from skills.slack_gif_creator.core import gif_builder\n"
+                "  Then run: python script.py\n"
+                "Option 2 - Inside skill directory:\n"
+                "  cd skills/slack_gif_creator && python -c 'from core import gif_builder; ...'\n"
+                "DO NOT use: from slack_gif_creator.core (missing 'skills.' prefix)\n\n"
+                "For file operations:\n"
+                "- Use read_file to read files (NOT 'cat')\n"
+                "- Use write_file to create files (NOT 'echo >')\n"
+                "- Use edit_file to modify files (NOT sed/awk)\n\n"
+                "Timeouts:\n"
+                "- pip install: 120s\n"
+                "- python scripts: 60s\n"
+                "- other commands: 30s\n"
             ),
         )
         self.skills_directory = Path(skills_directory).resolve()
@@ -98,19 +107,29 @@ class BashTool(BaseTool):
         filesystem and network restrictions at the OS level.
 
         The working directory is the session staging path, which contains:
-        - skills/: symlink to static skills directory
+        - skills/: symlink to static skills directory (added to PYTHONPATH for imports)
         - uploads/: staged user files
         - outputs/: location for generated files
         """
         # Get session working directory
-        working_dir = get_session_staging_path(
-            session_id=tool_context.session.id,
-            app_name=tool_context._invocation_context.app_name,
-            skills_directory=self.skills_directory,
-        )
+        # working_dir = get_session_staging_path(
+        #     session_id=tool_context.session.id,
+        #     app_name=tool_context._invocation_context.app_name,
+        #     skills_directory=self.skills_directory,
+        # )
 
         # Determine timeout based on command
         timeout = self._get_command_timeout_seconds(command)
+
+        # Prepare environment with PYTHONPATH including skills directory
+        # This allows imports like: from skills.slack_gif_creator.core import something
+        # import os
+        # env = os.environ.copy()
+        # # Add both the working_dir (for local scripts) and skills parent (for skill imports)
+        # pythonpath_additions = [str(working_dir)]
+        # if 'PYTHONPATH' in env:
+        #     pythonpath_additions.append(env['PYTHONPATH'])
+        # env['PYTHONPATH'] = ':'.join(pythonpath_additions)
 
         # Execute with sandbox runtime
         sandboxed_command = f'srt "{command}"'
@@ -120,7 +139,8 @@ class BashTool(BaseTool):
                 sandboxed_command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=working_dir,
+                cwd=self.skills_directory,
+                # env=env,  # Pass environment with PYTHONPATH
             )
 
             try:

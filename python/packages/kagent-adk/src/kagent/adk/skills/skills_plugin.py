@@ -23,7 +23,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.plugins import BasePlugin
 from google.genai import types
 
-from .bash_tool import BashTool
+from ..tools import BashTool, ReadFileTool, WriteFileTool, EditFileTool
 from .skill_tool import SkillsTool
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -33,8 +33,8 @@ class SkillsPlugin(BasePlugin):
     """Convenience plugin for multi-agent apps to automatically register Skills tools.
 
     This plugin is purely a convenience wrapper that automatically adds the SkillsTool
-    and BashTool to all LLM agents in an application. It does not add any additional
-    functionality beyond tool registration.
+    and BashTool and related file tools to all LLM agents in an application.
+    It does not add any additional functionality beyond tool registration.
 
     For single-agent use cases or when you prefer explicit control, you can skip this plugin
     and directly add both tools to your agent's tools list.
@@ -45,6 +45,9 @@ class SkillsPlugin(BasePlugin):
             tools=[
                 SkillsTool(skills_directory="./skills"),
                 BashTool(skills_directory="./skills"),
+                ReadFileTool(),
+                WriteFileTool(),
+                EditFileTool(),
             ]
         )
 
@@ -66,6 +69,9 @@ class SkillsPlugin(BasePlugin):
         self.skills_directory = Path(skills_directory)
         self.skills_invoke_tool = SkillsTool(skills_directory)
         self.bash_tool = BashTool(skills_directory)
+        self.read_file_tool = ReadFileTool()
+        self.write_file_tool = WriteFileTool()
+        self.edit_file_tool = EditFileTool()
 
     async def before_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
@@ -86,5 +92,20 @@ class SkillsPlugin(BasePlugin):
         if "bash" not in existing_tool_names:
             agent.tools.append(self.bash_tool)
             logger.debug(f"Added bash tool to agent: {agent.name}")
+
+        # Add ReadFileTool if not already present
+        if "read_file" not in existing_tool_names:
+            agent.tools.append(self.read_file_tool)
+            logger.debug(f"Added read file tool to agent: {agent.name}")
+
+        # Add WriteFileTool if not already present
+        if "write_file" not in existing_tool_names:
+            agent.tools.append(self.write_file_tool)
+            logger.debug(f"Added write file tool to agent: {agent.name}")
+
+        # Add EditFileTool if not already present
+        if "edit_file" not in existing_tool_names:
+            agent.tools.append(self.edit_file_tool)
+            logger.debug(f"Added edit file tool to agent: {agent.name}")
 
         return None
