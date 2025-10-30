@@ -23,6 +23,11 @@ var (
 	ErrServerConnection = fmt.Errorf("error connecting to server. Please run 'install' command first")
 )
 
+const (
+	DockerComposeFilename = "docker-compose.yaml"
+	DockerComposeTemplate = "templates/docker-compose.yaml.tmpl"
+)
+
 func CheckServerConnection(ctx context.Context, client *client.ClientSet) error {
 	// Only check if we have a valid client
 	if client == nil {
@@ -218,15 +223,15 @@ func RegenerateDockerCompose(projectDir string, manifest *common.AgentManifest, 
 	}
 
 	// Render the docker-compose.yaml template
-	renderedContent, err := RenderTemplate("templates/Docker-compose.yaml.tmpl", templateData)
+	renderedContent, err := RenderTemplate(DockerComposeTemplate, templateData)
 	if err != nil {
-		return fmt.Errorf("failed to render docker-compose.yaml template: %w", err)
+		return fmt.Errorf("failed to render %s template: %w", DockerComposeFilename, err)
 	}
 
 	// Write the docker-compose.yaml file
-	composePath := filepath.Join(projectDir, "docker-compose.yaml")
+	composePath := filepath.Join(projectDir, DockerComposeFilename)
 	if err := os.WriteFile(composePath, []byte(renderedContent), 0o644); err != nil {
-		return fmt.Errorf("failed to write docker-compose.yaml: %w", err)
+		return fmt.Errorf("failed to write %s: %w", DockerComposeFilename, err)
 	}
 
 	if verbose {
@@ -269,12 +274,12 @@ func extractEnvVarsFromHeaders(mcpServers []common.McpServerType) []string {
 func ValidateAPIKey(modelProvider string) error {
 	// Get the environment variable name for the provider
 	apiKeyEnvVar := GetProviderAPIKey(v1alpha2.ModelProvider(modelProvider))
-	
+
 	// If no API key is required for this provider (e.g., Ollama, local models), skip validation
 	if apiKeyEnvVar == "" {
 		return nil
 	}
-	
+
 	// Check if the environment variable is set and non-empty
 	apiKey := os.Getenv(apiKeyEnvVar)
 	if apiKey == "" {
@@ -285,7 +290,7 @@ The model provider '%s' requires the %s environment variable to be set.
 Please set it before running this command:
   export %s="your-api-key-here"`, modelProvider, apiKeyEnvVar, apiKeyEnvVar)
 	}
-	
+
 	return nil
 }
 
