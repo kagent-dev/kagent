@@ -23,7 +23,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.plugins import BasePlugin
 from google.genai import types
 
-from .bash_tool import BashTool
+from ..tools import BashTool, ReadFileTool, WriteFileTool, EditFileTool
 from .skill_tool import SkillsTool
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -33,8 +33,8 @@ class SkillsPlugin(BasePlugin):
     """Convenience plugin for multi-agent apps to automatically register Skills tools.
 
     This plugin is purely a convenience wrapper that automatically adds the SkillsTool
-    and BashTool to all LLM agents in an application. It does not add any additional
-    functionality beyond tool registration.
+    and BashTool and related file tools to all LLM agents in an application.
+    It does not add any additional functionality beyond tool registration.
 
     For single-agent use cases or when you prefer explicit control, you can skip this plugin
     and directly add both tools to your agent's tools list.
@@ -45,6 +45,9 @@ class SkillsPlugin(BasePlugin):
             tools=[
                 SkillsTool(skills_directory="./skills"),
                 BashTool(skills_directory="./skills"),
+                ReadFileTool(),
+                WriteFileTool(),
+                EditFileTool(),
             ]
         )
 
