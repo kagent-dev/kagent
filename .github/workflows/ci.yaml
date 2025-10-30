@@ -256,7 +256,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
       
       - name: Install srt
         run: |
@@ -266,6 +265,7 @@ jobs:
           cd sandbox-runtime
           npm install
           npm run build
+          export PATH=$PATH:./dist
           cd -
 
       - name: Install uv
