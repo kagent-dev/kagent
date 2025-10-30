@@ -153,11 +153,12 @@ func buildAndPushImage(cfg *DeployCfg) error {
 
 	fmt.Println("Building Docker image...")
 	buildCfg := &BuildCfg{
-		ProjectDir: cfg.ProjectDir,
-		Image:      cfg.Image,
-		Push:       true, // Always push when deploying
-		Platform:   cfg.Platform,
-		Config:     cfg.Config,
+		ProjectDir:     cfg.ProjectDir,
+		Image:          cfg.Image,
+		Push:           true, // Always push when deploying
+		Platform:       cfg.Platform,
+		Config:         cfg.Config,
+		SkipMCPServers: true, // Don't build MCP servers during deploy
 	}
 
 	if err := BuildCmd(buildCfg); err != nil {
