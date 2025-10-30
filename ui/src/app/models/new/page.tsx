@@ -45,6 +45,8 @@ interface ModelParam {
   value: string;
 }
 
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelParam[]): Record<string, any> => {
   const allParams = [...requiredParams, ...optionalParams]
     .filter(p => p.key.trim() !== "")
@@ -53,6 +55,8 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
       return acc;
     }, {} as Record<string, string>);
 
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const providerParams: Record<string, any> = {};
   const numericKeys = new Set([
     'maxTokens',
