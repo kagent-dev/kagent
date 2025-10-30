@@ -331,8 +331,8 @@ func (a *adkApiTranslator) buildManifest(
 	)
 
 	var skills []string
-	if agent.Spec.Declarative != nil && len(agent.Spec.Declarative.Skills) != 0 {
-		skills = agent.Spec.Declarative.Skills
+	if agent.Spec.Skills != nil && len(agent.Spec.Skills.Images) != 0 {
+		skills = agent.Spec.Skills.Images
 	}
 
 	// Build Deployment
@@ -341,19 +341,25 @@ func (a *adkApiTranslator) buildManifest(
 	var initContainers []corev1.Container
 
 	if len(skills) > 0 {
+		skillsEnv := corev1.EnvVar{
+			Name:  "KAGENT_SKILLS_FOLDER",
+			Value: "/skills",
+		}
+		insecure := agent.Spec.Skills.InsecureSkipVerify
+		command := []string{"kagent-adk", "pull-skills"}
+		if insecure {
+			command = append(command, "--insecure")
+		}
 		initContainers = append(initContainers, corev1.Container{
 			Name:    "skills-init",
 			Image:   dep.Image,
-			Command: []string{"kagent-adk", "pull-skills"},
+			Command: command,
 			Args:    skills,
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "kagent-skills", MountPath: "/skills"},
 			},
 			Env: []corev1.EnvVar{
-				{
-					Name:  "SKILLS_FOLDER",
-					Value: "/skills",
-				},
+				skillsEnv,
 			},
 		})
 		volumes = append(volumes, corev1.Volume{
@@ -367,6 +373,7 @@ func (a *adkApiTranslator) buildManifest(
 			MountPath: "/skills",
 			ReadOnly:  true,
 		})
+		sharedEnv = append(sharedEnv, skillsEnv)
 	}
 
 	// Token volume
@@ -1171,11 +1178,6 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
 		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
-	}
-
-	// Set default replicas if not specified
-	if dep.Replicas == nil {
-		dep.Replicas = ptr.To(int32(1))
 	}
 
 	return dep, nil

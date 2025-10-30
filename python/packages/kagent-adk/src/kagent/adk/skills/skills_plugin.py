@@ -64,27 +64,38 @@ class SkillsPlugin(BasePlugin):
         """
         super().__init__(name)
         self.skills_directory = Path(skills_directory)
-        self.skills_invoke_tool = SkillsTool(skills_directory)
-        self.bash_tool = BashTool(skills_directory)
 
     async def before_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
     ) -> Optional[types.Content]:
         """Add skills tools to agents if not already present."""
 
-        if not isinstance(agent, LlmAgent):
-            return None
+        add_skills_tool_to_agent(self.skills_directory, agent)
 
-        existing_tool_names = {getattr(t, "name", None) for t in agent.tools}
+def add_skills_tool_to_agent(skills_directory : str | Path, agent: BaseAgent) -> None:
+    """Utility function to add Skills and Bash tools to a given agent.
 
-        # Add SkillsTool if not already present
-        if "skills" not in existing_tool_names:
-            agent.tools.append(self.skills_invoke_tool)
-            logger.debug(f"Added skills invoke tool to agent: {agent.name}")
+    Args:
+      agent: The LlmAgent instance to which the tools will be added.
+      skills_directory: Path to directory containing skill folders.
+    """
 
-        # Add BashTool if not already present
-        if "bash" not in existing_tool_names:
-            agent.tools.append(self.bash_tool)
-            logger.debug(f"Added bash tool to agent: {agent.name}")
+    if not isinstance(agent, LlmAgent):
+        return
 
-        return None
+    skills_directory = Path(skills_directory)
+    skills_invoke_tool = SkillsTool(skills_directory)
+    bash_tool = BashTool(skills_directory)
+    existing_tool_names = {getattr(t, "name", None) for t in agent.tools}
+
+    # Add SkillsTool if not already present
+    if "skills" not in existing_tool_names:
+        agent.tools.append(skills_invoke_tool)
+        logger.debug(f"Added skills invoke tool to agent: {agent.name}")
+
+    # Add BashTool if not already present
+    if "bash" not in existing_tool_names:
+        agent.tools.append(bash_tool)
+        logger.debug(f"Added bash tool to agent: {agent.name}")
+
+    return

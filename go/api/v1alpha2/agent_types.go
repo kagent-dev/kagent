@@ -53,6 +53,23 @@ type AgentSpec struct {
 
 	// +optional
 	Description string `json:"description,omitempty"`
+
+	// Skills to load into the agent. They will be pulled from the specified container images.
+	// and made available to the agent under the `/skills` folder.
+	// +optional
+	Skills *SkillForAgent `json:"skills,omitempty"`
+}
+
+type SkillForAgent struct {
+	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
+	// Meant for development and testing purposes only.
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+
+	// The list of skill images to fetch.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	Images []string `json:"images,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
@@ -73,8 +90,7 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Stream *bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
-	Tools  []*Tool  `json:"tools,omitempty"`
-	Skills []string `json:"skills,omitempty"`
+	Tools []*Tool `json:"tools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).

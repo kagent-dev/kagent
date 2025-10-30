@@ -14,6 +14,7 @@ from .sandbox_code_executer import SandboxedLocalCodeExecutor
 from .skill_fetcher import fetch_skill
 
 from . import AgentConfig, KAgentApp
+from .skills.skills_plugin import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,10 @@ def static(
     agent_card = AgentCard.model_validate(agent_card)
     code_executor = SandboxedLocalCodeExecutor() if code else None
     root_agent = agent_config.to_agent(app_cfg.name, code_executor=code_executor)
+    skills_directory = os.environ.get("KAGENT_SKILLS_FOLDER", None)
+    if skills_directory:
+        logger.info(f"Adding skills from directory: {skills_directory}")
+        add_skills_tool_to_agent(skills_directory, root_agent)
 
     kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
 
@@ -57,11 +62,15 @@ def static(
 @app.command()
 def pull_skills(
     skills: Annotated[list[str], typer.Argument()],
+    insecure: Annotated[
+        bool,
+        typer.Option("--insecure", help="Allow insecure connections to registries"),
+    ] = False,
 ):
-    skill_dir = os.environ.get("SKILLS_FOLDER", ".")
-    print("Pulling skills")
+    skill_dir = os.environ.get("KAGENT_SKILLS_FOLDER", ".")
+    logger.info("Pulling skills")
     for skill in skills:
-        fetch_skill(skill, skill_dir)
+        fetch_skill(skill, skill_dir, insecure)
     pass
 
 
@@ -112,8 +121,12 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
 
 @app.command()
 def test(
-    task: Annotated[str, typer.Option("--task", help="The task to test the agent with")],
-    filepath: Annotated[str, typer.Option("--filepath", help="The path to the agent config file")],
+    task: Annotated[
+        str, typer.Option("--task", help="The task to test the agent with")
+    ],
+    filepath: Annotated[
+        str, typer.Option("--filepath", help="The path to the agent config file")
+    ],
 ):
     with open(filepath, "r") as f:
         content = f.read()
