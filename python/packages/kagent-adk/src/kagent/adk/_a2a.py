@@ -18,8 +18,6 @@ from google.adk.artifacts import InMemoryArtifactService
 from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.artifacts import InMemoryArtifactService
-
 from google.genai import types
 
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
