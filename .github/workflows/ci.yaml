@@ -265,6 +265,8 @@ jobs:
           cd sandbox-runtime
           npm install
           npm run build
+          chmod +x dist/cli.js
+          mv dist/cli.js dist/srt
           export PATH=$PATH:./dist
           cd -
 
