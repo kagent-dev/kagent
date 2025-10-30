@@ -270,7 +270,7 @@ jobs:
           # Just check if srt is working
           ./dist/srt || true
           echo "SRT_PATH=$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_ENV
-          ehco "$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_PATH
+          echo "$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_PATH
           cd -
 
       - name: Print SRT path
