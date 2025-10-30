@@ -84,18 +84,16 @@ def add_skills_tool_to_agent(skills_directory : str | Path, agent: BaseAgent) ->
         return
 
     skills_directory = Path(skills_directory)
-    skills_invoke_tool = SkillsTool(skills_directory)
-    bash_tool = BashTool(skills_directory)
     existing_tool_names = {getattr(t, "name", None) for t in agent.tools}
 
     # Add SkillsTool if not already present
     if "skills" not in existing_tool_names:
-        agent.tools.append(skills_invoke_tool)
+        agent.tools.append(SkillsTool(skills_directory))
         logger.debug(f"Added skills invoke tool to agent: {agent.name}")
 
     # Add BashTool if not already present
     if "bash" not in existing_tool_names:
-        agent.tools.append(bash_tool)
+        agent.tools.append(BashTool(skills_directory))
         logger.debug(f"Added bash tool to agent: {agent.name}")
 
     return

@@ -28,18 +28,6 @@ from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
 
 
-# --- Configure Logging ---
-def configure_logging() -> None:
-    """Configure logging based on LOG_LEVEL environment variable."""
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    numeric_level = getattr(logging, log_level, logging.INFO)
-    logging.basicConfig(
-        level=numeric_level,
-    )
-    logging.info(f"Logging configured with level: {log_level}")
-
-
-configure_logging()
 logger = logging.getLogger(__name__)
 
 

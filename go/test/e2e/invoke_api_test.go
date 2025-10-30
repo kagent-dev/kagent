@@ -116,6 +116,7 @@ type AgentOptions struct {
 	SystemMessage string
 	Stream        *bool
 	Env           []corev1.EnvVar
+	Skills        *v1alpha2.SkillForAgent
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -318,7 +319,17 @@ func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 				ModelConfig:   "test-model-config",
 				SystemMessage: systemMessage,
 				Tools:         tools,
+				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						ImagePullPolicy: corev1.PullAlways,
+						Env: []corev1.EnvVar{{
+							Name:  "LOG_LEVEL",
+							Value: "DEBUG",
+						}},
+					},
+				},
 			},
+			Skills: opts.Skills,
 		},
 	}
 
@@ -704,4 +715,33 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		stsRequest := stsRequests[0]
 		require.Equal(t, subjectToken, stsRequest.SubjectToken)
 	})
+}
+
+func TestE2EInvokeSkillInAgent(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_skill.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupAgentWithOptions(t, cli, nil, AgentOptions{
+		Skills: &v1alpha2.SkillForAgent{
+			InsecureSkipVerify: true,
+			Images:             []string{"kind-registry:5000/kebab-maker:latest"},
+		},
+	})
+
+	defer func() {
+		cli.Delete(t.Context(), agent)    //nolint:errcheck
+		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
+	}()
+
+	// Setup A2A client
+	a2aClient := setupA2AClient(t)
+
+	// Run tests
+	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
 }

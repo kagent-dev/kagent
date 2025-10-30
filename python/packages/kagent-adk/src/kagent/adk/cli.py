@@ -40,7 +40,7 @@ def static(
     agent_card = AgentCard.model_validate(agent_card)
     code_executor = SandboxedLocalCodeExecutor() if code else None
     root_agent = agent_config.to_agent(app_cfg.name, code_executor=code_executor)
-    skills_directory = os.environ.get("KAGENT_SKILLS_FOLDER", None)
+    skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
     if skills_directory:
         logger.info(f"Adding skills from directory: {skills_directory}")
         add_skills_tool_to_agent(skills_directory, root_agent)
@@ -138,10 +138,18 @@ def test(
     agent_config = AgentConfig.model_validate(config)
     asyncio.run(test_agent(agent_config, agent_card, task))
 
+# --- Configure Logging ---
+def configure_logging() -> None:
+    """Configure logging based on LOG_LEVEL environment variable."""
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=log_level,
+    )
+    logging.info(f"Logging configured with level: {log_level}")
 
 def run_cli():
-    logging.basicConfig(level=logging.INFO)
-    logging.info("Starting KAgent")
+    configure_logging()
+    logger.info("Starting KAgent")
     app()
 
 
