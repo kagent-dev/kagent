@@ -13,6 +13,8 @@ from typing import Any, Dict
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
+from ..artifacts import get_session_path
+
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
@@ -25,11 +27,12 @@ class ReadFileTool(BaseTool):
             description=(
                 "Reads a file from the filesystem with line numbers.\n\n"
                 "Usage:\n"
-                "- Provide an absolute path to the file\n"
+                "- Provide a path to the file (absolute or relative to your working directory)\n"
                 "- Returns content with line numbers (format: LINE_NUMBER|CONTENT)\n"
                 "- Optional offset and limit parameters for reading specific line ranges\n"
                 "- Lines longer than 2000 characters are truncated\n"
                 "- Always read a file before editing it\n"
+                "- You can read from skills/ directory, uploads/, outputs/, or any file in your session\n"
             ),
         )
 
@@ -42,7 +45,7 @@ class ReadFileTool(BaseTool):
                 properties={
                     "file_path": types.Schema(
                         type=types.Type.STRING,
-                        description="Absolute path to the file to read",
+                        description="Path to the file to read (absolute or relative to working directory)",
                     ),
                     "offset": types.Schema(
                         type=types.Type.INTEGER,
@@ -66,7 +69,12 @@ class ReadFileTool(BaseTool):
         if not file_path:
             return "Error: No file path provided"
 
+        # Resolve path relative to session working directory
+        working_dir = get_session_path(session_id=tool_context.session.id)
         path = Path(file_path)
+        if not path.is_absolute():
+            path = working_dir / path
+        path = path.resolve()
 
         if not path.exists():
             return f"Error: File not found: {file_path}"
@@ -106,11 +114,13 @@ class WriteFileTool(BaseTool):
             description=(
                 "Writes content to a file on the filesystem.\n\n"
                 "Usage:\n"
-                "- Provide an absolute path and content to write\n"
+                "- Provide a path (absolute or relative to working directory) and content to write\n"
                 "- Overwrites existing files\n"
                 "- Creates parent directories if needed\n"
                 "- For existing files, read them first using read_file\n"
                 "- Prefer editing existing files over writing new ones\n"
+                "- You can write to your working directory, outputs/, or any writable location\n"
+                "- Note: skills/ directory is read-only\n"
             ),
         )
 
@@ -123,7 +133,7 @@ class WriteFileTool(BaseTool):
                 properties={
                     "file_path": types.Schema(
                         type=types.Type.STRING,
-                        description="Absolute path to the file to write",
+                        description="Path to the file to write (absolute or relative to working directory)",
                     ),
                     "content": types.Schema(
                         type=types.Type.STRING,
@@ -142,7 +152,12 @@ class WriteFileTool(BaseTool):
         if not file_path:
             return "Error: No file path provided"
 
+        # Resolve path relative to session working directory
+        working_dir = get_session_path(session_id=tool_context.session.id)
         path = Path(file_path)
+        if not path.is_absolute():
+            path = working_dir / path
+        path = path.resolve()
 
         try:
             # Create parent directories if needed
@@ -166,11 +181,13 @@ class EditFileTool(BaseTool):
                 "Performs exact string replacements in files.\n\n"
                 "Usage:\n"
                 "- You must read the file first using read_file\n"
+                "- Provide path (absolute or relative to working directory)\n"
                 "- When editing, preserve exact indentation from the file content\n"
                 "- Do NOT include line number prefixes in old_string or new_string\n"
                 "- old_string must be unique unless replace_all=true\n"
                 "- Use replace_all to rename variables/strings throughout the file\n"
                 "- old_string and new_string must be different\n"
+                "- Note: skills/ directory is read-only\n"
             ),
         )
 
@@ -183,7 +200,7 @@ class EditFileTool(BaseTool):
                 properties={
                     "file_path": types.Schema(
                         type=types.Type.STRING,
-                        description="Absolute path to the file to edit",
+                        description="Path to the file to edit (absolute or relative to working directory)",
                     ),
                     "old_string": types.Schema(
                         type=types.Type.STRING,
@@ -215,7 +232,12 @@ class EditFileTool(BaseTool):
         if old_string == new_string:
             return "Error: old_string and new_string must be different"
 
+        # Resolve path relative to session working directory
+        working_dir = get_session_path(session_id=tool_context.session.id)
         path = Path(file_path)
+        if not path.is_absolute():
+            path = working_dir / path
+        path = path.resolve()
 
         if not path.exists():
             return f"Error: File not found: {file_path}"

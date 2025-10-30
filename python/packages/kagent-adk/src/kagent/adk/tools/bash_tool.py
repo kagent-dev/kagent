@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
-# from ..artifacts.stage_artifacts_tool import get_session_staging_path
+from ..artifacts import get_session_path
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -33,26 +34,18 @@ class BashTool(BaseTool):
             description=(
                 "Execute bash commands in the skills environment with sandbox protection.\n\n"
                 "Working Directory & Structure:\n"
-                "- Commands run in: /tmp/adk_sessions/{app}/{session}/\n"
-                "- skills/ → symlink to static skills (read-only, on PYTHONPATH)\n"
-                "- uploads/ → staged user files\n"
-                "- outputs/ → files you create for the user\n\n"
-                "Use it for:\n"
-                "- Running Python scripts: python my_script.py\n"
-                "- Installing packages: pip install package_name\n"
-                "- Shell operations: ls, mkdir outputs, cd skills/skill-name\n"
-                "- Git, npm, yarn, etc.\n\n"
+                "- Commands run in a temporary session directory: /tmp/kagent/{session_id}/\n"
+                "- /skills -> All skills are available here (read-only).\n"
+                "- Your current working directory is added to PYTHONPATH.\n\n"
                 "Python Imports (CRITICAL):\n"
-                "Option 1 - From working directory (recommended):\n"
-                "  Write script.py with: from skills.slack_gif_creator.core import gif_builder\n"
-                "  Then run: python script.py\n"
-                "Option 2 - Inside skill directory:\n"
-                "  cd skills/slack_gif_creator && python -c 'from core import gif_builder; ...'\n"
-                "DO NOT use: from slack_gif_creator.core (missing 'skills.' prefix)\n\n"
+                "- To import from a skill, use the full path from the 'skills' root.\n"
+                "  Example: from skills.skills_name.module import function\n\n"
+                "- If the skills name contains a dash '-', you need to use importlib to import it.\n"
+                "  Example:\n"
+                "    import importlib\n"
+                "    skill_module = importlib.import_module('skills.skill-name.module')\n\n"
                 "For file operations:\n"
-                "- Use read_file to read files (NOT 'cat')\n"
-                "- Use write_file to create files (NOT 'echo >')\n"
-                "- Use edit_file to modify files (NOT sed/awk)\n\n"
+                "- Use read_file, write_file, and edit_file for interacting with the filesystem.\n\n"
                 "Timeouts:\n"
                 "- pip install: 120s\n"
                 "- python scripts: 60s\n"
@@ -106,30 +99,25 @@ class BashTool(BaseTool):
         The srt (Sandbox Runtime) wraps the command in a secure sandbox that enforces
         filesystem and network restrictions at the OS level.
 
-        The working directory is the session staging path, which contains:
-        - skills/: symlink to static skills directory (added to PYTHONPATH for imports)
+        The working directory is a temporary session path, which contains:
         - uploads/: staged user files
         - outputs/: location for generated files
+        The /skills directory is available at the root and on the PYTHONPATH.
         """
-        # Get session working directory
-        # working_dir = get_session_staging_path(
-        #     session_id=tool_context.session.id,
-        #     app_name=tool_context._invocation_context.app_name,
-        #     skills_directory=self.skills_directory,
-        # )
+        # Get session working directory (initialized by SkillsPlugin)
+        working_dir = get_session_path(session_id=tool_context.session.id)
 
         # Determine timeout based on command
         timeout = self._get_command_timeout_seconds(command)
 
         # Prepare environment with PYTHONPATH including skills directory
         # This allows imports like: from skills.slack_gif_creator.core import something
-        # import os
-        # env = os.environ.copy()
-        # # Add both the working_dir (for local scripts) and skills parent (for skill imports)
-        # pythonpath_additions = [str(working_dir)]
-        # if 'PYTHONPATH' in env:
-        #     pythonpath_additions.append(env['PYTHONPATH'])
-        # env['PYTHONPATH'] = ':'.join(pythonpath_additions)
+        env = os.environ.copy()
+        # Add root for 'from skills...' and working_dir for local scripts
+        pythonpath_additions = [str(working_dir), "/"]
+        if "PYTHONPATH" in env:
+            pythonpath_additions.append(env["PYTHONPATH"])
+        env["PYTHONPATH"] = ":".join(pythonpath_additions)
 
         # Execute with sandbox runtime
         sandboxed_command = f'srt "{command}"'
@@ -139,8 +127,8 @@ class BashTool(BaseTool):
                 sandboxed_command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.skills_directory,
-                # env=env,  # Pass environment with PYTHONPATH
+                cwd=working_dir,
+                env=env,  # Pass the modified environment
             )
 
             try:

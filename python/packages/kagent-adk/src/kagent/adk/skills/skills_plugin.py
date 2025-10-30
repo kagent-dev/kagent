@@ -23,7 +23,8 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.plugins import BasePlugin
 from google.genai import types
 
-from ..tools import BashTool, ReadFileTool, WriteFileTool, EditFileTool
+from ..artifacts import initialize_session_path
+from ..tools import BashTool, EditFileTool, ReadFileTool, WriteFileTool
 from .skill_tool import SkillsTool
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -71,7 +72,16 @@ class SkillsPlugin(BasePlugin):
     async def before_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
     ) -> Optional[types.Content]:
-        """Add skills tools to agents if not already present."""
+        """Initialize session path and add skills tools to agents if not already present.
+
+        This hook fires before any tools are invoked, ensuring the session working
+        directory is set up with the skills symlink before any tool needs it.
+        """
+        # Initialize session path FIRST (before tools run)
+        # This creates the working directory structure and skills symlink
+        session_id = callback_context.session.id
+        initialize_session_path(session_id, str(self.skills_directory))
+        logger.debug(f"Initialized session path for session: {session_id}")
 
         add_skills_tool_to_agent(self.skills_directory, agent)
 
