@@ -12,11 +12,12 @@ import (
 )
 
 type BuildCfg struct {
-	ProjectDir string
-	Image      string
-	Push       bool
-	Platform   string
-	Config     *config.Config
+	ProjectDir     string
+	Image          string
+	Push           bool
+	Platform       string
+	Config         *config.Config
+	SkipMCPServers bool
 }
 
 // BuildCmd builds a Docker image for an agent project
@@ -68,7 +69,8 @@ func BuildCmd(cfg *BuildCfg) error {
 	}
 
 	// Check if MCP servers exist and build images for each MCP server
-	if manifest != nil && len(manifest.McpServers) > 0 {
+	// Skip if SkipMCPServers flag is set
+	if !cfg.SkipMCPServers && manifest != nil && len(manifest.McpServers) > 0 {
 		if err := buildMcpServerImages(cfg, manifest); err != nil {
 			return fmt.Errorf("failed to build MCP server images: %v", err)
 		}
