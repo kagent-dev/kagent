@@ -2,9 +2,6 @@
 
 import asyncio
 
-import pytest
-from agents.exceptions import UserError
-
 from kagent.openai.agents.tools import SRT_SHELL_TOOL
 
 

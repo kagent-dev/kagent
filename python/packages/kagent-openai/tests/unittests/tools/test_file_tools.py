@@ -3,10 +3,7 @@
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from kagent.openai.agents.tools import EDIT_FILE_TOOL, READ_FILE_TOOL, WRITE_FILE_TOOL
-from agents.exceptions import UserError
 
 
 class TestReadFileTool:

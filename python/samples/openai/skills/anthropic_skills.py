@@ -1,3 +1,4 @@
+# ruff: noqa: T201
 """Basic example demonstrating Skills support in the OpenAI Agents SDK.
 
 This example shows how to:
@@ -14,17 +15,12 @@ import asyncio
 import uuid
 from pathlib import Path
 from typing import Any
+
 from agents import (
     Agent,
-    MessageOutputItem,
     RawResponsesStreamEvent,
-    ReasoningItem,
-    RunItemStreamEvent,
     Runner,
-    ToolCallItem,
-    ToolCallOutputItem,
 )
-from agents.items import ItemHelpers
 from agents.memory.sqlite_session import SQLiteSession
 from kagent.openai.agents.skills import SkillRegistry, get_skill_tool
 from kagent.openai.agents.tools import SRT_SHELL_TOOL
@@ -148,6 +144,7 @@ async def main():
                             if call_id in function_calls:
                                 function_info = function_calls[call_id]
                                 print(f"\n✅ Function call streaming completed: {function_info['name']}")
+                                print(f"All Info: {function_info}")
                                 print()
                                 if current_active_call_id == call_id:
                                     current_active_call_id = None
