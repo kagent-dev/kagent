@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import List, Optional
 
 try:
@@ -36,19 +35,13 @@ class ArtifactsToolset(BaseToolset):
     This toolset is independent of skills and can be used with any processing workflow.
     """
 
-    def __init__(self, skills_directory: Optional[Path] = None):
-        """Initialize the artifacts toolset.
-
-        Args:
-          skills_directory: Optional path to skills directory for working directory setup.
-                          If provided, a symlink to skills will be created in the session path.
-        """
+    def __init__(self):
+        """Initialize the artifacts toolset."""
         super().__init__()
-        self.skills_directory = Path(skills_directory) if skills_directory else None
 
         # Create artifact lifecycle tools
-        self.stage_artifacts_tool = StageArtifactsTool(self.skills_directory)
-        self.return_artifacts_tool = ReturnArtifactsTool(self.skills_directory)
+        self.stage_artifacts_tool = StageArtifactsTool()
+        self.return_artifacts_tool = ReturnArtifactsTool()
 
     @override
     async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> List[BaseTool]:

@@ -2,63 +2,19 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-import os
-import tempfile
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 from typing_extensions import override
 
+from .session_path import get_session_path
+
 logger = logging.getLogger("kagent_adk." + __name__)
 
 # Maximum file size for staging (100 MB)
 MAX_ARTIFACT_SIZE_BYTES = 100 * 1024 * 1024
-
-
-def get_session_staging_path(session_id: str, app_name: str, skills_directory: Optional[Path] = None) -> Path:
-    """Creates (if needed) and returns the path to a session's staging directory.
-
-    This function provides a consistent, isolated filesystem environment for each
-    session. It creates a root directory for the session and populates it with
-    working directories.
-
-    Directory structure:
-        /tmp/adk_sessions/{app_name}/{session_id}/
-        ├── skills/     -> symlink to static skills (read-only, if provided)
-        ├── uploads/    -> staged user files (temporary)
-        └── outputs/    -> generated files for return
-
-    Args:
-        session_id: The unique ID of the current session.
-        app_name: The name of the application, used for namespacing.
-        skills_directory: Optional path to static skills directory for symlinking.
-
-    Returns:
-        The resolved path to the session's root staging directory.
-    """
-    base_path = Path(tempfile.gettempdir()) / "adk_sessions" / app_name
-    session_path = base_path / session_id
-
-    # Create working directories
-    (session_path / "uploads").mkdir(parents=True, exist_ok=True)
-    (session_path / "outputs").mkdir(parents=True, exist_ok=True)
-
-    # Symlink the static skills directory if provided
-    if skills_directory and skills_directory.exists():
-        skills_symlink = session_path / "skills"
-        if not skills_symlink.exists():
-            try:
-                os.symlink(
-                    skills_directory.resolve(),
-                    skills_symlink,
-                    target_is_directory=True,
-                )
-            except OSError as e:
-                logger.error(f"Failed to create skills symlink: {e}")
-
-    return session_path.resolve()
 
 
 class StageArtifactsTool(BaseTool):
@@ -73,7 +29,7 @@ class StageArtifactsTool(BaseTool):
     2. Access: Use the staged files in commands, scripts, or other processing
     """
 
-    def __init__(self, skills_directory: Optional[Path] = None):
+    def __init__(self):
         super().__init__(
             name="stage_artifacts",
             description=(
@@ -97,7 +53,6 @@ class StageArtifactsTool(BaseTool):
                 "- Check returned paths to confirm successful staging"
             ),
         )
-        self._skills_directory = skills_directory
 
     def _get_declaration(self) -> types.FunctionDeclaration | None:
         return types.FunctionDeclaration(
@@ -139,11 +94,7 @@ class StageArtifactsTool(BaseTool):
             return "Error: Artifact service is not available in this context."
 
         try:
-            staging_root = get_session_staging_path(
-                session_id=tool_context.session.id,
-                app_name=tool_context._invocation_context.app_name,
-                skills_directory=self._skills_directory,
-            )
+            staging_root = get_session_path(session_id=tool_context.session.id)
             destination_dir = (staging_root / destination_path_str).resolve()
 
             # Security: Ensure the destination is within the staging path

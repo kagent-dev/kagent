@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 import mimetypes
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 from typing_extensions import override
 
-from .stage_artifacts_tool import MAX_ARTIFACT_SIZE_BYTES, get_session_staging_path
+from .session_path import get_session_path
+from .stage_artifacts_tool import MAX_ARTIFACT_SIZE_BYTES
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -23,7 +24,7 @@ class ReturnArtifactsTool(BaseTool):
     Files are saved to the artifact service where they can be retrieved by the frontend.
     """
 
-    def __init__(self, skills_directory: Optional[Path] = None):
+    def __init__(self):
         super().__init__(
             name="return_artifacts",
             description=(
@@ -46,7 +47,6 @@ class ReturnArtifactsTool(BaseTool):
                 "- Return all outputs at once for efficiency"
             ),
         )
-        self._skills_directory = skills_directory
 
     def _get_declaration(self) -> types.FunctionDeclaration | None:
         return types.FunctionDeclaration(
@@ -93,11 +93,7 @@ class ReturnArtifactsTool(BaseTool):
             return "Error: Artifact service is not available in this context."
 
         try:
-            working_dir = get_session_staging_path(
-                session_id=tool_context.session.id,
-                app_name=tool_context._invocation_context.app_name,
-                skills_directory=self._skills_directory,
-            )
+            working_dir = get_session_path(session_id=tool_context.session.id)
 
             saved_artifacts = []
             for idx, rel_path in enumerate(file_paths):
