@@ -14,6 +14,7 @@ from kagent.core import KAgentConfig, configure_tracing
 from . import AgentConfig, KAgentApp
 
 logger = logging.getLogger(__name__)
+logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
 
 app = typer.Typer()
 
