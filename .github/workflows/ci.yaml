@@ -271,6 +271,7 @@ jobs:
           ./dist/srt || true
           echo "SRT_PATH=$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_ENV
           echo "$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_PATH
+          sudo apt install bubblewrap socat ripgrep -y
           cd -
 
       - name: Print SRT path
