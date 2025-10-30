@@ -267,7 +267,9 @@ jobs:
           npm run build
           chmod +x dist/cli.js
           mv dist/cli.js dist/srt
-          echo "SRT_PATH=$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_ENV
+          # Just check if srt is working
+          ./dist/srt || true
+          echo "SRT_PATH=$TMP_DIR/sandbox-runtime/dist" >> $GITHUB_PATH
           cd -
 
       - name: Install uv
@@ -283,9 +285,7 @@ jobs:
 
       - name: Run tests
         working-directory: ./python
-        run: |
-          export PATH=$PATH:$SRT_PATH
-          uv run pytest ./packages/**/tests/
+        run: uv run pytest ./packages/**/tests/
 
   python-lint:
     runs-on: ubuntu-latest
