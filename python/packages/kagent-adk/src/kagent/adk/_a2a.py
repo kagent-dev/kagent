@@ -28,18 +28,6 @@ from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
 
 
-# --- Configure Logging ---
-def configure_logging() -> None:
-    """Configure logging based on LOG_LEVEL environment variable."""
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    numeric_level = getattr(logging, log_level, logging.INFO)
-    logging.basicConfig(
-        level=numeric_level,
-    )
-    logging.info(f"Logging configured with level: {log_level}")
-
-
-configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -131,6 +119,7 @@ class KAgentApp:
                 agent=self.root_agent,
                 app_name=self.app_name,
                 session_service=session_service,
+                artifact_service=InMemoryArtifactService(),
             )
 
         agent_executor = A2aAgentExecutor(
@@ -178,6 +167,7 @@ class KAgentApp:
             agent=root_agent,
             app_name=self.app_name,
             session_service=session_service,
+            artifact_service=InMemoryArtifactService(),
         )
 
         logger.info(f"\n>>> User Query: {task}")

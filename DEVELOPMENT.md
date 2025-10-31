@@ -103,7 +103,7 @@ Then run the `make helm-install` command again.
 create a minimal cluster with kind. scale kagent to 0 replicas, as we will run it locally.
 
 ```bash
-make create-kind-cluster helm-install-provider helm-tools push-test-agent
+make create-kind-cluster helm-install-provider helm-tools push-test-agent push-test-skill
 kubectl scale -n kagent deployment kagent-controller --replicas 0
 ```
 

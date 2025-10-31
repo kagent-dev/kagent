@@ -239,6 +239,7 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
+// See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model        Model                 `json:"model"`
 	Description  string                `json:"description"`
@@ -246,6 +247,7 @@ type AgentConfig struct {
 	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
 	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
 	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+	ExecuteCode  bool                  `json:"execute_code,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {

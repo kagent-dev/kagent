@@ -1,0 +1,51 @@
+operation: translateAgent
+targetObject: skills-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        temperature: "0.7"
+        maxTokens: 1024
+        topP: "0.95"
+        reasoningEffort: "low"
+      defaultHeaders:
+        User-Agent: "kagent/1.0"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: skills-agent
+      namespace: test
+    spec:
+      skills:
+        refs:
+          - foo:latest
+      type: Declarative
+      declarative:
+        description: A basic test agent
+        systemMessage: You are a helpful assistant.
+        modelConfig: basic-model
+        deployment:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 684Mi
+            limits:
+              cpu: 3000m
+              memory: 2Gi
+        tools: [] 

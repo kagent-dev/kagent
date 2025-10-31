@@ -193,7 +193,7 @@ class SkillsTool(BaseTool):
         """Format skill content for display to the agent."""
         header = (
             f'<command-message>The "{skill_name}" skill is loading</command-message>\n\n'
-            f"Base directory for this skill: skills/{skill_name}\n\n"
+            f"Base directory for this skill: {self.skills_directory}/{skill_name}\n\n"
         )
         footer = (
             "\n\n---\n"

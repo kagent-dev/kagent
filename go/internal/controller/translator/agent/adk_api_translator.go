@@ -330,9 +330,54 @@ func (a *adkApiTranslator) buildManifest(
 		},
 	)
 
+	var skills []string
+	if agent.Spec.Skills != nil && len(agent.Spec.Skills.Refs) != 0 {
+		skills = agent.Spec.Skills.Refs
+	}
+
 	// Build Deployment
 	volumes := append(secretVol, dep.Volumes...)
 	volumeMounts := append(secretMounts, dep.VolumeMounts...)
+	needSandbox := cfg != nil && cfg.ExecuteCode
+
+	var initContainers []corev1.Container
+
+	if len(skills) > 0 {
+		skillsEnv := corev1.EnvVar{
+			Name:  "KAGENT_SKILLS_FOLDER",
+			Value: "/skills",
+		}
+		needSandbox = true
+		insecure := agent.Spec.Skills.InsecureSkipVerify
+		command := []string{"kagent-adk", "pull-skills"}
+		if insecure {
+			command = append(command, "--insecure")
+		}
+		initContainers = append(initContainers, corev1.Container{
+			Name:    "skills-init",
+			Image:   dep.Image,
+			Command: command,
+			Args:    skills,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "kagent-skills", MountPath: "/skills"},
+			},
+			Env: []corev1.EnvVar{
+				skillsEnv,
+			},
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: "kagent-skills",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "kagent-skills",
+			MountPath: "/skills",
+			ReadOnly:  true,
+		})
+		sharedEnv = append(sharedEnv, skillsEnv)
+	}
 
 	// Token volume
 	volumes = append(volumes, corev1.Volume{
@@ -368,6 +413,12 @@ func (a *adkApiTranslator) buildManifest(
 	}
 	// Add config hash annotation to pod template to force rollout on config changes
 	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+	var securityContext *corev1.SecurityContext
+	if needSandbox {
+		securityContext = &corev1.SecurityContext{
+			Privileged: ptr.To(true),
+		}
+	}
 
 	deployment := &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
@@ -387,6 +438,7 @@ func (a *adkApiTranslator) buildManifest(
 				Spec: corev1.PodSpec{
 					ServiceAccountName: agent.Name,
 					ImagePullSecrets:   dep.ImagePullSecrets,
+					InitContainers:     initContainers,
 					Containers: []corev1.Container{{
 						Name:            "kagent",
 						Image:           dep.Image,
@@ -404,7 +456,8 @@ func (a *adkApiTranslator) buildManifest(
 							TimeoutSeconds:      15,
 							PeriodSeconds:       15,
 						},
-						VolumeMounts: volumeMounts,
+						SecurityContext: securityContext,
+						VolumeMounts:    volumeMounts,
 					}},
 					Volumes: volumes,
 				},
@@ -460,6 +513,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Description: agent.Spec.Description,
 		Instruction: systemMessage,
 		Model:       model,
+		ExecuteCode: ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false),
 	}
 	agentCard := &server.AgentCard{
 		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
@@ -1084,9 +1138,7 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	// Defaults
 	port := int32(8080)
-	cmd := "kagent-adk"
 	args := []string{
-		"static",
 		"--host",
 		"0.0.0.0",
 		"--port",
@@ -1122,7 +1174,6 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 
 	dep := &resolvedDeployment{
 		Image:            image,
-		Cmd:              cmd,
 		Args:             args,
 		Port:             port,
 		ImagePullPolicy:  imagePullPolicy,
@@ -1134,11 +1185,6 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
 		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
-	}
-
-	// Set default replicas if not specified
-	if dep.Replicas == nil {
-		dep.Replicas = ptr.To(int32(1))
 	}
 
 	return dep, nil

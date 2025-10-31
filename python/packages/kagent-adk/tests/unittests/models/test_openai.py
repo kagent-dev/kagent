@@ -76,7 +76,7 @@ def generate_llm_response():
 
 @pytest.fixture
 def openai_llm():
-    return OpenAI(model="gpt-3.5-turbo", type="openai")
+    return OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
 
 
 @pytest.fixture
@@ -323,7 +323,7 @@ async def test_generate_content_async(openai_llm, llm_request, generate_content_
 
 @pytest.mark.asyncio
 async def test_generate_content_async_with_max_tokens(llm_request, generate_content_response, generate_llm_response):
-    openai_llm = OpenAI(model="gpt-3.5-turbo", max_tokens=4096, type="openai")
+    openai_llm = OpenAI(model="gpt-3.5-turbo", max_tokens=4096, type="openai", api_key="fake")
     with mock.patch.object(openai_llm, "_client") as mock_client:
         # Create a mock coroutine that returns the generate_content_response.
         async def mock_coro(*args, **kwargs):

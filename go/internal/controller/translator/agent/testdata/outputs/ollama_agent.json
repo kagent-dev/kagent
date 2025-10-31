@@ -111,7 +111,6 @@
         ]
       },
       "spec": {
-        "replicas": 1,
         "selector": {
           "matchLabels": {
             "app": "kagent",
@@ -142,16 +141,12 @@
             "containers": [
               {
                 "args": [
-                  "static",
                   "--host",
                   "0.0.0.0",
                   "--port",
                   "8080",
                   "--filepath",
                   "/config"
-                ],
-                "command": [
-                  "kagent-adk"
                 ],
                 "env": [
                   {

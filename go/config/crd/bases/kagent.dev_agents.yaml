@@ -2579,10 +2579,7 @@ spec:
                           type: string
                         type: object
                       replicas:
-                        default: 1
-                        description: If not specified, the default value is 1.
                         format: int32
-                        minimum: 1
                         type: integer
                       resources:
                         description: ResourceRequirements describes the compute resource
@@ -4858,10 +4855,7 @@ spec:
                           type: string
                         type: object
                       replicas:
-                        default: 1
-                        description: If not specified, the default value is 1.
                         format: int32
-                        minimum: 1
                         type: integer
                       resources:
                         description: ResourceRequirements describes the compute resource
@@ -6887,6 +6881,12 @@ spec:
                           type: object
                         type: array
                     type: object
+                  executeCodeBlocks:
+                    description: |-
+                      Allow code execution for python code blocks with this agent.
+                      If true, the agent will automatically execute python code blocks in the LLM responses.
+                      Code will be executed in a sandboxed environment.
+                    type: boolean
                   modelConfig:
                     description: |-
                       The name of the model config to use.
@@ -7026,6 +7026,24 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              skills:
+                description: |-
+                  Skills to load into the agent. They will be pulled from the specified container images.
+                  and made available to the agent under the `/skills` folder.
+                properties:
+                  insecureSkipVerify:
+                    description: |-
+                      Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
+                      Meant for development and testing purposes only.
+                    type: boolean
+                  refs:
+                    description: The list of skill images to fetch.
+                    items:
+                      type: string
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                type: object
               type:
                 allOf:
                 - enum:
