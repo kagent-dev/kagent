@@ -100,7 +100,7 @@ class ReturnArtifactsTool(BaseTool):
                 file_path = (working_dir / rel_path).resolve()
 
                 # Security: Ensure file is within working directory
-                if working_dir not in file_path.parents and file_path.parent != working_dir:
+                if not file_path.is_relative_to(working_dir):
                     logger.warning(f"Skipping file outside working directory: {rel_path}")
                     continue
 
