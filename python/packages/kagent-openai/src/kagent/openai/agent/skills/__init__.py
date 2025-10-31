@@ -11,7 +11,9 @@ Skills follow Anthropic's Agent Skills specification with progressive disclosure
 
 Example:
     ```python
-    from agents import Agent, Runner, SkillRegistry, get_skill_tool
+    from agents.agent import Agent
+    from agents.run import Runner
+    from kagent.openai.agent.skills import SkillRegistry, get_skill_tool
 
     # Create registry and register skills
     registry = SkillRegistry()

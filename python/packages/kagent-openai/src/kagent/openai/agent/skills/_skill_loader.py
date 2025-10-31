@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from agents import UserError
+from agents.exceptions import UserError
 
-logger = logging.getLogger("kagent.openai.agents.skills")
+logger = logging.getLogger("kagent.openai.agent.skills")
 
 
 @dataclass

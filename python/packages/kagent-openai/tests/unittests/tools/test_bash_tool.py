@@ -2,7 +2,7 @@
 
 import asyncio
 
-from kagent.openai.agents.tools import SRT_SHELL_TOOL
+from kagent.openai.agent.tools import SRT_SHELL_TOOL
 
 
 class TestBashTool:

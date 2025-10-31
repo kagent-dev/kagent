@@ -22,8 +22,8 @@ from agents import (
     Runner,
 )
 from agents.memory.sqlite_session import SQLiteSession
-from kagent.openai.agents.skills import SkillRegistry, get_skill_tool
-from kagent.openai.agents.tools import SRT_SHELL_TOOL
+from kagent.openai.agent.skills import SkillRegistry, get_skill_tool
+from kagent.openai.agent.tools import SRT_SHELL_TOOL
 from openai.types.responses import ResponseFunctionCallArgumentsDeltaEvent
 
 

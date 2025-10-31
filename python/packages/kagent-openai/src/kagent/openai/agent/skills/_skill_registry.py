@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ._skill_loader import Skill, SkillLoader
 
-logger = logging.getLogger("kagent.openai.agents.skills")
+logger = logging.getLogger("kagent.openai.agent.skills")
 
 
 class SkillRegistry:

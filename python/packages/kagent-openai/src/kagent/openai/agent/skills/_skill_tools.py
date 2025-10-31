@@ -5,7 +5,8 @@ This module provides pre-built tools that agents can use to discover and load sk
 
 from __future__ import annotations
 
-from agents import FunctionTool, RunContextWrapper, function_tool
+from agents.run_context import RunContextWrapper
+from agents.tool import FunctionTool, function_tool
 
 from ._skill_registry import SkillRegistry
 
@@ -24,7 +25,8 @@ def get_skill_tool(registry: SkillRegistry) -> FunctionTool:
 
     Example:
         ```python
-        from agents import Agent, SkillRegistry, get_skill_tool
+        from agents.agent import Agent
+        from kagent.openai.agent.skills import SkillRegistry, get_skill_tool
 
         # Create registry and register skills
         registry = SkillRegistry()

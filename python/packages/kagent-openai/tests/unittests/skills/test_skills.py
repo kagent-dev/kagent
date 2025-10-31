@@ -4,9 +4,9 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from agents import Agent
+from agents.agent import Agent
 
-from kagent.openai.agents.skills import SkillLoader, SkillRegistry, get_skill_tool
+from kagent.openai.agent.skills import SkillLoader, SkillRegistry, get_skill_tool
 
 
 @pytest.fixture

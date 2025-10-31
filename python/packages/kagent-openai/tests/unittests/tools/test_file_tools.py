@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from kagent.openai.agents.tools import EDIT_FILE_TOOL, READ_FILE_TOOL, WRITE_FILE_TOOL
+from kagent.openai.agent.tools import EDIT_FILE_TOOL, READ_FILE_TOOL, WRITE_FILE_TOOL
 
 
 class TestReadFileTool:
