@@ -18,6 +18,7 @@ import (
 	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -117,6 +118,7 @@ type AgentOptions struct {
 	Stream        *bool
 	Env           []corev1.EnvVar
 	Skills        *v1alpha2.SkillForAgent
+	ExecuteCode   *bool
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -319,6 +321,7 @@ func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 				ModelConfig:   "test-model-config",
 				SystemMessage: systemMessage,
 				Tools:         tools,
+				ExecuteCode:   opts.ExecuteCode,
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						ImagePullPolicy: corev1.PullAlways,
@@ -744,4 +747,30 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 
 	// Run tests
 	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
+}
+
+func TestE2EIAgentRunsCode(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/run_code.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupAgentWithOptions(t, cli, nil, AgentOptions{
+		ExecuteCode: ptr.To(true),
+	})
+
+	defer func() {
+		cli.Delete(t.Context(), agent)    //nolint:errcheck
+		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
+	}()
+
+	// Setup A2A client
+	a2aClient := setupA2AClient(t)
+
+	// Run tests
+	runSyncTest(t, a2aClient, "write some code", "hello, world!", nil)
 }

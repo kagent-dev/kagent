@@ -102,6 +102,8 @@ type DeclarativeAgentSpec struct {
 
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
+
+	ExecuteCode *bool `json:"executeCode,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
@@ -129,10 +131,7 @@ type ByoDeploymentSpec struct {
 }
 
 type SharedDeploymentSpec struct {
-	// If not specified, the default value is 1.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
 	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`

@@ -338,6 +338,7 @@ func (a *adkApiTranslator) buildManifest(
 	// Build Deployment
 	volumes := append(secretVol, dep.Volumes...)
 	volumeMounts := append(secretMounts, dep.VolumeMounts...)
+	needSandbox := dep.NeedSandbox
 	var initContainers []corev1.Container
 
 	if len(skills) > 0 {
@@ -345,6 +346,7 @@ func (a *adkApiTranslator) buildManifest(
 			Name:  "KAGENT_SKILLS_FOLDER",
 			Value: "/skills",
 		}
+		needSandbox = true
 		insecure := agent.Spec.Skills.InsecureSkipVerify
 		command := []string{"kagent-adk", "pull-skills"}
 		if insecure {
@@ -410,6 +412,12 @@ func (a *adkApiTranslator) buildManifest(
 	}
 	// Add config hash annotation to pod template to force rollout on config changes
 	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+	var securityContext *corev1.SecurityContext
+	if needSandbox {
+		securityContext = &corev1.SecurityContext{
+			Privileged: ptr.To(true),
+		}
+	}
 
 	deployment := &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
@@ -447,10 +455,8 @@ func (a *adkApiTranslator) buildManifest(
 							TimeoutSeconds:      15,
 							PeriodSeconds:       15,
 						},
-						SecurityContext: &corev1.SecurityContext{
-							Privileged: ptr.To(true),
-						},
-						VolumeMounts: volumeMounts,
+						SecurityContext: securityContext,
+						VolumeMounts:    volumeMounts,
 					}},
 					Volumes: volumes,
 				},
@@ -1098,6 +1104,7 @@ type resolvedDeployment struct {
 	Annotations      map[string]string
 	Env              []corev1.EnvVar
 	Resources        corev1.ResourceRequirements
+	NeedSandbox      bool
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -1137,7 +1144,11 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		fmt.Sprintf("%d", port),
 		"--filepath",
 		"/config",
-		"--code",
+	}
+	needSandbox := false
+	if ptr.Deref(agent.Spec.Declarative.ExecuteCode, false) {
+		args = append(args, "--code")
+		needSandbox = true
 	}
 
 	// Start with spec deployment spec
@@ -1178,6 +1189,7 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
 		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
+		NeedSandbox:      needSandbox,
 	}
 
 	return dep, nil

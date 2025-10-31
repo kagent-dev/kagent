@@ -2579,10 +2579,7 @@ spec:
                           type: string
                         type: object
                       replicas:
-                        default: 1
-                        description: If not specified, the default value is 1.
                         format: int32
-                        minimum: 1
                         type: integer
                       resources:
                         description: ResourceRequirements describes the compute resource
@@ -4858,10 +4855,7 @@ spec:
                           type: string
                         type: object
                       replicas:
-                        default: 1
-                        description: If not specified, the default value is 1.
                         format: int32
-                        minimum: 1
                         type: integer
                       resources:
                         description: ResourceRequirements describes the compute resource
@@ -6887,6 +6881,8 @@ spec:
                           type: object
                         type: array
                     type: object
+                  executeCode:
+                    type: boolean
                   modelConfig:
                     description: |-
                       The name of the model config to use.
