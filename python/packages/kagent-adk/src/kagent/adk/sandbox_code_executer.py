@@ -24,8 +24,9 @@ from google.adk.code_executors.base_code_executor import BaseCodeExecutor
 from google.adk.code_executors.code_execution_utils import CodeExecutionInput
 from google.adk.code_executors.code_execution_utils import CodeExecutionResult
 
+
 class SandboxedLocalCodeExecutor(BaseCodeExecutor):
-    """A code executor that unsafely execute code in the current local context."""
+    """A code executor that execute code in a sandbox in the current local context."""
 
     # Overrides the BaseCodeExecutor attribute: this executor cannot be stateful.
     stateful: bool = Field(default=False, frozen=True, exclude=True)
@@ -37,13 +38,9 @@ class SandboxedLocalCodeExecutor(BaseCodeExecutor):
     def __init__(self, **data):
         """Initializes the SandboxedLocalCodeExecutor."""
         if "stateful" in data and data["stateful"]:
-            raise ValueError(
-                "Cannot set `stateful=True` in SandboxedLocalCodeExecutor."
-            )
+            raise ValueError("Cannot set `stateful=True` in SandboxedLocalCodeExecutor.")
         if "optimize_data_file" in data and data["optimize_data_file"]:
-            raise ValueError(
-                "Cannot set `optimize_data_file=True` in SandboxedLocalCodeExecutor."
-            )
+            raise ValueError("Cannot set `optimize_data_file=True` in SandboxedLocalCodeExecutor.")
         super().__init__(**data)
 
     @override

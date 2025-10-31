@@ -318,10 +318,10 @@ func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
-				ModelConfig:   "test-model-config",
-				SystemMessage: systemMessage,
-				Tools:         tools,
-				ExecuteCode:   opts.ExecuteCode,
+				ModelConfig:       "test-model-config",
+				SystemMessage:     systemMessage,
+				Tools:             tools,
+				ExecuteCodeBlocks: opts.ExecuteCode,
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						ImagePullPolicy: corev1.PullAlways,
@@ -733,7 +733,7 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 	agent := setupAgentWithOptions(t, cli, nil, AgentOptions{
 		Skills: &v1alpha2.SkillForAgent{
 			InsecureSkipVerify: true,
-			Images:             []string{"kind-registry:5000/kebab-maker:latest"},
+			Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
 		},
 	})
 

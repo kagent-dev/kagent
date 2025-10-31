@@ -331,14 +331,15 @@ func (a *adkApiTranslator) buildManifest(
 	)
 
 	var skills []string
-	if agent.Spec.Skills != nil && len(agent.Spec.Skills.Images) != 0 {
-		skills = agent.Spec.Skills.Images
+	if agent.Spec.Skills != nil && len(agent.Spec.Skills.Refs) != 0 {
+		skills = agent.Spec.Skills.Refs
 	}
 
 	// Build Deployment
 	volumes := append(secretVol, dep.Volumes...)
 	volumeMounts := append(secretMounts, dep.VolumeMounts...)
-	needSandbox := dep.NeedSandbox
+	needSandbox := cfg != nil && cfg.ExecuteCode
+
 	var initContainers []corev1.Container
 
 	if len(skills) > 0 {
@@ -512,6 +513,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Description: agent.Spec.Description,
 		Instruction: systemMessage,
 		Model:       model,
+		ExecuteCode: ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false),
 	}
 	agentCard := &server.AgentCard{
 		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
@@ -1104,7 +1106,6 @@ type resolvedDeployment struct {
 	Annotations      map[string]string
 	Env              []corev1.EnvVar
 	Resources        corev1.ResourceRequirements
-	NeedSandbox      bool
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -1145,11 +1146,6 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		"--filepath",
 		"/config",
 	}
-	needSandbox := false
-	if ptr.Deref(agent.Spec.Declarative.ExecuteCode, false) {
-		args = append(args, "--code")
-		needSandbox = true
-	}
 
 	// Start with spec deployment spec
 	spec := v1alpha2.DeclarativeDeploymentSpec{}
@@ -1189,7 +1185,6 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
 		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
-		NeedSandbox:      needSandbox,
 	}
 
 	return dep, nil

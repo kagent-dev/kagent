@@ -6881,7 +6881,11 @@ spec:
                           type: object
                         type: array
                     type: object
-                  executeCode:
+                  executeCodeBlocks:
+                    description: |-
+                      Allow code execution for python code blocks with this agent.
+                      If true, the agent will automatically execute python code blocks in the LLM responses.
+                      Code will be executed in a sandboxed environment.
                     type: boolean
                   modelConfig:
                     description: |-
@@ -7027,18 +7031,18 @@ spec:
                   Skills to load into the agent. They will be pulled from the specified container images.
                   and made available to the agent under the `/skills` folder.
                 properties:
-                  images:
+                  insecureSkipVerify:
+                    description: |-
+                      Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
+                      Meant for development and testing purposes only.
+                    type: boolean
+                  refs:
                     description: The list of skill images to fetch.
                     items:
                       type: string
                     maxItems: 20
                     minItems: 1
                     type: array
-                  insecureSkipVerify:
-                    description: |-
-                      Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
-                      Meant for development and testing purposes only.
-                    type: boolean
                 type: object
               type:
                 allOf:

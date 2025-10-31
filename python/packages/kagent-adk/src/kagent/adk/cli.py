@@ -10,7 +10,6 @@ from a2a.types import AgentCard
 from google.adk.cli.utils.agent_loader import AgentLoader
 
 from kagent.core import KAgentConfig, configure_tracing
-from .sandbox_code_executer import SandboxedLocalCodeExecutor
 from .skill_fetcher import fetch_skill
 
 from . import AgentConfig, KAgentApp
@@ -28,7 +27,6 @@ def static(
     workers: int = 1,
     filepath: str = "/config",
     reload: Annotated[bool, typer.Option("--reload")] = False,
-    code: Annotated[bool, typer.Option("--code")] = False,
 ):
     app_cfg = KAgentConfig()
 
@@ -38,8 +36,7 @@ def static(
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
-    code_executor = SandboxedLocalCodeExecutor() if code else None
-    root_agent = agent_config.to_agent(app_cfg.name, code_executor=code_executor)
+    root_agent = agent_config.to_agent(app_cfg.name)
     skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
     if skills_directory:
         logger.info(f"Adding skills from directory: {skills_directory}")
@@ -71,7 +68,6 @@ def pull_skills(
     logger.info("Pulling skills")
     for skill in skills:
         fetch_skill(skill, skill_dir, insecure)
-    pass
 
 
 @app.command()
@@ -121,12 +117,8 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
 
 @app.command()
 def test(
-    task: Annotated[
-        str, typer.Option("--task", help="The task to test the agent with")
-    ],
-    filepath: Annotated[
-        str, typer.Option("--filepath", help="The path to the agent config file")
-    ],
+    task: Annotated[str, typer.Option("--task", help="The task to test the agent with")],
+    filepath: Annotated[str, typer.Option("--filepath", help="The path to the agent config file")],
 ):
     with open(filepath, "r") as f:
         content = f.read()
@@ -138,6 +130,7 @@ def test(
     agent_config = AgentConfig.model_validate(config)
     asyncio.run(test_agent(agent_config, agent_card, task))
 
+
 # --- Configure Logging ---
 def configure_logging() -> None:
     """Configure logging based on LOG_LEVEL environment variable."""
@@ -146,6 +139,7 @@ def configure_logging() -> None:
         level=log_level,
     )
     logging.info(f"Logging configured with level: {log_level}")
+
 
 def run_cli():
     configure_logging()
