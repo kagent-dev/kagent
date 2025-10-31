@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer, serverNamesMatch } from "@/lib/toolUtils";
 import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
@@ -26,24 +26,7 @@ interface SelectToolsDialogProps {
   loadingAgents: boolean;
 }
 
-// Compare server names it handle both "namespace/name" refs and plain names
-const serverNamesMatch = (serverName1: string, serverName2: string): boolean => {
-  if (!serverName1 || !serverName2) return false;
-  if (serverName1 === serverName2) return true;
-  
-  try {
-    const name1 = k8sRefUtils.isValidRef(serverName1) 
-      ? k8sRefUtils.fromRef(serverName1).name 
-      : serverName1;
-    const name2 = k8sRefUtils.isValidRef(serverName2) 
-      ? k8sRefUtils.fromRef(serverName2).name 
-      : serverName2;
-    
-    return name1 === name2;
-  } catch {
-    return false;
-  }
-};
+
 
 // Helper function to get display info for a tool or agent
 const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {

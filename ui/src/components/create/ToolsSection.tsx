@@ -3,13 +3,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Plus, FunctionSquare, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
+import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName, serverNamesMatch } from "@/lib/toolUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import type { Tool, AgentResponse, ToolsResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import KagentLogo from "../kagent-logo";
-import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ToolsSectionProps {
   selectedTools: Tool[];
@@ -18,25 +17,6 @@ interface ToolsSectionProps {
   onBlur?: () => void;
   currentAgentName: string;
 }
-
-const serverNamesMatch = (serverName1: string, serverName2: string): boolean => {
-  if (!serverName1 || !serverName2) return false;
-  
-  if (serverName1 === serverName2) return true;
-  
-  try {
-    const name1 = k8sRefUtils.isValidRef(serverName1) 
-      ? k8sRefUtils.fromRef(serverName1).name 
-      : serverName1;
-    const name2 = k8sRefUtils.isValidRef(serverName2) 
-      ? k8sRefUtils.fromRef(serverName2).name 
-      : serverName2;
-    
-    return name1 === name2;
-  } catch {
-    return false;
-  }
-};
 
 export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
   const [showToolSelector, setShowToolSelector] = useState(false);
