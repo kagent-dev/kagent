@@ -33,7 +33,7 @@ objects:
       namespace: test
     spec:
       skills:
-        images:
+        refs:
           - foo:latest
       type: Declarative
       declarative:

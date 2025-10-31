@@ -34,7 +34,7 @@ objects:
     spec:
       type: Declarative
       declarative:
-        executeCode: true
+        executeCodeBlocks: true
         description: A basic test agent
         systemMessage: You are a helpful assistant.
         modelConfig: basic-model
