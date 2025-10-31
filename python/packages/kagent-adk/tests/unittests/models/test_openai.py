@@ -76,7 +76,7 @@ def generate_llm_response():
 
 @pytest.fixture
 def openai_llm():
-    return OpenAI(model="gpt-3.5-turbo", type="openai")
+    return OpenAI(model="gpt-3.5-turbo", type="openai", api_key="test-key")
 
 
 @pytest.fixture
@@ -323,7 +323,7 @@ async def test_generate_content_async(openai_llm, llm_request, generate_content_
 
 @pytest.mark.asyncio
 async def test_generate_content_async_with_max_tokens(llm_request, generate_content_response, generate_llm_response):
-    openai_llm = OpenAI(model="gpt-3.5-turbo", max_tokens=4096, type="openai")
+    openai_llm = OpenAI(model="gpt-3.5-turbo", max_tokens=4096, type="openai", api_key="test-key")
     with mock.patch.object(openai_llm, "_client") as mock_client:
         # Create a mock coroutine that returns the generate_content_response.
         async def mock_coro(*args, **kwargs):
@@ -336,3 +336,232 @@ async def test_generate_content_async_with_max_tokens(llm_request, generate_cont
         mock_client.chat.completions.create.assert_called_once()
         _, kwargs = mock_client.chat.completions.create.call_args
         assert kwargs["max_tokens"] == 4096
+
+
+# ============================================================================
+# SSL/TLS Configuration Tests (Task 4.1)
+# ============================================================================
+
+
+def test_openai_client_without_tls_config():
+    """Test OpenAI client instantiation without TLS configuration (default behavior)."""
+    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="test-key")
+    client = openai_llm._client
+
+    # Verify client is created
+    assert client is not None
+    # Default behavior should not have custom http_client
+    # The _client property should use default httpx client
+
+
+def test_openai_client_with_tls_verification_disabled():
+    """Test OpenAI client with TLS verification disabled."""
+    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+        with mock.patch("httpx.AsyncClient") as mock_httpx:
+            with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                # create_ssl_context returns False when verification is disabled
+                mock_create_ssl.return_value = False
+                mock_httpx_instance = mock.MagicMock()
+                mock_httpx.return_value = mock_httpx_instance
+
+                openai_llm = OpenAI(
+                    model="gpt-3.5-turbo",
+                    type="openai",
+                    api_key="test-key",
+                    tls_verify_disabled=True,
+                )
+
+                # Access _client to trigger httpx client creation
+                client = openai_llm._client
+
+                # Verify create_ssl_context was called with correct parameters
+                mock_create_ssl.assert_called_once_with(
+                    verify_disabled=True,
+                    ca_cert_path=None,
+                    use_system_cas=True,
+                )
+
+                # Verify httpx.AsyncClient was created with verify=False
+                mock_httpx.assert_called_once()
+                call_kwargs = mock_httpx.call_args[1]
+                assert call_kwargs["verify"] is False
+
+                # Verify AsyncOpenAI was called with the http_client
+                mock_openai.assert_called_once()
+                openai_call_kwargs = mock_openai.call_args[1]
+                assert openai_call_kwargs["http_client"] is mock_httpx_instance
+
+
+def test_openai_client_with_custom_ca_certificate():
+    """Test OpenAI client with custom CA certificate."""
+    import ssl
+
+    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+        with mock.patch("httpx.AsyncClient") as mock_httpx:
+            with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                # create_ssl_context returns SSLContext for custom CA
+                mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
+                mock_create_ssl.return_value = mock_ssl_context
+                mock_httpx_instance = mock.MagicMock()
+                mock_httpx.return_value = mock_httpx_instance
+
+                openai_llm = OpenAI(
+                    model="gpt-3.5-turbo",
+                    type="openai",
+                    api_key="test-key",
+                    tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    tls_use_system_cas=True,
+                )
+
+                # Access _client to trigger httpx client creation
+                client = openai_llm._client
+
+                # Verify create_ssl_context was called with correct parameters
+                mock_create_ssl.assert_called_once_with(
+                    verify_disabled=False,
+                    ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    use_system_cas=True,
+                )
+
+                # Verify httpx.AsyncClient was created with SSL context
+                mock_httpx.assert_called_once()
+                call_kwargs = mock_httpx.call_args[1]
+                assert call_kwargs["verify"] is mock_ssl_context
+
+
+def test_openai_client_with_custom_ca_only():
+    """Test OpenAI client with custom CA only (no system CAs)."""
+    import ssl
+
+    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+        with mock.patch("httpx.AsyncClient") as mock_httpx:
+            with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
+                mock_create_ssl.return_value = mock_ssl_context
+                mock_httpx_instance = mock.MagicMock()
+                mock_httpx.return_value = mock_httpx_instance
+
+                openai_llm = OpenAI(
+                    model="gpt-3.5-turbo",
+                    type="openai",
+                    api_key="test-key",
+                    tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    tls_use_system_cas=False,
+                )
+
+                # Access _client to trigger httpx client creation
+                client = openai_llm._client
+
+                # Verify create_ssl_context was called with use_system_cas=False
+                mock_create_ssl.assert_called_once_with(
+                    verify_disabled=False,
+                    ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    use_system_cas=False,
+                )
+
+                # Verify httpx.AsyncClient was created with SSL context
+                mock_httpx.assert_called_once()
+                call_kwargs = mock_httpx.call_args[1]
+                assert call_kwargs["verify"] is mock_ssl_context
+
+
+def test_openai_client_with_base_url_and_tls():
+    """Test OpenAI client with base_url (LiteLLM gateway) and TLS configuration."""
+    import ssl
+
+    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+        with mock.patch("httpx.AsyncClient") as mock_httpx:
+            with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
+                mock_create_ssl.return_value = mock_ssl_context
+                mock_httpx_instance = mock.MagicMock()
+                mock_httpx.return_value = mock_httpx_instance
+
+                openai_llm = OpenAI(
+                    model="gpt-3.5-turbo",
+                    type="openai",
+                    api_key="test-key",
+                    base_url="https://litellm.internal.corp:8080",
+                    tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                )
+
+                # Access _client to trigger client creation
+                client = openai_llm._client
+
+                # Verify SSL context was created
+                mock_create_ssl.assert_called_once()
+
+                # Verify httpx client was created with SSL context
+                mock_httpx.assert_called_once()
+
+
+def test_openai_client_reads_tls_from_environment():
+    """Test OpenAI client reads TLS configuration from environment variables."""
+    import os
+    import ssl
+
+    with mock.patch.dict(os.environ, {
+        "TLS_VERIFY_DISABLED": "false",
+        "TLS_CA_CERT_PATH": "/etc/ssl/certs/custom/ca.crt",
+        "TLS_USE_SYSTEM_CAS": "true",
+    }):
+        with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+            with mock.patch("httpx.AsyncClient") as mock_httpx:
+                with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                    mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
+                    mock_create_ssl.return_value = mock_ssl_context
+                    mock_httpx_instance = mock.MagicMock()
+                    mock_httpx.return_value = mock_httpx_instance
+
+                    # Create OpenAI client without explicit TLS parameters
+                    # It should read from environment variables
+                    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="test-key")
+
+                    # Access _client to trigger client creation
+                    client = openai_llm._client
+
+                    # Verify create_ssl_context was called with env var values
+                    mock_create_ssl.assert_called_once_with(
+                        verify_disabled=False,
+                        ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                        use_system_cas=True,
+                    )
+
+
+def test_openai_client_tls_parameters_override_environment():
+    """Test that explicit TLS parameters override environment variables."""
+    import os
+    import ssl
+
+    with mock.patch.dict(os.environ, {
+        "TLS_VERIFY_DISABLED": "true",
+        "TLS_CA_CERT_PATH": "/wrong/path/ca.crt",
+        "TLS_USE_SYSTEM_CAS": "false",
+    }):
+        with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+            with mock.patch("httpx.AsyncClient") as mock_httpx:
+                with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                    mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
+                    mock_create_ssl.return_value = mock_ssl_context
+                    mock_httpx_instance = mock.MagicMock()
+                    mock_httpx.return_value = mock_httpx_instance
+
+                    # Explicit parameters should override environment
+                    openai_llm = OpenAI(
+                        model="gpt-3.5-turbo",
+                        type="openai",
+                        api_key="test-key",
+                        tls_verify_disabled=False,
+                        tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                        tls_use_system_cas=True,
+                    )
+
+                    # Access _client to trigger client creation
+                    client = openai_llm._client
+
+                    # Verify explicit parameters were used, not environment
+                    mock_create_ssl.assert_called_once_with(
+                        verify_disabled=False,
+                        ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                        use_system_cas=True,
+                    )

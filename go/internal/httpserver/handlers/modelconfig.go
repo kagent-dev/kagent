@@ -68,6 +68,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 			APIKeySecret:    config.Spec.APIKeySecret,
 			APIKeySecretKey: config.Spec.APIKeySecretKey,
 			ModelParams:     modelParams,
+			TLS:             config.Spec.TLS,
 		}
 		configs = append(configs, responseItem)
 	}
@@ -150,6 +151,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		APIKeySecret:    modelConfig.Spec.APIKeySecret,
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		ModelParams:     modelParams,
+		TLS:             modelConfig.Spec.TLS,
 	}
 
 	log.Info("Successfully retrieved and formatted ModelConfig")
@@ -543,6 +545,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		Model:           modelConfig.Spec.Model,
 		ModelParams:     updatedParams,
+		TLS:             modelConfig.Spec.TLS,
 	}
 
 	log.V(1).Info("Successfully updated ModelConfig")
