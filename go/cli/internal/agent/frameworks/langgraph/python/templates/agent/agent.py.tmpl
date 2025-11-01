@@ -1,0 +1,47 @@
+"""{{.Name}} LangGraph implementation."""
+import logging
+
+import httpx
+from kagent.core import KAgentConfig
+from kagent.langgraph import KAgentCheckpointer
+from langchain_core.tools import tool
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.prebuilt import create_react_agent
+from langsmith import traceable
+
+logger = logging.getLogger(__name__)
+
+kagent_checkpointer = KAgentCheckpointer(
+    client=httpx.AsyncClient(base_url=KAgentConfig().url),
+    app_name=KAgentConfig().app_name,
+)
+
+
+@traceable(name="{{.Name}}_tool")
+@tool
+def sample_tool(query: str) -> str:
+    """A sample tool for the {{.Name}} agent.
+    
+    Args:
+        query: The input query to process
+        
+    Returns:
+        A response string
+    """
+    return f"Processed: {query}"
+
+
+SYSTEM_INSTRUCTION = """{{.Instruction}}"""
+
+FORMAT_INSTRUCTION = (
+    "Set response status to input_required if the user needs to provide more information to complete the request. "
+    "Set response status to error if there is an error while processing the request. "
+    "Set response status to completed if the request is complete."
+)
+
+graph = create_react_agent(
+    model=ChatGoogleGenerativeAI(model="{{.ModelName}}"),
+    tools=[sample_tool],
+    checkpointer=kagent_checkpointer,
+    prompt=SYSTEM_INSTRUCTION + "\n\n" + FORMAT_INSTRUCTION,
+)

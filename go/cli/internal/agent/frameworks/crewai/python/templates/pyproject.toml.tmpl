@@ -1,0 +1,17 @@
+[project]
+name = "{{.Name}}"
+version = "0.1.0"
+description = "{{.Name}} agent using CrewAI"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "kagent-crewai",
+    "crewai[tools]>=0.193.2,<1.0.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+kagent-crewai = { workspace = true }

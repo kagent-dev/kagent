@@ -1,0 +1,52 @@
+# {{.Name}} Agent (CrewAI)
+
+This is a {{.Name}} agent built with CrewAI framework for KAgent.
+
+## Model Configuration
+
+This agent is configured to use the **{{.ModelProvider}}** provider with model **{{.ModelName}}**.
+
+## Agent Description
+
+{{.Instruction}}
+
+## Usage
+
+### 1. Build the agent image
+
+```bash
+kagent build {{.Name}} --push
+```
+
+### 2. Deploy the agent
+
+**Option A: Direct API key**
+```bash
+kagent deploy {{.Name}} --api-key <your-api-key>
+```
+**Option B: Using Kubernetes secret**
+```bash
+Create secret
+kubectl create secret generic my-secret -n <namespace>
+--from-literal={{.ModelProvider | upper}}_API_KEY=$API_KEY
+--dry-run=client -o yaml | kubectl apply -f -
+
+Deploy with secret
+kagent deploy {{.Name}} --api-key-secret "my-secret"
+```
+## Project Structure
+
+```bash
+{{.Name}}/
+├── {{.Name}}/
+│ ├── init.py
+│ ├── crew.py # CrewAI crew definition
+│ ├── agent-card.json # Agent metadata
+│ └── config/ # Agent & task configurations
+├── pyproject.toml
+├── Dockerfile
+└── README.md
+```
+## Customization
+
+Edit `{{.Name}}/crew.py` to customize your CrewAI agents, tasks, and crew configuration.

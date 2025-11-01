@@ -1,0 +1,44 @@
+"""{{.Name}} CrewAI implementation."""
+from typing import List
+
+from crewai import Agent, Crew, Process, Task
+from crewai.agents.agent_builder.base_agent import BaseAgent
+from crewai.project import CrewBase, agent, crew, task
+
+
+@CrewBase
+class {{.Name | ToPascalCase}}Crew:
+    """{{.Name}} crew for task execution"""
+
+    agents: List[BaseAgent]
+    tasks: List[Task]
+
+    @agent
+    def main_agent(self) -> Agent:
+        """Create the main agent for this crew."""
+        return Agent(
+            role="{{.Name}} Agent",
+            goal="""{{.Instruction}}""",
+            backstory="""You are a specialized AI agent built with CrewAI for {{.Name}}.""",
+            verbose=True,
+            allow_delegation=False,
+        )
+
+    @task
+    def main_task(self) -> Task:
+        """Define the main task for this crew."""
+        return Task(
+            description="""Execute the assigned task based on user input.""",
+            expected_output="""A comprehensive response addressing the user's request.""",
+            agent=self.main_agent(),
+        )
+
+    @crew
+    def crew(self) -> Crew:
+        """Creates the {{.Name}} crew"""
+        return Crew(
+            agents=self.agents,
+            tasks=self.tasks,
+            process=Process.sequential,
+            verbose=True,
+        )
