@@ -1,16 +1,18 @@
 [project]
-name = "research-crew"
+name = "skills"
 version = "0.1.0"
-description = "A sample research crew using kagent-crewai"
+description = "Basic OpenAI Skills agent"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
-    "kagent-crewai",
+    "kagent-openai",
+    "openai-agents>=0.4.0",
 ]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+
 [tool.uv.sources]
-kagent-crewai = { workspace = true }
+kagent-openai = { workspace = true }
