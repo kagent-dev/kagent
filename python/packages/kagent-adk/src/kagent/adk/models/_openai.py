@@ -6,6 +6,7 @@ import os
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Literal, Optional
 
+import httpx
 from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
@@ -30,6 +31,8 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 )
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
+
+from ._ssl import create_ssl_context
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -289,20 +292,72 @@ class BaseOpenAI(BaseLlm):
     timeout: Optional[int] = None
     top_p: Optional[float] = None
 
+    # TLS/SSL configuration fields
+    tls_verify_disabled: Optional[bool] = None
+    tls_ca_cert_path: Optional[str] = None
+    tls_use_system_cas: Optional[bool] = None
+
     @classmethod
     def supported_models(cls) -> list[str]:
         """Returns a list of supported models in regex for LlmRegistry."""
         return [r"gpt-.*", r"o1-.*"]
 
+    def _get_tls_config(self) -> tuple[bool, Optional[str], bool]:
+        """Read TLS configuration from instance fields or environment variables.
+
+        Returns:
+            Tuple of (verify_disabled, ca_cert_path, use_system_cas)
+        """
+        # Read from instance fields first, fall back to environment variables
+        verify_disabled = self.tls_verify_disabled
+        if verify_disabled is None:
+            env_verify = os.environ.get("TLS_VERIFY_DISABLED", "false").lower()
+            verify_disabled = env_verify == "true"
+
+        ca_cert_path = self.tls_ca_cert_path
+        if ca_cert_path is None:
+            ca_cert_path = os.environ.get("TLS_CA_CERT_PATH")
+
+        use_system_cas = self.tls_use_system_cas
+        if use_system_cas is None:
+            env_use_system = os.environ.get("TLS_USE_SYSTEM_CAS", "true").lower()
+            use_system_cas = env_use_system == "true"
+
+        return verify_disabled, ca_cert_path, use_system_cas
+
+    def _create_http_client(self) -> Optional[httpx.AsyncClient]:
+        """Create httpx.AsyncClient with custom SSL context if TLS config is present.
+
+        Returns:
+            httpx.AsyncClient with SSL configuration, or None if no TLS config
+        """
+        verify_disabled, ca_cert_path, use_system_cas = self._get_tls_config()
+
+        # Only create custom http client if TLS configuration is present
+        if verify_disabled or ca_cert_path:
+            ssl_context = create_ssl_context(
+                verify_disabled=verify_disabled,
+                ca_cert_path=ca_cert_path,
+                use_system_cas=use_system_cas,
+            )
+
+            # ssl_context is either False (verification disabled) or SSLContext
+            return httpx.AsyncClient(verify=ssl_context)
+
+        # No TLS configuration, return None to use OpenAI SDK default
+        return None
+
     @cached_property
     def _client(self) -> AsyncOpenAI:
-        """Get the OpenAI client."""
+        """Get the OpenAI client with optional custom SSL configuration."""
+        http_client = self._create_http_client()
 
         return AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url or None,
             default_headers=self.default_headers,
             timeout=self.timeout,
+            http_client=http_client,
         )
 
     async def generate_content_async(
@@ -400,7 +455,7 @@ class AzureOpenAI(BaseOpenAI):
 
     @cached_property
     def _client(self) -> AsyncAzureOpenAI:
-        """Get the Azure OpenAI client."""
+        """Get the Azure OpenAI client with optional custom SSL configuration."""
         api_version = self.api_version or os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
         azure_endpoint = self.azure_endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
         api_key = self.api_key or os.environ.get("AZURE_OPENAI_API_KEY")
@@ -415,9 +470,12 @@ class AzureOpenAI(BaseOpenAI):
                 "API key must be provided either via api_key parameter or AZURE_OPENAI_API_KEY environment variable"
             )
 
+        http_client = self._create_http_client()
+
         return AsyncAzureOpenAI(
             api_key=api_key,
             api_version=api_version,
             azure_endpoint=azure_endpoint,
             default_headers=self.default_headers,
+            http_client=http_client,
         )

@@ -545,7 +545,61 @@ func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1al
 
 const (
 	googleCredsVolumeName = "google-creds"
+	tlsCACertVolumeName   = "tls-ca-cert"
+	tlsCACertMountPath    = "/etc/ssl/certs/custom"
 )
+
+// addTLSConfiguration adds TLS certificate volumes and environment variables to modelDeploymentData
+// when TLS configuration is present in the ModelConfig.
+func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig) {
+	if tlsConfig == nil {
+		return
+	}
+
+	// Add environment variables for TLS configuration
+	modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars,
+		corev1.EnvVar{
+			Name:  "TLS_VERIFY_DISABLED",
+			Value: fmt.Sprintf("%t", tlsConfig.VerifyDisabled),
+		},
+		corev1.EnvVar{
+			Name:  "TLS_USE_SYSTEM_CAS",
+			Value: fmt.Sprintf("%t", tlsConfig.UseSystemCAs),
+		},
+	)
+
+	// Add Secret volume mount if CA certificate Secret is specified
+	if tlsConfig.CACertSecretRef != "" {
+		certKey := tlsConfig.CACertSecretKey
+		if certKey == "" {
+			certKey = "ca.crt" // Default value
+		}
+
+		// Add TLS_CA_CERT_PATH environment variable
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+			Name:  "TLS_CA_CERT_PATH",
+			Value: fmt.Sprintf("%s/%s", tlsCACertMountPath, certKey),
+		})
+
+		// Add volume from Secret
+		modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
+			Name: tlsCACertVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  tlsConfig.CACertSecretRef,
+					DefaultMode: ptr.To(int32(0444)), // Read-only for all users
+				},
+			},
+		})
+
+		// Add volume mount
+		modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
+			Name:      tlsCACertVolumeName,
+			MountPath: tlsCACertMountPath,
+			ReadOnly:  true,
+		})
+	}
+}
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, error) {
 	model := &v1alpha2.ModelConfig{}
@@ -555,6 +609,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	}
 
 	modelDeploymentData := &modelDeploymentData{}
+
+	// Add TLS configuration if present
+	addTLSConfiguration(modelDeploymentData, model.Spec.TLS)
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:

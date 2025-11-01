@@ -202,6 +202,41 @@ type OllamaConfig struct {
 
 type GeminiConfig struct{}
 
+// TLSConfig contains TLS/SSL configuration options for model provider connections.
+// This enables agents to connect to internal LiteLLM gateways or other providers
+// that use self-signed certificates or custom certificate authorities.
+type TLSConfig struct {
+	// VerifyDisabled disables SSL certificate verification entirely.
+	// WARNING: This should ONLY be used in development/testing environments.
+	// Production deployments MUST use proper certificates.
+	// +optional
+	// +kubebuilder:default=false
+	VerifyDisabled bool `json:"verifyDisabled,omitempty"`
+
+	// CACertSecretRef is a reference to a Kubernetes Secret containing
+	// CA certificate(s) in PEM format. The Secret must be in the same
+	// namespace as the ModelConfig.
+	// When set, the certificate will be used to verify the provider's SSL certificate.
+	// This field follows the same pattern as APIKeySecretRef.
+	// +optional
+	CACertSecretRef string `json:"caCertSecretRef,omitempty"`
+
+	// CACertSecretKey is the key within the Secret that contains the CA certificate data.
+	// This field follows the same pattern as APIKeySecretKey.
+	// Required when CACertSecretRef is set.
+	// +optional
+	// +kubebuilder:default="ca.crt"
+	CACertSecretKey string `json:"caCertSecretKey,omitempty"`
+
+	// UseSystemCAs determines whether to use system CA certificates in addition
+	// to custom CA certificates. When true, both system and custom CAs are trusted (additive).
+	// When false, only the custom CA from CACertSecretRef is trusted.
+	// This allows connecting to both public and internal services with a single configuration.
+	// +optional
+	// +kubebuilder:default=true
+	UseSystemCAs bool `json:"useSystemCAs,omitempty"`
+}
+
 // ModelConfigSpec defines the desired state of ModelConfig.
 //
 // +kubebuilder:validation:XValidation:message="provider.openAI must be nil if the provider is not OpenAI",rule="!(has(self.openAI) && self.provider != 'OpenAI')"
@@ -211,6 +246,8 @@ type GeminiConfig struct{}
 // +kubebuilder:validation:XValidation:message="provider.gemini must be nil if the provider is not Gemini",rule="!(has(self.gemini) && self.provider != 'Gemini')"
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
+// +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && self.tls.caCertSecretKey != '' && (!has(self.tls.caCertSecretRef) || self.tls.caCertSecretRef == ''))"
+// +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey",rule="!(has(self.tls) && has(self.tls.caCertSecretRef) && self.tls.caCertSecretRef != '' && (!has(self.tls.caCertSecretKey) || self.tls.caCertSecretKey == ''))"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
@@ -262,6 +299,12 @@ type ModelConfigSpec struct {
 	// Anthropic-specific configuration
 	// +optional
 	AnthropicVertexAI *AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+
+	// TLS configuration for provider connections.
+	// Enables agents to connect to internal LiteLLM gateways or other providers
+	// that use self-signed certificates or custom certificate authorities.
+	// +optional
+	TLS *TLSConfig `json:"tls,omitempty"`
 }
 
 // Model Configurations
