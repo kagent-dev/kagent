@@ -1,0 +1,19 @@
+{{- if and .Values.slackbot.enabled .Values.slackbot.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kagent.fullname" . }}-slackbot
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.slackbot.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.slackbot.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.slackbot.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.slackbot.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.slackbot.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kagent.slackbot.selectorLabels" . | nindent 6 }}
+{{- end }}

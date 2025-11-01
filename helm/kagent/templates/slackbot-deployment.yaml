@@ -1,0 +1,119 @@
+{{- if .Values.slackbot.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-slackbot
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.slackbot.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.slackbot.autoscaling.enabled }}
+  replicas: {{ .Values.slackbot.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kagent.slackbot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.slackbot.podAnnotations | default .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "kagent.slackbot.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "kagent.fullname" . }}-slackbot
+      {{- with .Values.slackbot.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.slackbot.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: slackbot
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.slackbot.image.registry | default .Values.registry }}/{{ .Values.slackbot.image.repository }}:{{ coalesce .Values.tag .Values.slackbot.image.tag .Chart.Version }}"
+          imagePullPolicy: {{ .Values.slackbot.image.pullPolicy | default .Values.imagePullPolicy }}
+          env:
+            # Slack credentials from secret
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-slackbot-secrets
+                  key: slack-bot-token
+            - name: SLACK_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-slackbot-secrets
+                  key: slack-app-token
+            - name: SLACK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.fullname" . }}-slackbot-secrets
+                  key: slack-signing-secret
+            # Kagent configuration
+            - name: KAGENT_BASE_URL
+              value: "http://{{ include "kagent.fullname" . }}-controller.{{ include "kagent.namespace" . }}.svc.cluster.local:{{ .Values.controller.service.ports.port }}"
+            - name: KAGENT_TIMEOUT
+              value: {{ .Values.slackbot.config.kagentTimeout | quote }}
+            # Server configuration
+            - name: SERVER_HOST
+              value: {{ .Values.slackbot.config.serverHost | quote }}
+            - name: SERVER_PORT
+              value: {{ .Values.slackbot.config.serverPort | quote }}
+            # Logging
+            - name: LOG_LEVEL
+              value: {{ .Values.slackbot.config.logLevel | quote }}
+            # Permissions file
+            - name: PERMISSIONS_FILE
+              value: "/app/config/permissions.yaml"
+            {{- with .Values.slackbot.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.slackbot.config.serverPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.slackbot.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: permissions-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: permissions-config
+          configMap:
+            name: {{ include "kagent.fullname" . }}-slackbot-config
+            items:
+              - key: permissions.yaml
+                path: permissions.yaml
+{{- end }}
