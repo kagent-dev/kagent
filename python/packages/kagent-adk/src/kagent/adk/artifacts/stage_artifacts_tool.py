@@ -1,93 +1,58 @@
 from __future__ import annotations
 
 import logging
-import os
-import tempfile
+import mimetypes
 from pathlib import Path
 from typing import Any, List
 
-from typing_extensions import override
-
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
+from typing_extensions import override
+
+from .session_path import get_session_path
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
-
-def get_session_staging_path(session_id: str, app_name: str, skills_directory: Path) -> Path:
-    """Creates (if needed) and returns the path to a session's staging directory.
-
-    This function provides a consistent, isolated filesystem environment for each
-    session. It creates a root directory for the session and populates it with
-    an 'uploads' folder and a symlink to the static 'skills' directory.
-
-    Args:
-        session_id: The unique ID of the current session.
-        app_name: The name of the application, used for namespacing.
-        skills_directory: The path to the static skills directory.
-
-    Returns:
-        The resolved path to the session's root staging directory.
-    """
-    base_path = Path(tempfile.gettempdir()) / "adk_sessions" / app_name
-    session_path = base_path / session_id
-
-    # Create the session and uploads directories
-    (session_path / "uploads").mkdir(parents=True, exist_ok=True)
-
-    # Symlink the static skills directory into the session directory
-    if skills_directory and skills_directory.exists():
-        skills_symlink = session_path / "skills"
-        if not skills_symlink.exists():
-            try:
-                os.symlink(
-                    skills_directory.resolve(),
-                    skills_symlink,
-                    target_is_directory=True,
-                )
-            except OSError as e:
-                logger.error(f"Failed to create skills symlink: {e}")
-
-    return session_path.resolve()
+# Maximum file size for staging (100 MB)
+MAX_ARTIFACT_SIZE_BYTES = 100 * 1024 * 1024
 
 
 class StageArtifactsTool(BaseTool):
     """A tool to stage artifacts from the artifact service to the local filesystem.
 
-    This tool bridges the gap between the artifact store and the skills system,
-    enabling skills to work with user-uploaded files through a two-phase workflow:
-    1. Stage: Copy artifacts from artifact store to local 'uploads/' directory
-    2. Execute: Use the staged files in bash commands with skills
+    This tool enables working with user-uploaded files by staging them from the
+    artifact store to a local working directory where they can be accessed by
+    scripts, commands, and other tools.
 
-    This is essential for the skills workflow where user-uploaded files must be
-    accessible to skill scripts and commands.
+    Workflow:
+    1. Stage: Copy artifacts from artifact store to local 'uploads/' directory
+    2. Access: Use the staged files in commands, scripts, or other processing
     """
 
-    def __init__(self, skills_directory: Path):
+    def __init__(self):
         super().__init__(
             name="stage_artifacts",
             description=(
                 "Stage artifacts from the artifact store to a local filesystem path, "
-                "making them available for use with skills and the bash tool.\n\n"
+                "making them available for processing by tools and scripts.\n\n"
                 "WORKFLOW:\n"
-                "1. When a user uploads a file, it's stored as an artifact (e.g., 'artifact_xyz')\n"
+                "1. When a user uploads a file, it's stored as an artifact with a name\n"
                 "2. Use this tool to copy the artifact to your local 'uploads/' directory\n"
-                "3. Then reference the staged file path in bash commands\n\n"
+                "3. Then reference the staged file path in commands or scripts\n\n"
                 "USAGE EXAMPLE:\n"
-                "- stage_artifacts(artifact_names=['artifact_xyz'])\n"
-                "  Returns: 'Successfully staged 1 artifact(s) to: uploads/artifact_xyz'\n"
-                "- Use the returned path in bash: bash('python skills/data-analysis/scripts/process.py uploads/artifact_xyz')\n\n"
+                "- stage_artifacts(artifact_names=['data.csv'])\n"
+                "  Returns: 'Successfully staged 1 file(s): uploads/data.csv (1.2 MB)'\n"
+                "- Then use: bash('python scripts/process.py uploads/data.csv')\n\n"
                 "PARAMETERS:\n"
                 "- artifact_names: List of artifact names to stage (required)\n"
                 "- destination_path: Target directory within session (default: 'uploads/')\n\n"
                 "BEST PRACTICES:\n"
-                "- Always stage artifacts before using them in skills\n"
+                "- Always stage artifacts before using them\n"
                 "- Use default 'uploads/' destination for consistency\n"
                 "- Stage all artifacts at the start of your workflow\n"
                 "- Check returned paths to confirm successful staging"
             ),
         )
-        self._skills_directory = skills_directory
 
     def _get_declaration(self) -> types.FunctionDeclaration | None:
         return types.FunctionDeclaration(
@@ -100,7 +65,7 @@ class StageArtifactsTool(BaseTool):
                         type=types.Type.ARRAY,
                         description=(
                             "List of artifact names to stage. These are artifact identifiers "
-                            "provided by the system when files are uploaded (e.g., 'artifact_abc123'). "
+                            "provided by the system when files are uploaded. "
                             "The tool will copy each artifact from the artifact store to the destination directory."
                         ),
                         items=types.Schema(type=types.Type.STRING),
@@ -129,11 +94,7 @@ class StageArtifactsTool(BaseTool):
             return "Error: Artifact service is not available in this context."
 
         try:
-            staging_root = get_session_staging_path(
-                session_id=tool_context.session.id,
-                app_name=tool_context._invocation_context.app_name,
-                skills_directory=self._skills_directory,
-            )
+            staging_root = get_session_path(session_id=tool_context.session.id)
             destination_dir = (staging_root / destination_path_str).resolve()
 
             # Security: Ensure the destination is within the staging path
@@ -142,23 +103,68 @@ class StageArtifactsTool(BaseTool):
 
             destination_dir.mkdir(parents=True, exist_ok=True)
 
-            output_paths = []
+            staged_files = []
             for name in artifact_names:
                 artifact = await tool_context.load_artifact(name)
                 if artifact is None or artifact.inline_data is None:
                     logger.warning('Artifact "%s" not found or has no data, skipping', name)
                     continue
 
-                output_file = destination_dir / name
-                output_file.write_bytes(artifact.inline_data.data)
-                relative_path = output_file.relative_to(staging_root)
-                output_paths.append(str(relative_path))
+                # Check file size
+                data_size = len(artifact.inline_data.data)
+                if data_size > MAX_ARTIFACT_SIZE_BYTES:
+                    size_mb = data_size / (1024 * 1024)
+                    logger.warning(f'Artifact "{name}" exceeds size limit: {size_mb:.1f} MB')
+                    continue
 
-            if not output_paths:
+                # Use artifact name as filename (frontend should provide meaningful names)
+                # If name has no extension, try to infer from MIME type
+                filename = self._ensure_proper_extension(name, artifact.inline_data.mime_type)
+                output_file = destination_dir / filename
+
+                # Write file to disk
+                output_file.write_bytes(artifact.inline_data.data)
+
+                relative_path = output_file.relative_to(staging_root)
+                size_kb = data_size / 1024
+                staged_files.append(f"{relative_path} ({size_kb:.1f} KB)")
+
+                logger.info(f"Staged artifact: {name} -> {relative_path} ({size_kb:.1f} KB)")
+
+            if not staged_files:
                 return "No valid artifacts were staged."
 
-            return f"Successfully staged {len(output_paths)} artifact(s) to: {', '.join(output_paths)}"
+            return f"Successfully staged {len(staged_files)} file(s):\n" + "\n".join(
+                f"  • {file}" for file in staged_files
+            )
 
         except Exception as e:
             logger.error("Error staging artifacts: %s", e, exc_info=True)
             return f"An error occurred while staging artifacts: {e}"
+
+    def _ensure_proper_extension(self, filename: str, mime_type: str) -> str:
+        """Ensure filename has proper extension based on MIME type.
+
+        If filename already has an extension, keep it.
+        If not, add extension based on MIME type.
+
+        Args:
+            filename: Original filename from artifact
+            mime_type: MIME type of the file
+
+        Returns:
+            Filename with proper extension
+        """
+        if not filename or not mime_type:
+            return filename
+
+        # If filename already has an extension, use it
+        if Path(filename).suffix:
+            return filename
+
+        # Try to infer extension from MIME type
+        extension = mimetypes.guess_extension(mime_type)
+        if extension:
+            return f"{filename}{extension}"
+
+        return filename

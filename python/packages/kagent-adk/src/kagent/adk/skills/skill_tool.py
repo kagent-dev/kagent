@@ -71,6 +71,7 @@ class SkillsTool(BaseTool):
             "- Only use skills listed in <available_skills> below\n"
             "- Do not invoke a skill that is already loaded in the conversation\n"
             "- After loading a skill, use the bash tool for execution\n"
+            "- If not specified, scripts are located in the skill-name/scripts subdirectory\n"
             "</skills_instructions>\n\n"
         )
 

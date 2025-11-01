@@ -1,31 +1,101 @@
 # ADK Skills
 
-Filesystem-based skills with progressive disclosure and two-tool architecture.
+Filesystem-based skills with progressive disclosure and two-tool architecture for domain expertise.
 
 ---
 
-## Overview
+## Quick Start
 
-Skills enable agents to specialize in domain expertise without bloating the main context. The **two-tool pattern** separates concerns:
+### Recommended: Plugin-Based (Multi-Agent Apps)
 
-- **SkillsTool** - Loads skill instructions
-- **BashTool** - Executes commands
-- **Semantic clarity** leads to better LLM reasoning
+```python
+from kagent.adk.skills import SkillsPlugin
+
+# Plugin automatically initializes sessions and registers all skills tools
+app = App(
+    root_agent=agent,
+    plugins=[SkillsPlugin(skills_directory="./skills")]
+)
+```
+
+**Benefits:**
+
+- ✅ Session paths initialized before any tool runs
+- ✅ Automatic tool registration on all agents
+- ✅ Handles custom skills directories correctly
+- ✅ No tool call order dependencies
+
+### Alternative: Direct Tool Usage
+
+```python
+from kagent.adk.skills import SkillsTool
+from kagent.adk.tools import BashTool, ReadFileTool, WriteFileTool, EditFileTool
+
+agent = Agent(
+    tools=[
+        SkillsTool(skills_directory="./skills"),
+        BashTool(skills_directory="./skills"),
+        ReadFileTool(),
+        WriteFileTool(),
+        EditFileTool(),
+    ]
+)
+```
+
+**Note:** Without SkillsPlugin, sessions auto-initialize with `/skills` directory. For custom skills paths, use the plugin.
+
+---
+
+## Session Initialization
+
+Skills uses a **plugin-based initialization pattern** to ensure session working directories are set up before any tools run.
+
+### How It Works
+
+```text
+App Starts
+    ↓
+SkillsPlugin initialized with skills_directory
+    ↓
+First Agent Turn
+    ↓
+before_agent_callback() hook fires
+    ↓
+Session path initialized with skills symlink
+    ↓
+Tools registered on agent
+    ↓
+Tools execute (session already initialized)
+```
+
+**Key Points:**
+
+- `SkillsPlugin.before_agent_callback()` fires **before any tool invocation**
+- Creates `/tmp/kagent/{session_id}/` with `skills/` symlink
+- All tools use `get_session_path(session_id)` which returns cached path
+- **No tool call order dependencies** - session always ready
+
+**Without Plugin:**
+
+- Tools auto-initialize session with default `/skills` on first call
+- Works fine if skills are at `/skills` location
+- For custom paths, use SkillsPlugin
+
+---
+
+## Architecture
 
 ### Skill Structure
 
 ```text
 skills/
 ├── data-analysis/
-│   ├── SKILL.md        # Metadata + instructions (YAML frontmatter)
-│   └── scripts/
+│   ├── SKILL.md        # Metadata (YAML frontmatter) + instructions
+│   └── scripts/        # Python scripts, configs, etc.
 │       └── analyze.py
-└── pdf-processing/
-    ├── SKILL.md
-    └── scripts/
 ```
 
-**SKILL.md:**
+**SKILL.md Example:**
 
 ```markdown
 ---
@@ -35,183 +105,113 @@ description: Analyze CSV/Excel files
 
 # Data Analysis
 
-...instructions...
+...instructions for the agent...
 ```
 
----
-
-## Quick Start
-
-**Two-Tool Pattern (Recommended):**
-
-```python
-from kagent.adk.skills import SkillsTool, BashTool, StageArtifactsTool
-
-agent = Agent(
-    tools=[
-        SkillsTool(skills_directory="./skills"),
-        BashTool(skills_directory="./skills"),
-        StageArtifactsTool(skills_directory="./skills"),
-    ]
-)
-```
-
-**With Plugin (Multi-Agent Apps):**
-
-```python
-from kagent.adk.skills import SkillsPlugin
-
-app = App(root_agent=agent, plugins=[SkillsPlugin(skills_directory="./skills")])
-```
-
-**Legacy Single-Tool (Backward Compat):**
-
-```python
-from kagent.adk.skills import SkillsShellTool
-
-agent = Agent(tools=[SkillsShellTool(skills_directory="./skills")])
-```
-
----
-
-## How It Works
-
-### Two-Tool Workflow
-
-```mermaid
-sequenceDiagram
-    participant A as Agent
-    participant S as SkillsTool
-    participant B as BashTool
-
-    A->>S: skills(command='data-analysis')
-    S-->>A: Full SKILL.md + base path
-    A->>B: bash("cd skills/data-analysis && python scripts/analyze.py file.csv")
-    B-->>A: Results
-```
+### Tool Workflow
 
 **Three Phases:**
 
-1. **Discovery** - Agent sees available skills in tool description
-2. **Loading** - Invoke skill with `command='skill-name'` → returns full SKILL.md
-3. **Execution** - Use BashTool with instructions from SKILL.md
+1. **Discovery** - Agent sees available skills in SkillsTool description
+2. **Loading** - Agent calls `skills(command='data-analysis')` → gets full SKILL.md
+3. **Execution** - Agent uses BashTool + file tools to run scripts per instructions
 
----
+| Tool           | Purpose                      | Example                                               |
+| -------------- | ---------------------------- | ----------------------------------------------------- |
+| **SkillsTool** | Load skill instructions      | `skills(command='data-analysis')`                     |
+| **BashTool**   | Execute commands             | `bash("cd skills/data-analysis && python script.py")` |
+| **ReadFile**   | Read files with line numbers | `read_file("skills/data-analysis/config.json")`       |
+| **WriteFile**  | Create/overwrite files       | `write_file("outputs/report.pdf", data)`              |
+| **EditFile**   | Precise string replacements  | `edit_file("script.py", old="x", new="y")`            |
 
-## Architecture
+### Working Directory Structure
 
-```mermaid
-graph LR
-    Agent[Agent] -->|Load<br/>skill details| SkillsTool["SkillsTool<br/>(Discovery)"]
-    Agent -->|Execute<br/>commands| BashTool["BashTool<br/>(Execution)"]
-    SkillsTool -->|Embedded in<br/>description| Skills["Available<br/>Skills List"]
+Each session gets an isolated working directory with symlinked skills:
+
+```text
+/tmp/kagent/{session_id}/
+├── skills/      → symlink to /skills (read-only, shared across sessions)
+├── uploads/     → staged user files (writable)
+├── outputs/     → generated files for download (writable)
+└── *.py         → temporary scripts (writable)
 ```
 
-| Tool                   | Purpose             | Input                  | Output                    |
-| ---------------------- | ------------------- | ---------------------- | ------------------------- |
-| **SkillsTool**         | Load skill metadata | `command='skill-name'` | Full SKILL.md + base path |
-| **BashTool**           | Execute safely      | Command string         | Script output             |
-| **StageArtifactsTool** | Stage uploads       | Artifact names         | File paths in `uploads/`  |
+**Path Resolution:**
+
+- Relative paths resolve from working directory: `skills/data-analysis/script.py`
+- Absolute paths work too: `/tmp/kagent/{session_id}/outputs/report.pdf`
+- Skills symlink enables natural relative references while maintaining security
 
 ---
 
-## File Handling
+## Artifact Handling
 
-User uploads → Artifact → Stage → Execute:
+User uploads and downloads are managed through artifact tools:
 
 ```python
-# 1. Stage uploaded file
-stage_artifacts(artifact_names=["artifact_123"])
+# 1. Stage uploaded file from artifact service
+stage_artifacts(artifact_names=["sales_data.csv"])
+# → Writes to: uploads/sales_data.csv
 
-# 2. Use in skill script
-bash("cd skills/data-analysis && python scripts/analyze.py uploads/artifact_123")
+# 2. Agent processes file
+bash("python skills/data-analysis/scripts/analyze.py uploads/sales_data.csv")
+# → Script writes: outputs/report.pdf
+
+# 3. Return generated file
+return_artifacts(file_paths=["outputs/report.pdf"])
+# → Saves to artifact service for user download
 ```
+
+**Flow:** User Upload → Artifact Service → `uploads/` → Processing → `outputs/` → Artifact Service → User Download
 
 ---
 
 ## Security
 
-**SkillsTool:**
+**Read-only skills directory:**
 
-- ✅ Read-only (no execution)
-- ✅ Validates skill existence
-- ✅ Caches results
+- Skills at `/skills` are read-only (enforced by sandbox)
+- Symlink at `skills/` inherits read-only permissions
+- Agents cannot modify skill code or instructions
 
-**BashTool:**
+**File tools:**
 
-- ✅ Whitelisted commands only (`ls`, `cat`, `python`, `pip`, etc.)
-- ✅ No destructive ops (`rm`, `mv`, `chmod` blocked)
-- ✅ Directory restrictions (no `..`)
-- ✅ 30-second timeout
-- ✅ Subprocess isolation
+- Path traversal protection (no `..`)
+- Session isolation (each session has separate working directory)
+- File size limits (100 MB max)
 
----
+**Bash tool:**
 
-## Components
-
-| File                      | Purpose                      |
-| ------------------------- | ---------------------------- |
-| `skills_invoke_tool.py`   | Discovery & loading          |
-| `bash_tool.py`            | Command execution            |
-| `stage_artifacts_tool.py` | File staging                 |
-| `skills_plugin.py`        | Auto-registration (optional) |
-| `skills_shell_tool.py`    | Legacy all-in-one            |
+- Sandboxed execution via Anthropic Sandbox Runtime
+- Command timeouts (30s default, 120s for pip install)
+- Working directory restrictions
 
 ---
 
-## Examples
-
-### Example 1: Data Analysis
+## Example Agent Flow
 
 ```python
-# Agent loads skill
-agent.invoke(tools=[
-    SkillsTool(skills_directory="./skills"),
-    BashTool(skills_directory="./skills"),
-], prompt="Analyze this CSV file")
+# User asks: "Analyze my sales data"
 
-# Agent flow:
-# 1. Calls: skills(command='data-analysis')
-# 2. Gets: Full SKILL.md with instructions
-# 3. Calls: bash("cd skills/data-analysis && python scripts/analyze.py file.csv")
-# 4. Returns: Analysis results
+# 1. Agent discovers available skills
+#    → SkillsTool description lists: data-analysis, pdf-processing, etc.
+
+# 2. Agent loads skill instructions
+agent: skills(command='data-analysis')
+#    → Returns full SKILL.md with detailed instructions
+
+# 3. Agent stages uploaded file
+agent: stage_artifacts(artifact_names=["sales_data.csv"])
+#    → File available at: uploads/sales_data.csv
+
+# 4. Agent reads skill script to understand it
+agent: read_file("skills/data-analysis/scripts/analyze.py")
+
+# 5. Agent executes analysis
+agent: bash("cd skills/data-analysis && python scripts/analyze.py ../../uploads/sales_data.csv")
+#    → Script generates: outputs/analysis_report.pdf
+
+# 6. Agent returns result
+agent: return_artifacts(file_paths=["outputs/analysis_report.pdf"])
+#    → User can download report.pdf
 ```
-
-### Example 2: Multi-Agent App
-
-```python
-# Register skills on all agents
-app = App(
-    root_agent=agent,
-    plugins=[SkillsPlugin(skills_directory="./skills")]
-)
-```
-
----
-
-## Comparison with Claude
-
-ADK follows Claude's two-tool pattern exactly:
-
-| Aspect         | Claude              | ADK                    |
-| -------------- | ------------------- | ---------------------- |
-| Discovery tool | Skills tool         | SkillsTool ✅          |
-| Execution tool | Bash tool           | BashTool ✅            |
-| Parameter      | `command`           | `command` ✅           |
-| Pattern        | Two-tool separation | Two-tool separation ✅ |
-
----
-
-## What Changed
-
-**Before:** Single `SkillsShellTool` (all-in-one)  
-**Now:** Two-tool architecture (discovery + execution)
-
-| Feature                | Before    | After             |
-| ---------------------- | --------- | ----------------- |
-| Semantic clarity       | Mixed     | Separated ✅      |
-| LLM reasoning          | Implicit  | Explicit ✅       |
-| Progressive disclosure | Guideline | Enforced ✅       |
-| Industry alignment     | Custom    | Claude pattern ✅ |
-
-All previous code still works (backward compatible via `SkillsShellTool`).
