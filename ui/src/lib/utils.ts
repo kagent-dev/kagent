@@ -153,3 +153,11 @@ export function convertToUserFriendlyName(name: string): string {
 export function isAgentToolName(name: string | undefined): boolean {
   return typeof name === "string" && name.includes(NAMESPACE_SEPARATOR);
 }
+
+
+
+
+
+
+
+

@@ -5,7 +5,7 @@ import { DeleteButton } from "@/components/DeleteAgentButton";
 import KagentLogo from "@/components/kagent-logo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, AlertCircle, Clock } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,7 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
     agent.metadata.namespace || '',
     agent.metadata.name || ''
   );
+
   const isBYO = agent.spec?.type === "BYO";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
   const isReady = deploymentReady && accepted;
@@ -28,6 +29,24 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
     e.stopPropagation();
     router.push(`/agents/new?edit=true&name=${agent.metadata.name}&namespace=${agent.metadata.namespace}`);
   };
+
+  const getStatusInfo = () => {
+    if (!accepted) {
+      return {
+        message: "Agent not Accepted",
+        className:"bg-red-500/10 text-red-600 dark:text-red-500"
+      };
+    }
+    if (!deploymentReady) {
+      return {
+        message: "Agent not Ready",
+        className:"bg-yellow-400/30 text-yellow-800 dark:bg-yellow-500/40 dark:text-yellow-200"
+      };
+    }
+    return null;
+  };
+
+  const statusInfo = getStatusInfo();
 
   const cardContent = (
     <Card className={cn(
@@ -69,37 +88,12 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
           )}
         </div>
       </CardContent>
-
-      {!isReady && (
+      {statusInfo && (
         <div className={cn(
-          "absolute inset-0 rounded-xl flex flex-col items-center justify-center z-20 backdrop-blur-[2px]",
-          !accepted 
-            ? "bg-destructive/90" 
-            : "bg-secondary/90"
+          "absolute bottom-0 left-0 right-0 z-20 py-1.5 px-4 text-right text-xs font-medium rounded-b-xl",
+          statusInfo.className
         )}>
-          <div className="text-center px-6 py-8 max-w-[80%]">
-            <div className="flex justify-center mb-4">
-              {!accepted ? (
-                <AlertCircle className="h-12 w-12 text-destructive-foreground drop-shadow-lg" />
-              ) : (
-                <Clock className="h-12 w-12 text-secondary-foreground drop-shadow-lg" />
-              )}
-            </div>
-            <h3 className={cn(
-              "font-bold text-2xl mb-3 drop-shadow-lg",
-              !accepted ? "text-destructive-foreground" : "text-secondary-foreground"
-            )}>
-              {!accepted ? "Agent not Accepted" : "Agent not Ready"}
-            </h3>
-            <p className={cn(
-              "text-base drop-shadow",
-              !accepted ? "text-destructive-foreground/95" : "text-secondary-foreground/90"
-            )}>
-              {!accepted 
-                ? "Configuration needs review" 
-                : "Still deploying..."}
-            </p>
-          </div>
+          {statusInfo.message}
         </div>
       )}
     </Card>

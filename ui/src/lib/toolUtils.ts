@@ -1,3 +1,4 @@
+import { k8sRefUtils } from "@/lib/k8sUtils";
 import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
 
 
@@ -15,6 +16,26 @@ export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: Ty
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const obj = value as any;
   return obj.type === "Agent" && obj.agent && typeof obj.agent === "object" && typeof obj.agent.name === "string";
+};
+
+// Compare server names it handles both "namespace/name" refs and plain names
+export const serverNamesMatch = (serverName1: string, serverName2: string): boolean => {
+  if (!serverName1 || !serverName2) return false;
+  
+  if (serverName1 === serverName2) return true;
+  
+  try {
+    const name1 = k8sRefUtils.isValidRef(serverName1) 
+      ? k8sRefUtils.fromRef(serverName1).name 
+      : serverName1;
+    const name2 = k8sRefUtils.isValidRef(serverName2) 
+      ? k8sRefUtils.fromRef(serverName2).name 
+      : serverName2;
+    
+    return name1 === name2;
+  } catch {
+    return false;
+  }
 };
 
 export const isAgentResponse = (value: unknown): value is AgentResponse => {
@@ -68,7 +89,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
     }
   });
 
-  // Convert to Tool objects - preserve original kind and apiGroup from the first tool of each server
+  // Convert to Tool objects- preserve original kind and apiGroup from the first tool of each server
   const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => {
     // Find the first tool from this server to get its kind and apiGroup
     const originalTool = tools.find(tool => 
