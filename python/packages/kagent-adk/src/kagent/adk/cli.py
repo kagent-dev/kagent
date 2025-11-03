@@ -13,7 +13,7 @@ from kagent.core import KAgentConfig, configure_tracing
 from .skill_fetcher import fetch_skill
 
 from . import AgentConfig, KAgentApp
-from .skills.skills_plugin import add_skills_tool_to_agent
+from .skills.skills_plugin import SkillsPlugin
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
@@ -41,9 +41,11 @@ def static(
     skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
     if skills_directory:
         logger.info(f"Adding skills from directory: {skills_directory}")
-        add_skills_tool_to_agent(skills_directory, root_agent)
+        plugins = [SkillsPlugin(skills_directory=skills_directory)]
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
+    kagent_app = KAgentApp(
+        root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins if skills_directory else None
+    )
 
     server = kagent_app.build()
     configure_tracing(server)
