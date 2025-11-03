@@ -12,18 +12,25 @@
       "text"
     ],
     "description": "",
-    "name": "agent_with_configmap_system_message",
+    "name": "skills_agent",
     "skills": null,
-    "url": "http://agent-with-configmap-system-message.test:8080",
+    "url": "http://skills-agent.test:8080",
     "version": ""
   },
   "config": {
     "description": "",
     "http_tools": null,
-    "instruction": "Speak in the style of Shakespeare.",
+    "instruction": "You are a helpful assistant.",
     "model": {
       "base_url": "",
+      "headers": {
+        "User-Agent": "kagent/1.0"
+      },
+      "max_tokens": 1024,
       "model": "gpt-4o",
+      "reasoning_effort": "low",
+      "temperature": 0.7,
+      "top_p": 0.95,
       "type": "openai"
     },
     "remote_agents": null,
@@ -37,11 +44,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-configmap-system-message",
+          "app.kubernetes.io/name": "skills-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-configmap-system-message"
+          "kagent": "skills-agent"
         },
-        "name": "agent-with-configmap-system-message",
+        "name": "skills-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -49,14 +56,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-configmap-system-message",
+            "name": "skills-agent",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_configmap_system_message\",\"description\":\"\",\"url\":\"http://agent-with-configmap-system-message.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"Speak in the style of Shakespeare.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
+        "agent-card.json": "{\"name\":\"skills_agent\",\"description\":\"\",\"url\":\"http://skills-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"reasoning_effort\":\"low\",\"temperature\":0.7,\"top_p\":0.95},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -66,11 +73,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-configmap-system-message",
+          "app.kubernetes.io/name": "skills-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-configmap-system-message"
+          "kagent": "skills-agent"
         },
-        "name": "agent-with-configmap-system-message",
+        "name": "skills-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -78,7 +85,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-configmap-system-message",
+            "name": "skills-agent",
             "uid": ""
           }
         ]
@@ -91,11 +98,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-configmap-system-message",
+          "app.kubernetes.io/name": "skills-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-configmap-system-message"
+          "kagent": "skills-agent"
         },
-        "name": "agent-with-configmap-system-message",
+        "name": "skills-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -103,7 +110,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-configmap-system-message",
+            "name": "skills-agent",
             "uid": ""
           }
         ]
@@ -112,7 +119,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "agent-with-configmap-system-message"
+            "kagent": "skills-agent"
           }
         },
         "strategy": {
@@ -125,14 +132,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "13546320712459619772"
+              "kagent.dev/config-hash": "11542988705138343495"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "agent-with-configmap-system-message",
+              "app.kubernetes.io/name": "skills-agent",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "agent-with-configmap-system-message"
+              "kagent": "skills-agent"
             }
           },
           "spec": {
@@ -175,6 +182,10 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
+                  },
+                  {
+                    "name": "KAGENT_SKILLS_FOLDER",
+                    "value": "/skills"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
@@ -197,18 +208,26 @@
                 },
                 "resources": {
                   "limits": {
-                    "cpu": "2",
-                    "memory": "1Gi"
+                    "cpu": "3",
+                    "memory": "2Gi"
                   },
                   "requests": {
-                    "cpu": "100m",
-                    "memory": "384Mi"
+                    "cpu": "200m",
+                    "memory": "684Mi"
                   }
+                },
+                "securityContext": {
+                  "privileged": true
                 },
                 "volumeMounts": [
                   {
                     "mountPath": "/config",
                     "name": "config"
+                  },
+                  {
+                    "mountPath": "/skills",
+                    "name": "kagent-skills",
+                    "readOnly": true
                   },
                   {
                     "mountPath": "/var/run/secrets/tokens",
@@ -217,13 +236,43 @@
                 ]
               }
             ],
-            "serviceAccountName": "agent-with-configmap-system-message",
+            "initContainers": [
+              {
+                "args": [
+                  "foo:latest"
+                ],
+                "command": [
+                  "kagent-adk",
+                  "pull-skills"
+                ],
+                "env": [
+                  {
+                    "name": "KAGENT_SKILLS_FOLDER",
+                    "value": "/skills"
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "name": "skills-init",
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/skills",
+                    "name": "kagent-skills"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "skills-agent",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "agent-with-configmap-system-message"
+                  "secretName": "skills-agent"
                 }
+              },
+              {
+                "emptyDir": {},
+                "name": "kagent-skills"
               },
               {
                 "name": "kagent-token",
@@ -252,11 +301,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-configmap-system-message",
+          "app.kubernetes.io/name": "skills-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-configmap-system-message"
+          "kagent": "skills-agent"
         },
-        "name": "agent-with-configmap-system-message",
+        "name": "skills-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -264,7 +313,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-configmap-system-message",
+            "name": "skills-agent",
             "uid": ""
           }
         ]
@@ -279,7 +328,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "agent-with-configmap-system-message"
+          "kagent": "skills-agent"
         },
         "type": "ClusterIP"
       },

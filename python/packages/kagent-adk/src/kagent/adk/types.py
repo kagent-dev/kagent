@@ -11,7 +11,10 @@ from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams, StreamableHTTPConnectionParams
+from google.adk.code_executors.base_code_executor import BaseCodeExecutor
+from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from pydantic import BaseModel, Field
+from typing import Optional
 
 from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
@@ -92,6 +95,7 @@ class AgentConfig(BaseModel):
     http_tools: list[HttpMcpServerConfig] | None = None  # Streamable HTTP MCP tools
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
+    execute_code: bool | None = None
 
     def to_agent(self, name: str) -> Agent:
         if name is None or not str(name).strip():
@@ -122,6 +126,8 @@ class AgentConfig(BaseModel):
                 tools.append(AgentTool(agent=remote_a2a_agent))
 
         extra_headers = self.model.headers or {}
+
+        code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
 
         if self.model.type == "openai":
             model = OpenAINative(
@@ -161,4 +167,5 @@ class AgentConfig(BaseModel):
             description=self.description,
             instruction=self.instruction,
             tools=tools,
+            code_executor=code_executor,
         )

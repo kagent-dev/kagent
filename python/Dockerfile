@@ -47,6 +47,31 @@ RUN addgroup -g 1001 pythongroup                           && \
     mkdir    -p /python                                    && \
     chown    -vR 1001:1001 /.kagent /python
 
+# Install anthropic sandbox runtime and dependencies
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    apk add \
+    nodejs npm bubblewrap socat ripgrep
+
+# Install sandbox runtime from a specific commit of the GitHub repo without using global prefix
+# This avoids scope-related rename issues in global node_modules
+# Using BuildKit cache for npm to speed up rebuilds
+RUN --mount=type=cache,target=/root/.npm \
+    mkdir -p /opt && \
+    cd opt && \
+    git clone --depth 1 --revision=771f18664f97f6606c9ed64fc65f988b3ecf2e69 https://github.com/anthropic-experimental/sandbox-runtime.git && \
+    cd sandbox-runtime && \
+    npm install && \
+    npm run build && \
+    npm install -g
+
+# Ensure the sandbox runtime binaries are on PATH
+ENV PATH="/opt/sandbox-runtime/node_modules/.bin:$PATH"
+
+# Install anthropic sandbox runtime and dependencies
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    apk add \
+    crane
+
 USER python
 WORKDIR /.kagent
 
@@ -59,7 +84,7 @@ WORKDIR /.kagent
 ENV PATH=$PATH:/.kagent/bin:/.kagent/.venv/bin
 
 # Copy dependency files first for better layer caching
-COPY --chown=python:pythongroup pyproject.toml  .
+COPY --chown=python:pythongroup pyproject.toml .
 COPY --chown=python:pythongroup .python-version .
 COPY --chown=python:pythongroup uv.lock .
 COPY --chown=python:pythongroup packages/kagent-adk packages/kagent-adk

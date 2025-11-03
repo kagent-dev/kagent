@@ -53,6 +53,23 @@ type AgentSpec struct {
 
 	// +optional
 	Description string `json:"description,omitempty"`
+
+	// Skills to load into the agent. They will be pulled from the specified container images.
+	// and made available to the agent under the `/skills` folder.
+	// +optional
+	Skills *SkillForAgent `json:"skills,omitempty"`
+}
+
+type SkillForAgent struct {
+	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
+	// Meant for development and testing purposes only.
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+
+	// The list of skill images to fetch.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	Refs []string `json:"refs,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
@@ -85,6 +102,12 @@ type DeclarativeAgentSpec struct {
 
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
+
+	// Allow code execution for python code blocks with this agent.
+	// If true, the agent will automatically execute python code blocks in the LLM responses.
+	// Code will be executed in a sandboxed environment.
+	// +optional
+	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
@@ -112,10 +135,7 @@ type ByoDeploymentSpec struct {
 }
 
 type SharedDeploymentSpec struct {
-	// If not specified, the default value is 1.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
 	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
