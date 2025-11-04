@@ -1,17 +1,3 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 from __future__ import annotations
 
 import logging
@@ -23,7 +9,8 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.plugins import BasePlugin
 from google.genai import types
 
-from .bash_tool import BashTool
+from ..artifacts import initialize_session_path
+from ..tools import BashTool, EditFileTool, ReadFileTool, WriteFileTool
 from .skill_tool import SkillsTool
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -33,8 +20,8 @@ class SkillsPlugin(BasePlugin):
     """Convenience plugin for multi-agent apps to automatically register Skills tools.
 
     This plugin is purely a convenience wrapper that automatically adds the SkillsTool
-    and BashTool to all LLM agents in an application. It does not add any additional
-    functionality beyond tool registration.
+    and BashTool and related file tools to all LLM agents in an application.
+    It does not add any additional functionality beyond tool registration.
 
     For single-agent use cases or when you prefer explicit control, you can skip this plugin
     and directly add both tools to your agent's tools list.
@@ -45,6 +32,9 @@ class SkillsPlugin(BasePlugin):
             tools=[
                 SkillsTool(skills_directory="./skills"),
                 BashTool(skills_directory="./skills"),
+                ReadFileTool(),
+                WriteFileTool(),
+                EditFileTool(),
             ]
         )
 
@@ -68,7 +58,16 @@ class SkillsPlugin(BasePlugin):
     async def before_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
     ) -> Optional[types.Content]:
-        """Add skills tools to agents if not already present."""
+        """Initialize session path and add skills tools to agents if not already present.
+
+        This hook fires before any tools are invoked, ensuring the session working
+        directory is set up with the skills symlink before any tool needs it.
+        """
+        # Initialize session path FIRST (before tools run)
+        # This creates the working directory structure and skills symlink
+        session_id = callback_context.session.id
+        initialize_session_path(session_id, str(self.skills_directory))
+        logger.debug(f"Initialized session path for session: {session_id}")
 
         add_skills_tool_to_agent(self.skills_directory, agent)
 
@@ -96,3 +95,15 @@ def add_skills_tool_to_agent(skills_directory: str | Path, agent: BaseAgent) -> 
     if "bash" not in existing_tool_names:
         agent.tools.append(BashTool(skills_directory))
         logger.debug(f"Added bash tool to agent: {agent.name}")
+
+    if "read_file" not in existing_tool_names:
+        agent.tools.append(ReadFileTool())
+        logger.debug(f"Added read file tool to agent: {agent.name}")
+
+    if "write_file" not in existing_tool_names:
+        agent.tools.append(WriteFileTool())
+        logger.debug(f"Added write file tool to agent: {agent.name}")
+
+    if "edit_file" not in existing_tool_names:
+        agent.tools.append(EditFileTool())
+        logger.debug(f"Added edit file tool to agent: {agent.name}")
