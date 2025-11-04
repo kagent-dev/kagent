@@ -30,7 +30,6 @@ import pytest
 from kagent.adk.models._openai import OpenAI
 from kagent.adk.models._ssl import create_ssl_context, get_ssl_troubleshooting_message, validate_certificate
 
-
 # ============================================================================
 # Test Fixtures
 # ============================================================================
@@ -68,32 +67,28 @@ def mock_env_vars(temp_cert_file):
     env_vars = {
         "TLS_VERIFY_DISABLED": "false",
         "TLS_CA_CERT_PATH": temp_cert_file,
-        "TLS_USE_SYSTEM_CAS": "true",
+        "TLS_DISABLE_SYSTEM_CAS": "false",
     }
     with mock.patch.dict(os.environ, env_vars, clear=False):
         yield env_vars
 
 
 # ============================================================================
-# Integration Test 1: End-to-End Environment Variable Flow
+# Integration Test 1: End-to-End Agent Config Flow
 # ============================================================================
 
 
-def test_e2e_environment_variable_to_ssl_context(mock_env_vars):
-    """Test end-to-end flow: Environment variables → SSL context creation."""
+def test_e2e_agent_config_to_ssl_context(temp_cert_file):
+    """Test end-to-end flow: Agent config JSON → SSL context creation."""
     # Simulate the flow in a Kubernetes pod:
-    # 1. Controller sets environment variables from ModelConfig TLS config
-    # 2. Python runtime reads environment variables
+    # 1. Controller generates agent config JSON with TLS fields from ModelConfig
+    # 2. Python runtime reads TLS config from agent config (not environment variables)
     # 3. SSL context is created
 
-    verify_disabled = os.getenv("TLS_VERIFY_DISABLED", "false").lower() == "true"
-    ca_cert_path = os.getenv("TLS_CA_CERT_PATH")
-    use_system_cas = os.getenv("TLS_USE_SYSTEM_CAS", "true").lower() == "true"
-
-    # Verify environment variables are parsed correctly
-    assert verify_disabled is False
-    assert ca_cert_path == mock_env_vars["TLS_CA_CERT_PATH"]
-    assert use_system_cas is True
+    # Simulate config values from agent config JSON
+    verify_disabled = False
+    ca_cert_path = temp_cert_file
+    disable_system_cas = False
 
     # Create SSL context
     with mock.patch("ssl.create_default_context") as mock_default_ctx:
@@ -101,9 +96,9 @@ def test_e2e_environment_variable_to_ssl_context(mock_env_vars):
         mock_default_ctx.return_value = mock_ctx
 
         ctx = create_ssl_context(
-            verify_disabled=verify_disabled,
+            disable_verify=verify_disabled,
             ca_cert_path=ca_cert_path,
-            use_system_cas=use_system_cas,
+            disable_system_cas=disable_system_cas,
         )
 
         # Verify SSL context was created with correct settings
@@ -127,9 +122,9 @@ def test_e2e_certificate_validation_flow(temp_cert_file, caplog):
                 mock_default_ctx.return_value = mock_ctx
 
                 ctx = create_ssl_context(
-                    verify_disabled=False,
+                    disable_verify=False,
                     ca_cert_path=temp_cert_file,
-                    use_system_cas=True,
+                    disable_system_cas=False,
                 )
 
                 # Verify certificate validation logs appear
@@ -153,7 +148,7 @@ def test_e2e_backward_compatibility_no_tls_config():
         clear=False,
     ):
         # Remove TLS env vars if they exist
-        for key in ["TLS_VERIFY_DISABLED", "TLS_CA_CERT_PATH", "TLS_USE_SYSTEM_CAS"]:
+        for key in ["TLS_VERIFY_DISABLED", "TLS_CA_CERT_PATH", "TLS_DISABLE_SYSTEM_CAS"]:
             os.environ.pop(key, None)
 
         # Create OpenAI client without TLS config
@@ -173,9 +168,9 @@ def test_e2e_invalid_certificate_path():
     """Test error handling when certificate file does not exist."""
     with pytest.raises(FileNotFoundError) as exc_info:
         create_ssl_context(
-            verify_disabled=False,
+            disable_verify=False,
             ca_cert_path="/nonexistent/path/ca.crt",
-            use_system_cas=True,
+            disable_system_cas=True,
         )
 
     # Verify error message includes troubleshooting guidance
@@ -189,16 +184,16 @@ def test_e2e_invalid_certificate_path():
 
 
 @pytest.mark.parametrize(
-    "verify_disabled,ca_cert_path,use_system_cas,expected_mode",
+    "verify_disabled,ca_cert_path,disable_system_cas,expected_mode",
     [
-        (True, None, True, "disabled"),
-        (False, None, True, "system_only"),
-        (False, "fake_path", False, "custom_only"),
-        (False, "fake_path", True, "custom_and_system"),
+        (True, None, False, "disabled"),
+        (False, None, False, "system_only"),
+        (False, "fake_path", True, "custom_only"),
+        (False, "fake_path", False, "custom_and_system"),
     ],
     ids=["disabled", "system_only", "custom_only", "custom_and_system"],
 )
-def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, use_system_cas, expected_mode, caplog, temp_cert_file):
+def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, disable_system_cas, expected_mode, caplog, temp_cert_file):
     """Test all three TLS configuration modes work correctly."""
     with caplog.at_level(logging.INFO):
         if ca_cert_path == "fake_path":
@@ -206,9 +201,9 @@ def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, use_system_cas, expect
 
         if expected_mode == "disabled":
             ctx = create_ssl_context(
-                verify_disabled=verify_disabled,
+                disable_verify=verify_disabled,
                 ca_cert_path=ca_cert_path,
-                use_system_cas=use_system_cas,
+                disable_system_cas=disable_system_cas,
             )
             assert ctx is False
             assert "TLS Mode: Disabled" in caplog.text
@@ -216,24 +211,24 @@ def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, use_system_cas, expect
             with mock.patch("ssl.create_default_context") as mock_default_ctx:
                 with mock.patch.object(ssl.SSLContext, "load_verify_locations"):
                     mock_ctx = mock.MagicMock()
-                    if use_system_cas:
+                    if not disable_system_cas:
                         mock_default_ctx.return_value = mock_ctx
                     else:
                         # For custom_only mode, mock SSLContext constructor
                         with mock.patch("ssl.SSLContext") as mock_ssl_ctx:
                             mock_ssl_ctx.return_value = mock_ctx
                             ctx = create_ssl_context(
-                                verify_disabled=verify_disabled,
+                                disable_verify=verify_disabled,
                                 ca_cert_path=ca_cert_path,
-                                use_system_cas=use_system_cas,
+                                disable_system_cas=disable_system_cas,
                             )
                             assert ctx is mock_ctx
                         return
 
                     ctx = create_ssl_context(
-                        verify_disabled=verify_disabled,
+                        disable_verify=verify_disabled,
                         ca_cert_path=ca_cert_path,
-                        use_system_cas=use_system_cas,
+                        disable_system_cas=disable_system_cas,
                     )
                     assert ctx is mock_ctx
 
@@ -270,30 +265,37 @@ def test_e2e_ssl_error_troubleshooting_message(temp_cert_file):
 
 
 # ============================================================================
-# Integration Test 7: OpenAI Client with Environment Variables
+# Integration Test 7: OpenAI Client with Config-Based TLS
 # ============================================================================
 
 
-def test_e2e_openai_client_reads_environment_variables(mock_env_vars):
-    """Test OpenAI client reads TLS config from environment variables."""
+def test_e2e_openai_client_reads_config_based_tls(temp_cert_file):
+    """Test OpenAI client reads TLS config from instance fields (agent config)."""
     with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
         with mock.patch("httpx.AsyncClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                 mock_create_ssl.return_value = mock.MagicMock(spec=ssl.SSLContext)
                 mock_httpx.return_value = mock.MagicMock()
 
-                # Create OpenAI client without explicit TLS params
-                openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="test-key")
+                # Create OpenAI client with explicit TLS params (from agent config)
+                openai_llm = OpenAI(
+                    model="gpt-3.5-turbo",
+                    type="openai",
+                    api_key="test-key",
+                    tls_disable_verify=False,
+                    tls_ca_cert_path=temp_cert_file,
+                    tls_disable_system_cas=False,
+                )
 
                 # Trigger client creation
                 _ = openai_llm._client
 
-                # Verify environment variables were read
+                # Verify config-based TLS fields were read (not environment variables)
                 mock_create_ssl.assert_called_once()
                 call_kwargs = mock_create_ssl.call_args[1]
-                assert call_kwargs["verify_disabled"] is False
-                assert call_kwargs["ca_cert_path"] == mock_env_vars["TLS_CA_CERT_PATH"]
-                assert call_kwargs["use_system_cas"] is True
+                assert call_kwargs["disable_verify"] is False
+                assert call_kwargs["ca_cert_path"] == temp_cert_file
+                assert call_kwargs["disable_system_cas"] is False
 
 
 # ============================================================================
@@ -305,12 +307,13 @@ def test_e2e_certificate_validation_expiry_warnings(caplog):
     """Test certificate validation logs expiry warnings but doesn't block."""
     # This test requires the cryptography library to be installed
     try:
+        from datetime import datetime, timedelta, timezone
+
         from cryptography import x509
         from cryptography.hazmat.backends import default_backend
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID
-        from datetime import datetime, timedelta, timezone
 
         # Generate an expired certificate
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
@@ -360,9 +363,9 @@ def test_e2e_structured_logging_at_startup(temp_cert_file, caplog):
                 mock_default_ctx.return_value = mock_ctx
 
                 create_ssl_context(
-                    verify_disabled=False,
+                    disable_verify=False,
                     ca_cert_path=temp_cert_file,
-                    use_system_cas=True,
+                    disable_system_cas=False,
                 )
 
                 # Verify structured logging messages
@@ -396,7 +399,7 @@ def test_e2e_litellm_with_tls(temp_cert_file):
                     api_key="test-key",
                     base_url="https://litellm.internal.corp:8080",
                     tls_ca_cert_path=temp_cert_file,
-                    tls_use_system_cas=True,
+                    tls_disable_system_cas=True,
                 )
 
                 # Trigger client creation
@@ -405,9 +408,9 @@ def test_e2e_litellm_with_tls(temp_cert_file):
                 # Verify complete integration:
                 # 1. SSL context created with custom CA
                 mock_create_ssl.assert_called_once_with(
-                    verify_disabled=False,
+                    disable_verify=False,
                     ca_cert_path=temp_cert_file,
-                    use_system_cas=True,
+                    disable_system_cas=True,
                 )
 
                 # 2. httpx client created with SSL context

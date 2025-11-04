@@ -47,7 +47,7 @@ stringData:
   key: sk-litellm-1234567890abcdef  # Replace with your actual API key
 
 ---
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: litellm-internal
@@ -71,12 +71,13 @@ spec:
     caCertSecretRef: litellm-ca-cert
     caCertSecretKey: ca.crt
 
-    # Trust both system CAs and custom CA (recommended)
+    # Trust both system CAs and custom CA (recommended, default behavior)
+    # When false (default), system CAs are used for verification (safe behavior)
     # This allows connecting to both public services and internal services
-    useSystemCAs: true
+    disableSystemCAs: false
 
     # Verification is enabled (secure)
-    verifyDisabled: false
+    disableVerify: false
 
 ---
 # Example 2: Multiple CA Certificates (Certificate Bundle)
@@ -106,7 +107,7 @@ stringData:
     -----END CERTIFICATE-----
 
 ---
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: corporate-llm
@@ -121,8 +122,8 @@ spec:
   tls:
     caCertSecretRef: corporate-ca-bundle
     caCertSecretKey: ca-bundle.crt  # Reference the bundle key
-    useSystemCAs: true
-    verifyDisabled: false
+    disableSystemCAs: false  # Use system CAs (default, safe behavior)
+    disableVerify: false
 
 ---
 # Example 3: Custom CA Only (No System CAs)
@@ -144,7 +145,7 @@ stringData:
     -----END CERTIFICATE-----
 
 ---
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: strict-internal-llm
@@ -161,10 +162,11 @@ spec:
     caCertSecretKey: ca.crt
 
     # Only trust custom CA, not system CAs
+    # When true, system CAs are disabled (only custom CA is trusted)
     # This prevents connections to public services
-    useSystemCAs: false
+    disableSystemCAs: true
 
-    verifyDisabled: false
+    disableVerify: false
 
 ---
 # Example 4: Verification Disabled (Development/Testing Only)
@@ -175,7 +177,7 @@ spec:
 # Use Case: Local development where you want to quickly test without
 # managing certificates, or testing against a server with invalid certificates.
 
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: litellm-dev
@@ -189,9 +191,9 @@ spec:
     baseUrl: https://localhost:8080
   tls:
     # Disable all SSL verification (insecure!)
-    verifyDisabled: true
+    disableVerify: true
 
-    # When verifyDisabled is true, other TLS fields are ignored
+    # When disableVerify is true, other TLS fields are ignored
     # No Secret is required in this mode
 
 # When this configuration is used, agents will log prominent warnings:
@@ -232,7 +234,7 @@ stringData:
   key: your-azure-api-key-here
 
 ---
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: azure-through-proxy
@@ -249,8 +251,8 @@ spec:
   tls:
     caCertSecretRef: azure-proxy-ca
     caCertSecretKey: ca.crt
-    useSystemCAs: true
-    verifyDisabled: false
+    disableSystemCAs: false  # Use system CAs (default, safe behavior)
+    disableVerify: false
 
 ---
 # Example 6: Default Configuration (No TLS)
@@ -268,7 +270,7 @@ stringData:
   key: sk-openai-1234567890abcdef
 
 ---
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: openai-public
@@ -289,7 +291,7 @@ spec:
 # Complete example showing how to create an Agent that uses a ModelConfig
 # with TLS configuration.
 
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
   name: internal-assistant
@@ -365,7 +367,7 @@ roleRef:
 #    - Never commit Secrets to Git (use sealed secrets or external secret management)
 #
 # 3. Security:
-#    - Always enable verification (verifyDisabled: false) in production
+#    - Always enable verification (disableVerify: false) in production
 #    - Use RBAC to limit Secret access to specific service accounts
 #    - Use namespace isolation for different environments
 #    - Monitor certificate expiry dates

@@ -42,9 +42,9 @@ class BaseLLM(BaseModel):
     headers: dict[str, str] | None = None
 
     # TLS/SSL configuration (applies to all model types)
-    tls_verify_disabled: bool | None = None
+    tls_disable_verify: bool | None = None
     tls_ca_cert_path: str | None = None
-    tls_use_system_cas: bool | None = None
+    tls_disable_system_cas: bool | None = None
 
 
 class OpenAI(BaseLLM):
@@ -144,9 +144,9 @@ class AgentConfig(BaseModel):
                 timeout=self.model.timeout,
                 top_p=self.model.top_p,
                 # TLS configuration
-                tls_verify_disabled=self.model.tls_verify_disabled,
+                tls_disable_verify=self.model.tls_disable_verify,
                 tls_ca_cert_path=self.model.tls_ca_cert_path,
-                tls_use_system_cas=self.model.tls_use_system_cas,
+                tls_disable_system_cas=self.model.tls_disable_system_cas,
             )
         elif self.model.type == "anthropic":
             model = LiteLlm(
@@ -164,9 +164,9 @@ class AgentConfig(BaseModel):
                 type="azure_openai",
                 default_headers=extra_headers,
                 # TLS configuration
-                tls_verify_disabled=self.model.tls_verify_disabled,
+                tls_disable_verify=self.model.tls_disable_verify,
                 tls_ca_cert_path=self.model.tls_ca_cert_path,
-                tls_use_system_cas=self.model.tls_use_system_cas,
+                tls_disable_system_cas=self.model.tls_disable_system_cas,
             )
         elif self.model.type == "gemini":
             model = self.model.model

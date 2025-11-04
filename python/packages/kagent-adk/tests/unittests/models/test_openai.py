@@ -368,7 +368,7 @@ def test_openai_client_with_tls_verification_disabled():
                     model="gpt-3.5-turbo",
                     type="openai",
                     api_key="test-key",
-                    tls_verify_disabled=True,
+                    tls_disable_verify=True,
                 )
 
                 # Access _client to trigger httpx client creation
@@ -376,9 +376,9 @@ def test_openai_client_with_tls_verification_disabled():
 
                 # Verify create_ssl_context was called with correct parameters
                 mock_create_ssl.assert_called_once_with(
-                    verify_disabled=True,
+                    disable_verify=True,
                     ca_cert_path=None,
-                    use_system_cas=True,
+                    disable_system_cas=False,
                 )
 
                 # Verify httpx.AsyncClient was created with verify=False
@@ -410,7 +410,7 @@ def test_openai_client_with_custom_ca_certificate():
                     type="openai",
                     api_key="test-key",
                     tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-                    tls_use_system_cas=True,
+                    tls_disable_system_cas=False,
                 )
 
                 # Access _client to trigger httpx client creation
@@ -418,9 +418,9 @@ def test_openai_client_with_custom_ca_certificate():
 
                 # Verify create_ssl_context was called with correct parameters
                 mock_create_ssl.assert_called_once_with(
-                    verify_disabled=False,
+                    disable_verify=False,
                     ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-                    use_system_cas=True,
+                    disable_system_cas=False,
                 )
 
                 # Verify httpx.AsyncClient was created with SSL context
@@ -446,17 +446,17 @@ def test_openai_client_with_custom_ca_only():
                     type="openai",
                     api_key="test-key",
                     tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-                    tls_use_system_cas=False,
+                    tls_disable_system_cas=True,
                 )
 
                 # Access _client to trigger httpx client creation
                 client = openai_llm._client
 
-                # Verify create_ssl_context was called with use_system_cas=False
+                # Verify create_ssl_context was called with disable_system_cas=True
                 mock_create_ssl.assert_called_once_with(
-                    verify_disabled=False,
+                    disable_verify=False,
                     ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-                    use_system_cas=False,
+                    disable_system_cas=True,
                 )
 
                 # Verify httpx.AsyncClient was created with SSL context
@@ -494,38 +494,9 @@ def test_openai_client_with_base_url_and_tls():
                 # Verify httpx client was created with SSL context
                 mock_httpx.assert_called_once()
 
-
-def test_openai_client_reads_tls_from_environment():
-    """Test OpenAI client reads TLS configuration from environment variables."""
-    import os
-    import ssl
-
-    with mock.patch.dict(os.environ, {
-        "TLS_VERIFY_DISABLED": "false",
-        "TLS_CA_CERT_PATH": "/etc/ssl/certs/custom/ca.crt",
-        "TLS_USE_SYSTEM_CAS": "true",
-    }):
-        with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
-            with mock.patch("httpx.AsyncClient") as mock_httpx:
-                with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
-                    mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
-                    mock_create_ssl.return_value = mock_ssl_context
-                    mock_httpx_instance = mock.MagicMock()
-                    mock_httpx.return_value = mock_httpx_instance
-
-                    # Create OpenAI client without explicit TLS parameters
-                    # It should read from environment variables
-                    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="test-key")
-
-                    # Access _client to trigger client creation
-                    client = openai_llm._client
-
-                    # Verify create_ssl_context was called with env var values
-                    mock_create_ssl.assert_called_once_with(
-                        verify_disabled=False,
-                        ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-                        use_system_cas=True,
-                    )
+# NOTE: test_openai_client_reads_tls_from_environment removed
+# Environment variable support for TLS configuration was removed in favor of
+# config-based approach via agent config JSON file (Review Comment #5)
 
 
 def test_openai_client_tls_parameters_override_environment():
@@ -536,7 +507,7 @@ def test_openai_client_tls_parameters_override_environment():
     with mock.patch.dict(os.environ, {
         "TLS_VERIFY_DISABLED": "true",
         "TLS_CA_CERT_PATH": "/wrong/path/ca.crt",
-        "TLS_USE_SYSTEM_CAS": "false",
+        "TLS_DISABLE_SYSTEM_CAS": "true",
     }):
         with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
             with mock.patch("httpx.AsyncClient") as mock_httpx:
@@ -551,9 +522,9 @@ def test_openai_client_tls_parameters_override_environment():
                         model="gpt-3.5-turbo",
                         type="openai",
                         api_key="test-key",
-                        tls_verify_disabled=False,
+                        tls_disable_verify=False,
                         tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-                        tls_use_system_cas=True,
+                        tls_disable_system_cas=False,
                     )
 
                     # Access _client to trigger client creation
@@ -561,7 +532,7 @@ def test_openai_client_tls_parameters_override_environment():
 
                     # Verify explicit parameters were used, not environment
                     mock_create_ssl.assert_called_once_with(
-                        verify_disabled=False,
+                        disable_verify=False,
                         ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-                        use_system_cas=True,
+                        disable_system_cas=False,
                     )

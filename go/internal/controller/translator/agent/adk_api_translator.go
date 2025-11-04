@@ -549,38 +549,39 @@ const (
 	tlsCACertMountPath    = "/etc/ssl/certs/custom"
 )
 
-// addTLSConfiguration adds TLS certificate volumes and environment variables to modelDeploymentData
-// when TLS configuration is present in the ModelConfig.
-func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig) {
+// populateTLSFields populates TLS configuration fields in the BaseModel
+// from the ModelConfig TLS spec.
+func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) {
 	if tlsConfig == nil {
 		return
 	}
 
-	// Add environment variables for TLS configuration
-	modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars,
-		corev1.EnvVar{
-			Name:  "TLS_VERIFY_DISABLED",
-			Value: fmt.Sprintf("%t", tlsConfig.VerifyDisabled),
-		},
-		corev1.EnvVar{
-			Name:  "TLS_USE_SYSTEM_CAS",
-			Value: fmt.Sprintf("%t", tlsConfig.UseSystemCAs),
-		},
-	)
+	// Set TLS configuration fields in BaseModel
+	baseModel.TLSDisableVerify = &tlsConfig.DisableVerify
+	baseModel.TLSDisableSystemCAs = &tlsConfig.DisableSystemCAs
 
-	// Add Secret volume mount if CA certificate Secret is specified
+	// Set CA cert path if Secret is specified
 	if tlsConfig.CACertSecretRef != "" {
 		certKey := tlsConfig.CACertSecretKey
 		if certKey == "" {
 			certKey = "ca.crt" // Default value
 		}
+		certPath := fmt.Sprintf("%s/%s", tlsCACertMountPath, certKey)
+		baseModel.TLSCACertPath = &certPath
+	}
+}
 
-		// Add TLS_CA_CERT_PATH environment variable
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  "TLS_CA_CERT_PATH",
-			Value: fmt.Sprintf("%s/%s", tlsCACertMountPath, certKey),
-		})
+// addTLSConfiguration adds TLS certificate volume mounts to modelDeploymentData
+// when TLS configuration is present in the ModelConfig.
+// Note: TLS configuration fields are now included in agent config JSON via BaseModel,
+// so this function only handles volume mounting.
+func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig) {
+	if tlsConfig == nil {
+		return
+	}
 
+	// Add Secret volume mount if CA certificate Secret is specified
+	if tlsConfig.CACertSecretRef != "" {
 		// Add volume from Secret
 		modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
 			Name: tlsCACertVolumeName,
@@ -634,6 +635,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+
 		if model.Spec.OpenAI != nil {
 			openai.BaseUrl = model.Spec.OpenAI.BaseURL
 			openai.Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
@@ -686,6 +690,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+
 		if model.Spec.Anthropic != nil {
 			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
 		}
@@ -729,6 +736,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
+
 		return azureOpenAI, modelDeploymentData, nil
 	case v1alpha2.ModelProviderGeminiVertexAI:
 		if model.Spec.GeminiVertexAI == nil {
@@ -770,6 +780,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+
 		return gemini, modelDeploymentData, nil
 	case v1alpha2.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
@@ -807,6 +820,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+
 		return anthropic, modelDeploymentData, nil
 	case v1alpha2.ModelProviderOllama:
 		if model.Spec.Ollama == nil {
@@ -822,6 +838,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
+
 		return ollama, modelDeploymentData, nil
 	case v1alpha2.ModelProviderGemini:
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -841,6 +860,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+
 		return gemini, modelDeploymentData, nil
 	}
 	return nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)

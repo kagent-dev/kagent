@@ -214,12 +214,14 @@ type GeminiConfig struct{}
 // This enables agents to connect to internal LiteLLM gateways or other providers
 // that use self-signed certificates or custom certificate authorities.
 type TLSConfig struct {
-	// VerifyDisabled disables SSL certificate verification entirely.
+	// DisableVerify disables SSL certificate verification entirely.
+	// When false (default), SSL certificates are verified.
+	// When true, SSL certificate verification is disabled.
 	// WARNING: This should ONLY be used in development/testing environments.
 	// Production deployments MUST use proper certificates.
 	// +optional
 	// +kubebuilder:default=false
-	VerifyDisabled bool `json:"verifyDisabled,omitempty"`
+	DisableVerify bool `json:"disableVerify,omitempty"`
 
 	// CACertSecretRef is a reference to a Kubernetes Secret containing
 	// CA certificate(s) in PEM format. The Secret must be in the same
@@ -236,13 +238,13 @@ type TLSConfig struct {
 	// +kubebuilder:default="ca.crt"
 	CACertSecretKey string `json:"caCertSecretKey,omitempty"`
 
-	// UseSystemCAs determines whether to use system CA certificates in addition
-	// to custom CA certificates. When true, both system and custom CAs are trusted (additive).
-	// When false, only the custom CA from CACertSecretRef is trusted.
-	// This allows connecting to both public and internal services with a single configuration.
+	// DisableSystemCAs disables the use of system CA certificates.
+	// When false (default), system CA certificates are used for verification (safe behavior).
+	// When true, only the custom CA from CACertSecretRef is trusted.
+	// This allows strict security policies where only corporate CAs should be trusted.
 	// +optional
-	// +kubebuilder:default=true
-	UseSystemCAs bool `json:"useSystemCAs,omitempty"`
+	// +kubebuilder:default=false
+	DisableSystemCAs bool `json:"disableSystemCAs,omitempty"`
 }
 
 // ModelConfigSpec defines the desired state of ModelConfig.
@@ -256,8 +258,8 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))"
-// +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && self.tls.caCertSecretKey != '' && (!has(self.tls.caCertSecretRef) || self.tls.caCertSecretRef == ''))"
-// +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey",rule="!(has(self.tls) && has(self.tls.caCertSecretRef) && self.tls.caCertSecretRef != '' && (!has(self.tls.caCertSecretKey) || self.tls.caCertSecretKey == ''))"
+// +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && self.tls.caCertSecretKey != ” && (!has(self.tls.caCertSecretRef) || self.tls.caCertSecretRef == ”))"
+// +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey",rule="!(has(self.tls) && has(self.tls.caCertSecretRef) && self.tls.caCertSecretRef != ” && (!has(self.tls.caCertSecretKey) || self.tls.caCertSecretKey == ”))"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 

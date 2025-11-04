@@ -154,9 +154,9 @@ def validate_certificate(cert_path: str) -> None:
 
 
 def create_ssl_context(
-    verify_disabled: bool,
+    disable_verify: bool,
     ca_cert_path: str | None,
-    use_system_cas: bool,
+    disable_system_cas: bool,
 ) -> ssl.SSLContext | bool:
     """Create SSL context for httpx client based on TLS configuration.
 
@@ -166,15 +166,16 @@ def create_ssl_context(
     3. System + Custom CA: Creates SSL context with system CAs plus custom CA certificate
 
     Args:
-        verify_disabled: If True, SSL verification is disabled (development/testing only).
+        disable_verify: If True, SSL verification is disabled (development/testing only).
             When True, a prominent warning is logged.
         ca_cert_path: Optional path to custom CA certificate file in PEM format.
             If provided, the certificate is loaded into the SSL context.
-        use_system_cas: If True, system CA certificates are included in the trust store.
-            When False with ca_cert_path, only the custom CA is trusted.
+        disable_system_cas: If True, system CA certificates are NOT included in the trust store.
+            When False (default), system CAs are used (safe behavior).
+            When True with ca_cert_path, only the custom CA is trusted.
 
     Returns:
-        - False if verify_disabled=True (httpx special value to disable verification)
+        - False if disable_verify=True (httpx special value to disable verification)
         - ssl.SSLContext configured with appropriate CA certificates otherwise
 
     Raises:
@@ -183,27 +184,27 @@ def create_ssl_context(
 
     Examples:
         >>> # Disable verification (development only)
-        >>> ctx = create_ssl_context(verify_disabled=True, ca_cert_path=None, use_system_cas=True)
+        >>> ctx = create_ssl_context(disable_verify=True, ca_cert_path=None, disable_system_cas=False)
         >>> assert ctx is False
 
         >>> # Use only custom CA certificate
         >>> ctx = create_ssl_context(
-        ...     verify_disabled=False,
+        ...     disable_verify=False,
         ...     ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-        ...     use_system_cas=False
+        ...     disable_system_cas=True
         ... )
         >>> assert isinstance(ctx, ssl.SSLContext)
 
         >>> # Use system CAs plus custom CA
         >>> ctx = create_ssl_context(
-        ...     verify_disabled=False,
+        ...     disable_verify=False,
         ...     ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-        ...     use_system_cas=True
+        ...     disable_system_cas=False
         ... )
         >>> assert isinstance(ctx, ssl.SSLContext)
     """
     # Structured logging for TLS configuration at startup
-    if verify_disabled:
+    if disable_verify:
         logger.warning(
             "\n"
             "=" * 60 + "\n"
@@ -214,11 +215,11 @@ def create_ssl_context(
             "Production deployments MUST use proper certificates.\n"
             "=" * 60
         )
-        logger.info("TLS Mode: Disabled (verify_disabled=True)")
+        logger.info("TLS Mode: Disabled (disable_verify=True)")
         return False  # httpx accepts False to disable verification
 
     # Determine TLS mode
-    if ca_cert_path and use_system_cas:
+    if ca_cert_path and not disable_system_cas:
         tls_mode = "Custom CA + System CAs (additive)"
     elif ca_cert_path:
         tls_mode = "Custom CA only (no system CAs)"
@@ -228,7 +229,7 @@ def create_ssl_context(
     logger.info("TLS Mode: %s", tls_mode)
 
     # Start with system CAs or empty context
-    if use_system_cas:
+    if not disable_system_cas:
         # Create default context which includes system CAs
         ctx = ssl.create_default_context()
         logger.info("Using system CA certificates")
@@ -237,7 +238,7 @@ def create_ssl_context(
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = True
         ctx.verify_mode = ssl.CERT_REQUIRED
-        logger.info("System CA certificates disabled (use_system_cas=False)")
+        logger.info("System CA certificates disabled (disable_system_cas=True)")
 
     # Load custom CA certificate if provided
     if ca_cert_path:

@@ -26,9 +26,9 @@ from kagent.adk.models._ssl import create_ssl_context
 def test_ssl_context_verification_disabled():
     """Test SSL context with verification disabled returns False."""
     result = create_ssl_context(
-        verify_disabled=True,
+        disable_verify=True,
         ca_cert_path=None,
-        use_system_cas=True,
+        disable_system_cas=False,
     )
     assert result is False
 
@@ -36,9 +36,9 @@ def test_ssl_context_verification_disabled():
 def test_ssl_context_with_system_cas_only():
     """Test SSL context with system CAs only."""
     ctx = create_ssl_context(
-        verify_disabled=False,
+        disable_verify=False,
         ca_cert_path=None,
-        use_system_cas=True,
+        disable_system_cas=False,
     )
     assert isinstance(ctx, ssl.SSLContext)
     assert ctx.check_hostname is True
@@ -59,9 +59,9 @@ def test_ssl_context_with_custom_ca_only():
             mock_ssl_context.return_value = mock_ctx
 
             ctx = create_ssl_context(
-                verify_disabled=False,
+                disable_verify=False,
                 ca_cert_path=cert_path,
-                use_system_cas=False,
+                disable_system_cas=True,
             )
 
             # Verify SSLContext was created with correct protocol
@@ -92,9 +92,9 @@ def test_ssl_context_with_system_and_custom_ca():
             mock_create_default.return_value = mock_ctx
 
             ctx = create_ssl_context(
-                verify_disabled=False,
+                disable_verify=False,
                 ca_cert_path=cert_path,
-                use_system_cas=True,
+                disable_system_cas=False,
             )
 
             # Verify default context was created (includes system CAs)
@@ -111,9 +111,9 @@ def test_ssl_context_certificate_file_not_found():
     """Test SSL context with non-existent certificate file."""
     with pytest.raises(FileNotFoundError):
         create_ssl_context(
-            verify_disabled=False,
+            disable_verify=False,
             ca_cert_path="/nonexistent/path/to/cert.crt",
-            use_system_cas=False,
+            disable_system_cas=True,
         )
 
 
@@ -121,9 +121,9 @@ def test_ssl_context_disabled_logs_warning(caplog):
     """Test that disabling SSL verification logs a prominent warning."""
     with caplog.at_level(logging.WARNING):
         result = create_ssl_context(
-            verify_disabled=True,
+            disable_verify=True,
             ca_cert_path=None,
-            use_system_cas=True,
+            disable_system_cas=False,
         )
         assert result is False
         assert "SSL VERIFICATION DISABLED" in caplog.text
@@ -133,9 +133,9 @@ def test_ssl_context_disabled_logs_warning(caplog):
 def test_ssl_context_with_custom_ca_path_none_uses_system():
     """Test SSL context with ca_cert_path=None uses only system CAs."""
     ctx = create_ssl_context(
-        verify_disabled=False,
+        disable_verify=False,
         ca_cert_path=None,
-        use_system_cas=True,
+        disable_system_cas=False,
     )
     assert isinstance(ctx, ssl.SSLContext)
     # Default context should have system CAs loaded

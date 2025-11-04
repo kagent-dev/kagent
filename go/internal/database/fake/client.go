@@ -740,10 +740,10 @@ func (c *InMemoryFakeClient) StoreCrewAIMemory(memory *database.CrewAIAgentMemor
 	if c.crewaiMemory == nil {
 		c.crewaiMemory = make(map[string][]*database.CrewAIAgentMemory)
 	}
-	
+
 	key := fmt.Sprintf("%s:%s", memory.UserID, memory.ThreadID)
 	c.crewaiMemory[key] = append(c.crewaiMemory[key], memory)
-	
+
 	return nil
 }
 
@@ -755,9 +755,9 @@ func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDesc
 	if c.crewaiMemory == nil {
 		return []*database.CrewAIAgentMemory{}, nil
 	}
-	
+
 	var allMemories []*database.CrewAIAgentMemory
-	
+
 	// Search across all agents for this user/thread
 	for key, memories := range c.crewaiMemory {
 		// Key format is "user_id:thread_id"
@@ -779,38 +779,38 @@ func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDesc
 			}
 		}
 	}
-	
+
 	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
 	sort.Slice(allMemories, func(i, j int) bool {
 		// First sort by created_at DESC (most recent first)
 		if !allMemories[i].CreatedAt.Equal(allMemories[j].CreatedAt) {
 			return allMemories[i].CreatedAt.After(allMemories[j].CreatedAt)
 		}
-		
+
 		// If created_at is equal, sort by score ASC
 		var scoreI, scoreJ float64
 		var memoryDataI, memoryDataJ map[string]interface{}
-		
+
 		if err := json.Unmarshal([]byte(allMemories[i].MemoryData), &memoryDataI); err == nil {
 			if score, ok := memoryDataI["score"].(float64); ok {
 				scoreI = score
 			}
 		}
-		
+
 		if err := json.Unmarshal([]byte(allMemories[j].MemoryData), &memoryDataJ); err == nil {
 			if score, ok := memoryDataJ["score"].(float64); ok {
 				scoreJ = score
 			}
 		}
-		
+
 		return scoreI < scoreJ
 	})
-	
+
 	// Apply limit
 	if limit > 0 && len(allMemories) > limit {
 		allMemories = allMemories[:limit]
 	}
-	
+
 	return allMemories, nil
 }
 
@@ -822,7 +822,7 @@ func (c *InMemoryFakeClient) ResetCrewAIMemory(userID, threadID string) error {
 	if c.crewaiMemory == nil {
 		return nil
 	}
-	
+
 	// Find and delete all memory entries for this user/thread combination
 	keysToDelete := make([]string, 0)
 	for key := range c.crewaiMemory {
@@ -831,12 +831,12 @@ func (c *InMemoryFakeClient) ResetCrewAIMemory(userID, threadID string) error {
 			keysToDelete = append(keysToDelete, key)
 		}
 	}
-	
+
 	// Delete the entries
 	for _, key := range keysToDelete {
 		delete(c.crewaiMemory, key)
 	}
-	
+
 	return nil
 }
 
@@ -848,10 +848,10 @@ func (c *InMemoryFakeClient) StoreCrewAIFlowState(state *database.CrewAIFlowStat
 	if c.crewaiFlowStates == nil {
 		c.crewaiFlowStates = make(map[string]*database.CrewAIFlowState)
 	}
-	
+
 	key := fmt.Sprintf("%s:%s", state.UserID, state.ThreadID)
 	c.crewaiFlowStates[key] = state
-	
+
 	return nil
 }
 
@@ -863,9 +863,9 @@ func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID string) (*datab
 	if c.crewaiFlowStates == nil {
 		return nil, nil
 	}
-	
+
 	key := fmt.Sprintf("%s:%s", userID, threadID)
 	state := c.crewaiFlowStates[key]
-	
+
 	return state, nil
 }

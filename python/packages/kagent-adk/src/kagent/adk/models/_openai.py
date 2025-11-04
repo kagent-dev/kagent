@@ -293,9 +293,9 @@ class BaseOpenAI(BaseLlm):
     top_p: Optional[float] = None
 
     # TLS/SSL configuration fields
-    tls_verify_disabled: Optional[bool] = None
+    tls_disable_verify: Optional[bool] = None
     tls_ca_cert_path: Optional[str] = None
-    tls_use_system_cas: Optional[bool] = None
+    tls_disable_system_cas: Optional[bool] = None
 
     @classmethod
     def supported_models(cls) -> list[str]:
@@ -303,27 +303,18 @@ class BaseOpenAI(BaseLlm):
         return [r"gpt-.*", r"o1-.*"]
 
     def _get_tls_config(self) -> tuple[bool, Optional[str], bool]:
-        """Read TLS configuration from instance fields or environment variables.
+        """Read TLS configuration from instance fields.
 
         Returns:
-            Tuple of (verify_disabled, ca_cert_path, use_system_cas)
+            Tuple of (disable_verify, ca_cert_path, disable_system_cas)
         """
-        # Read from instance fields first, fall back to environment variables
-        verify_disabled = self.tls_verify_disabled
-        if verify_disabled is None:
-            env_verify = os.environ.get("TLS_VERIFY_DISABLED", "false").lower()
-            verify_disabled = env_verify == "true"
-
+        # Read from instance fields only (config-based approach)
+        # Environment variables are no longer supported for TLS configuration
+        disable_verify = self.tls_disable_verify or False
         ca_cert_path = self.tls_ca_cert_path
-        if ca_cert_path is None:
-            ca_cert_path = os.environ.get("TLS_CA_CERT_PATH")
+        disable_system_cas = self.tls_disable_system_cas or False
 
-        use_system_cas = self.tls_use_system_cas
-        if use_system_cas is None:
-            env_use_system = os.environ.get("TLS_USE_SYSTEM_CAS", "true").lower()
-            use_system_cas = env_use_system == "true"
-
-        return verify_disabled, ca_cert_path, use_system_cas
+        return disable_verify, ca_cert_path, disable_system_cas
 
     def _create_http_client(self) -> Optional[httpx.AsyncClient]:
         """Create httpx.AsyncClient with custom SSL context if TLS config is present.
@@ -331,14 +322,14 @@ class BaseOpenAI(BaseLlm):
         Returns:
             httpx.AsyncClient with SSL configuration, or None if no TLS config
         """
-        verify_disabled, ca_cert_path, use_system_cas = self._get_tls_config()
+        disable_verify, ca_cert_path, disable_system_cas = self._get_tls_config()
 
         # Only create custom http client if TLS configuration is present
-        if verify_disabled or ca_cert_path:
+        if disable_verify or ca_cert_path:
             ssl_context = create_ssl_context(
-                verify_disabled=verify_disabled,
+                disable_verify=disable_verify,
                 ca_cert_path=ca_cert_path,
-                use_system_cas=use_system_cas,
+                disable_system_cas=disable_system_cas,
             )
 
             # ssl_context is either False (verification disabled) or SSLContext
