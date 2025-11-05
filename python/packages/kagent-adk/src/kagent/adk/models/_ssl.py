@@ -1,17 +1,3 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """SSL/TLS utilities for configuring httpx clients with custom certificates."""
 
 import logging
@@ -157,11 +143,11 @@ def create_ssl_context(
     disable_verify: bool,
     ca_cert_path: str | None,
     disable_system_cas: bool,
-) -> ssl.SSLContext | bool:
+) -> ssl.SSLContext | None:
     """Create SSL context for httpx client based on TLS configuration.
 
     This function creates an appropriate SSL context based on three possible modes:
-    1. Verification disabled: Returns False (httpx accepts False to disable verification)
+    1. Verification disabled: Returns None (httpx accepts None to disable verification)
     2. Custom CA only: Creates SSL context with custom CA certificate, no system CAs
     3. System + Custom CA: Creates SSL context with system CAs plus custom CA certificate
 
@@ -175,7 +161,7 @@ def create_ssl_context(
             When True with ca_cert_path, only the custom CA is trusted.
 
     Returns:
-        - False if disable_verify=True (httpx special value to disable verification)
+        - None if disable_verify=True (httpx special value to disable verification)
         - ssl.SSLContext configured with appropriate CA certificates otherwise
 
     Raises:
@@ -185,7 +171,7 @@ def create_ssl_context(
     Examples:
         >>> # Disable verification (development only)
         >>> ctx = create_ssl_context(disable_verify=True, ca_cert_path=None, disable_system_cas=False)
-        >>> assert ctx is False
+        >>> assert ctx is None
 
         >>> # Use only custom CA certificate
         >>> ctx = create_ssl_context(
@@ -216,7 +202,7 @@ def create_ssl_context(
             "=" * 60
         )
         logger.info("TLS Mode: Disabled (disable_verify=True)")
-        return False  # httpx accepts False to disable verification
+        return None  # httpx accepts None to disable verification
 
     # Determine TLS mode
     if ca_cert_path and not disable_system_cas:

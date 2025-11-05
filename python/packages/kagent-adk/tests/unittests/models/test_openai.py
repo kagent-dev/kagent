@@ -1,17 +1,3 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 from unittest import mock
 
 import pytest
@@ -381,10 +367,10 @@ def test_openai_client_with_tls_verification_disabled():
                     disable_system_cas=False,
                 )
 
-                # Verify DefaultAsyncHttpxClient was created with verify=False
+                # Verify DefaultAsyncHttpxClient was created with verify=None
                 mock_httpx.assert_called_once()
                 call_kwargs = mock_httpx.call_args[1]
-                assert call_kwargs["verify"] is False
+                assert call_kwargs["verify"] is None
 
                 # Verify AsyncOpenAI was called with the http_client
                 mock_openai.assert_called_once()

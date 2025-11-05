@@ -1,17 +1,3 @@
-# Copyright 2025.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import logging
 import ssl
 import tempfile
@@ -24,13 +10,13 @@ from kagent.adk.models._ssl import create_ssl_context
 
 
 def test_ssl_context_verification_disabled():
-    """Test SSL context with verification disabled returns False."""
+    """Test SSL context with verification disabled returns None."""
     result = create_ssl_context(
         disable_verify=True,
         ca_cert_path=None,
         disable_system_cas=False,
     )
-    assert result is False
+    assert result is None
 
 
 def test_ssl_context_with_system_cas_only():
@@ -125,6 +111,6 @@ def test_ssl_context_disabled_logs_warning(caplog):
             ca_cert_path=None,
             disable_system_cas=False,
         )
-        assert result is False
+        assert result is None
         assert "SSL VERIFICATION DISABLED" in caplog.text
         assert "development/testing" in caplog.text.lower()
