@@ -119,6 +119,13 @@ class BashTool(BaseTool):
             pythonpath_additions.append(env["PYTHONPATH"])
         env["PYTHONPATH"] = ":".join(pythonpath_additions)
 
+        # Use the separate bash tool venv instead of the app's venv
+        bash_venv_path = os.environ.get("BASH_VENV_PATH", "/.kagent/sandbox-venv")
+        bash_venv_bin = os.path.join(bash_venv_path, "bin")
+        # Prepend bash venv to PATH so its python and pip are used
+        env["PATH"] = f"{bash_venv_bin}:{env.get('PATH', '')}"
+        env["VIRTUAL_ENV"] = bash_venv_path
+
         # Execute with sandbox runtime
         sandboxed_command = f'srt "{command}"'
 

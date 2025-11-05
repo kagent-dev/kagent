@@ -101,8 +101,16 @@ RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     && uv cache prune                                                         \
     && echo "Installation complete."
 
+# Create a separate venv for bash tool commands (sandbox environment)
+RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
+    echo "Creating bash tool sandbox environment..."                          \
+    && mkdir -p /.kagent/sandbox-venv                                         \
+    && uv venv --python=python$TOOLS_PYTHON_VERSION /.kagent/sandbox-venv     \
+    && echo "Bash tool sandbox environment created."
+
 ENV PATH="/.kagent/.venv/bin:$PATH"
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+ENV BASH_VENV_PATH="/.kagent/sandbox-venv"
 
 WORKDIR /app
 
