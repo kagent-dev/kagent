@@ -83,6 +83,19 @@ func InitCmd(cfg *InitCfg) error {
 		return fmt.Errorf("failed to generate project: %v", err)
 	}
 
+	fmt.Printf("   Note: MCP server directories are created when you run 'kagent add-mcp'\n")
+	fmt.Printf("\n🚀 Next steps:\n")
+	fmt.Printf("   1. cd %s\n", cfg.AgentName)
+	fmt.Printf("   2. Customize the agent in %s/agent.py\n", cfg.AgentName)
+	fmt.Printf("   3. Build the agent and MCP servers and push it to the local registry\n")
+	fmt.Printf("      kagent build %s --push\n", cfg.AgentName)
+	fmt.Printf("   4. Run the agent locally\n")
+	fmt.Printf("      kagent run\n")
+	fmt.Printf("   5. Deploy the agent to your local cluster\n")
+	fmt.Printf("      kagent deploy %s --api-key-secret <secret-name>\n", cfg.AgentName)
+	fmt.Printf("      Or use --api-key for convenience: kagent deploy %s --api-key <api-key>\n", cfg.AgentName)
+	fmt.Printf("      Support for using a credential file is coming soon\n")
+
 	return nil
 }
 

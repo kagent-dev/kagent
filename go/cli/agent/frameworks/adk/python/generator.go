@@ -117,18 +117,6 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 	fmt.Printf("   ├── Dockerfile\n")
 	fmt.Printf("   ├── docker-compose.yaml\n")
 	fmt.Printf("   └── README.md\n")
-	fmt.Printf("   Note: MCP server directories are created when you run 'kagent add-mcp'\n")
-	fmt.Printf("\n🚀 Next steps:\n")
-	fmt.Printf("   1. cd %s\n", agentConfig.Name)
-	fmt.Printf("   2. Customize the agent in %s/agent.py\n", agentConfig.Name)
-	fmt.Printf("   3. Build the agent and MCP servers and push it to the local registry\n")
-	fmt.Printf("      kagent build %s --push\n", agentConfig.Name)
-	fmt.Printf("   4. Run the agent locally\n")
-	fmt.Printf("      kagent run\n")
-	fmt.Printf("   5. Deploy the agent to your local cluster\n")
-	fmt.Printf("      kagent deploy %s --api-key-secret <secret-name>\n", agentConfig.Name)
-	fmt.Printf("      Or use --api-key for convenience: kagent deploy %s --api-key <api-key>\n", agentConfig.Name)
-	fmt.Printf("      Support for using a credential file is coming soon\n")
 
 	return nil
 }
