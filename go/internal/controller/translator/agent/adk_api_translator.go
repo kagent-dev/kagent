@@ -459,7 +459,10 @@ func (a *adkApiTranslator) buildManifest(
 						SecurityContext: securityContext,
 						VolumeMounts:    volumeMounts,
 					}},
-					Volumes: volumes,
+					Volumes:      volumes,
+					Tolerations:  dep.Tolerations,
+					Affinity:     dep.Affinity,
+					NodeSelector: dep.NodeSelector,
 				},
 			},
 		},
@@ -1106,6 +1109,9 @@ type resolvedDeployment struct {
 	Annotations      map[string]string
 	Env              []corev1.EnvVar
 	Resources        corev1.ResourceRequirements
+	Tolerations      []corev1.Toleration
+	Affinity         *corev1.Affinity
+	NodeSelector     map[string]string
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -1185,6 +1191,9 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
 		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
+		Tolerations:      slices.Clone(spec.Tolerations),
+		Affinity:         spec.Affinity,
+		NodeSelector:     maps.Clone(spec.NodeSelector),
 	}
 
 	return dep, nil
@@ -1250,6 +1259,9 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 		Annotations:      maps.Clone(spec.Annotations),
 		Env:              slices.Clone(spec.Env),
 		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
+		Tolerations:      slices.Clone(spec.Tolerations),
+		Affinity:         spec.Affinity,
+		NodeSelector:     maps.Clone(spec.NodeSelector),
 	}
 
 	return dep, nil
