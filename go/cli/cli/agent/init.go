@@ -9,7 +9,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/cli/agent/frameworks"
 	"github.com/kagent-dev/kagent/go/cli/config"
-	"github.com/kagent-dev/kagent/go/internal/version"
 )
 
 type InitCfg struct {
@@ -23,7 +22,7 @@ type InitCfg struct {
 	Config          *config.Config
 }
 
-func InitCmd(cfg *InitCfg) error {
+func InitCmd(cfg *InitCfg, kagentVersion string) error {
 	// Validate framework and language
 	if cfg.Framework != "adk" {
 		return fmt.Errorf("unsupported framework: %s. Only 'adk' is supported", cfg.Framework)
@@ -42,6 +41,10 @@ func InitCmd(cfg *InitCfg) error {
 		if err := validateModelProvider(cfg.ModelProvider); err != nil {
 			return err
 		}
+	}
+
+	if kagentVersion == "" {
+		return fmt.Errorf("kagent version is required")
 	}
 
 	// use lower case for model provider since the templates expect the model provider in lower case
@@ -76,7 +79,6 @@ func InitCmd(cfg *InitCfg) error {
 	}
 
 	// Get the kagent version
-	kagentVersion := version.Version
 
 	// Generate the project
 	if err := generator.Generate(projectDir, cfg.AgentName, instruction, cfg.ModelProvider, cfg.ModelName, cfg.Description, cfg.Config.Verbose, kagentVersion); err != nil {
