@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const ManifestFileName = "kagent.yaml"
+const ManifestFileName = "agent.yaml"
 
 // AgentManifest represents the agent project configuration and metadata
 type AgentManifest struct {
@@ -49,32 +49,32 @@ func NewManifestManager(projectRoot string) *Manager {
 	}
 }
 
-// Load reads and parses the kagent.yaml file
+// Load reads and parses the agent.yaml file
 func (m *Manager) Load() (*AgentManifest, error) {
 	manifestPath := filepath.Join(m.projectRoot, ManifestFileName)
 
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("kagent.yaml not found in %s", m.projectRoot)
+			return nil, fmt.Errorf("agent.yaml not found in %s", m.projectRoot)
 		}
-		return nil, fmt.Errorf("failed to read kagent.yaml: %w", err)
+		return nil, fmt.Errorf("failed to read agent.yaml: %w", err)
 	}
 
 	var manifest AgentManifest
 	if err := yaml.Unmarshal(data, &manifest); err != nil {
-		return nil, fmt.Errorf("failed to parse kagent.yaml: %w", err)
+		return nil, fmt.Errorf("failed to parse agent.yaml: %w", err)
 	}
 
 	// Validate the manifest
 	if err := m.Validate(&manifest); err != nil {
-		return nil, fmt.Errorf("invalid kagent.yaml: %w", err)
+		return nil, fmt.Errorf("invalid agent.yaml: %w", err)
 	}
 
 	return &manifest, nil
 }
 
-// Save writes the manifest to kagent.yaml
+// Save writes the manifest to agent.yaml
 func (m *Manager) Save(manifest *AgentManifest) error {
 	// Update timestamp
 	manifest.UpdatedAt = time.Now()
@@ -91,7 +91,7 @@ func (m *Manager) Save(manifest *AgentManifest) error {
 
 	manifestPath := filepath.Join(m.projectRoot, ManifestFileName)
 	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write kagent.yaml: %w", err)
+		return fmt.Errorf("failed to write agent.yaml: %w", err)
 	}
 
 	return nil

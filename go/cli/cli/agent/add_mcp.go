@@ -22,7 +22,7 @@ type mcpTarget struct {
 	Build string
 }
 
-// AddMcpCfg carries inputs for adding an MCP server entry to kagent.yaml
+// AddMcpCfg carries inputs for adding an MCP server entry to agent.yaml
 type AddMcpCfg struct {
 	ProjectDir string
 	Config     *config.Config
@@ -37,7 +37,7 @@ type AddMcpCfg struct {
 	Build     string
 }
 
-// AddMcpCmd runs the interactive flow to append an MCP server to kagent.yaml
+// AddMcpCmd runs the interactive flow to append an MCP server to agent.yaml
 func AddMcpCmd(cfg *AddMcpCfg) error {
 	// Determine project directory
 	projectDir, err := ResolveProjectDir(cfg.ProjectDir)
@@ -101,7 +101,7 @@ func AddMcpCmd(cfg *AddMcpCfg) error {
 	// Ensure unique name
 	for _, existing := range manifest.McpServers {
 		if strings.EqualFold(existing.Name, res.Name) {
-			return fmt.Errorf("an MCP server named '%s' already exists in kagent.yaml", res.Name)
+			return fmt.Errorf("an MCP server named '%s' already exists in agent.yaml", res.Name)
 		}
 	}
 
@@ -114,7 +114,7 @@ func AddMcpCmd(cfg *AddMcpCfg) error {
 
 	// Save back to disk
 	if err := manager.Save(manifest); err != nil {
-		return fmt.Errorf("failed to save kagent.yaml: %w", err)
+		return fmt.Errorf("failed to save agent.yaml: %w", err)
 	}
 
 	// Regenerate mcp_tools.py with updated MCP servers for ADK Python projects
@@ -132,7 +132,7 @@ func AddMcpCmd(cfg *AddMcpCfg) error {
 		return fmt.Errorf("failed to regenerate docker-compose.yaml: %w", err)
 	}
 
-	fmt.Printf("✓ Added MCP server '%s' (%s) to kagent.yaml\n", res.Name, res.Type)
+	fmt.Printf("✓ Added MCP server '%s' (%s) to agent.yaml\n", res.Name, res.Type)
 	return nil
 }
 

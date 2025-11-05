@@ -144,12 +144,12 @@ func ValidateProjectDir(projectDir string) error {
 	return nil
 }
 
-// LoadManifest loads the kagent.yaml file from the project directory
+// LoadManifest loads the agent.yaml file from the project directory
 func LoadManifest(projectDir string) (*common.AgentManifest, error) {
 	manager := common.NewManifestManager(projectDir)
 	manifest, err := manager.Load()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load kagent.yaml: %w", err)
+		return nil, fmt.Errorf("failed to load agent.yaml: %w", err)
 	}
 	return manifest, nil
 }

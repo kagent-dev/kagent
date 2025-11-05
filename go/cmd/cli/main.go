@@ -256,11 +256,11 @@ Examples:
 		Short: "Build a Docker images for an agent project",
 		Long: `Build Docker images for an agent project created with the init command.
 
-This command will look for a kagent.yaml file in the specified project directory and build Docker images using docker build. The images can optionally be pushed to a registry.
+This command will look for a agent.yaml file in the specified project directory and build Docker images using docker build. The images can optionally be pushed to a registry.
 
 Image naming:
 - If --image is provided, it will be used as the full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)
-- Otherwise, defaults to localhost:5001/{agentName}:latest where agentName is loaded from kagent.yaml
+- Otherwise, defaults to localhost:5001/{agentName}:latest where agentName is loaded from agent.yaml
 
 Examples:
   kagent build ./my-agent
@@ -292,11 +292,11 @@ Examples:
 		Short: "Deploy an agent to Kubernetes",
 		Long: `Deploy an agent to Kubernetes.
 
-This command will read the kagent.yaml file from the specified project directory,
+This command will read the agent.yaml file from the specified project directory,
 load environment variables from a .env file, and create an Agent CRD with necessary secrets.
 
 The command will:
-1. Load the agent configuration from kagent.yaml
+1. Load the agent configuration from agent.yaml
 2. Load environment variables from a .env file (including the model provider API key)
 3. Create Kubernetes secrets for environment variables and API keys
 4. Create an Agent CRD with the appropriate configuration
@@ -343,8 +343,8 @@ Examples:
 	addMcpCfg := &cli.AddMcpCfg{Config: cfg}
 	addMcpCmd := &cobra.Command{
 		Use:   "add-mcp [name] [args...]",
-		Short: "Add an MCP server entry to kagent.yaml",
-		Long:  `Add an MCP server entry to kagent.yaml. Use flags for non-interactive setup or run without flags to open the wizard.`,
+		Short: "Add an MCP server entry to agent.yaml",
+		Long:  `Add an MCP server entry to agent.yaml. Use flags for non-interactive setup or run without flags to open the wizard.`,
 		Args:  cobra.ArbitraryArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) > 0 {

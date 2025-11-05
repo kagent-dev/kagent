@@ -46,7 +46,7 @@ const (
 
 // DeployCfg contains all configuration options for deploying an agent to Kubernetes.
 type DeployCfg struct {
-	// ProjectDir is the path to the agent project directory (must contain kagent.yaml)
+	// ProjectDir is the path to the agent project directory (must contain agent.yaml)
 	ProjectDir string
 
 	// Image is the Docker image name (e.g., "registry/name:tag"). If empty, defaults to localhost:5001/name:latest
@@ -139,7 +139,7 @@ func validateAndLoadProject(cfg *DeployCfg) (*common.AgentManifest, error) {
 
 	manifest, err := LoadManifest(cfg.ProjectDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load kagent.yaml: %v", err)
+		return nil, fmt.Errorf("failed to load agent.yaml: %v", err)
 	}
 
 	return manifest, nil
@@ -171,7 +171,7 @@ func buildAndPushImage(cfg *DeployCfg) error {
 // validateDeploymentRequirements validates deployment-specific requirements
 func validateDeploymentRequirements(manifest *common.AgentManifest) (string, error) {
 	if manifest.ModelProvider == "" {
-		return "", fmt.Errorf("model provider is required in kagent.yaml")
+		return "", fmt.Errorf("model provider is required in agent.yaml")
 	}
 
 	apiKeyEnvVar := getAPIKeyEnvVar(manifest.ModelProvider)
@@ -283,7 +283,7 @@ func validateAndPromptEnvVars(cfg *DeployCfg, requiredEnvVars []string, apiKeyEn
 		return fmt.Errorf(".env file must contain %s for the model provider", apiKeyEnvVar)
 	}
 
-	// Check for other missing variables referenced in kagent.yaml
+	// Check for other missing variables referenced in agent.yaml
 	missingVars := []string{}
 	for _, varName := range requiredEnvVars {
 		if varName == apiKeyEnvVar {
@@ -295,7 +295,7 @@ func validateAndPromptEnvVars(cfg *DeployCfg, requiredEnvVars []string, apiKeyEn
 	}
 
 	if len(missingVars) > 0 {
-		fmt.Printf("\n⚠️  Warning: The following variables are referenced in kagent.yaml but missing from %s:\n", cfg.EnvFile)
+		fmt.Printf("\n⚠️  Warning: The following variables are referenced in agent.yaml but missing from %s:\n", cfg.EnvFile)
 		for _, varName := range missingVars {
 			fmt.Printf("  - %s\n", varName)
 		}

@@ -99,7 +99,7 @@ func constructImageName(cfg *BuildCfg) string {
 	return commonimage.ConstructImageName(cfg.Image, agentName)
 }
 
-// getAgentNameFromManifest attempts to load the agent name from kagent.yaml
+// getAgentNameFromManifest attempts to load the agent name from agent.yaml
 func getAgentNameFromManifest(projectDir string) string {
 	// Use the Manager to load the manifest
 	manager := common.NewManifestManager(projectDir)
@@ -195,7 +195,7 @@ func pushMcpServerImages(cfg *BuildCfg, manifest *common.AgentManifest) error {
 
 // constructMcpServerImageName constructs the MCP server image name
 func constructMcpServerImageName(cfg *BuildCfg, serverName string) string {
-	// Get agent name from kagent.yaml file
+	// Get agent name from agent.yaml file
 	agentName := getAgentNameFromManifest(cfg.ProjectDir)
 
 	// If no agent name found in manifest, fall back to directory name

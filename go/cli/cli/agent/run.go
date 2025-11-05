@@ -42,7 +42,7 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 	// Load manifest to get agent name
 	manifest, err := LoadManifest(cfg.ProjectDir)
 	if err != nil {
-		return fmt.Errorf("failed to load kagent.yaml: %v", err)
+		return fmt.Errorf("failed to load agent.yaml: %v", err)
 	}
 
 	// Validate API key before starting docker-compose
