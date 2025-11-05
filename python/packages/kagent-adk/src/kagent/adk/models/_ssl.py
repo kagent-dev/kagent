@@ -83,7 +83,7 @@ def get_ssl_troubleshooting_message(
             "   # Check spec.tls.caCertSecretRef and spec.tls.caCertSecretKey",
             "",
             "For more information, see:",
-            "   https://docs.kagent.dev/troubleshooting/ssl-errors",
+            "   https://kagent.dev/docs",
             "=" * 70,
         ]
     )

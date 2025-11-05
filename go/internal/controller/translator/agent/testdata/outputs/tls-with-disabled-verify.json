@@ -12,32 +12,22 @@
       "text"
     ],
     "description": "",
-    "name": "agent",
+    "name": "tls_agent_with_disabled_verify",
     "skills": null,
-    "url": "http://agent.test:8080",
+    "url": "http://tls-agent-with-disabled-verify.test:8080",
     "version": ""
   },
   "config": {
     "description": "",
-    "http_tools": [
-      {
-        "params": {
-          "headers": {
-            "MATH": "sk-test-api-key"
-          },
-          "sse_read_timeout": 300,
-          "timeout": 30,
-          "url": "http://localhost:8084/mcp"
-        },
-        "tools": [
-          "k8s_get_resources"
-        ]
-      }
-    ],
-    "instruction": "You are a math toolserver. Focus on solving mathematical problems step by step.",
+    "http_tools": null,
+    "instruction": "You are a helpful assistant in a development environment.",
     "model": {
-      "base_url": "",
+      "base_url": "https://dev-litellm.local",
+      "max_tokens": 1024,
       "model": "gpt-4o",
+      "temperature": 0.7,
+      "tls_disable_system_cas": false,
+      "tls_disable_verify": true,
       "type": "openai"
     },
     "remote_agents": null,
@@ -51,11 +41,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent",
+          "app.kubernetes.io/name": "tls-agent-with-disabled-verify",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent"
+          "kagent": "tls-agent-with-disabled-verify"
         },
-        "name": "agent",
+        "name": "tls-agent-with-disabled-verify",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -63,14 +53,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent",
+            "name": "tls-agent-with-disabled-verify",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a math toolserver. Focus on solving mathematical problems step by step.\",\"http_tools\":[{\"params\":{\"url\":\"http://localhost:8084/mcp\",\"headers\":{\"MATH\":\"sk-test-api-key\"},\"timeout\":30,\"sse_read_timeout\":300},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"remote_agents\":null}"
+        "agent-card.json": "{\"name\":\"tls_agent_with_disabled_verify\",\"description\":\"\",\"url\":\"http://tls-agent-with-disabled-verify.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_disable_verify\":true,\"tls_disable_system_cas\":false,\"base_url\":\"https://dev-litellm.local\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant in a development environment.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -80,11 +70,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent",
+          "app.kubernetes.io/name": "tls-agent-with-disabled-verify",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent"
+          "kagent": "tls-agent-with-disabled-verify"
         },
-        "name": "agent",
+        "name": "tls-agent-with-disabled-verify",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -92,7 +82,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent",
+            "name": "tls-agent-with-disabled-verify",
             "uid": ""
           }
         ]
@@ -105,11 +95,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent",
+          "app.kubernetes.io/name": "tls-agent-with-disabled-verify",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent"
+          "kagent": "tls-agent-with-disabled-verify"
         },
-        "name": "agent",
+        "name": "tls-agent-with-disabled-verify",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -117,7 +107,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent",
+            "name": "tls-agent-with-disabled-verify",
             "uid": ""
           }
         ]
@@ -127,7 +117,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "agent"
+            "kagent": "tls-agent-with-disabled-verify"
           }
         },
         "strategy": {
@@ -140,14 +130,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "8768892159480624774"
+              "kagent.dev/config-hash": "3242056824999583373"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "agent",
+              "app.kubernetes.io/name": "tls-agent-with-disabled-verify",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "agent"
+              "kagent": "tls-agent-with-disabled-verify"
             }
           },
           "spec": {
@@ -220,12 +210,12 @@
                 },
                 "resources": {
                   "limits": {
-                    "cpu": "2",
-                    "memory": "1Gi"
+                    "cpu": "3",
+                    "memory": "2Gi"
                   },
                   "requests": {
-                    "cpu": "100m",
-                    "memory": "384Mi"
+                    "cpu": "200m",
+                    "memory": "684Mi"
                   }
                 },
                 "volumeMounts": [
@@ -240,12 +230,12 @@
                 ]
               }
             ],
-            "serviceAccountName": "agent",
+            "serviceAccountName": "tls-agent-with-disabled-verify",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "agent"
+                  "secretName": "tls-agent-with-disabled-verify"
                 }
               },
               {
@@ -275,11 +265,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent",
+          "app.kubernetes.io/name": "tls-agent-with-disabled-verify",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent"
+          "kagent": "tls-agent-with-disabled-verify"
         },
-        "name": "agent",
+        "name": "tls-agent-with-disabled-verify",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -287,7 +277,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent",
+            "name": "tls-agent-with-disabled-verify",
             "uid": ""
           }
         ]
@@ -302,7 +292,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "agent"
+          "kagent": "tls-agent-with-disabled-verify"
         },
         "type": "ClusterIP"
       },

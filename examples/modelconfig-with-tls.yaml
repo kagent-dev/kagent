@@ -384,7 +384,7 @@ roleRef:
 #    - Secrets are mounted as volumes and not automatically reloaded
 #
 # 6. Troubleshooting:
-#    - See docs/troubleshooting/ssl-errors.md for detailed debugging steps
+#    - See https://kagent.dev/docs for detailed debugging steps
 #    - Check agent logs: kubectl logs deployment/agent-<name>
 #    - Verify Secret is mounted: kubectl exec deployment/agent-<name> -- ls /etc/ssl/certs/custom/
 #    - Test certificate: kubectl exec deployment/agent-<name> -- openssl x509 -in /etc/ssl/certs/custom/ca.crt -text -noout

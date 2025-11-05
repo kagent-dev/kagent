@@ -4,7 +4,19 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 )
+
+// envVarToMapHelper converts a slice of environment variables to a map for O(n) lookups
+func envVarToMapHelper(envVars []corev1.EnvVar) map[string]string {
+	result := make(map[string]string)
+	for _, env := range envVars {
+		result[env.Name] = env.Value
+	}
+	return result
+}
 
 // Test_addTLSConfiguration_NoTLSConfig verifies that no volumes are added when TLS config is nil
 func Test_addTLSConfiguration_NoTLSConfig(t *testing.T) {
@@ -12,13 +24,8 @@ func Test_addTLSConfiguration_NoTLSConfig(t *testing.T) {
 
 	addTLSConfiguration(mdd, nil)
 
-	// Note: TLS configuration is now passed via agent config JSON, not environment variables
-	if len(mdd.Volumes) != 0 {
-		t.Errorf("Expected no volumes, got %d", len(mdd.Volumes))
-	}
-	if len(mdd.VolumeMounts) != 0 {
-		t.Errorf("Expected no volume mounts, got %d", len(mdd.VolumeMounts))
-	}
+	assert.Empty(t, mdd.Volumes, "Expected no volumes when TLS config is nil")
+	assert.Empty(t, mdd.VolumeMounts, "Expected no volume mounts when TLS config is nil")
 }
 
 // Test_addTLSConfiguration_WithDisableVerify verifies no volumes are added when TLS verify is disabled without cert
@@ -31,16 +38,9 @@ func Test_addTLSConfiguration_WithDisableVerify(t *testing.T) {
 
 	addTLSConfiguration(mdd, tlsConfig)
 
-	// Note: TLS configuration (DisableVerify, DisableSystemCAs) is now passed via agent config JSON
-	// addTLSConfiguration only handles volume mounting for certificates
-
 	// Should not add volumes/mounts when no CACertSecretRef is set
-	if len(mdd.Volumes) != 0 {
-		t.Errorf("Expected no volumes when CACertSecretRef is empty, got %d", len(mdd.Volumes))
-	}
-	if len(mdd.VolumeMounts) != 0 {
-		t.Errorf("Expected no volume mounts when CACertSecretRef is empty, got %d", len(mdd.VolumeMounts))
-	}
+	assert.Empty(t, mdd.Volumes, "Expected no volumes when CACertSecretRef is empty")
+	assert.Empty(t, mdd.VolumeMounts, "Expected no volume mounts when CACertSecretRef is empty")
 }
 
 // Test_addTLSConfiguration_WithCACertSecret verifies Secret volume mounting
@@ -55,43 +55,22 @@ func Test_addTLSConfiguration_WithCACertSecret(t *testing.T) {
 
 	addTLSConfiguration(mdd, tlsConfig)
 
-	// Note: TLS configuration fields are now passed via agent config JSON, not environment variables
-	// This function only handles volume mounting for certificates
-
 	// Verify volume is added
-	if len(mdd.Volumes) != 1 {
-		t.Fatalf("Expected 1 volume, got %d", len(mdd.Volumes))
-	}
+	require.Len(t, mdd.Volumes, 1, "Expected 1 volume for TLS cert secret")
 
 	volume := mdd.Volumes[0]
-	if volume.Name != tlsCACertVolumeName {
-		t.Errorf("Expected volume name %s, got %s", tlsCACertVolumeName, volume.Name)
-	}
-	if volume.VolumeSource.Secret == nil {
-		t.Fatal("Expected Secret volume source, got nil")
-	}
-	if volume.VolumeSource.Secret.SecretName != "internal-ca-cert" {
-		t.Errorf("Expected SecretName=internal-ca-cert, got %s", volume.VolumeSource.Secret.SecretName)
-	}
-	if *volume.VolumeSource.Secret.DefaultMode != 0444 {
-		t.Errorf("Expected DefaultMode=0444, got %d", *volume.VolumeSource.Secret.DefaultMode)
-	}
+	assert.Equal(t, tlsCACertVolumeName, volume.Name, "Volume name should match TLS CA cert volume name")
+	require.NotNil(t, volume.VolumeSource.Secret, "Expected Secret volume source")
+	assert.Equal(t, "internal-ca-cert", volume.VolumeSource.Secret.SecretName, "Secret name should match CACertSecretRef")
+	assert.Equal(t, int32(0444), *volume.VolumeSource.Secret.DefaultMode, "DefaultMode should be 0444 for read-only cert")
 
 	// Verify volume mount is added
-	if len(mdd.VolumeMounts) != 1 {
-		t.Fatalf("Expected 1 volume mount, got %d", len(mdd.VolumeMounts))
-	}
+	require.Len(t, mdd.VolumeMounts, 1, "Expected 1 volume mount for TLS cert")
 
 	mount := mdd.VolumeMounts[0]
-	if mount.Name != tlsCACertVolumeName {
-		t.Errorf("Expected volume mount name %s, got %s", tlsCACertVolumeName, mount.Name)
-	}
-	if mount.MountPath != tlsCACertMountPath {
-		t.Errorf("Expected MountPath=%s, got %s", tlsCACertMountPath, mount.MountPath)
-	}
-	if !mount.ReadOnly {
-		t.Error("Expected ReadOnly=true, got false")
-	}
+	assert.Equal(t, tlsCACertVolumeName, mount.Name, "Volume mount name should match volume name")
+	assert.Equal(t, tlsCACertMountPath, mount.MountPath, "Mount path should be TLS cert mount path")
+	assert.True(t, mount.ReadOnly, "Volume mount should be read-only")
 }
 
 // Test_addTLSConfiguration_DefaultCACertKey verifies volume mounting works with default key
@@ -104,23 +83,14 @@ func Test_addTLSConfiguration_DefaultCACertKey(t *testing.T) {
 
 	addTLSConfiguration(mdd, tlsConfig)
 
-	// Note: Certificate path is now included in agent config JSON via populateTLSFields
-	// This test verifies volume mounting still works correctly
-
 	// Verify volume is added
-	if len(mdd.Volumes) != 1 {
-		t.Fatalf("Expected 1 volume, got %d", len(mdd.Volumes))
-	}
+	require.Len(t, mdd.Volumes, 1, "Expected 1 volume for TLS cert with default key")
 
 	// Verify volume mount is added at the correct path
-	if len(mdd.VolumeMounts) != 1 {
-		t.Fatalf("Expected 1 volume mount, got %d", len(mdd.VolumeMounts))
-	}
+	require.Len(t, mdd.VolumeMounts, 1, "Expected 1 volume mount for TLS cert")
 
 	mount := mdd.VolumeMounts[0]
-	if mount.MountPath != tlsCACertMountPath {
-		t.Errorf("Expected MountPath=%s, got %s", tlsCACertMountPath, mount.MountPath)
-	}
+	assert.Equal(t, tlsCACertMountPath, mount.MountPath, "Mount path should be TLS cert mount path")
 }
 
 // Test_addTLSConfiguration_CustomCertKey verifies volume mounting works with custom key
@@ -133,23 +103,14 @@ func Test_addTLSConfiguration_CustomCertKey(t *testing.T) {
 
 	addTLSConfiguration(mdd, tlsConfig)
 
-	// Note: Certificate path (including custom key) is now included in agent config JSON via populateTLSFields
-	// This test verifies volume mounting still works correctly
-
 	// Verify volume is added
-	if len(mdd.Volumes) != 1 {
-		t.Fatalf("Expected 1 volume, got %d", len(mdd.Volumes))
-	}
+	require.Len(t, mdd.Volumes, 1, "Expected 1 volume for TLS cert with custom key")
 
 	// Verify volume mount is added at the correct path
-	if len(mdd.VolumeMounts) != 1 {
-		t.Fatalf("Expected 1 volume mount, got %d", len(mdd.VolumeMounts))
-	}
+	require.Len(t, mdd.VolumeMounts, 1, "Expected 1 volume mount for TLS cert")
 
 	mount := mdd.VolumeMounts[0]
-	if mount.MountPath != tlsCACertMountPath {
-		t.Errorf("Expected MountPath=%s, got %s", tlsCACertMountPath, mount.MountPath)
-	}
+	assert.Equal(t, tlsCACertMountPath, mount.MountPath, "Mount path should be TLS cert mount path")
 }
 
 // Test_addTLSConfiguration_DisableSystemCAsFlag verifies no volumes added when no cert secret
@@ -177,16 +138,9 @@ func Test_addTLSConfiguration_DisableSystemCAsFlag(t *testing.T) {
 
 			addTLSConfiguration(mdd, tlsConfig)
 
-			// Note: DisableSystemCAs configuration is now passed via agent config JSON, not environment variables
-			// addTLSConfiguration only handles volume mounting
-
 			// Should not add volumes when no CACertSecretRef is set
-			if len(mdd.Volumes) != 0 {
-				t.Errorf("Expected no volumes when CACertSecretRef is empty, got %d", len(mdd.Volumes))
-			}
-			if len(mdd.VolumeMounts) != 0 {
-				t.Errorf("Expected no volume mounts when CACertSecretRef is empty, got %d", len(mdd.VolumeMounts))
-			}
+			assert.Empty(t, mdd.Volumes, "Expected no volumes when CACertSecretRef is empty")
+			assert.Empty(t, mdd.VolumeMounts, "Expected no volume mounts when CACertSecretRef is empty")
 		})
 	}
 }
@@ -203,28 +157,16 @@ func Test_addTLSConfiguration_AllFieldsCombined(t *testing.T) {
 
 	addTLSConfiguration(mdd, tlsConfig)
 
-	// Note: TLS configuration fields (DisableVerify, DisableSystemCAs, CACertPath) are now
-	// passed via agent config JSON by populateTLSFields, not environment variables
-	// This test verifies volume mounting still works correctly
-
 	// Verify volume and mount
-	if len(mdd.Volumes) != 1 || len(mdd.VolumeMounts) != 1 {
-		t.Errorf("Expected 1 volume and 1 mount, got %d volumes and %d mounts",
-			len(mdd.Volumes), len(mdd.VolumeMounts))
-	}
+	require.Len(t, mdd.Volumes, 1, "Expected 1 volume for combined TLS config")
+	require.Len(t, mdd.VolumeMounts, 1, "Expected 1 volume mount for combined TLS config")
 
 	// Verify volume references correct Secret
 	volume := mdd.Volumes[0]
-	if volume.VolumeSource.Secret == nil {
-		t.Fatal("Expected Secret volume source, got nil")
-	}
-	if volume.VolumeSource.Secret.SecretName != "my-ca-bundle" {
-		t.Errorf("Expected SecretName=my-ca-bundle, got %s", volume.VolumeSource.Secret.SecretName)
-	}
+	require.NotNil(t, volume.VolumeSource.Secret, "Expected Secret volume source")
+	assert.Equal(t, "my-ca-bundle", volume.VolumeSource.Secret.SecretName, "Secret name should match CACertSecretRef")
 
 	// Verify mount path is correct
 	mount := mdd.VolumeMounts[0]
-	if mount.MountPath != tlsCACertMountPath {
-		t.Errorf("Expected MountPath=%s, got %s", tlsCACertMountPath, mount.MountPath)
-	}
+	assert.Equal(t, tlsCACertMountPath, mount.MountPath, "Mount path should be TLS cert mount path")
 }

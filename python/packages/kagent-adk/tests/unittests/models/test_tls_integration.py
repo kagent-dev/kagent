@@ -261,7 +261,7 @@ def test_e2e_ssl_error_troubleshooting_message(temp_cert_file):
     assert "openssl s_client" in message
     assert temp_cert_file in message
     assert "litellm.internal.corp:8080" in message
-    assert "https://docs.kagent.dev/troubleshooting/ssl-errors" in message
+    assert "https://kagent.dev/docs" in message
 
 
 # ============================================================================

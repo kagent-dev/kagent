@@ -640,13 +640,13 @@ spec:
             - message: apiKeySecretKey must be set if apiKeySecret is set
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))'
             - message: caCertSecretKey requires caCertSecretRef
-              rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && self.tls.caCertSecretKey
-                != ” && (!has(self.tls.caCertSecretRef) || self.tls.caCertSecretRef
-                == ”))'
+              rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
+                > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)
+                == 0))'
             - message: caCertSecretRef requires caCertSecretKey
-              rule: '!(has(self.tls) && has(self.tls.caCertSecretRef) && self.tls.caCertSecretRef
-                != ” && (!has(self.tls.caCertSecretKey) || self.tls.caCertSecretKey
-                == ”))'
+              rule: '!(has(self.tls) && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef)
+                > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey)
+                == 0))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

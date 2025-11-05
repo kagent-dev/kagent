@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2025.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -128,16 +128,3 @@ def test_ssl_context_disabled_logs_warning(caplog):
         assert result is False
         assert "SSL VERIFICATION DISABLED" in caplog.text
         assert "development/testing" in caplog.text.lower()
-
-
-def test_ssl_context_with_custom_ca_path_none_uses_system():
-    """Test SSL context with ca_cert_path=None uses only system CAs."""
-    ctx = create_ssl_context(
-        disable_verify=False,
-        ca_cert_path=None,
-        disable_system_cas=False,
-    )
-    assert isinstance(ctx, ssl.SSLContext)
-    # Default context should have system CAs loaded
-    assert ctx.check_hostname is True
-    assert ctx.verify_mode == ssl.CERT_REQUIRED

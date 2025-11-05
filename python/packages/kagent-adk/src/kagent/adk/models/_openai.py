@@ -11,7 +11,7 @@ from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 from google.genai.types import FunctionCall, FunctionResponse
-from openai import AsyncAzureOpenAI, AsyncOpenAI
+from openai import AsyncAzureOpenAI, AsyncOpenAI, DefaultAsyncHttpxClient
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionAssistantMessageParam,
@@ -317,10 +317,14 @@ class BaseOpenAI(BaseLlm):
         return disable_verify, ca_cert_path, disable_system_cas
 
     def _create_http_client(self) -> Optional[httpx.AsyncClient]:
-        """Create httpx.AsyncClient with custom SSL context if TLS config is present.
+        """Create HTTP client with custom SSL context using OpenAI SDK defaults.
+
+        Uses DefaultAsyncHttpxClient to preserve OpenAI's default settings for
+        timeout, connection pooling, and redirect behavior while applying custom
+        SSL configuration.
 
         Returns:
-            httpx.AsyncClient with SSL configuration, or None if no TLS config
+            DefaultAsyncHttpxClient with SSL configuration, or None if no TLS config
         """
         disable_verify, ca_cert_path, disable_system_cas = self._get_tls_config()
 
@@ -333,7 +337,8 @@ class BaseOpenAI(BaseLlm):
             )
 
             # ssl_context is either False (verification disabled) or SSLContext
-            return httpx.AsyncClient(verify=ssl_context)
+            # Use DefaultAsyncHttpxClient to preserve OpenAI's defaults
+            return DefaultAsyncHttpxClient(verify=ssl_context)
 
         # No TLS configuration, return None to use OpenAI SDK default
         return None

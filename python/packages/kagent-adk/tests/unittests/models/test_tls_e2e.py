@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2025.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -260,6 +260,33 @@ async def test_e2e_with_system_and_custom_ca():
             response = await client.get("https://localhost:8446/health")
             assert response.status_code == 200
             assert response.text == "OK"
+
+
+@pytest.mark.asyncio
+async def test_e2e_openai_client_fails_without_custom_ca():
+    """E2E test: OpenAI client fails when custom CA is required but not provided.
+
+    This test verifies that TLS verification actually happens by ensuring
+    that connections to self-signed certificate servers fail when the CA
+    is not provided.
+    """
+    with TestHTTPSServer(port=8450):
+        # Create OpenAI client WITHOUT custom CA (should fail verification)
+        model = BaseOpenAI(
+            model="gpt-4",
+            api_key="test-key",
+            base_url="https://localhost:8450/v1",
+            tls_disable_verify=False,
+            tls_ca_cert_path=None,  # No custom CA
+            tls_disable_system_cas=True,  # Empty trust store - no CAs at all
+        )
+
+        # Access the _client property to trigger initialization
+        client = model._client
+
+        # Attempt to connect should fail with SSL verification error
+        with pytest.raises((httpx.ConnectError, ssl.SSLError)):
+            await client.get("https://localhost:8450/health")
 
 
 @pytest.mark.skip(reason="Test needs refactoring: Should test via generate_content_async() not internal _client. "
