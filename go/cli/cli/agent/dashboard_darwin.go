@@ -1,6 +1,6 @@
 //go:build darwin
 
-package cli
+package agent
 
 import (
 	"context"
