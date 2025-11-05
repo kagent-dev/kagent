@@ -61,7 +61,7 @@ make build
 The CLI is a REPL (Read-Eval-Print Loop), so you can run it directly without building:
 
 ```bash
-go run cli/cmd/kagent/main.go
+go run cmd/cli/main.go
 ```
 
 ### Building the Controller

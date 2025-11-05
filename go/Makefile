@@ -59,34 +59,34 @@ govulncheck:
 
 bin/kagent-local:
 	CGO_ENABLED=0 go test -race ./cli/...
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/kagent-local ./cli/cmd/kagent
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/kagent-local ./cmd/cli
 
 bin/kagent-linux-amd64:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-amd64 ./cli/cmd/kagent
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-amd64 ./cmd/cli
 
 bin/kagent-linux-amd64.sha256: bin/kagent-linux-amd64
 	sha256sum bin/kagent-linux-amd64 > bin/kagent-linux-amd64.sha256
 
 bin/kagent-linux-arm64:
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-arm64 ./cli/cmd/kagent
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-arm64 ./cmd/cli
 
 bin/kagent-linux-arm64.sha256: bin/kagent-linux-arm64
 	sha256sum bin/kagent-linux-arm64 > bin/kagent-linux-arm64.sha256
 
 bin/kagent-darwin-amd64:
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-amd64 ./cli/cmd/kagent
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-amd64 ./cmd/cli
 
 bin/kagent-darwin-amd64.sha256: bin/kagent-darwin-amd64
 	sha256sum bin/kagent-darwin-amd64 > bin/kagent-darwin-amd64.sha256
 
 bin/kagent-darwin-arm64:
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-arm64 ./cli/cmd/kagent
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-arm64 ./cmd/cli
 
 bin/kagent-darwin-arm64.sha256: bin/kagent-darwin-arm64
 	sha256sum bin/kagent-darwin-arm64 > bin/kagent-darwin-arm64.sha256
 
 bin/kagent-windows-amd64.exe:
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-windows-amd64.exe ./cli/cmd/kagent
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-windows-amd64.exe ./cmd/cli
 
 bin/kagent-windows-amd64.exe.sha256: bin/kagent-windows-amd64.exe
 	sha256sum bin/kagent-windows-amd64.exe > bin/kagent-windows-amd64.exe.sha256
