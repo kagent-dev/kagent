@@ -12,7 +12,7 @@ metadata:
   {{- if eq $providerKey $defaultProvider }}
   name: {{ include "kagent.defaultModelConfigName" $dot | quote }}
   {{- else }}
-  name: {{ printf "%s-%s-model-config" (include "kagent.fullname" $dot) $providerKey | trunc 63 | trimSuffix "-" | quote }}
+  name: {{ printf "%s-model-config" $providerKey| lower }}
   {{- end }}
   namespace: {{ include "kagent.namespace" $dot }}
   labels:
