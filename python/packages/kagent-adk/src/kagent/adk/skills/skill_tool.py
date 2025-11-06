@@ -4,31 +4,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-import yaml
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
-from pydantic import BaseModel
+from kagent.skills import (
+    discover_skills,
+    generate_skills_tool_description,
+    load_skill_content,
+)
 
 logger = logging.getLogger("kagent_adk." + __name__)
-
-
-class Skill(BaseModel):
-    """Represents the metadata for a skill.
-
-    This is a simple data container used during the initial skill discovery
-    phase to hold the information parsed from a skill's SKILL.md frontmatter.
-    """
-
-    name: str
-    """The unique name/identifier of the skill."""
-
-    description: str
-    """A description of what the skill does and when to use it."""
-
-    license: Optional[str] = None
-    """Optional license information for the skill."""
 
 
 class SkillsTool(BaseTool):
@@ -55,61 +41,8 @@ class SkillsTool(BaseTool):
 
     def _generate_description_with_skills(self) -> str:
         """Generate tool description with available skills embedded."""
-        base_description = (
-            "Execute a skill within the main conversation\n\n"
-            "<skills_instructions>\n"
-            "When users ask you to perform tasks, check if any of the available skills below can help "
-            "complete the task more effectively. Skills provide specialized capabilities and domain knowledge.\n\n"
-            "How to use skills:\n"
-            "- Invoke skills using this tool with the skill name only (no arguments)\n"
-            "- When you invoke a skill, the skill's full SKILL.md will load with detailed instructions\n"
-            "- Follow the skill's instructions and use the bash tool to execute commands\n"
-            "- Examples:\n"
-            '  - command: "data-analysis" - invoke the data-analysis skill\n'
-            '  - command: "pdf-processing" - invoke the pdf-processing skill\n\n'
-            "Important:\n"
-            "- Only use skills listed in <available_skills> below\n"
-            "- Do not invoke a skill that is already loaded in the conversation\n"
-            "- After loading a skill, use the bash tool for execution\n"
-            "- If not specified, scripts are located in the skill-name/scripts subdirectory\n"
-            "</skills_instructions>\n\n"
-        )
-
-        # Discover and append available skills
-        skills_xml = self._discover_skills()
-        return base_description + skills_xml
-
-    def _discover_skills(self) -> str:
-        """Discover available skills and format as XML."""
-        if not self.skills_directory.exists():
-            return "<available_skills>\n<!-- No skills directory found -->\n</available_skills>\n"
-
-        skills_entries = []
-        for skill_dir in sorted(self.skills_directory.iterdir()):
-            if not skill_dir.is_dir():
-                continue
-
-            skill_file = skill_dir / "SKILL.md"
-            if not skill_file.exists():
-                continue
-
-            try:
-                metadata = self._parse_skill_metadata(skill_file)
-                if metadata:
-                    skill_xml = (
-                        "<skill>\n"
-                        f"<name>{metadata['name']}</name>\n"
-                        f"<description>{metadata['description']}</description>\n"
-                        "</skill>"
-                    )
-                    skills_entries.append(skill_xml)
-            except Exception as e:
-                logger.error(f"Failed to parse skill {skill_dir.name}: {e}")
-
-        if not skills_entries:
-            return "<available_skills>\n<!-- No skills found -->\n</available_skills>\n"
-
-        return "<available_skills>\n" + "\n".join(skills_entries) + "\n</available_skills>\n"
+        skills = discover_skills(self.skills_directory)
+        return generate_skills_tool_description(skills)
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -142,53 +75,20 @@ class SkillsTool(BaseTool):
         if skill_name in self._skill_cache:
             return self._skill_cache[skill_name]
 
-        # Find skill directory
-        skill_dir = self.skills_directory / skill_name
-        if not skill_dir.exists() or not skill_dir.is_dir():
-            return f"Error: Skill '{skill_name}' not found. Check the available skills list in the tool description."
-
-        skill_file = skill_dir / "SKILL.md"
-        if not skill_file.exists():
-            return f"Error: Skill '{skill_name}' has no SKILL.md file."
-
         try:
-            with open(skill_file, "r", encoding="utf-8") as f:
-                content = f.read()
-
+            content = load_skill_content(self.skills_directory, skill_name)
             formatted_content = self._format_skill_content(skill_name, content)
 
             # Cache the formatted content
             self._skill_cache[skill_name] = formatted_content
 
             return formatted_content
-
-        except Exception as e:
+        except (FileNotFoundError, IOError) as e:
             logger.error(f"Failed to load skill {skill_name}: {e}")
             return f"Error loading skill '{skill_name}': {e}"
-
-    def _parse_skill_metadata(self, skill_file: Path) -> Dict[str, str] | None:
-        """Parse YAML frontmatter from a SKILL.md file."""
-        try:
-            with open(skill_file, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            if not content.startswith("---"):
-                return None
-
-            parts = content.split("---", 2)
-            if len(parts) < 3:
-                return None
-
-            metadata = yaml.safe_load(parts[1])
-            if isinstance(metadata, dict) and "name" in metadata and "description" in metadata:
-                return {
-                    "name": metadata["name"],
-                    "description": metadata["description"],
-                }
-            return None
         except Exception as e:
-            logger.error(f"Failed to parse metadata from {skill_file}: {e}")
-            return None
+            logger.error(f"An unexpected error occurred while loading skill {skill_name}: {e}")
+            return f"An unexpected error occurred while loading skill '{skill_name}': {e}"
 
     def _format_skill_content(self, skill_name: str, content: str) -> str:
         """Format skill content for display to the agent."""
