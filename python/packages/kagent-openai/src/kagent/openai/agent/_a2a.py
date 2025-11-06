@@ -10,6 +10,7 @@ import faulthandler
 import logging
 import os
 from collections.abc import Callable
+from typing import Path
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
@@ -77,6 +78,7 @@ class KAgentApp:
         agent_card: AgentCard,
         kagent_url: str,
         app_name: str,
+        skills_directory: str | Path | None = None,
         config: OpenAIAgentExecutorConfig | None = None,
     ):
         """Initialize the KAgent application.
@@ -86,12 +88,14 @@ class KAgentApp:
             agent_card: A2A agent card describing the agent's capabilities
             kagent_url: URL of the KAgent backend server
             app_name: Application name for identification
+            skills_directory: Path to the skills directory for session initialization.
             config: Optional executor configuration
         """
         self.agent = agent
         self.kagent_url = kagent_url
         self.app_name = app_name
         self.agent_card = agent_card
+        self.skills_directory = skills_directory
         self._config = config or OpenAIAgentExecutorConfig()
 
     def build(self) -> FastAPI:
@@ -122,6 +126,7 @@ class KAgentApp:
         agent_executor = OpenAIAgentExecutor(
             agent=self.agent,
             app_name=self.app_name,
+            skills_directory=self.skills_directory,
             session_factory=session_factory.create_session,
             config=self._config,
         )
@@ -173,10 +178,10 @@ class KAgentApp:
         agent_executor = OpenAIAgentExecutor(
             agent=self.agent,
             app_name=self.app_name,
+            skills_directory=self.skills_directory,
             session_factory=None,  # No session persistence in local mode
             config=self._config,
         )
-
         # Use in-memory task store
         task_store = InMemoryTaskStore()
 
