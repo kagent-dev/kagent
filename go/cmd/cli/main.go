@@ -233,7 +233,7 @@ Examples:
 			initCfg.Language = args[1]
 			initCfg.AgentName = args[2]
 
-			if err := cli.InitCmd(initCfg, version.GetVersion()); err != nil {
+			if err := cli.InitCmd(initCfg, "kagent", version.GetVersion()); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
