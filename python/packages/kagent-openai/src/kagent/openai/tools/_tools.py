@@ -1,0 +1,171 @@
+"""File operation and skill tools for agents.
+
+This module provides Read, Write, Edit, Bash, and Skills tools that agents can use.
+These tools are wrappers around the centralized logic in the kagent-skills package.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from agents.exceptions import UserError
+from agents.run_context import RunContextWrapper
+from agents.tool import FunctionTool, function_tool
+from kagent.skills import (
+    discover_skills,
+    generate_skills_tool_description,
+    get_bash_description,
+    get_edit_file_description,
+    get_read_file_description,
+    get_session_path,
+    get_write_file_description,
+    load_skill_content,
+    edit_file_content,
+    execute_command,
+    read_file_content,
+    write_file_content,
+)
+
+logger = logging.getLogger("kagent.openai.agent.tools")
+
+
+# --- System Tools ---
+
+
+@function_tool(
+    name_override="read_file",
+    description_override=get_read_file_description(),
+)
+def read_file(
+    context: RunContextWrapper,
+    file_path: str,
+    offset: int | None = None,
+    limit: int | None = None,
+) -> str:
+    """Read a file from the filesystem."""
+    try:
+        session_id = context.run.id
+        working_dir = get_session_path(session_id)
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = working_dir / path
+
+        return read_file_content(path, offset, limit)
+    except (FileNotFoundError, IsADirectoryError, IOError) as e:
+        raise UserError(str(e)) from e
+
+
+@function_tool(
+    name_override="write_file",
+    description_override=get_write_file_description(),
+)
+def write_file(context: RunContextWrapper, file_path: str, content: str) -> str:
+    """Write content to a file."""
+    try:
+        session_id = context.run.id
+        working_dir = get_session_path(session_id)
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = working_dir / path
+
+        return write_file_content(path, content)
+    except IOError as e:
+        raise UserError(str(e)) from e
+
+
+@function_tool(
+    name_override="edit_file",
+    description_override=get_edit_file_description(),
+)
+def edit_file(
+    context: RunContextWrapper,
+    file_path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> str:
+    """Edit a file by replacing old_string with new_string."""
+    try:
+        session_id = context.run.id
+        working_dir = get_session_path(session_id)
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = working_dir / path
+
+        return edit_file_content(path, old_string, new_string, replace_all)
+    except (FileNotFoundError, IsADirectoryError, ValueError, IOError) as e:
+        raise UserError(str(e)) from e
+
+
+@function_tool(
+    name_override="bash",
+    description_override=get_bash_description(),
+)
+async def bash(context: RunContextWrapper, command: str) -> str:
+    """Executes a bash command in a sandboxed environment."""
+    try:
+        session_id = context.run.id
+        working_dir = get_session_path(session_id)
+        return await execute_command(command, working_dir)
+    except Exception as e:
+        raise UserError(f"Error executing command: {e}") from e
+
+
+# --- Skill Tools ---
+
+
+def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
+    """Create a Skill tool.
+
+    This function generates a tool instance with skills discovered from the provided
+    directory, following the ADK pattern.
+    """
+    skills_dir = Path(skills_directory)
+    if not skills_dir.exists():
+        raise ValueError(f"Skills directory does not exist: {skills_dir}")
+
+    # Discover skills and generate the tool description.
+    skills = discover_skills(skills_dir)
+    description = generate_skills_tool_description(skills)
+
+    @function_tool(name_override="skills", description_override=description)
+    def skill_tool_impl(command: str) -> str:
+        """Execute a skill by name.
+
+        Args:
+            command: The name of the skill to execute (e.g., "data-analysis")
+
+        Returns:
+            The full skill instructions and context.
+        """
+        skill_name = command.strip()
+
+        try:
+            content = load_skill_content(skills_dir, skill_name)
+
+            # Mimic ADK's formatting
+            header = (
+                f'<command-message>The "{skill_name}" skill is loading</command-message>\n\n'
+                f"Base directory for this skill: {skills_dir.resolve()}/{skill_name}\n\n"
+            )
+            footer = (
+                "\n\n---"
+                "The skill has been loaded. Follow the instructions above and use the bash tool to execute commands."
+            )
+            return header + content + footer
+
+        except (FileNotFoundError, IOError) as e:
+            return f"Error loading skill '{skill_name}': {e}"
+        except Exception as e:
+            return f"An unexpected error occurred while loading skill '{skill_name}': {e}"
+
+    return skill_tool_impl
+
+
+# --- Export tool instances ---
+
+READ_FILE_TOOL: FunctionTool = read_file
+WRITE_FILE_TOOL: FunctionTool = write_file
+EDIT_FILE_TOOL: FunctionTool = edit_file
+BASH_TOOL: FunctionTool = bash
