@@ -1,33 +1,42 @@
 {{- $dot := . }}
-{{- $defaultProfider := .Values.providers.default | default "openAI" }}
-{{- $model := index .Values.providers $defaultProfider }}
-{{- if hasKey .Values.providers  $defaultProfider | not }}
-{{- fail  (printf "Provider key=%s is not found under .Values.providers" $defaultProfider)  }}
+{{- $defaultProvider := .Values.providers.default | default "openAI" }}
+{{- if hasKey .Values.providers $defaultProvider | not }}
+{{- fail (printf "Provider key=%s is not found under .Values.providers" $defaultProvider) }}
 {{- end }}
+{{- range $providerKey, $model := .Values.providers }}
+{{- if ne $providerKey "default" }}
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
+  {{- if eq $providerKey $defaultProvider }}
   name: {{ include "kagent.defaultModelConfigName" $dot | quote }}
-  namespace: {{ include "kagent.namespace" . }}
+  {{- else }}
+  name: {{ printf "%s-%s-model-config" (include "kagent.fullname" $dot) $providerKey | trunc 63 | trimSuffix "-" | quote }}
+  {{- end }}
+  namespace: {{ include "kagent.namespace" $dot }}
   labels:
     {{- include "kagent.labels" $dot | nindent 4 }}
+    kagent.dev/provider: {{ $providerKey | quote }}
+    {{- if eq $providerKey $defaultProvider }}
+    kagent.dev/default: "true"
+    {{- end }}
 spec:
-  {{- with $model }}
-  provider: {{ .provider | quote }}
-  model: {{ .model | quote }}
+  provider: {{ $model.provider | quote }}
+  model: {{ $model.model | quote }}
   {{- if $model.apiKeySecretRef }}
-  apiKeySecret: {{.apiKeySecretRef}}
+  apiKeySecret: {{ $model.apiKeySecretRef }}
   {{- end }}
   {{- if $model.apiKeySecretKey }}
-  apiKeySecretKey: {{.apiKeySecretKey}}
+  apiKeySecretKey: {{ $model.apiKeySecretKey }}
   {{- end }}
   {{- if hasKey $model "defaultHeaders" }}
   defaultHeaders:
     {{- toYaml $model.defaultHeaders | nindent 4 }}
   {{- end }}
   {{- if $model.config }}
-  {{ $dot.Values.providers.default }}:
+  {{ $providerKey }}:
   {{- toYaml $model.config | nindent 4 }}
   {{- end }}
-  {{- end }}
+{{- end }}
+{{- end }}

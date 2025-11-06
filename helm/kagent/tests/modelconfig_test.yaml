@@ -5,31 +5,38 @@ tests:
   - it: should render modelconfig with default provider
     asserts:
       - hasDocuments:
-          count: 1
+          count: 5
       - equal:
           path: metadata.name
           value: default-model-config
+        documentIndex: 4
       - equal:
           path: spec.provider
           value: "OpenAI"
+        documentIndex: 4
       - equal:
           path: spec.model
           value: "gpt-4.1-mini"
+        documentIndex: 4
 
   - it: should use openai configuration by default
     asserts:
       - equal:
           path: spec.provider
           value: "OpenAI"
+        documentIndex: 4
       - equal:
           path: spec.model
           value: "gpt-4.1-mini"
+        documentIndex: 4
       - equal:
           path: spec.apiKeySecret
           value: kagent-openai
+        documentIndex: 4
       - equal:
           path: spec.apiKeySecretKey
           value: OPENAI_API_KEY
+        documentIndex: 4
 
   - it: should use anthropic when set as default provider
     set:
@@ -37,17 +44,25 @@ tests:
         default: anthropic
     asserts:
       - equal:
+          path: metadata.name
+          value: default-model-config
+        documentIndex: 0
+      - equal:
           path: spec.provider
           value: "Anthropic"
+        documentIndex: 0
       - equal:
           path: spec.model
           value: "claude-3-5-haiku-20241022"
+        documentIndex: 0
       - equal:
           path: spec.apiKeySecret
           value: kagent-anthropic
+        documentIndex: 0
       - equal:
           path: spec.apiKeySecretKey
           value: ANTHROPIC_API_KEY
+        documentIndex: 0
 
   - it: should use azure openai when set as default provider
     set:
@@ -55,17 +70,25 @@ tests:
         default: azureOpenAI
     asserts:
       - equal:
+          path: metadata.name
+          value: default-model-config
+        documentIndex: 1
+      - equal:
           path: spec.provider
           value: "AzureOpenAI"
+        documentIndex: 1
       - equal:
           path: spec.model
           value: "gpt-4.1-mini"
+        documentIndex: 1
       - equal:
           path: spec.apiKeySecret
           value: kagent-azure-openai
+        documentIndex: 1
       - equal:
           path: spec.apiKeySecretKey
           value: AZUREOPENAI_API_KEY
+        documentIndex: 1
 
   - it: should configure ollama provider
     set:
@@ -73,11 +96,17 @@ tests:
         default: ollama
     asserts:
       - equal:
+          path: metadata.name
+          value: default-model-config
+        documentIndex: 3
+      - equal:
           path: spec.provider
           value: "Ollama"
+        documentIndex: 3
       - equal:
           path: spec.model
           value: "llama3.2"
+        documentIndex: 3
 
   - it: should use custom model when configured
     set:
@@ -88,24 +117,29 @@ tests:
       - equal:
           path: spec.model
           value: "gpt-4-turbo"
+        documentIndex: 4
 
   - it: should have correct labels
     asserts:
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
           value: kagent
+        documentIndex: 4
       - equal:
           path: metadata.labels["app.kubernetes.io/instance"]
           value: RELEASE-NAME
+        documentIndex: 4
       - equal:
           path: metadata.labels["app.kubernetes.io/managed-by"]
           value: Helm
+        documentIndex: 4
 
   - it: should be in correct namespace
     asserts:
       - equal:
           path: metadata.namespace
           value: NAMESPACE
+        documentIndex: 4
 
   - it: should use custom namespace when overridden
     set:
@@ -113,4 +147,5 @@ tests:
     asserts:
       - equal:
           path: metadata.namespace
-          value: custom-namespace 
+          value: custom-namespace
+        documentIndex: 4 
