@@ -1,14 +1,18 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/cli/agent/frameworks/adk/python"
+	"github.com/kagent-dev/kagent/go/cli/agent/frameworks/common"
 	commonexec "github.com/kagent-dev/kagent/go/cli/common/exec"
 	"github.com/kagent-dev/kagent/go/cli/config"
 	"github.com/kagent-dev/kagent/go/cli/tui"
@@ -45,20 +49,41 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 		return fmt.Errorf("failed to load agent.yaml: %v", err)
 	}
 
+	return runAgent(ctx, cfg.Config, []string{}, nil, manifest, cfg.ProjectDir)
+
+}
+
+func RunRemote(ctx context.Context, cfg *config.Config, manifest *common.AgentManifest) error {
+	generator := python.NewPythonGenerator()
+	// Generate the docker-compose.yaml file
+	templateBytes, err := generator.BaseGenerator.BaseGenerator.ReadTemplateFile("docker-compose.yaml.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read template file: %v", err)
+	}
+	renderedContent, err := generator.BaseGenerator.RenderTemplate(string(templateBytes), manifest)
+	if err != nil {
+		return fmt.Errorf("failed to render template: %v", err)
+	}
+
+	bytesBuffer := bytes.NewBuffer([]byte(renderedContent))
+
+	return runAgent(ctx, cfg, []string{""}, bytesBuffer, manifest, "")
+}
+
+func runAgent(ctx context.Context, cfg *config.Config, composeArgs []string, stdin io.Reader, manifest *common.AgentManifest, workDir string) error {
+
 	// Validate API key before starting docker-compose
 	if err := ValidateAPIKey(manifest.ModelProvider); err != nil {
 		return fmt.Errorf("API key validation failed: %v", err)
 	}
-
-	verbose := IsVerbose(cfg.Config)
-
-	fmt.Printf("Starting agent and tools...\n")
+	verbose := IsVerbose(cfg)
 
 	// Use docker compose (newer version) or docker-compose (older version)
 	composeCmd := commonexec.GetComposeCommand()
-	args := append(composeCmd[1:], "up", "-d", "--remove-orphans")
-	cmd := exec.CommandContext(ctx, composeCmd[0], args...)
-	cmd.Dir = cfg.ProjectDir
+	commonArgs := append(composeCmd[1:], composeArgs...)
+	cmd := exec.CommandContext(ctx, composeCmd[0], append(commonArgs, composeArgs...)...)
+	cmd.Dir = workDir
+	cmd.Stdin = stdin
 
 	// Suppress output to not block
 	if !verbose {
@@ -78,8 +103,9 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 
 	// Verify containers are actually running
 	time.Sleep(2 * time.Second) // Give containers a moment to start
-	psCmd := exec.Command(composeCmd[0], append(composeCmd[1:], "ps")...)
-	psCmd.Dir = cfg.ProjectDir
+	psCmd := exec.Command(composeCmd[0], append(commonArgs, "ps")...)
+	psCmd.Dir = workDir
+	psCmd.Stdin = stdin
 	psOutput, _ := psCmd.CombinedOutput()
 
 	if verbose {
@@ -94,8 +120,9 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 	if err := waitForAgent(ctx, healthURL, 60*time.Second); err != nil {
 		// Print container logs if agent fails to start
 		fmt.Fprintln(os.Stderr, "Agent failed to start. Fetching logs...")
-		logsCmd := exec.Command(composeCmd[0], append(composeCmd[1:], "logs", "--tail=50")...)
-		logsCmd.Dir = cfg.ProjectDir
+		logsCmd := exec.Command(composeCmd[0], append(commonArgs, "logs", "--tail=50")...)
+		logsCmd.Dir = workDir
+		logsCmd.Stdin = stdin
 		logsOutput, _ := logsCmd.CombinedOutput()
 		fmt.Fprintf(os.Stderr, "Container logs:\n%s\n", string(logsOutput))
 		return fmt.Errorf("agent failed to start: %v", err)
@@ -108,7 +135,7 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 	sessionID := protocol.GenerateContextID()
 
 	// Create A2A client for local agent
-	a2aClient, err := a2aclient.NewA2AClient(agentURL, a2aclient.WithTimeout(cfg.Config.Timeout))
+	a2aClient, err := a2aclient.NewA2AClient(agentURL, a2aclient.WithTimeout(cfg.Timeout))
 	if err != nil {
 		return fmt.Errorf("failed to create A2A client: %v", err)
 	}
@@ -130,7 +157,8 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 	fmt.Println("\nStopping docker-compose...")
 	composeCmdStop := commonexec.GetComposeCommand()
 	stopCmd := exec.Command(composeCmdStop[0], append(composeCmdStop[1:], "down")...)
-	stopCmd.Dir = cfg.ProjectDir
+	stopCmd.Dir = workDir
+	stopCmd.Stdin = stdin
 
 	if verbose {
 		stopCmd.Stdout = os.Stdout
