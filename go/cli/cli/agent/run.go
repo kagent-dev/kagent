@@ -60,7 +60,13 @@ func RunRemote(ctx context.Context, cfg *config.Config, manifest *common.AgentMa
 	if err != nil {
 		return fmt.Errorf("failed to read template file: %v", err)
 	}
-	renderedContent, err := generator.BaseGenerator.RenderTemplate(string(templateBytes), manifest)
+	renderedContent, err := generator.BaseGenerator.RenderTemplate(string(templateBytes), struct {
+		*common.AgentManifest
+		EnvVars []string
+	}{
+		AgentManifest: manifest,
+		EnvVars:       []string{},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to render template: %v", err)
 	}
