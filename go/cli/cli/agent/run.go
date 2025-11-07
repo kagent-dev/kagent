@@ -73,7 +73,7 @@ func RunRemote(ctx context.Context, cfg *config.Config, manifest *common.AgentMa
 
 	bytesBuffer := bytes.NewBuffer([]byte(renderedContent))
 
-	return runAgent(ctx, cfg, []string{""}, bytesBuffer, manifest, "")
+	return runAgent(ctx, cfg, []string{"-f", "-"}, bytesBuffer, manifest, "")
 }
 
 func runAgent(ctx context.Context, cfg *config.Config, composeArgs []string, stdin io.Reader, manifest *common.AgentManifest, workDir string) error {
