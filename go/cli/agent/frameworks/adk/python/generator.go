@@ -50,15 +50,16 @@ func (g *PythonGenerator) Generate(agentConfig *common.AgentConfig) error {
 	}
 
 	// Generate project manifest file
-	projectManifest := common.NewProjectManifest(
-		agentConfig.Name,
-		agentConfig.Language,
-		agentConfig.Framework,
-		agentConfig.ModelProvider,
-		agentConfig.ModelName,
-		agentConfig.Description,
-		agentConfig.McpServers,
-	)
+	projectManifest := &common.AgentManifest{
+		Name:          agentConfig.Name,
+		Image:         agentConfig.Image,
+		Language:      agentConfig.Language,
+		Framework:     agentConfig.Framework,
+		ModelProvider: agentConfig.ModelProvider,
+		ModelName:     agentConfig.ModelName,
+		Description:   agentConfig.Description,
+		McpServers:    agentConfig.McpServers,
+	}
 
 	// Save the manifest using the Manager
 	manager := common.NewManifestManager(agentConfig.Directory)
