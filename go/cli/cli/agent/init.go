@@ -83,6 +83,7 @@ func InitCmd(cfg *InitCfg, cmdName, kagentVersion string) error {
 
 	agentConfig := &common.AgentConfig{
 		Name:          cfg.AgentName,
+		Image:         "localhost:5000/" + cfg.AgentName + ":latest",
 		Description:   cfg.Description,
 		Directory:     projectDir,
 		Verbose:       cfg.Config.Verbose,
