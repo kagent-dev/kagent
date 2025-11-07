@@ -49,7 +49,14 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 		return fmt.Errorf("failed to load agent.yaml: %v", err)
 	}
 
-	return runAgent(ctx, cfg.Config, []string{}, nil, manifest, cfg.ProjectDir)
+	dockerComposeBytes, err := os.ReadFile(dockerComposePath)
+	if err != nil {
+		return fmt.Errorf("failed to read docker-compose.yaml: %v", err)
+	}
+
+	dockerComposeBytesBuffer := bytes.NewBuffer(dockerComposeBytes)
+
+	return runAgent(ctx, cfg.Config, dockerComposeBytesBuffer, manifest, cfg.ProjectDir)
 
 }
 
@@ -73,10 +80,10 @@ func RunRemote(ctx context.Context, cfg *config.Config, manifest *common.AgentMa
 
 	bytesBuffer := bytes.NewBuffer([]byte(renderedContent))
 
-	return runAgent(ctx, cfg, []string{"-f", "-"}, bytesBuffer, manifest, "")
+	return runAgent(ctx, cfg, bytesBuffer, manifest, "")
 }
 
-func runAgent(ctx context.Context, cfg *config.Config, composeArgs []string, stdin io.Reader, manifest *common.AgentManifest, workDir string) error {
+func runAgent(ctx context.Context, cfg *config.Config, dockerComposeBytes io.Reader, manifest *common.AgentManifest, workDir string) error {
 
 	// Validate API key before starting docker-compose
 	if err := ValidateAPIKey(manifest.ModelProvider); err != nil {
@@ -86,10 +93,10 @@ func runAgent(ctx context.Context, cfg *config.Config, composeArgs []string, std
 
 	// Use docker compose (newer version) or docker-compose (older version)
 	composeCmd := commonexec.GetComposeCommand()
-	commonArgs := append(composeCmd[1:], composeArgs...)
-	cmd := exec.CommandContext(ctx, composeCmd[0], append(composeArgs, "up")...)
+	commonArgs := append(composeCmd[1:], "-f", "-")
+	cmd := exec.CommandContext(ctx, composeCmd[0], append(commonArgs, "up")...)
 	cmd.Dir = workDir
-	cmd.Stdin = stdin
+	cmd.Stdin = dockerComposeBytes
 
 	// Suppress output to not block
 	if !verbose {
@@ -111,7 +118,7 @@ func runAgent(ctx context.Context, cfg *config.Config, composeArgs []string, std
 	time.Sleep(2 * time.Second) // Give containers a moment to start
 	psCmd := exec.Command(composeCmd[0], append(commonArgs, "ps")...)
 	psCmd.Dir = workDir
-	psCmd.Stdin = stdin
+	psCmd.Stdin = dockerComposeBytes
 	psOutput, _ := psCmd.CombinedOutput()
 
 	if verbose {
@@ -128,7 +135,7 @@ func runAgent(ctx context.Context, cfg *config.Config, composeArgs []string, std
 		fmt.Fprintln(os.Stderr, "Agent failed to start. Fetching logs...")
 		logsCmd := exec.Command(composeCmd[0], append(commonArgs, "logs", "--tail=50")...)
 		logsCmd.Dir = workDir
-		logsCmd.Stdin = stdin
+		logsCmd.Stdin = dockerComposeBytes
 		logsOutput, _ := logsCmd.CombinedOutput()
 		fmt.Fprintf(os.Stderr, "Container logs:\n%s\n", string(logsOutput))
 		return fmt.Errorf("agent failed to start: %v", err)
@@ -164,7 +171,7 @@ func runAgent(ctx context.Context, cfg *config.Config, composeArgs []string, std
 	composeCmdStop := commonexec.GetComposeCommand()
 	stopCmd := exec.Command(composeCmdStop[0], append(composeCmdStop[1:], "down")...)
 	stopCmd.Dir = workDir
-	stopCmd.Stdin = stdin
+	stopCmd.Stdin = dockerComposeBytes
 
 	if verbose {
 		stopCmd.Stdout = os.Stdout
