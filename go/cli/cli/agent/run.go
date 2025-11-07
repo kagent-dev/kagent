@@ -87,7 +87,7 @@ func runAgent(ctx context.Context, cfg *config.Config, composeArgs []string, std
 	// Use docker compose (newer version) or docker-compose (older version)
 	composeCmd := commonexec.GetComposeCommand()
 	commonArgs := append(composeCmd[1:], composeArgs...)
-	cmd := exec.CommandContext(ctx, composeCmd[0], append(commonArgs, composeArgs...)...)
+	cmd := exec.CommandContext(ctx, composeCmd[0], append(composeArgs, "up")...)
 	cmd.Dir = workDir
 	cmd.Stdin = stdin
 
