@@ -8,6 +8,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/cli/agent/frameworks"
+	"github.com/kagent-dev/kagent/go/cli/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/cli/config"
 )
 
@@ -80,8 +81,20 @@ func InitCmd(cfg *InitCfg, cmdName, kagentVersion string) error {
 
 	// Get the kagent version
 
+	agentConfig := &common.AgentConfig{
+		Name:          cfg.AgentName,
+		Description:   cfg.Description,
+		Directory:     projectDir,
+		Verbose:       cfg.Config.Verbose,
+		Instruction:   instruction,
+		ModelProvider: cfg.ModelProvider,
+		ModelName:     cfg.ModelName,
+		Framework:     cfg.Framework,
+		Language:      cfg.Language,
+		KagentVersion: kagentVersion,
+	}
 	// Generate the project
-	if err := generator.Generate(projectDir, cfg.AgentName, instruction, cfg.ModelProvider, cfg.ModelName, cfg.Description, cfg.Config.Verbose, kagentVersion); err != nil {
+	if err := generator.Generate(agentConfig); err != nil {
 		return fmt.Errorf("failed to generate project: %v", err)
 	}
 

@@ -4,11 +4,12 @@ import (
 	"fmt"
 
 	adk_python "github.com/kagent-dev/kagent/go/cli/agent/frameworks/adk/python"
+	"github.com/kagent-dev/kagent/go/cli/agent/frameworks/common"
 )
 
 // Generator interface for project generation
 type Generator interface {
-	Generate(projectDir, agentName, instruction, modelProvider, modelName, description string, verbose bool, kagentVersion string) error
+	Generate(agentConfig *common.AgentConfig) error
 }
 
 // NewGenerator creates a new generator for the specified framework and language

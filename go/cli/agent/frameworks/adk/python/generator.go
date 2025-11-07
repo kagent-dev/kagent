@@ -25,38 +25,27 @@ func NewPythonGenerator() *PythonGenerator {
 }
 
 // Generate creates a new Python ADK project
-func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProvider, modelName, description string, verbose bool, kagentVersion string) error {
+func (g *PythonGenerator) Generate(agentConfig *common.AgentConfig) error {
 	// Create the main project directory structure
-	subDir := filepath.Join(projectDir, agentName)
+	subDir := filepath.Join(agentConfig.Directory, agentConfig.Name)
 	if err := os.MkdirAll(subDir, 0755); err != nil {
 		return fmt.Errorf("failed to create subdirectory: %v", err)
 	}
 	// Load default instructions if none provided
-	if instruction == "" {
-		if verbose {
+	if agentConfig.Instruction == "" {
+		if agentConfig.Verbose {
 			fmt.Println("🎲 No instruction provided, using default dice-roller instructions")
 		}
 		defaultInstructions, _ := templatesFS.ReadFile("dice-agent-instruction.md")
-		instruction = string(defaultInstructions)
+		agentConfig.Instruction = string(defaultInstructions)
 	}
 
 	// agent project configuration
-	agentConfig := common.AgentConfig{
-		Name:          agentName,
-		Directory:     projectDir,
-		Framework:     "adk",
-		Language:      "python",
-		Verbose:       verbose,
-		Instruction:   instruction,
-		ModelProvider: modelProvider,
-		ModelName:     modelName,
-		KagentVersion: kagentVersion,
-		// Empty MCP servers on init
-		McpServers: nil,
-	}
+	agentConfig.Framework = "adk"
+	agentConfig.Language = "python"
 
 	// Use the base generator to create the project
-	if err := g.GenerateProject(agentConfig); err != nil {
+	if err := g.GenerateProject(*agentConfig); err != nil {
 		return fmt.Errorf("failed to generate project: %v", err)
 	}
 
@@ -67,18 +56,18 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 		agentConfig.Framework,
 		agentConfig.ModelProvider,
 		agentConfig.ModelName,
-		description,
+		agentConfig.Description,
 		agentConfig.McpServers,
 	)
 
 	// Save the manifest using the Manager
-	manager := common.NewManifestManager(projectDir)
+	manager := common.NewManifestManager(agentConfig.Directory)
 	if err := manager.Save(projectManifest); err != nil {
 		return fmt.Errorf("failed to write project manifest: %v", err)
 	}
 
 	// Move agent files from agent/ subdirectory to {agentName} subdirectory
-	agentDir := filepath.Join(projectDir, "agent")
+	agentDir := filepath.Join(agentConfig.Directory, "agent")
 	if _, err := os.Stat(agentDir); err == nil {
 		// Move all files from agent/ to project subdirectory
 		entries, err := os.ReadDir(agentDir)
@@ -103,7 +92,7 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 		}
 	}
 
-	fmt.Printf("✅ Successfully created %s project in %s\n", agentConfig.Framework, projectDir)
+	fmt.Printf("✅ Successfully created %s project in %s\n", agentConfig.Framework, agentConfig.Directory)
 	fmt.Printf("🤖 Model configuration for project: %s (%s)\n", agentConfig.ModelProvider, agentConfig.ModelName)
 	fmt.Printf("📁 Project structure:\n")
 	fmt.Printf("   %s/\n", agentConfig.Name)

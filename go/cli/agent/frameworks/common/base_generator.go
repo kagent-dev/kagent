@@ -9,6 +9,8 @@ import (
 // AgentConfig holds the configuration for agent project generation
 type AgentConfig struct {
 	Name          string
+	Description   string
+	Image         string
 	Directory     string
 	Verbose       bool
 	Instruction   string

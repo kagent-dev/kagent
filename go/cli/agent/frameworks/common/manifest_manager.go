@@ -15,6 +15,7 @@ const ManifestFileName = "agent.yaml"
 // AgentManifest represents the agent project configuration and metadata
 type AgentManifest struct {
 	Name          string          `yaml:"agentName"`
+	Image         string          `yaml:"image"`
 	Language      string          `yaml:"language"`
 	Framework     string          `yaml:"framework"`
 	ModelProvider string          `yaml:"modelProvider"`
