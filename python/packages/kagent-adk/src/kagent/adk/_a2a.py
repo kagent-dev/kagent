@@ -1,8 +1,8 @@
 #! /usr/bin/env python3
+import os
+from typing import Callable, List, override
 import faulthandler
 import logging
-import os
-from typing import Callable, List
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
@@ -45,6 +45,7 @@ def thread_dump(request: Request) -> PlainTextResponse:
 
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
+propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN")
 
 
 class KAgentApp:
@@ -65,15 +66,22 @@ class KAgentApp:
     def build(self) -> FastAPI:
         token_service = KAgentTokenService(self.app_name)
         http_client = httpx.AsyncClient(  # TODO: add user  and agent headers
-            base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks()
+            base_url=kagent_url_override or self.kagent_url,
+            event_hooks=token_service.event_hooks(),
         )
         session_service = KAgentSessionService(http_client)
 
-        if sts_well_known_uri:
-            sts_integration = ADKSTSIntegration(sts_well_known_uri)
-            self.plugins.append(ADKTokenPropagationPlugin(sts_integration))
+        if sts_well_known_uri or propagate_token or True:
+            #if sts_well_known_uri:
+            #    sts_integration = ADKSTSIntegration(sts_well_known_uri)
+            #plug = ADKTokenPropagationPlugin(sts_integration)
+            plug = ADKTokenPropagationPlugin2()
+            plug.propagate_agent(self.root_agent)
+            self.plugins.append(plug)
 
-        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
+        adk_app = App(
+            name=self.app_name, root_agent=self.root_agent, plugins=self.plugins
+        )
 
         def create_runner() -> Runner:
             return Runner(
@@ -88,7 +96,9 @@ class KAgentApp:
 
         kagent_task_store = KAgentTaskStore(http_client)
 
-        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
+        request_context_builder = KAgentRequestContextBuilder(
+            task_store=kagent_task_store
+        )
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=kagent_task_store,
@@ -186,3 +196,117 @@ class KAgentApp:
             # Key Concept: is_final_response() marks the concluding message for the turn.
             jsn = event.model_dump_json()
             logger.info(f"  [Event] {jsn}")
+
+
+HEADERS_KEY = "headers"
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
+from google.adk.agents.readonly_context import ReadonlyContext
+from typing import Dict, Optional
+from google.adk.agents.invocation_context import InvocationContext
+
+
+class ADKTokenPropagationPlugin2(BasePlugin):
+    """Plugin for propagating STS tokens to ADK tools."""
+
+    def __init__(self):
+        """Initialize the token propagation plugin.
+
+        Args:
+            sts_integration: The ADK STS integration instance
+        """
+        super().__init__("ADKTokenPropagationPlugin")
+        self.token_cache: Dict[str, str] = {}
+
+    def propagate_agent(self, agent: BaseAgent):
+        from google.adk.agents import LlmAgent
+        if not isinstance(agent, LlmAgent):
+            return
+        
+        if not agent.tools:
+            return
+
+        for tool in agent.tools:
+            if isinstance(tool, MCPToolset):
+                self.propagate_mcp_toolset(tool)
+                logger.debug(
+                    "Updated tool connection params to include access token from STS server"
+                )
+
+    def propagate_mcp_toolset(self, mcp_toolset: MCPToolset):
+        mcp_toolset._header_provider = self.header_provider
+
+    def header_provider(
+        self, readonly_context: Optional[ReadonlyContext]
+    ) -> Dict[str, str]:
+        # access save token
+        access_token = self.token_cache.get(
+            self.cache_key(readonly_context._invocation_context), ""
+        )
+        if not access_token:
+            return {}
+
+        return {
+            "Authorization": f"Bearer {access_token}",
+        }
+
+    @override
+    async def before_run_callback(
+        self,
+        *,
+        invocation_context: InvocationContext,
+    ) -> Optional[dict]:
+        """Propagate token to model before execution."""
+        headers = invocation_context.session.state.get(HEADERS_KEY, None)
+        subject_token = _extract_jwt_from_headers(headers)
+        if not subject_token:
+            logger.debug("No subject token found in headers for token propagation")
+            return None
+
+        # no sts, just propagate the subject token upstream
+        self.token_cache[self.cache_key(invocation_context)] = subject_token
+        return None
+
+    def cache_key(self, invocation_context: InvocationContext) -> str:
+        """Generate a cache key based on the session ID."""
+        return invocation_context.session.id
+
+    @override
+    async def after_run_callback(
+        self,
+        *,
+        invocation_context: InvocationContext,
+    ) -> Optional[dict]:
+        # delete token after run
+        self.token_cache.pop(self.cache_key(invocation_context), None)
+        return None
+
+
+def _extract_jwt_from_headers(headers: dict[str, str]) -> Optional[str]:
+    """Extract JWT from request headers for STS token exchange.
+
+    Args:
+        headers: Dictionary of request headers
+
+    Returns:
+        JWT token string if found in Authorization header, None otherwise
+    """
+    if not headers:
+        logger.warning("No headers provided for JWT extraction")
+        return None
+
+    auth_header = headers.get("Authorization") or headers.get("authorization")
+    if not auth_header:
+        logger.warning("No Authorization header found in request")
+        return None
+
+    if not auth_header.startswith("Bearer "):
+        logger.warning("Authorization header must start with Bearer")
+        return None
+
+    jwt_token = auth_header.removeprefix("Bearer ").strip()
+    if not jwt_token:
+        logger.warning("Empty JWT token found in Authorization header")
+        return None
+
+    logger.debug(f"Successfully extracted JWT token (length: {len(jwt_token)})")
+    return jwt_token
