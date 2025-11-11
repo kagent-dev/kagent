@@ -7,11 +7,11 @@ spec:
   type: BYO
   byo:
     deployment:
-      image: localhost:5001/basic-openai-agent:latest
+      image: localhost:5001/basic-openai:latest
+      imagePullPolicy: Always
       env:
         - name: OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
               name: kagent-openai
               key: OPENAI_API_KEY
-

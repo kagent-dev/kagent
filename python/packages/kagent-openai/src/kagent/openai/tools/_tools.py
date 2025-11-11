@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import List
 
 from agents.exceptions import UserError
 from agents.run_context import RunContextWrapper
@@ -20,6 +21,7 @@ from kagent.skills import (
     get_read_file_description,
     get_session_path,
     get_write_file_description,
+    initialize_session_path,
     load_skill_content,
     edit_file_content,
     execute_command,
@@ -52,7 +54,7 @@ def read_file(
             path = working_dir / path
 
         return read_file_content(path, offset, limit)
-    except (FileNotFoundError, IsADirectoryError, IOError) as e:
+    except (FileNotFoundError, IsADirectoryError, OSError) as e:
         raise UserError(str(e)) from e
 
 
@@ -70,7 +72,7 @@ def write_file(context: RunContextWrapper, file_path: str, content: str) -> str:
             path = working_dir / path
 
         return write_file_content(path, content)
-    except IOError as e:
+    except OSError as e:
         raise UserError(str(e)) from e
 
 
@@ -94,7 +96,7 @@ def edit_file(
             path = working_dir / path
 
         return edit_file_content(path, old_string, new_string, replace_all)
-    except (FileNotFoundError, IsADirectoryError, ValueError, IOError) as e:
+    except (FileNotFoundError, IsADirectoryError, ValueError, OSError) as e:
         raise UserError(str(e)) from e
 
 
@@ -130,7 +132,7 @@ def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
     description = generate_skills_tool_description(skills)
 
     @function_tool(name_override="skills", description_override=description)
-    def skill_tool_impl(command: str) -> str:
+    def skill_tool_impl(context: RunContextWrapper, command: str) -> str:
         """Execute a skill by name.
 
         Args:
@@ -139,6 +141,8 @@ def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
         Returns:
             The full skill instructions and context.
         """
+        # This function is cached internally, so calling it multiple times is safe.
+        initialize_session_path(context.run.id, str(skills_dir))
         skill_name = command.strip()
 
         try:
@@ -155,7 +159,7 @@ def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
             )
             return header + content + footer
 
-        except (FileNotFoundError, IOError) as e:
+        except (FileNotFoundError, OSError) as e:
             return f"Error loading skill '{skill_name}': {e}"
         except Exception as e:
             return f"An unexpected error occurred while loading skill '{skill_name}': {e}"
@@ -163,9 +167,14 @@ def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
     return skill_tool_impl
 
 
-# --- Export tool instances ---
+def get_skill_tools(skills_directory: str | Path) -> List[FunctionTool]:
+    """
+    Create a list of tools including the skill tool and file operation tools.
 
-READ_FILE_TOOL: FunctionTool = read_file
-WRITE_FILE_TOOL: FunctionTool = write_file
-EDIT_FILE_TOOL: FunctionTool = edit_file
-BASH_TOOL: FunctionTool = bash
+    Args:
+        skills_directory: Path to the directory containing skills.
+
+    Returns:
+        A list of FunctionTool instances: skills tool, read_file, write_file, edit_file
+    """
+    return [get_skill_tool(skills_directory), read_file, write_file, edit_file, bash]

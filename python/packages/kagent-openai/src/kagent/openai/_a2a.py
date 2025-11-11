@@ -10,7 +10,6 @@ import faulthandler
 import logging
 import os
 from collections.abc import Callable
-from typing import Path
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
@@ -22,7 +21,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
-
+from kagent.core import KAgentConfig, configure_tracing
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
 from ._session_service import KAgentSessionFactory
 
@@ -62,24 +61,15 @@ sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 
 
 class KAgentApp:
-    """FastAPI application builder for OpenAI Agents SDK with KAgent integration.
-
-    This class builds a FastAPI application that:
-    - Runs OpenAI Agents SDK agents
-    - Integrates with KAgent's A2A protocol
-    - Manages sessions via KAgent REST API
-    - Streams agent execution events
-    - Handles authentication and token propagation
-    """
+    """FastAPI application builder for OpenAI Agents SDK with KAgent integration."""
 
     def __init__(
         self,
         agent: Agent | Callable[[], Agent],
         agent_card: AgentCard,
-        kagent_url: str,
-        app_name: str,
-        skills_directory: str | Path | None = None,
-        config: OpenAIAgentExecutorConfig | None = None,
+        config: KAgentConfig,
+        executor_config: OpenAIAgentExecutorConfig | None = None,
+        tracing: bool = True,
     ):
         """Initialize the KAgent application.
 
@@ -88,15 +78,13 @@ class KAgentApp:
             agent_card: A2A agent card describing the agent's capabilities
             kagent_url: URL of the KAgent backend server
             app_name: Application name for identification
-            skills_directory: Path to the skills directory for session initialization.
             config: Optional executor configuration
         """
         self.agent = agent
-        self.kagent_url = kagent_url
-        self.app_name = app_name
-        self.agent_card = agent_card
-        self.skills_directory = skills_directory
-        self._config = config or OpenAIAgentExecutorConfig()
+        self.agent_card = AgentCard.model_validate(agent_card)
+        self.config = config
+        self.executor_config = executor_config or OpenAIAgentExecutorConfig()
+        self.tracing = tracing
 
     def build(self) -> FastAPI:
         """Build a production FastAPI application with KAgent integration.
@@ -110,25 +98,23 @@ class KAgentApp:
         Returns:
             Configured FastAPI application
         """
-
         # Create HTTP client with KAgent backend
         http_client = httpx.AsyncClient(
-            base_url=kagent_url_override or self.kagent_url,
+            base_url=kagent_url_override or self.config.kagent_url,
         )
 
         # Create session factory
         session_factory = KAgentSessionFactory(
             client=http_client,
-            app_name=self.app_name,
+            app_name=self.config.app_name,
         )
 
         # Create agent executor with session factory
         agent_executor = OpenAIAgentExecutor(
             agent=self.agent,
-            app_name=self.app_name,
-            skills_directory=self.skills_directory,
+            app_name=self.config.app_name,
             session_factory=session_factory.create_session,
-            config=self._config,
+            config=self.executor_config,
         )
 
         # Create KAgent task store
@@ -154,6 +140,13 @@ class KAgentApp:
         # Create FastAPI app with lifespan
         app = FastAPI()
 
+        if self.tracing:
+            try:
+                configure_tracing(app)
+                logger.info("Tracing configured for KAgent OpenAI app")
+            except Exception as e:
+                logger.error(f"Failed to configure tracing: {e}")
+
         # Add health check endpoints
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
@@ -177,10 +170,9 @@ class KAgentApp:
         # Create agent executor without session factory (no persistence)
         agent_executor = OpenAIAgentExecutor(
             agent=self.agent,
-            app_name=self.app_name,
-            skills_directory=self.skills_directory,
+            app_name=self.config.app_name,
             session_factory=None,  # No session persistence in local mode
-            config=self._config,
+            config=self.executor_config,
         )
         # Use in-memory task store
         task_store = InMemoryTaskStore()
