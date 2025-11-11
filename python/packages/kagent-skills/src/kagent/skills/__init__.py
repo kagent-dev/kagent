@@ -13,7 +13,7 @@ from .session import (
     get_session_path,
     initialize_session_path,
 )
-from .tools import (
+from .shell import (
     edit_file_content,
     execute_command,
     read_file_content,

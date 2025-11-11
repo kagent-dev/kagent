@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
   "crewai[tools]>= 1.2.0",
-  "instructor",
   "httpx>=0.25.0",
   "fastapi>=0.100.0",
   "pydantic>=2.0.0",
@@ -33,8 +32,6 @@ dev = [
 
 [tool.uv.sources]
 kagent-core = {workspace = true}
-# Need this for openai >= 2.0.0 bump.
-instructor = { git = "https://github.com/567-labs/instructor", rev = "67f6ce2" }
 
 
 [tool.hatch.build.targets.wheel]
