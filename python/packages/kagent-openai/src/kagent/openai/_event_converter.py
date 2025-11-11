@@ -5,6 +5,7 @@ This module converts OpenAI Agents SDK streaming events to A2A protocol events.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -19,9 +20,7 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from a2a.types import (
-    Part as A2APart,
-)
+from a2a.types import Part as A2APart
 from agents.items import MessageOutputItem, ToolCallItem, ToolCallOutputItem
 from agents.stream_events import (
     AgentUpdatedStreamEvent,
@@ -125,13 +124,25 @@ def _convert_message_output(
     context_id: str,
     app_name: str,
 ) -> list[A2AEvent]:
-    """Convert a message output item to A2A event."""
-    # Extract text from message content
+    """Convert a message output item to A2A event.
+
+    MessageOutputItem.raw_item is a ResponseOutputMessage with content list.
+    Each content item is either ResponseOutputText or ResponseOutputRefusal.
+    """
     text_parts = []
-    if hasattr(item, "content") and item.content:
-        for part in item.content:
+
+    # Access the raw Pydantic model
+    raw_message = item.raw_item
+
+    # Iterate through content parts
+    if hasattr(raw_message, "content") and raw_message.content:
+        for part in raw_message.content:
+            # Check if this is a text part (ResponseOutputText has 'text' field)
             if hasattr(part, "text"):
                 text_parts.append(part.text)
+            # Otherwise, it is ResponseOutputRefusal and the model will explain why
+            elif hasattr(part, "refusal"):
+                text_parts.append(f"[Refusal] {part.refusal}")
 
     if not text_parts:
         return []
@@ -171,12 +182,40 @@ def _convert_tool_call(
     context_id: str,
     app_name: str,
 ) -> list[A2AEvent]:
-    """Convert a tool call item to A2A event."""
+    """Convert a tool call item to A2A event.
+
+    ToolCallItem.raw_item is typically ResponseFunctionToolCall with fields at top level:
+    - name: str (tool name)
+    - call_id: str (unique ID for this call)
+    - arguments: str (JSON string)
+    - id: Optional[str] (alternate ID field)
+    """
+    raw_call = item.raw_item
+
+    # Extract tool call details from the raw item (fields are at top level)
+    tool_name = raw_call.name if hasattr(raw_call, "name") else "unknown"
+    call_id = (
+        raw_call.call_id
+        if hasattr(raw_call, "call_id")
+        else (raw_call.id if hasattr(raw_call, "id") else str(uuid.uuid4()))
+    )
+    tool_arguments = {}
+
+    # Arguments are a JSON string, need to parse them
+    if hasattr(raw_call, "arguments"):
+        try:
+            tool_arguments = (
+                json.loads(raw_call.arguments) if isinstance(raw_call.arguments, str) else raw_call.arguments
+            )
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(f"Failed to parse arguments: {raw_call.arguments}")
+            tool_arguments = {"raw": str(raw_call.arguments)}
+
     # Create a DataPart for the function call
     function_data = {
-        "name": item.name,
-        "arguments": item.arguments if hasattr(item, "arguments") else {},
-        "id": item.call_id if hasattr(item, "call_id") else str(uuid.uuid4()),
+        "name": tool_name,
+        "arguments": tool_arguments,
+        "id": call_id,
     }
 
     data_part = DataPart(
@@ -219,12 +258,25 @@ def _convert_tool_output(
     context_id: str,
     app_name: str,
 ) -> list[A2AEvent]:
-    """Convert a tool output item to A2A event."""
+    """Convert a tool output item to A2A event.
+
+    ToolCallOutputItem contains:
+    - raw_item: FunctionCallOutput | ComputerCallOutput | LocalShellCallOutput
+    - output: The actual Python object returned by the tool
+    """
+    raw_output = item.raw_item
+
+    # Extract tool output details from the raw item
+    call_id = raw_output.call_id if hasattr(raw_output, "call_id") else str(uuid.uuid4())
+
+    # The item.output field contains the actual Python object returned by the tool
+    # This is what we want to send, not the JSON string representation
+    actual_output = item.output if hasattr(item, "output") else None
+
     # Create a DataPart for the function response
     function_data = {
-        "name": item.name if hasattr(item, "name") else "unknown",
-        "output": item.output if hasattr(item, "output") else None,
-        "id": item.call_id if hasattr(item, "call_id") else str(uuid.uuid4()),
+        "call_id": call_id,
+        "output": actual_output,
     }
 
     data_part = DataPart(

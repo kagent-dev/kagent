@@ -50,7 +50,7 @@ class KAgentSession(SessionABC):
             # Try to get the session
             response = await self.client.get(
                 f"/api/sessions/{self.session_id}?user_id={self.user_id}&limit=0",
-                headers={"X-User-ID": self.user_id},
+                headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
             )
             if response.status_code == 404:
                 # Session doesn't exist, create it
@@ -74,7 +74,7 @@ class KAgentSession(SessionABC):
         response = await self.client.post(
             "/api/sessions",
             json=request_data,
-            headers={"X-User-ID": self.user_id},
+            headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
         )
         response.raise_for_status()
 
@@ -103,7 +103,7 @@ class KAgentSession(SessionABC):
 
             response = await self.client.get(
                 url,
-                headers={"X-User-ID": self.user_id},
+                headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
             )
 
             if response.status_code == 404:
@@ -157,6 +157,8 @@ class KAgentSession(SessionABC):
         if not items:
             return
 
+        logger.warning(f"Adding {len(items)} items to session {self.session_id}")
+
         # Ensure session exists before adding items
         await self._ensure_session_exists()
 
@@ -179,7 +181,7 @@ class KAgentSession(SessionABC):
         response = await self.client.post(
             f"/api/sessions/{self.session_id}/events?user_id={self.user_id}",
             json=event_data,
-            headers={"X-User-ID": self.user_id},
+            headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
         )
         response.raise_for_status()
 
@@ -222,7 +224,7 @@ class KAgentSession(SessionABC):
             # Delete the session from KAgent backend
             response = await self.client.delete(
                 f"/api/sessions/{self.session_id}?user_id={self.user_id}",
-                headers={"X-User-ID": self.user_id},
+                headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
             )
             response.raise_for_status()
 

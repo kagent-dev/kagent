@@ -41,3 +41,7 @@ research-crew-sample:
 .PHONY: poem-flow-sample
 poem-flow-sample:
 	docker build . -f samples/crewai/poem_flow/Dockerfile --tag localhost:5001/poem-flow:latest --push
+
+.PHONY: basic-openai-sample
+basic-openai-sample:
+	docker build . -f samples/openai/basic_agent/Dockerfile --tag localhost:5001/basic-openai:latest --push

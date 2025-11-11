@@ -11,7 +11,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import override, Path
+from typing import override
 
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
@@ -30,7 +30,6 @@ from a2a.types import (
 from agents.agent import Agent
 from agents.run import Runner
 from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
-from kagent.skills import initialize_session_path
 from pydantic import BaseModel
 
 from ._event_converter import convert_openai_event_to_a2a_events
@@ -58,7 +57,6 @@ class OpenAIAgentExecutor(AgentExecutor):
         *,
         agent: Agent | Callable[[], Agent],
         app_name: str,
-        skills_directory: str | Path | None = None,
         session_factory: Callable[[str, str], KAgentSession] | None = None,
         config: OpenAIAgentExecutorConfig | None = None,
     ):
@@ -67,14 +65,12 @@ class OpenAIAgentExecutor(AgentExecutor):
         Args:
             agent: OpenAI Agent instance or factory function that returns an agent
             app_name: Application name for session management
-            skills_directory: Path to the skills directory for session initialization.
             session_factory: Optional factory for creating KAgentSession instances
             config: Optional executor configuration
         """
         super().__init__()
         self._agent = agent
         self.app_name = app_name
-        self.skills_directory = skills_directory
         self._session_factory = session_factory
         self._config = config or OpenAIAgentExecutorConfig()
 
@@ -232,10 +228,6 @@ class OpenAIAgentExecutor(AgentExecutor):
         # Extract session ID from context
         session_id = getattr(context, "session_id", None) or context.context_id
         user_id = getattr(context, "user_id", "admin@kagent.dev")
-
-        # Initialize session path if skills directory is provided
-        if self.skills_directory:
-            initialize_session_path(session_id, str(self.skills_directory))
 
         # Send working status
         await event_queue.enqueue_event(
