@@ -1,6 +1,4 @@
 ### STAGE 1: base image
-ARG DOCKER_REGISTRY=ghcr.io
-ARG VERSION=latest
 FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim
 
 WORKDIR /app

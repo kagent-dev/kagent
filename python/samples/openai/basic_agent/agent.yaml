@@ -8,7 +8,6 @@ spec:
   byo:
     deployment:
       image: localhost:5001/basic-openai:latest
-      imagePullPolicy: Always
       env:
         - name: OPENAI_API_KEY
           valueFrom:

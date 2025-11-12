@@ -14,7 +14,7 @@ from a2a.types import AgentCard
 from agents.agent import Agent
 from agents.tool import function_tool
 from kagent.core import KAgentConfig
-from kagent.openai import KAgentApp, get_skill_tools
+from kagent.openai import KAgentApp
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,6 @@ def get_weather(location: str) -> str:
 
 
 tools = [calculate, get_weather]
-tools.extend(get_skill_tools(skills_directory=SKILLS_DIR))
 
 # Create the OpenAI agent
 agent = Agent(
