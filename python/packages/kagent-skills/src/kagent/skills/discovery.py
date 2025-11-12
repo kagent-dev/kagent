@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List
 
 import yaml
 
@@ -11,7 +10,7 @@ from .models import Skill
 logger = logging.getLogger(__name__)
 
 
-def parse_skill_metadata(skill_file: Path) -> Dict[str, str] | None:
+def parse_skill_metadata(skill_file: Path) -> dict[str, str] | None:
     """Parse YAML frontmatter from a SKILL.md file."""
     try:
         with open(skill_file, encoding="utf-8") as f:
@@ -36,7 +35,7 @@ def parse_skill_metadata(skill_file: Path) -> Dict[str, str] | None:
         return None
 
 
-def discover_skills(skills_directory: Path) -> List[Skill]:
+def discover_skills(skills_directory: Path) -> list[Skill]:
     """Discover available skills and return their metadata."""
     if not skills_directory.exists():
         logger.warning(f"Skills directory not found: {skills_directory}")

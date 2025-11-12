@@ -39,7 +39,8 @@ def skill_test_env() -> Path:
         script_dir.mkdir(parents=True, exist_ok=True)
 
         # SKILL.md
-        (skill_dir / "SKILL.md").write_text(textwrap.dedent("""\
+        (skill_dir / "SKILL.md").write_text(
+            textwrap.dedent("""\
 ---
             name: csv-to-json
             description: Converts a CSV file to a JSON file.
