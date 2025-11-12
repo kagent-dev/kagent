@@ -1,0 +1,16 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: basic-openai-agent
+spec:
+  description: A basic OpenAI agent with calculator and weather tools
+  type: BYO
+  byo:
+    deployment:
+      image: localhost:5001/basic-openai:latest
+      env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kagent-openai
+              key: OPENAI_API_KEY
