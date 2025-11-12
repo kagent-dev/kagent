@@ -1,3 +1,6 @@
+import * as React from 'react';
+import type { NodeChange, EdgeChange } from '@xyflow/react';
+
 export type ChatStatus = "ready" | "thinking" | "error" | "submitted" | "working" | "input_required" | "auth_required" | "processing_tools" | "generating_response";
 
 export interface ModelConfig {
@@ -386,3 +389,207 @@ export interface DiscoveredTool {
   name: string;
   description: string;
 }
+
+// ============================================================================
+// VISUAL AGENT BUILDER TYPES
+// ============================================================================
+
+/**
+ * Agent form data structure used for creating/editing agents
+ */
+export interface AgentFormData {
+  name: string;
+  namespace: string;
+  description: string;
+  type?: AgentType;
+  // Declarative fields
+  systemPrompt?: string;
+  modelName?: string;
+  tools: Tool[];
+  stream?: boolean;
+  // BYO fields
+  byoImage?: string;
+  byoCmd?: string;
+  byoArgs?: string[];
+  // Shared deployment optional fields
+  replicas?: number;
+  imagePullSecrets?: Array<{ name: string }>;
+  volumes?: unknown[];
+  volumeMounts?: unknown[];
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  env?: EnvVar[];
+  imagePullPolicy?: string;
+}
+
+/**
+ * Base node data interface
+ */
+export interface NodeData {
+  label?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Visual node type (React Flow node with typed data)
+ */
+export type VisualNode = {
+  id: string;
+  type?: string;
+  position: { x: number; y: number };
+  data: NodeData;
+  selected?: boolean;
+  dragging?: boolean;
+};
+
+/**
+ * Visual edge type (React Flow edge)
+ */
+export type VisualEdge = {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  type?: string;
+  animated?: boolean;
+  style?: Record<string, unknown>;
+};
+
+// Node Data Types for each visual node type
+
+/**
+ * Basic info node data
+ */
+export interface BasicInfoNodeData extends NodeData {
+  name: string;
+  namespace: string;
+  description: string;
+  type: AgentType;
+}
+
+/**
+ * System prompt node data
+ */
+export interface SystemPromptNodeData extends NodeData {
+  systemPrompt: string;
+}
+
+/**
+ * LLM model configuration node data
+ */
+export interface LLMNodeData extends NodeData {
+  modelConfigRef: string;
+  modelName: string;
+  provider: string;
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  stream?: boolean;
+}
+
+/**
+ * Tool node data
+ */
+export interface ToolNodeData extends NodeData {
+  serverRef?: string;
+  tools: Tool[];
+}
+
+/**
+ * Output formatting node data
+ */
+export interface OutputNodeData extends NodeData {
+  format: 'json' | 'text' | 'markdown';
+  template?: string;
+  streaming?: boolean;
+}
+
+// Validation Types
+
+/**
+ * Visual builder validation result
+ */
+export interface VisualBuilderValidationResult {
+  isValid: boolean;
+  errors: Record<string, string>;
+  warnings: string[];
+}
+
+// Component Props Types
+
+/**
+ * Visual Agent Builder component props
+ */
+export interface VisualAgentBuilderProps {
+  onValidationChange: (errors: Record<string, string>) => void;
+  onGraphDataChange?: (data: AgentFormData) => void;
+  initialFormData?: Partial<AgentFormData>;
+  onCreateAgent?: () => void;
+  isSubmitting?: boolean;
+}
+
+/**
+ * Canvas component props
+ */
+export interface CanvasProps {
+  nodes: VisualNode[];
+  edges: VisualEdge[];
+  onNodesChange: (changes: NodeChange[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
+  onConnect: (connection: { source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null }) => void;
+  onNodeSelect: (nodeId: string | null) => void;
+  onNodesSelect: (nodeIds: string[]) => void;
+  onEdgeSelect: (edgeIds: string[]) => void;
+  onDelete: () => void;
+}
+
+/**
+ * Node library component props
+ */
+export interface NodeLibraryProps {
+  onNodeAdd: (nodeType: string) => void;
+  availableTypes?: readonly string[];
+}
+
+/**
+ * Node properties panel component props
+ */
+export interface NodePropertiesProps {
+  selectedNode: string | null;
+  nodes: VisualNode[];
+  onNodeUpdate: (nodeId: string, data: Record<string, unknown>) => void;
+  validationResult?: VisualBuilderValidationResult | null;
+  onCreateAgent?: () => void;
+  isSubmitting?: boolean;
+}
+
+/**
+ * Node type definition for node library
+ */
+export interface NodeTypeDefinition {
+  type: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>; // React component type for icons
+  color: string;
+  description: string;
+  category: 'core' | 'advanced';
+}
+
+// Constants
+
+/**
+ * MVP node types (subset for initial release)
+ */
+export const MVP_NODE_TYPES = [
+  'basic-info',
+  'system-prompt',
+  'llm',
+  'tool',
+  'output'
+] as const;
+
+/**
+ * MVP node type union
+ */
+export type MVPNodeType = typeof MVP_NODE_TYPES[number];

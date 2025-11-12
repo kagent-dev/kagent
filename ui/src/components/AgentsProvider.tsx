@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
-import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar } from "@/types";
+import type { Agent, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentFormData } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -16,30 +16,6 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
-}
-
-export interface AgentFormData {
-  name: string;
-  namespace: string;
-  description: string;
-  type?: AgentType;
-  // Declarative fields
-  systemPrompt?: string;
-  modelName?: string;
-  tools: Tool[];
-  stream?: boolean;
-  byoImage?: string;
-  byoCmd?: string;
-  byoArgs?: string[];
-  // Shared deployment optional fields
-  replicas?: number;
-  imagePullSecrets?: Array<{ name: string }>;
-  volumes?: unknown[];
-  volumeMounts?: unknown[];
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
-  env?: EnvVar[];
-  imagePullPolicy?: string;
 }
 
 interface AgentsContextType {

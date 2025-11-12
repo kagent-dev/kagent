@@ -90,3 +90,8 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Hide footer when in visual builder mode */
+body.hide-footer footer {
+  display: none !important;
+}

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Settings2, PlusCircle, Trash2 } from "lucide-react";
-import { ModelConfig, AgentType } from "@/types";
+import { ModelConfig, AgentType, AgentFormData } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
@@ -14,13 +14,15 @@ import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
-import { AgentFormData } from "@/components/AgentsProvider";
 import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { VisualAgentBuilder } from "@/components/agent-builder/VisualAgentBuilder";
+import { BuilderModeToggle } from "@/components/agent-builder/BuilderModeToggle";
+import { VisualBuilderErrorBoundary } from "@/components/agent-builder/ErrorBoundary";
 
 interface ValidationErrors {
   name?: string;
@@ -98,6 +100,23 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     isLoading: isEditMode,
     errors: {},
   });
+
+  // Builder mode state (only for non-edit mode)
+  const [builderMode, setBuilderMode] = useState<'form' | 'visual'>('form');
+
+  // Hide footer when in visual builder mode
+  useEffect(() => {
+    if (builderMode === 'visual' && !isEditMode) {
+      document.body.classList.add('hide-footer');
+    } else {
+      document.body.classList.remove('hide-footer');
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      document.body.classList.remove('hide-footer');
+    };
+  }, [builderMode, isEditMode]);
 
   // Fetch existing agent data if in edit mode
   useEffect(() => {
@@ -305,10 +324,56 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     }
 
     return (
-      <div className="min-h-screen p-8">
-        <div className="max-w-6xl mx-auto">
-          <h1 className="text-2xl font-bold mb-8">{isEditMode ? "Edit Agent" : "Create New Agent"}</h1>
+      <div className={builderMode === 'visual' && !isEditMode ? "h-full flex flex-col overflow-hidden" : "min-h-screen p-8"}>
+        <div className={builderMode === 'visual' && !isEditMode ? "flex-1 flex flex-col overflow-hidden min-h-0" : "max-w-6xl mx-auto"}>
+          {/* Header with title and builder mode toggle */}
+          <div className={builderMode === 'visual' && !isEditMode ? "flex items-center justify-between px-6 py-4 border-b flex-shrink-0" : "flex items-center justify-between mb-8"}>
+            <h1 className="text-2xl font-bold">{isEditMode ? "Edit Agent" : "Create New Agent"}</h1>
+            {!isEditMode && (
+              <BuilderModeToggle 
+                mode={builderMode}
+                onModeChange={setBuilderMode}
+                disabled={state.isSubmitting || state.isLoading}
+              />
+            )}
+          </div>
 
+          {builderMode === 'visual' && !isEditMode ? (
+            <VisualBuilderErrorBoundary>
+              <VisualAgentBuilder
+                onValidationChange={(errors) => {
+                  setState(prev => ({ ...prev, errors }));
+                }}
+                onGraphDataChange={(graphData) => {
+                  // Sync visual builder changes to form state
+                  setState(prev => ({
+                    ...prev,
+                    name: graphData.name,
+                    namespace: graphData.namespace,
+                    description: graphData.description,
+                    systemPrompt: graphData.systemPrompt || '',
+                    selectedModel: graphData.modelName ? {
+                      ref: graphData.modelName,
+                      model: graphData.modelName,
+                    } : null,
+                    selectedTools: graphData.tools || [],
+                  }));
+                }}
+                initialFormData={{
+                  name: state.name,
+                  namespace: state.namespace,
+                  description: state.description,
+                  type: state.agentType,
+                  systemPrompt: state.systemPrompt,
+                  modelName: state.selectedModel?.ref,
+                  tools: state.selectedTools,
+                  stream: true,
+                }}
+                onCreateAgent={handleSaveAgent}
+                isSubmitting={state.isSubmitting}
+              />
+            </VisualBuilderErrorBoundary>
+          ) : (
           <div className="space-y-6">
             <Card>
               <CardHeader>
@@ -578,21 +643,26 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 </Card>
               </>
             )}
-            <div className="flex justify-end">
-              <Button className="bg-violet-500 hover:bg-violet-600" onClick={handleSaveAgent} disabled={state.isSubmitting || state.isLoading}>
-                {state.isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {isEditMode ? "Updating..." : "Creating..."}
-                  </>
-                ) : isEditMode ? (
-                  "Update Agent"
-                ) : (
-                  "Create Agent"
-                )}
-              </Button>
-            </div>
           </div>
+          )}
+
+          {/* Submit button visible only in form mode */}
+          {builderMode === 'form' && (
+            <div className="flex justify-end mt-6">
+                <Button className="bg-violet-500 hover:bg-violet-600" onClick={handleSaveAgent} disabled={state.isSubmitting || state.isLoading}>
+                  {state.isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      {isEditMode ? "Updating..." : "Creating..."}
+                    </>
+                  ) : isEditMode ? (
+                    "Update Agent"
+                  ) : (
+                    "Create Agent"
+                  )}
+                </Button>
+            </div>
+          )}
         </div>
       </div>
     );

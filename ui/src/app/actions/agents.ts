@@ -1,10 +1,9 @@
 "use server";
 
-import { AgentSpec, BaseResponse } from "@/types";
+import { AgentSpec, BaseResponse, AgentFormData } from "@/types";
 import { Agent, AgentResponse, Tool } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
