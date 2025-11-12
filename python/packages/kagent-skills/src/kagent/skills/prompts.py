@@ -1,8 +1,7 @@
 from .models import Skill
-from typing import List
 
 
-def generate_skills_xml(skills: List[Skill]) -> str:
+def generate_skills_xml(skills: list[Skill]) -> str:
     """Formats a list of skills into an XML block for tool descriptions."""
     if not skills:
         return "<available_skills>\n<!-- No skills found -->\n</available_skills>"
@@ -15,7 +14,7 @@ def generate_skills_xml(skills: List[Skill]) -> str:
     return "<available_skills>\n" + "\n".join(skills_entries) + "\n</available_skills>"
 
 
-def generate_skills_tool_description(skills: List[Skill]) -> str:
+def generate_skills_tool_description(skills: list[Skill]) -> str:
     """Generates the full, standardized description for the 'skills' tool."""
     skills_xml = generate_skills_xml(skills)
 
@@ -98,15 +97,15 @@ def get_bash_description() -> str:
 Working Directory & Structure:
 - Commands run in a temporary session directory: /tmp/kagent/{session_id}/
 - /skills -> All skills are available here (read-only).
-- Your current working directory is added to PYTHONPATH.
+- Your current working directory and /skills are added to PYTHONPATH.
 
 Python Imports (CRITICAL):
-- To import from a skill, use the full path from the 'skills' root.
-  Example: from skills.skills_name.module import function
+- To import from a skill, use the name of the skill.
+  Example: from skills_name.module import function
 - If the skills name contains a dash '-', you need to use importlib to import it.
   Example:
     import importlib
-    skill_module = importlib.import_module('skills.skill-name.module')
+    skill_module = importlib.import_module('skill-name.module')
 
 For file operations:
 - Use read_file, write_file, and edit_file for interacting with the filesystem.

@@ -6,7 +6,6 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 def read_file_content(
     file_path: Path,
-    offset: Optional[int] = None,
-    limit: Optional[int] = None,
+    offset: int | None = None,
+    limit: int | None = None,
 ) -> str:
     """Reads a file with line numbers, raising errors on failure."""
     if not file_path.exists():
@@ -29,7 +28,7 @@ def read_file_content(
     try:
         lines = file_path.read_text(encoding="utf-8").splitlines()
     except Exception as e:
-        raise IOError(f"Error reading file {file_path}: {e}") from e
+        raise OSError(f"Error reading file {file_path}: {e}") from e
 
     start = (offset - 1) if offset and offset > 0 else 0
     end = (start + limit) if limit else len(lines)
@@ -54,7 +53,7 @@ def write_file_content(file_path: Path, content: str) -> str:
         logger.info(f"Successfully wrote to {file_path}")
         return f"Successfully wrote to {file_path}"
     except Exception as e:
-        raise IOError(f"Error writing file {file_path}: {e}") from e
+        raise OSError(f"Error writing file {file_path}: {e}") from e
 
 
 def edit_file_content(
@@ -76,7 +75,7 @@ def edit_file_content(
     try:
         content = file_path.read_text(encoding="utf-8")
     except Exception as e:
-        raise IOError(f"Error reading file {file_path}: {e}") from e
+        raise OSError(f"Error reading file {file_path}: {e}") from e
 
     if old_string not in content:
         raise ValueError(f"old_string not found in {file_path}")
@@ -97,7 +96,7 @@ def edit_file_content(
         logger.info(f"Successfully replaced {count} occurrence(s) in {file_path}")
         return f"Successfully replaced {count} occurrence(s) in {file_path}"
     except Exception as e:
-        raise IOError(f"Error writing file {file_path}: {e}") from e
+        raise OSError(f"Error writing file {file_path}: {e}") from e
 
 
 # --- Shell Operation Tools ---
@@ -121,10 +120,24 @@ async def execute_command(
     timeout = _get_command_timeout_seconds(command)
 
     env = os.environ.copy()
-    pythonpath_additions = [str(working_dir), "/"]
+    # Add skills directory and working directory to PYTHONPATH
+    pythonpath_additions = [str(working_dir), "/skills"]
     if "PYTHONPATH" in env:
         pythonpath_additions.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = ":".join(pythonpath_additions)
+
+    # If a separate venv for shell commands is specified, use its python and pip
+    # Otherwise the system python/pip will be used for backward compatibility
+    bash_venv_path = os.environ.get("BASH_VENV_PATH")
+    if bash_venv_path:
+        bash_venv_bin = os.path.join(bash_venv_path, "bin")
+        # Prepend bash venv to PATH so its python and pip are used
+        env["PATH"] = f"{bash_venv_bin}:{env.get('PATH', '')}"
+        env["VIRTUAL_ENV"] = bash_venv_path
+
+    logger.warning(f"path modified: {env['PATH']}")
+    logger.warning(f"Set virtual env to: {env.get('VIRTUAL_ENV')}")
+    logger.warning(f"Set pythonpath to: {env.get('PYTHONPATH')}")
 
     sandboxed_command = f'srt "{command}"'
 
@@ -158,6 +171,8 @@ async def execute_command(
         output = stdout_str
         if stderr_str and "WARNING" not in stderr_str:
             output += f"\n{stderr_str}"
+
+        logger.info(f"Command executed successfully: {output}")
 
         return output.strip() if output.strip() else "Command completed successfully."
 
