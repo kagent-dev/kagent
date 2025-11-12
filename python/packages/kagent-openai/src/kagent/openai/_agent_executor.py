@@ -10,6 +10,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import override
 
@@ -35,7 +36,7 @@ from pydantic import BaseModel
 from ._event_converter import convert_openai_event_to_a2a_events
 from ._session_service import KAgentSession
 
-logger = logging.getLogger("kagent.openai." + __name__)
+logger = logging.getLogger(__name__)
 
 
 class OpenAIAgentExecutorConfig(BaseModel):
@@ -43,6 +44,13 @@ class OpenAIAgentExecutorConfig(BaseModel):
 
     # Maximum time to wait for agent execution (seconds)
     execution_timeout: float = 300.0
+
+
+@dataclass
+class SessionContext:
+    """Context information for a KAgent session."""
+
+    session_id: str
 
 
 class OpenAIAgentExecutor(AgentExecutor):
@@ -91,6 +99,7 @@ class OpenAIAgentExecutor(AgentExecutor):
     ) -> None:
         """Stream agent execution events and convert them to A2A events."""
         task_result_aggregator = TaskResultAggregator()
+        session_context = SessionContext(session_id=session.session_id)
 
         try:
             # Use run_streamed for streaming support
@@ -98,6 +107,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                 agent,
                 user_input,
                 session=session,
+                context=session_context,
             )
 
             # Process streaming events

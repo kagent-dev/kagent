@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List
 
 from agents.exceptions import UserError
 from agents.run_context import RunContextWrapper
 from agents.tool import FunctionTool, function_tool
 from kagent.skills import (
     discover_skills,
+    edit_file_content,
+    execute_command,
     generate_skills_tool_description,
     get_bash_description,
     get_edit_file_description,
@@ -23,13 +24,13 @@ from kagent.skills import (
     get_write_file_description,
     initialize_session_path,
     load_skill_content,
-    edit_file_content,
-    execute_command,
     read_file_content,
     write_file_content,
 )
 
-logger = logging.getLogger("kagent.openai.agent.tools")
+from .._agent_executor import SessionContext
+
+logger = logging.getLogger(__name__)
 
 
 # --- System Tools ---
@@ -40,14 +41,14 @@ logger = logging.getLogger("kagent.openai.agent.tools")
     description_override=get_read_file_description(),
 )
 def read_file(
-    context: RunContextWrapper,
+    wrapper: RunContextWrapper[SessionContext],
     file_path: str,
     offset: int | None = None,
     limit: int | None = None,
 ) -> str:
     """Read a file from the filesystem."""
     try:
-        session_id = context.run.id
+        session_id = wrapper.context.session_id
         working_dir = get_session_path(session_id)
         path = Path(file_path)
         if not path.is_absolute():
@@ -62,10 +63,10 @@ def read_file(
     name_override="write_file",
     description_override=get_write_file_description(),
 )
-def write_file(context: RunContextWrapper, file_path: str, content: str) -> str:
+def write_file(wrapper: RunContextWrapper[SessionContext], file_path: str, content: str) -> str:
     """Write content to a file."""
     try:
-        session_id = context.run.id
+        session_id = wrapper.context.session_id
         working_dir = get_session_path(session_id)
         path = Path(file_path)
         if not path.is_absolute():
@@ -81,7 +82,7 @@ def write_file(context: RunContextWrapper, file_path: str, content: str) -> str:
     description_override=get_edit_file_description(),
 )
 def edit_file(
-    context: RunContextWrapper,
+    wrapper: RunContextWrapper[SessionContext],
     file_path: str,
     old_string: str,
     new_string: str,
@@ -89,7 +90,7 @@ def edit_file(
 ) -> str:
     """Edit a file by replacing old_string with new_string."""
     try:
-        session_id = context.run.id
+        session_id = wrapper.context.session_id
         working_dir = get_session_path(session_id)
         path = Path(file_path)
         if not path.is_absolute():
@@ -104,10 +105,10 @@ def edit_file(
     name_override="bash",
     description_override=get_bash_description(),
 )
-async def bash(context: RunContextWrapper, command: str) -> str:
+async def bash(wrapper: RunContextWrapper[SessionContext], command: str) -> str:
     """Executes a bash command in a sandboxed environment."""
     try:
-        session_id = context.run.id
+        session_id = wrapper.context.session_id
         working_dir = get_session_path(session_id)
         return await execute_command(command, working_dir)
     except Exception as e:
@@ -117,7 +118,7 @@ async def bash(context: RunContextWrapper, command: str) -> str:
 # --- Skill Tools ---
 
 
-def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
+def get_skill_tool(skills_directory: str | Path = "/skills") -> FunctionTool:
     """Create a Skill tool.
 
     This function generates a tool instance with skills discovered from the provided
@@ -132,7 +133,7 @@ def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
     description = generate_skills_tool_description(skills)
 
     @function_tool(name_override="skills", description_override=description)
-    def skill_tool_impl(context: RunContextWrapper, command: str) -> str:
+    def skill_tool_impl(wrapper: RunContextWrapper[SessionContext], command: str) -> str:
         """Execute a skill by name.
 
         Args:
@@ -142,7 +143,7 @@ def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
             The full skill instructions and context.
         """
         # This function is cached internally, so calling it multiple times is safe.
-        initialize_session_path(context.run.id, str(skills_dir))
+        initialize_session_path(wrapper.context.session_id, str(skills_dir))
         skill_name = command.strip()
 
         try:
@@ -167,7 +168,7 @@ def get_skill_tool(skills_directory: str | Path) -> FunctionTool:
     return skill_tool_impl
 
 
-def get_skill_tools(skills_directory: str | Path) -> List[FunctionTool]:
+def get_skill_tools(skills_directory: str | Path = "/skills") -> list[FunctionTool]:
     """
     Create a list of tools including the skill tool and file operation tools.
 

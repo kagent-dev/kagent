@@ -28,7 +28,6 @@ from agents.stream_events import (
     RunItemStreamEvent,
     StreamEvent,
 )
-
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
@@ -36,7 +35,10 @@ from kagent.core.a2a import (
     get_kagent_metadata_key,
 )
 
-logger = logging.getLogger("kagent.openai." + __name__)
+logger = logging.getLogger(__name__)
+
+# Track tool call names by call_id to correlate with tool outputs
+_tool_call_registry: dict[str, str] = {}
 
 
 def convert_openai_event_to_a2a_events(
@@ -212,10 +214,11 @@ def _convert_tool_call(
             tool_arguments = {"raw": str(raw_call.arguments)}
 
     # Create a DataPart for the function call
+    # Note: Frontend expects 'args' not 'arguments', and 'id' for the call ID
     function_data = {
-        "name": tool_name,
-        "arguments": tool_arguments,
         "id": call_id,
+        "name": tool_name,
+        "args": tool_arguments,
     }
 
     data_part = DataPart(
@@ -268,15 +271,13 @@ def _convert_tool_output(
 
     # Extract tool output details from the raw item
     call_id = raw_output.call_id if hasattr(raw_output, "call_id") else str(uuid.uuid4())
-
-    # The item.output field contains the actual Python object returned by the tool
-    # This is what we want to send, not the JSON string representation
-    actual_output = item.output if hasattr(item, "output") else None
+    actual_output = item.output.raw_item if hasattr(item.output, "raw_item") else str(item.output)
 
     # Create a DataPart for the function response
     function_data = {
         "call_id": call_id,
-        "output": actual_output,
+        "name": call_id,  # name field doesn't exist in output, use call_id as placeholder
+        "response": actual_output,
     }
 
     data_part = DataPart(
