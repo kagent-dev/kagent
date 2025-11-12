@@ -2292,6 +2292,7 @@ dependencies = [
     { name = "kagent-skills" },
     { name = "openai" },
     { name = "openai-agents" },
+    { name = "opentelemetry-instrumentation-openai-agents" },
     { name = "pydantic" },
     { name = "uvicorn" },
 ]
@@ -2314,6 +2315,7 @@ requires-dist = [
     { name = "kagent-skills", editable = "packages/kagent-skills" },
     { name = "openai", specifier = ">=1.72.0" },
     { name = "openai-agents", specifier = ">=0.4.0" },
+    { name = "opentelemetry-instrumentation-openai-agents", specifier = ">=0.48.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
@@ -3298,6 +3300,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e2/db/3786ddc4de92e9b44ef7416a3786549b28f8a797fdf90e0dd265e6f9fb4d/opentelemetry_instrumentation_openai-0.47.5.tar.gz", hash = "sha256:0073613d1b586111aa40098d44d6a910b4edbe5d8df455fe778e85f50814e421", size = 25409, upload-time = "2025-10-24T19:21:49.996Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/a9/e9a029a97c3e2f77b05da3d0a246adcc008e1ad4224234dc21f18b4b3966/opentelemetry_instrumentation_openai-0.47.5-py3-none-any.whl", hash = "sha256:d18e69a512d5e05436d6e1f3436045949f3e2e1c1027bc9178dfd31cf31e11b0", size = 35273, upload-time = "2025-10-24T19:21:19.447Z" },
+]
+
+[[package]]
+name = "opentelemetry-instrumentation-openai-agents"
+version = "0.48.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "opentelemetry-semantic-conventions-ai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b6/12/94d1a7a167b0b527657a96cd2843e12c418a6351d940f1edcd9a307e83f4/opentelemetry_instrumentation_openai_agents-0.48.0.tar.gz", hash = "sha256:a9d490417e049955253f3fb19a0309382dbb5e39d96bab6dbd9997b9b9d3ba38", size = 8835, upload-time = "2025-11-11T09:44:39.016Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4e/53/3984b934e48cab0149d1eed1a2965a13f77be28897f3c8d45cf0ca2cdc51/opentelemetry_instrumentation_openai_agents-0.48.0-py3-none-any.whl", hash = "sha256:5b3586822cecdfd20f40a5d70ac7ba5c5329193b9da9bb42515fa72e32b7e651", size = 9845, upload-time = "2025-11-11T09:44:07.993Z" },
 ]
 
 [[package]]

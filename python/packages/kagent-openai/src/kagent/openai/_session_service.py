@@ -12,7 +12,7 @@ import httpx
 from agents.items import TResponseInputItem
 from agents.memory.session import SessionABC
 
-logger = logging.getLogger("kagent.openai." + __name__)
+logger = logging.getLogger(__name__)
 
 
 class KAgentSession(SessionABC):
@@ -156,8 +156,6 @@ class KAgentSession(SessionABC):
         """
         if not items:
             return
-
-        logger.warning(f"Adding {len(items)} items to session {self.session_id}")
 
         # Ensure session exists before adding items
         await self._ensure_session_exists()
