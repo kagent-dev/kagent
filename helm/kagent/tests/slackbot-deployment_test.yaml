@@ -1,0 +1,122 @@
+suite: test slackbot deployment
+templates:
+  - slackbot-deployment.yaml
+tests:
+  - it: should not create deployment when slackbot is disabled
+    set:
+      slackbot.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create deployment when slackbot is enabled
+    set:
+      slackbot.enabled: true
+      slackbot.secrets.slackBotToken: "xoxb-test"
+      slackbot.secrets.slackAppToken: "xapp-test"
+      slackbot.secrets.slackSigningSecret: "test-secret"
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-slackbot
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: should have correct image configuration
+    set:
+      slackbot.enabled: true
+      registry: "gcr.io/my-registry"
+      tag: "v1.2.3"
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^gcr.io/my-registry/kagent-dev/kagent/slackbot:v1.2.3$
+
+  - it: should configure environment variables correctly
+    set:
+      slackbot.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_BASE_URL
+            value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOG_LEVEL
+            value: "INFO"
+
+  - it: should mount permissions config
+    set:
+      slackbot.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: permissions-config
+            mountPath: /app/config
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: permissions-config
+            configMap:
+              name: RELEASE-NAME-slackbot-config
+              items:
+                - key: permissions.yaml
+                  path: permissions.yaml
+
+  - it: should have health probes configured
+    set:
+      slackbot.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /ready
+
+  - it: should apply custom resource limits
+    set:
+      slackbot.enabled: true
+      slackbot.resources.requests.cpu: "500m"
+      slackbot.resources.limits.memory: "1Gi"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: "500m"
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: "1Gi"
+
+  - it: should apply node selector
+    set:
+      slackbot.enabled: true
+      slackbot.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector.disktype
+          value: ssd
+
+  - it: should apply tolerations
+    set:
+      slackbot.enabled: true
+      slackbot.tolerations:
+        - key: "key1"
+          operator: "Equal"
+          value: "value1"
+          effect: "NoSchedule"
+    asserts:
+      - contains:
+          path: spec.template.spec.tolerations
+          content:
+            key: "key1"
+            operator: "Equal"
+            value: "value1"
+            effect: "NoSchedule"
