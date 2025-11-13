@@ -213,38 +213,42 @@ func main() {
 	}
 
 	initCmd := &cobra.Command{
-		Use:   "init [framework] [language] [agent-name]",
+		Use:   "init [agent-name]",
 		Short: "Initialize a new agent project",
-		Long: `Initialize a new agent project using the specified framework and language.
+		Long: `Initialize a new agent project using the specified framework .
 
+You can customize the framework using the --framework flag (adk, crewai, langgraph).
 You can customize the root agent instructions using the --instruction-file flag.
 You can select a specific model using --model-provider and --model-name flags.
-If no custom instruction file is provided, a default dice-rolling instruction will be used.
-If no model is specified, the agent will need to be configured later.
+If no custom instruction file is provided, framework-specific defaults will be used.
 
 Examples:
-  kagent init adk python dice
-  kagent init adk python dice --instruction-file instructions.md
-  kagent init adk python dice --model-provider Gemini --model-name gemini-2.0-flash`,
-		Args: cobra.ExactArgs(3),
+  kagent init my-agent
+  kagent init my-agent --framework crewai
+  kagent init my-agent --framework langgraph --model-provider openai --model-name gpt-4
+  kagent init my-agent --framework adk --instruction-file instructions.md`,
+		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			initCfg.Framework = args[0]
-			initCfg.Language = args[1]
-			initCfg.AgentName = args[2]
+			initCfg.AgentName = args[0]
 
 			if err := cli.InitCmd(initCfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
 		},
-		Example: `kagent init adk python dice`,
 	}
 
-	// Add flags for custom instructions and model selection
+	// Add flags for framework selection and customization
+	initCmd.Flags().StringVarP(&initCfg.Framework, "framework", "f", "adk", "Framework to use (adk, crewai, langgraph)")
 	initCmd.Flags().StringVar(&initCfg.InstructionFile, "instruction-file", "", "Path to file containing custom instructions for the root agent")
-	initCmd.Flags().StringVar(&initCfg.ModelProvider, "model-provider", "Gemini", "Model provider (OpenAI, Anthropic, Gemini)")
-	initCmd.Flags().StringVar(&initCfg.ModelName, "model-name", "gemini-2.0-flash", "Model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.0-flash)")
+	initCmd.Flags().StringVar(&initCfg.ModelProvider, "model-provider", "Gemini", "Model provider (OpenAI, Anthropic, Gemini, AzureOpenAI)")
+	initCmd.Flags().StringVar(&initCfg.ModelName, "model-name", "Gemini-2.0-flash", "Model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.0-flash)")
 	initCmd.Flags().StringVar(&initCfg.Description, "description", "", "Description for the agent")
+
+	// Add shell completion for framework flag
+	_ = initCmd.RegisterFlagCompletionFunc("framework", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"adk", "crewai", "langgraph"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	buildCfg := &cli.BuildCfg{
 		Config: cfg,
