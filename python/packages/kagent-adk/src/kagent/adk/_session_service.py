@@ -23,6 +23,7 @@ def logging_http_exception(func):
         except httpx.HTTPError as exc:
             logger.error(f"got http exception when {exc.request.method} {exc.request.url}: {exc}")
             raise
+
     return wrapper
 
 
