@@ -389,8 +389,21 @@ Examples:
 				runCfg.ProjectDir = "."
 			}
 
+			if runCfg.Build {
+				fmt.Fprintf(os.Stderr, "Building image before running...\n")
+
+				buildCfg := &cli.BuildCfg{
+					Config:     runCfg.Config,
+					ProjectDir: runCfg.ProjectDir,
+				}
+
+				if err := cli.BuildCmd(buildCfg); err != nil {
+					fmt.Fprintf(os.Stderr, "Build failed: %v\n", err)
+					os.Exit(1)
+				}
+			}
 			if err := cli.RunCmd(cmd.Context(), runCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error running agent: %v\n", err)
 				os.Exit(1)
 			}
 		},
@@ -398,6 +411,7 @@ Examples:
 	}
 
 	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
+	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
 
 	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd())
 

@@ -1,3 +1,17 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from unittest import mock
 
 import pytest
@@ -62,7 +76,7 @@ def generate_llm_response():
 
 @pytest.fixture
 def openai_llm():
-    return OpenAI(model="gpt-3.5-turbo", type="openai", api_key="test-key")
+    return OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
 
 
 @pytest.fixture
@@ -309,7 +323,7 @@ async def test_generate_content_async(openai_llm, llm_request, generate_content_
 
 @pytest.mark.asyncio
 async def test_generate_content_async_with_max_tokens(llm_request, generate_content_response, generate_llm_response):
-    openai_llm = OpenAI(model="gpt-3.5-turbo", max_tokens=4096, type="openai", api_key="test-key")
+    openai_llm = OpenAI(model="gpt-3.5-turbo", max_tokens=4096, type="openai", api_key="fake")
     with mock.patch.object(openai_llm, "_client") as mock_client:
         # Create a mock coroutine that returns the generate_content_response.
         async def mock_coro(*args, **kwargs):
@@ -331,7 +345,7 @@ async def test_generate_content_async_with_max_tokens(llm_request, generate_cont
 
 def test_openai_client_without_tls_config():
     """Test OpenAI client instantiation without TLS configuration (default behavior)."""
-    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="test-key")
+    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
     client = openai_llm._client
 
     # Verify client is created
@@ -353,7 +367,7 @@ def test_openai_client_with_tls_verification_disabled():
                 openai_llm = OpenAI(
                     model="gpt-3.5-turbo",
                     type="openai",
-                    api_key="test-key",
+                    api_key="fake",
                     tls_disable_verify=True,
                 )
 
@@ -394,7 +408,7 @@ def test_openai_client_with_custom_ca_certificate():
                 openai_llm = OpenAI(
                     model="gpt-3.5-turbo",
                     type="openai",
-                    api_key="test-key",
+                    api_key="fake",
                     tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
                     tls_disable_system_cas=False,
                 )
@@ -430,7 +444,7 @@ def test_openai_client_with_custom_ca_only():
                 openai_llm = OpenAI(
                     model="gpt-3.5-turbo",
                     type="openai",
-                    api_key="test-key",
+                    api_key="fake",
                     tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
                     tls_disable_system_cas=True,
                 )
@@ -484,7 +498,7 @@ def test_azure_openai_client_with_tls():
                 azure_llm = AzureOpenAI(
                     model="gpt-35-turbo",
                     type="azure_openai",
-                    api_key="test-key",
+                    api_key="fake",
                     azure_endpoint="https://test.openai.azure.com",
                     api_version="2024-02-15-preview",
                     tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
@@ -526,7 +540,7 @@ def test_openai_client_with_base_url_and_tls():
                 openai_llm = OpenAI(
                     model="gpt-3.5-turbo",
                     type="openai",
-                    api_key="test-key",
+                    api_key="fake",
                     base_url="https://litellm.internal.corp:8080",
                     tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
                 )

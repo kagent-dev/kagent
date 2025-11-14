@@ -33,6 +33,15 @@ func GetResourceNamespace() string {
 	return "kagent"
 }
 
+// GetControllerName returns the name for the kagent controller,
+// using the KAGENT_CONTROLLER_NAME environment variable or defaulting to "kagent-controller".
+func GetControllerName() string {
+	if val := os.Getenv("KAGENT_CONTROLLER_NAME"); val != "" {
+		return val
+	}
+	return "kagent-controller"
+}
+
 // ResourceRefString formats namespace and name as a string reference in "namespace/name" format.
 func ResourceRefString(namespace, name string) string {
 	return fmt.Sprintf("%s/%s", namespace, name)

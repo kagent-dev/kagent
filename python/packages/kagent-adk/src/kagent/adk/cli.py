@@ -10,8 +10,10 @@ from a2a.types import AgentCard
 from google.adk.cli.utils.agent_loader import AgentLoader
 
 from kagent.core import KAgentConfig, configure_tracing
+from .skill_fetcher import fetch_skill
 
 from . import AgentConfig, KAgentApp
+from .skills.skills_plugin import SkillsPlugin
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
@@ -36,8 +38,14 @@ def static(
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
     root_agent = agent_config.to_agent(app_cfg.name)
+    skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
+    if skills_directory:
+        logger.info(f"Adding skills from directory: {skills_directory}")
+        plugins = [SkillsPlugin(skills_directory=skills_directory)]
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
+    kagent_app = KAgentApp(
+        root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins if skills_directory else None
+    )
 
     server = kagent_app.build()
     configure_tracing(server)
@@ -49,6 +57,20 @@ def static(
         workers=workers,
         reload=reload,
     )
+
+
+@app.command()
+def pull_skills(
+    skills: Annotated[list[str], typer.Argument()],
+    insecure: Annotated[
+        bool,
+        typer.Option("--insecure", help="Allow insecure connections to registries"),
+    ] = False,
+):
+    skill_dir = os.environ.get("KAGENT_SKILLS_FOLDER", ".")
+    logger.info("Pulling skills")
+    for skill in skills:
+        fetch_skill(skill, skill_dir, insecure)
 
 
 @app.command()
@@ -112,9 +134,19 @@ def test(
     asyncio.run(test_agent(agent_config, agent_card, task))
 
 
+# --- Configure Logging ---
+def configure_logging() -> None:
+    """Configure logging based on LOG_LEVEL environment variable."""
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=log_level,
+    )
+    logging.info(f"Logging configured with level: {log_level}")
+
+
 def run_cli():
-    logging.basicConfig(level=logging.INFO)
-    logging.info("Starting KAgent")
+    configure_logging()
+    logger.info("Starting KAgent")
     app()
 
 

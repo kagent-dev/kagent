@@ -31,6 +31,9 @@ spec:
         emptyDir:
           sizeLimit: 500Mi
           medium: Memory
+      {{- with .Values.controller.volumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
       {{- with .Values.controller.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -129,3 +132,6 @@ spec:
           volumeMounts:
             - name: sqlite-volume
               mountPath: /sqlite-volume
+            {{- with .Values.controller.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
