@@ -127,7 +127,7 @@ func (h *CrewAIHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 	log = log.WithValues("userID", userID, "threadID", threadID, "taskDescription", taskDescription, "limit", limit)
 
 	var memories []*database.CrewAIAgentMemory
-	
+
 	// If task description is provided, search by task across all agents
 	// Otherwise, list memories for a specific agent
 	if taskDescription != "" {

@@ -40,6 +40,11 @@ type BaseModel struct {
 	Type    string            `json:"type"`
 	Model   string            `json:"model"`
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// TLS/SSL configuration (applies to all model types)
+	TLSDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
+	TLSCACertPath       *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs *bool   `json:"tls_disable_system_cas,omitempty"`
 }
 
 type OpenAI struct {

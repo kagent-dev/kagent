@@ -2,11 +2,23 @@
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
+# Build arg to control SSL verification (set DISABLE_SSL_VERIFY=1 to skip SSL checks)
+ARG DISABLE_SSL_VERIFY=0
+
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+
+# Install packages with conditional SSL verification
+# When DISABLE_SSL_VERIFY=1, use --no-check-certificate to bypass SSL checks (development only)
 RUN --mount=type=cache,target=/var/cache/apk,rw \
-    apk update && apk add  \
-    curl openssl bash git ca-certificates uv libstdc++
+    if [ "$DISABLE_SSL_VERIFY" = "1" ]; then \
+        echo "WARNING: Disabling SSL verification for apk (development only)"; \
+        apk update --no-check-certificate && apk add --no-check-certificate \
+            curl openssl bash git ca-certificates uv libstdc++; \
+    else \
+        apk update && apk add \
+            curl openssl bash git ca-certificates uv libstdc++; \
+    fi
 
 ### STAGE 2: python
 FROM base-os AS python-os

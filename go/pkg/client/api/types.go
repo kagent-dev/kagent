@@ -49,6 +49,7 @@ type ModelConfigResponse struct {
 	APIKeySecret    string                 `json:"apiKeySecret"`
 	APIKeySecretKey string                 `json:"apiKeySecretKey"`
 	ModelParams     map[string]interface{} `json:"modelParams"`
+	TLS             *v1alpha2.TLSConfig    `json:"tls,omitempty"`
 }
 
 // CreateModelConfigRequest represents a request to create a model configuration
