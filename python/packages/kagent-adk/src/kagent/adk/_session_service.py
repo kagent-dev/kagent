@@ -17,11 +17,11 @@ logger = logging.getLogger("kagent." + __name__)
 
 def logging_http_exception(func):
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    async def wrapper(*args, **kwargs):
         try:
-            return func(*args, **kwargs)
+            return await func(*args, **kwargs)
         except httpx.HTTPError as exc:
-            logger.error(f"got http exception when {exc.request.method} {exc.request.url}: {exc}")
+            logger.error(f"Got HTTP exception when {exc.request.method} {exc.request.url}: {exc}")
             raise
 
     return wrapper
