@@ -161,7 +161,7 @@ def create_ssl_context(
             When True with ca_cert_path, only the custom CA is trusted.
 
     Returns:
-        - None if disable_verify=True (httpx special value to disable verification)
+        - False if disable_verify=True (httpx special value to disable verification)
         - ssl.SSLContext configured with appropriate CA certificates otherwise
 
     Raises:
