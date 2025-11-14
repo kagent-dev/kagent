@@ -329,7 +329,7 @@ class BaseOpenAI(BaseLlm):
         disable_verify, ca_cert_path, disable_system_cas = self._get_tls_config()
 
         # Only create custom http client if TLS configuration is present
-        if disable_verify or ca_cert_path:
+        if disable_verify or ca_cert_path or disable_system_cas:
             ssl_context = create_ssl_context(
                 disable_verify=disable_verify,
                 ca_cert_path=ca_cert_path,

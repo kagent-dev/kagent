@@ -229,8 +229,6 @@ async def test_e2e_with_verification_disabled_logs_warning(caplog):
         assert "development/testing" in caplog.text.lower()
 
 
-@pytest.mark.skip(reason="Test needs refactoring: Should test via generate_content_async() not internal _client. "
-                         "Coverage provided by test_tls_integration.py::test_e2e_all_tls_modes[custom_and_system]")
 @pytest.mark.asyncio
 async def test_e2e_with_system_and_custom_ca():
     """E2E test: Connect with both system CAs and custom CA.
@@ -239,19 +237,27 @@ async def test_e2e_with_system_and_custom_ca():
     and custom CA are trusted.
     """
     with TestHTTPSServer(port=8446):
-        # Create SSL context with both system and custom CAs
-        ssl_context = create_ssl_context(
-            disable_verify=False,
-            ca_cert_path=str(CA_CERT),
-            disable_system_cas=False,
+        # Create OpenAI client with both system and custom CAs
+        model = BaseOpenAI(
+            model="gpt-4",
+            api_key="test-key",
+            base_url="https://localhost:8446/v1",
+            tls_disable_verify=False,
+            tls_ca_cert_path=str(CA_CERT),
+            tls_disable_system_cas=False,  # Use both system and custom CAs
         )
 
-        # Create httpx client
-        async with httpx.AsyncClient(verify=ssl_context) as client:
-            # Make request to test server - should succeed with custom CA
-            response = await client.get("https://localhost:8446/health")
-            assert response.status_code == 200
-            assert response.text == "OK"
+        # Access the _client property to trigger initialization
+        client = model._client
+
+        # Verify client is configured correctly
+        assert client is not None
+        assert isinstance(client._client, httpx.AsyncClient)
+
+        # Make request to test server - should succeed with custom CA + system CAs set
+        response = await client._client.get("https://localhost:8446/health")
+        assert response.status_code == 200
+        assert response.text == "OK"
 
 
 @pytest.mark.asyncio
@@ -276,13 +282,14 @@ async def test_e2e_openai_client_fails_without_custom_ca():
         # Access the _client property to trigger initialization
         client = model._client
 
+        assert client is not None
+        assert isinstance(client._client, httpx.AsyncClient)
+
         # Attempt to connect should fail with SSL verification error
         with pytest.raises((httpx.ConnectError, ssl.SSLError)):
-            await client.get("https://localhost:8450/health")
+            await client._client.get("https://localhost:8450/health")
 
 
-@pytest.mark.skip(reason="Test needs refactoring: Should test via generate_content_async() not internal _client. "
-                         "Coverage provided by test_tls_integration.py::test_e2e_openai_client_reads_config_based_tls")
 @pytest.mark.asyncio
 async def test_e2e_openai_client_with_custom_ca():
     """E2E test: OpenAI client with custom CA certificate.
@@ -309,16 +316,14 @@ async def test_e2e_openai_client_with_custom_ca():
 
         # Verify client is configured correctly
         assert client is not None
-        assert isinstance(client, httpx.AsyncClient)
+        assert isinstance(client._client, httpx.AsyncClient)
 
         # Make a request using the httpx client directly to test connectivity
-        response = await client.get("https://localhost:8447/health")
+        response = await client._client.get("https://localhost:8447/health")
         assert response.status_code == 200
         assert response.text == "OK"
 
 
-@pytest.mark.skip(reason="Test needs refactoring: Should test via generate_content_async() not internal _client. "
-                         "Coverage provided by test_tls_integration.py::test_e2e_all_tls_modes[disabled]")
 @pytest.mark.asyncio
 async def test_e2e_openai_client_with_verification_disabled():
     """E2E test: OpenAI client with verification disabled.
@@ -339,18 +344,16 @@ async def test_e2e_openai_client_with_verification_disabled():
 
         # Access the _client property to trigger initialization
         client = model._client
-
         # Verify client uses verification disabled
         assert client is not None
+        assert isinstance(client._client, httpx.AsyncClient)
 
         # Make a request - should succeed despite untrusted cert
-        response = await client.get("https://localhost:8448/health")
+        response = await client._client.get("https://localhost:8448/health")
         assert response.status_code == 200
         assert response.text == "OK"
 
 
-@pytest.mark.skip(reason="Test needs refactoring: Should test via generate_content_async() not internal _client. "
-                         "Coverage provided by test_tls_integration.py::test_e2e_backward_compatibility_no_tls_config")
 @pytest.mark.asyncio
 async def test_e2e_backward_compatibility_no_tls_config():
     """E2E test: Backward compatibility - client works without TLS config.
@@ -371,13 +374,14 @@ async def test_e2e_backward_compatibility_no_tls_config():
     # Access the _client property to trigger initialization
     client = model._client
 
-    # Verify client is configured correctly with default behavior
+    # Verify client is configured correctly
     assert client is not None
+    assert isinstance(client._client, httpx.AsyncClient)
 
     # Make a request to a real public endpoint (uses system CAs)
     try:
-        response = await client.get("https://www.google.com", timeout=5.0)
-        # Just verify we can connect (status code doesn't matter)
+        response = await client._client.get("https://www.google.com", timeout=5.0)
+        # Verify we got a response (status code doesn't matter, just that SSL handshake succeeded)
         assert response.status_code in [200, 301, 302, 404]
     except httpx.TimeoutException:
         # Timeout is acceptable - we're just testing SSL works
