@@ -88,7 +88,13 @@ class TestHTTPSServer:
 
     def __enter__(self) -> "TestHTTPSServer":
         """Start the HTTPS server in a background thread."""
-        self.server = HTTPServer(("localhost", self.port), MockLLMHandler)
+        try:
+            self.server = HTTPServer(("localhost", self.port), MockLLMHandler)
+        except OSError as e:
+            raise RuntimeError(
+                f"Failed to bind to port {self.port}. "
+                f"Error: {e}"
+            ) from e
 
         if self.use_ssl:
             # Configure SSL context for server
