@@ -555,4 +555,3 @@ def test_openai_client_with_base_url_and_tls():
 
                 # Verify DefaultAsyncHttpxClient was created with SSL context
                 mock_httpx.assert_called_once()
-

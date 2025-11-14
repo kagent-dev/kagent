@@ -101,6 +101,7 @@ def test_ssl_context_with_system_and_custom_ca():
     finally:
         Path(cert_path).unlink()
 
+
 def test_ssl_context_certificate_file_not_found():
     """Test SSL context with non-existent certificate file."""
     with pytest.raises(FileNotFoundError):

@@ -104,10 +104,7 @@ class TestHTTPSServer:
         try:
             self.server = HTTPServer(("localhost", self.port), MockLLMHandler)
         except OSError as e:
-            raise RuntimeError(
-                f"Failed to bind to port {self.port}. "
-                f"Error: {e}"
-            ) from e
+            raise RuntimeError(f"Failed to bind to port {self.port}. Error: {e}") from e
 
         if self.use_ssl:
             # Configure SSL context for server
@@ -143,7 +140,9 @@ class TestHTTPSServer:
         protocol = "https" if self.use_ssl else "http"
         return f"{protocol}://localhost:{self.port}"
 
+
 # ssl context tests
+
 
 @pytest.mark.asyncio
 async def test_e2e_with_self_signed_cert_with_custom_ca():
@@ -177,6 +176,7 @@ async def test_e2e_with_self_signed_cert_with_custom_ca():
             assert response.status_code == 200
             assert response.text == "OK"
 
+
 @pytest.mark.asyncio
 async def test_e2e_with_self_signed_cert_fails_without_custom_ca():
     """E2E test: Connection fails when custom CA is not provided.
@@ -202,6 +202,7 @@ async def test_e2e_with_self_signed_cert_fails_without_custom_ca():
             with pytest.raises(httpx.ConnectError):
                 await client.get("https://localhost:8444/health")
 
+
 @pytest.mark.asyncio
 async def test_e2e_with_self_signed_cert_fails_without_custom_ca_or_system_cas():
     """E2E test: Connection fails when custom CA is not provided.
@@ -226,6 +227,7 @@ async def test_e2e_with_self_signed_cert_fails_without_custom_ca_or_system_cas()
         async with httpx.AsyncClient(verify=ssl_context) as client:
             with pytest.raises(httpx.ConnectError):
                 await client.get("https://localhost:8444/health")
+
 
 @pytest.mark.asyncio
 async def test_e2e_with_verification_disabled():
@@ -276,7 +278,9 @@ async def test_e2e_with_verification_disabled_logs_warning(caplog):
         assert "SSL VERIFICATION DISABLED" in caplog.text
         assert "development/testing" in caplog.text.lower()
 
+
 # baseopenai tests
+
 
 @pytest.mark.asyncio
 async def test_e2e_with_system_and_custom_ca():
@@ -311,6 +315,7 @@ async def test_e2e_with_system_and_custom_ca():
         assert responses[0].content is not None
         assert len(responses[0].content.parts) > 0
         assert responses[0].content.parts[0].text == "Hello from test server!"
+
 
 @pytest.mark.asyncio
 async def test_e2e_fails_without_custom_ca():
@@ -364,6 +369,7 @@ async def test_e2e_fails_without_custom_ca():
             ]
         )
 
+
 @pytest.mark.asyncio
 async def test_e2e_with_custom_ca_no_system_cas():
     """E2E test: OpenAI client with custom CA certificate.
@@ -402,7 +408,9 @@ async def test_e2e_with_custom_ca_no_system_cas():
         assert responses[0].content.parts[0].text == "Hello from test server!"
 
 
-@pytest.mark.skip(reason="We'll need to figure out how to properly verify the backward compatibility (all None) without being able to verify against api.openai.com (which the default client properly configures)")
+@pytest.mark.skip(
+    reason="We'll need to figure out how to properly verify the backward compatibility (all None) without being able to verify against api.openai.com (which the default client properly configures)"
+)
 @pytest.mark.asyncio
 async def test_e2e_backward_compatibility_default_behavior():
     """E2E test: Backward compatibility - default behavior when minimal TLS config is provided.

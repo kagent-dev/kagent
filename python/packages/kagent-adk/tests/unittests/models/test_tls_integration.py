@@ -54,6 +54,7 @@ def mock_env_vars(temp_cert_file):
     with mock.patch.dict(os.environ, env_vars, clear=False):
         yield env_vars
 
+
 def test_e2e_agent_config_to_ssl_context(temp_cert_file):
     """Test end-to-end flow: Agent config JSON → SSL context creation."""
     # Simulate the flow in a Kubernetes pod:
@@ -83,6 +84,7 @@ def test_e2e_agent_config_to_ssl_context(temp_cert_file):
         mock_ctx.load_verify_locations.assert_called_once()
         assert ctx is mock_ctx
 
+
 def test_e2e_certificate_validation_flow(temp_cert_file, caplog):
     """Test certificate validation is called during SSL context creation."""
     with caplog.at_level(logging.INFO):
@@ -103,6 +105,7 @@ def test_e2e_certificate_validation_flow(temp_cert_file, caplog):
                 assert ctx is mock_ctx
                 assert "TLS Mode" in caplog.text
 
+
 def test_e2e_backward_compatibility_no_tls_config():
     """Test that agents work without TLS configuration (backward compatibility)."""
     # Simulate agent starting without TLS environment variables
@@ -122,6 +125,7 @@ def test_e2e_backward_compatibility_no_tls_config():
         assert openai_llm is not None
         assert openai_llm.model == "gpt-3.5-turbo"
 
+
 def test_e2e_invalid_certificate_path():
     """Test error handling when certificate file does not exist."""
     with pytest.raises(FileNotFoundError) as exc_info:
@@ -134,6 +138,7 @@ def test_e2e_invalid_certificate_path():
     # Verify error message includes troubleshooting guidance
     assert "CA certificate file not found" in str(exc_info.value)
     assert "kubectl get secret" in str(exc_info.value)
+
 
 @pytest.mark.parametrize(
     "verify_disabled,ca_cert_path,disable_system_cas,expected_mode",
@@ -190,6 +195,7 @@ def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, disable_system_cas, ex
             elif expected_mode == "custom_and_system":
                 assert "Custom CA + System CAs" in caplog.text
 
+
 def test_e2e_ssl_error_troubleshooting_message(temp_cert_file):
     """Test that SSL errors generate helpful troubleshooting messages."""
     error = ssl.SSLError("certificate verify failed")
@@ -208,6 +214,7 @@ def test_e2e_ssl_error_troubleshooting_message(temp_cert_file):
     assert temp_cert_file in message
     assert "litellm.internal.corp:8080" in message
     assert "https://kagent.dev/docs" in message
+
 
 def test_e2e_openai_client_reads_config_based_tls(temp_cert_file):
     """Test OpenAI client reads TLS config from instance fields (agent config)."""
@@ -236,6 +243,7 @@ def test_e2e_openai_client_reads_config_based_tls(temp_cert_file):
                 assert call_kwargs["disable_verify"] is False
                 assert call_kwargs["ca_cert_path"] == temp_cert_file
                 assert call_kwargs["disable_system_cas"] is False
+
 
 def test_e2e_certificate_validation_expiry_warnings(caplog):
     """Test certificate validation logs expiry warnings but doesn't block."""
@@ -282,6 +290,7 @@ def test_e2e_certificate_validation_expiry_warnings(caplog):
     except ImportError:
         pytest.skip("cryptography library not installed - skipping certificate validation test")
 
+
 def test_e2e_structured_logging_at_startup(temp_cert_file, caplog):
     """Test that TLS configuration logs structured information at startup."""
     with caplog.at_level(logging.INFO):
@@ -303,6 +312,7 @@ def test_e2e_structured_logging_at_startup(temp_cert_file, caplog):
                 assert "Using system CA certificates" in log_text
                 assert "Custom CA certificate loaded from:" in log_text
                 assert temp_cert_file in log_text
+
 
 def test_e2e_litellm_with_tls(temp_cert_file):
     """Test complete flow: LiteLLM base URL + TLS configuration."""
