@@ -195,8 +195,8 @@ async def test_e2e_with_verification_disabled():
             disable_system_cas=False,
         )
 
-        # Verify that None is returned (httpx special value)
-        assert ssl_context is None
+        # Verify that False is returned (httpx special value)
+        assert ssl_context is False
 
         # Create httpx client with verification disabled
         async with httpx.AsyncClient(verify=False) as client:
@@ -435,7 +435,7 @@ async def test_e2e_ssl_error_contains_troubleshooting_info():
     assert "openssl s_client" in message
     assert "/etc/ssl/certs/custom/ca.crt" in message
     assert "localhost:8443" in message
-    assert "docs.kagent.dev" in message
+    assert "kagent.dev/docs" in message
 
 
 if __name__ == "__main__":

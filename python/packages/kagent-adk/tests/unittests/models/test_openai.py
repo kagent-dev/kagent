@@ -381,10 +381,10 @@ def test_openai_client_with_tls_verification_disabled():
                     disable_system_cas=False,
                 )
 
-                # Verify DefaultAsyncHttpxClient was created with verify=None
+                # Verify DefaultAsyncHttpxClient was created with verify=False
                 mock_httpx.assert_called_once()
                 call_kwargs = mock_httpx.call_args[1]
-                assert call_kwargs["verify"] is None
+                assert call_kwargs["verify"] is False
 
                 # Verify AsyncOpenAI was called with the http_client
                 mock_openai.assert_called_once()
@@ -468,6 +468,7 @@ def test_openai_client_with_custom_ca_only():
 def test_openai_client_preserves_sdk_defaults():
     """Test that DefaultAsyncHttpxClient preserves OpenAI SDK defaults."""
     import ssl
+
     from openai import DefaultAsyncHttpxClient
 
     # Create a real DefaultAsyncHttpxClient with custom SSL context
@@ -485,6 +486,7 @@ def test_openai_client_preserves_sdk_defaults():
 def test_azure_openai_client_with_tls():
     """Test AzureOpenAI client uses DefaultAsyncHttpxClient with TLS configuration."""
     import ssl
+
     from kagent.adk.models import AzureOpenAI
 
     with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:

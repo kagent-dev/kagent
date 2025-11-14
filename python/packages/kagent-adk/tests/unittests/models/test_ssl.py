@@ -10,13 +10,13 @@ from kagent.adk.models._ssl import create_ssl_context
 
 
 def test_ssl_context_verification_disabled():
-    """Test SSL context with verification disabled returns None."""
-    result = create_ssl_context(
+    """Test SSL context with verification disabled returns False."""
+    ssl_context = create_ssl_context(
         disable_verify=True,
         ca_cert_path=None,
         disable_system_cas=False,
     )
-    assert result is None
+    assert ssl_context is False
 
 
 def test_ssl_context_with_system_cas_only():
@@ -106,11 +106,11 @@ def test_ssl_context_certificate_file_not_found():
 def test_ssl_context_disabled_logs_warning(caplog):
     """Test that disabling SSL verification logs a prominent warning."""
     with caplog.at_level(logging.WARNING):
-        result = create_ssl_context(
+        ssl_context = create_ssl_context(
             disable_verify=True,
             ca_cert_path=None,
             disable_system_cas=False,
         )
-        assert result is None
+        assert ssl_context is False
         assert "SSL VERIFICATION DISABLED" in caplog.text
         assert "development/testing" in caplog.text.lower()

@@ -191,7 +191,7 @@ def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, disable_system_cas, ex
                 ca_cert_path=ca_cert_path,
                 disable_system_cas=disable_system_cas,
             )
-            assert ctx is None
+            assert ctx is False
             assert "TLS Mode: Disabled" in caplog.text
         else:
             with mock.patch("ssl.create_default_context") as mock_default_ctx:
