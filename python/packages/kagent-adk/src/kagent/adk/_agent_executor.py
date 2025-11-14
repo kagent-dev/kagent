@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 import logging
 import uuid
@@ -106,57 +105,69 @@ class A2aAgentExecutor(AgentExecutor):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
-        # for new task, create a task submitted event
-        if not context.current_task:
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=TaskState.submitted,
-                        message=context.message,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                    ),
-                    context_id=context.context_id,
-                    final=False,
-                )
-            )
+        # Convert the a2a request to ADK run args
+        run_args = convert_a2a_request_to_adk_run_args(context)
 
-        # Handle the request and publish updates to the event queue
-        runner = await self._resolve_runner()
-        try:
-            await self._handle_request(context, event_queue, runner)
-        except Exception as e:
-            logger.error("Error handling A2A request: %s", e, exc_info=True)
-            # Publish failure event
-            try:
+        # Prepare span attributes.
+        span_attributes = {}
+        if run_args.get("user_id"):
+            span_attributes["kagent.user_id"] = run_args["user_id"]
+        if context.task_id:
+            span_attributes["gen_ai.task.id"] = context.task_id
+        if run_args.get("session_id"):
+            span_attributes["gen_ai.conversation.id"] = run_args["session_id"]
+
+        tracer = trace.get_tracer("kagent-adk")
+        with tracer.start_as_current_span("execute", attributes=span_attributes):
+            # for new task, create a task submitted event
+            if not context.current_task:
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.failed,
+                            state=TaskState.submitted,
+                            message=context.message,
                             timestamp=datetime.now(timezone.utc).isoformat(),
-                            message=Message(
-                                message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=str(e)))],
-                            ),
                         ),
                         context_id=context.context_id,
-                        final=True,
+                        final=False,
                     )
                 )
-            except Exception as enqueue_error:
-                logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
+
+            # Handle the request and publish updates to the event queue
+            runner = await self._resolve_runner()
+            try:
+                await self._handle_request(context, event_queue, runner, run_args)
+            except Exception as e:
+                logger.error("Error handling A2A request: %s", e, exc_info=True)
+                # Publish failure event
+                try:
+                    await event_queue.enqueue_event(
+                        TaskStatusUpdateEvent(
+                            task_id=context.task_id,
+                            status=TaskStatus(
+                                state=TaskState.failed,
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                message=Message(
+                                    message_id=str(uuid.uuid4()),
+                                    role=Role.agent,
+                                    parts=[Part(TextPart(text=str(e)))],
+                                ),
+                            ),
+                            context_id=context.context_id,
+                            final=True,
+                        )
+                    )
+                except Exception as enqueue_error:
+                    logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
     async def _handle_request(
         self,
         context: RequestContext,
         event_queue: EventQueue,
         runner: Runner,
+        run_args: dict[str, Any],
     ):
-        # Convert the a2a request to ADK run args
-        run_args = convert_a2a_request_to_adk_run_args(context)
-
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
 
@@ -174,14 +185,6 @@ class A2aAgentExecutor(AgentExecutor):
         )
 
         await runner.session_service.append_event(session, system_event)
-
-        current_span = trace.get_current_span()
-        if run_args["user_id"]:
-            current_span.set_attribute("kagent.user_id", run_args["user_id"])
-        if context.task_id:
-            current_span.set_attribute("gen_ai.task.id", context.task_id)
-        if run_args["session_id"]:
-            current_span.set_attribute("gen_ai.converstation.id", run_args["session_id"])
 
         # create invocation context
         invocation_context = runner._new_invocation_context(
@@ -236,7 +239,7 @@ class A2aAgentExecutor(AgentExecutor):
                     ),
                 )
             )
-            # public the final status update event
+            # publish the final status update event
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,

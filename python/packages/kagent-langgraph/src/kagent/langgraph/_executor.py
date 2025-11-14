@@ -26,6 +26,7 @@ from a2a.types import (
     TextPart,
 )
 from langchain_core.runnables import RunnableConfig
+from opentelemetry import trace
 from pydantic import BaseModel
 
 from kagent.core.a2a import (
@@ -389,110 +390,140 @@ class LangGraphAgentExecutor(AgentExecutor):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
-        # Check if this is a resume command (check before current_task check)
-        # Resume commands can come as new messages to continue interrupted tasks
-        if self._is_resume_command(context):
-            logger.info(f"Resuming task {context.task_id} after interrupt")
-            await self._handle_resume(context, event_queue)
-            return
+        span_attributes = _convert_a2a_request_to_span_attributes(context)
 
-        # Send task submitted event for new tasks
-        if not context.current_task:
+        tracer = trace.get_tracer("kagent-langgraph")
+        with tracer.start_as_current_span("execute", attributes=span_attributes):
+            # Check if this is a resume command (check before current_task check)
+            # Resume commands can come as new messages to continue interrupted tasks
+            if self._is_resume_command(context):
+                logger.info(f"Resuming task {context.task_id} after interrupt")
+                await self._handle_resume(context, event_queue)
+                return
+
+            # Send task submitted event for new tasks
+            if not context.current_task:
+                await event_queue.enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.submitted,
+                            message=context.message,
+                            timestamp=datetime.now(UTC).isoformat(),
+                        ),
+                        context_id=context.context_id,
+                        final=False,
+                    )
+                )
+
+            # Calculate and store thread_id for potential resume
+            thread_id = getattr(context, "session_id", None) or context.context_id
+
+            # Send working status
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.submitted,
-                        message=context.message,
+                        state=TaskState.working,
                         timestamp=datetime.now(UTC).isoformat(),
                     ),
                     context_id=context.context_id,
                     final=False,
-                )
-            )
-
-        # Calculate and store thread_id for potential resume
-        thread_id = getattr(context, "session_id", None) or context.context_id
-
-        # Send working status
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                status=TaskStatus(
-                    state=TaskState.working,
-                    timestamp=datetime.now(UTC).isoformat(),
-                ),
-                context_id=context.context_id,
-                final=False,
-                metadata={
-                    "app_name": self.app_name,
-                    "session_id": getattr(context, "session_id", context.context_id),
-                    "thread_id": thread_id,  # Store for resume!
-                },
-            )
-        )
-
-        try:
-            # Resolve the graph
-
-            # Convert A2A message to LangChain format
-            inputs = {"messages": [("user", context.get_user_input())]}
-
-            # Create graph config
-            config = self._create_graph_config(context)
-
-            # Stream graph execution
-            await asyncio.wait_for(
-                self._stream_graph_events(self._graph, inputs, config, context, event_queue),
-                timeout=self._config.execution_timeout,
-            )
-
-        except TimeoutError:
-            logger.error(f"Graph execution timed out after {self._config.execution_timeout} seconds")
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=TaskState.failed,
-                        timestamp=datetime.now(UTC).isoformat(),
-                        message=Message(
-                            message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text="Execution timed out"))],
-                        ),
-                    ),
-                    context_id=context.context_id,
-                    final=True,
-                )
-            )
-        except Exception as e:
-            logger.error(f"Error during LangGraph execution: {e}", exc_info=True)
-
-            # Get user-friendly message
-            user_message = get_user_friendly_error_message(e)
-            error_meta = get_error_metadata(e)
-
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=TaskState.failed,
-                        timestamp=datetime.now(UTC).isoformat(),
-                        message=Message(
-                            message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text=user_message))],
-                            metadata={
-                                get_kagent_metadata_key("error_type"): error_meta["error_type"],
-                                get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
-                            },
-                        ),
-                    ),
-                    context_id=context.context_id,
-                    final=True,
                     metadata={
-                        get_kagent_metadata_key("error_type"): error_meta["error_type"],
-                        get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
+                        "app_name": self.app_name,
+                        "session_id": getattr(context, "session_id", context.context_id),
+                        "thread_id": thread_id,  # Store for resume!
                     },
                 )
             )
+
+            try:
+                # Resolve the graph
+
+                # Convert A2A message to LangChain format
+                inputs = {"messages": [("user", context.get_user_input())]}
+
+                # Create graph config
+                config = self._create_graph_config(context)
+
+                # Stream graph execution
+                await asyncio.wait_for(
+                    self._stream_graph_events(self._graph, inputs, config, context, event_queue),
+                    timeout=self._config.execution_timeout,
+                )
+
+            except TimeoutError:
+                logger.error(f"Graph execution timed out after {self._config.execution_timeout} seconds")
+                await event_queue.enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.failed,
+                            timestamp=datetime.now(UTC).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[Part(TextPart(text="Execution timed out"))],
+                            ),
+                        ),
+                        context_id=context.context_id,
+                        final=True,
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Error during LangGraph execution: {e}", exc_info=True)
+
+                # Get user-friendly message
+                user_message = get_user_friendly_error_message(e)
+                error_meta = get_error_metadata(e)
+
+                await event_queue.enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.failed,
+                            timestamp=datetime.now(UTC).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[Part(TextPart(text=user_message))],
+                                metadata={
+                                    get_kagent_metadata_key("error_type"): error_meta["error_type"],
+                                    get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
+                                },
+                            ),
+                        ),
+                        context_id=context.context_id,
+                        final=True,
+                        metadata={
+                            get_kagent_metadata_key("error_type"): error_meta["error_type"],
+                            get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
+                        },
+                    )
+                )
+
+
+def _get_user_id(request: RequestContext) -> str:
+    # Get user from call context if available (auth is enabled on a2a server)
+    if request.call_context and request.call_context.user and request.call_context.user.user_name:
+        return request.call_context.user.user_name
+
+    # Get user from context id
+    return f"A2A_USER_{request.context_id}"
+
+
+def _convert_a2a_request_to_span_attributes(
+    request: RequestContext,
+) -> dict[str, Any]:
+    if not request.message:
+        raise ValueError("Request message cannot be None")
+
+    span_attributes = {
+        "kagent.user_id": _get_user_id(request),
+        "gen_ai.conversation.id": request.context_id,
+    }
+
+    if request.task_id:
+        span_attributes["gen_ai.task.id"] = request.task_id
+
+    return span_attributes
