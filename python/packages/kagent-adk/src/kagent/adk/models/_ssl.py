@@ -143,7 +143,7 @@ def create_ssl_context(
     disable_verify: bool,
     ca_cert_path: str | None,
     disable_system_cas: bool,
-) -> ssl.SSLContext | None:
+) -> ssl.SSLContext | bool:
     """Create SSL context for httpx client based on TLS configuration.
 
     This function creates an appropriate SSL context based on three possible modes:
@@ -202,7 +202,7 @@ def create_ssl_context(
             "=" * 60
         )
         logger.info("TLS Mode: Disabled (disable_verify=True)")
-        return None  # httpx accepts None to disable verification
+        return False  # httpx accepts False to disable verification
 
     # Determine TLS mode
     if ca_cert_path and not disable_system_cas:

@@ -233,9 +233,8 @@ type TLSConfig struct {
 
 	// CACertSecretKey is the key within the Secret that contains the CA certificate data.
 	// This field follows the same pattern as APIKeySecretKey.
-	// Required when CACertSecretRef is set.
+	// If not set, the default is "ca.crt".
 	// +optional
-	// +kubebuilder:default="ca.crt"
 	CACertSecretKey string `json:"caCertSecretKey,omitempty"`
 
 	// DisableSystemCAs disables the use of system CA certificates.
@@ -259,7 +258,6 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
-// +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey",rule="!(has(self.tls) && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef) > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey) == 0))"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
