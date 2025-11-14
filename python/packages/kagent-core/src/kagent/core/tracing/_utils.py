@@ -17,8 +17,6 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from ._span_processor import KagentAttributesSpanProcessor
-
 
 def configure(fastapi_app: FastAPI | None = None):
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
@@ -40,17 +38,15 @@ def configure(fastapi_app: FastAPI | None = None):
         # Check if a TracerProvider already exists (e.g., set by CrewAI)
         current_provider = trace.get_tracer_provider()
         if isinstance(current_provider, TracerProvider):
-            # TracerProvider already exists, just add our processors to it
+            # TracerProvider already exists, just add our processor to it
             current_provider.add_span_processor(processor)
-            current_provider.add_span_processor(KagentAttributesSpanProcessor())
-            logging.info("Added OTLP and kagent span processors to existing TracerProvider")
+            logging.info("Added OTLP processor to existing TracerProvider")
         else:
             # No provider set, create new one
             tracer_provider = TracerProvider(resource=resource)
             tracer_provider.add_span_processor(processor)
-            tracer_provider.add_span_processor(KagentAttributesSpanProcessor())
             trace.set_tracer_provider(tracer_provider)
-            logging.info("Created new TracerProvider with OTLP and kagent span processors")
+            logging.info("Created new TracerProvider")
 
         HTTPXClientInstrumentor().instrument()
         if fastapi_app:
