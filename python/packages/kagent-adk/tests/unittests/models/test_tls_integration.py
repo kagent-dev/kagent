@@ -371,7 +371,7 @@ def test_e2e_structured_logging_at_startup(temp_cert_file, caplog):
 def test_e2e_litellm_with_tls(temp_cert_file):
     """Test complete flow: LiteLLM base URL + TLS configuration."""
     with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
-        with mock.patch("httpx.AsyncClient") as mock_httpx:
+        with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
                 mock_create_ssl.return_value = mock_ssl_context

@@ -212,7 +212,7 @@ async def test_e2e_with_verification_disabled():
 async def test_e2e_with_verification_disabled_logs_warning(caplog):
     """E2E test: Verify warning logs when verification is disabled."""
     with caplog.at_level(logging.WARNING):
-        ssl_context = create_ssl_context(
+        _ = create_ssl_context(
             disable_verify=True,
             ca_cert_path=None,
             disable_system_cas=False,

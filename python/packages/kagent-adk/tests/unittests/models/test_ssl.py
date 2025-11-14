@@ -44,7 +44,7 @@ def test_ssl_context_with_custom_ca_only():
             mock_ctx = mock.MagicMock()
             mock_ssl_context.return_value = mock_ctx
 
-            ctx = create_ssl_context(
+            _ = create_ssl_context(
                 disable_verify=False,
                 ca_cert_path=cert_path,
                 disable_system_cas=True,
@@ -77,7 +77,7 @@ def test_ssl_context_with_system_and_custom_ca():
             mock_ctx = mock.MagicMock()
             mock_create_default.return_value = mock_ctx
 
-            ctx = create_ssl_context(
+            _ = create_ssl_context(
                 disable_verify=False,
                 ca_cert_path=cert_path,
                 disable_system_cas=False,

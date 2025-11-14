@@ -372,7 +372,7 @@ def test_openai_client_with_tls_verification_disabled():
                 )
 
                 # Access _client to trigger httpx client creation
-                client = openai_llm._client
+                _ = openai_llm._client
 
                 # Verify create_ssl_context was called with correct parameters
                 mock_create_ssl.assert_called_once_with(
@@ -398,7 +398,7 @@ def test_openai_client_with_custom_ca_certificate():
 
     with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
-            with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+            with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                 # create_ssl_context returns SSLContext for custom CA
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
                 mock_create_ssl.return_value = mock_ssl_context
@@ -414,7 +414,7 @@ def test_openai_client_with_custom_ca_certificate():
                 )
 
                 # Access _client to trigger httpx client creation
-                client = openai_llm._client
+                _ = openai_llm._client
 
                 # Verify create_ssl_context was called with correct parameters
                 mock_create_ssl.assert_called_once_with(
@@ -435,7 +435,7 @@ def test_openai_client_with_custom_ca_only():
 
     with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
-            with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+            with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
                 mock_create_ssl.return_value = mock_ssl_context
                 mock_httpx_instance = mock.MagicMock()
@@ -450,7 +450,7 @@ def test_openai_client_with_custom_ca_only():
                 )
 
                 # Access _client to trigger httpx client creation
-                client = openai_llm._client
+                _ = openai_llm._client
 
                 # Verify create_ssl_context was called with disable_system_cas=True
                 mock_create_ssl.assert_called_once_with(
@@ -507,7 +507,7 @@ def test_azure_openai_client_with_tls():
                 )
 
                 # Access _client to trigger client creation
-                client = azure_llm._client
+                _ = azure_llm._client
 
                 # Verify SSL context was created
                 mock_create_ssl.assert_called_once_with(
@@ -533,7 +533,7 @@ def test_openai_client_with_base_url_and_tls():
 
     with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
-            with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+            with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
                 mock_create_ssl.return_value = mock_ssl_context
                 mock_httpx_instance = mock.MagicMock()
@@ -548,7 +548,7 @@ def test_openai_client_with_base_url_and_tls():
                 )
 
                 # Access _client to trigger client creation
-                client = openai_llm._client
+                _ = openai_llm._client
 
                 # Verify SSL context was created
                 mock_create_ssl.assert_called_once()
