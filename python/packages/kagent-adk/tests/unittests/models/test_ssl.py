@@ -1,3 +1,12 @@
+"""Unit tests for SSL/TLS context creation.
+
+These tests verify the create_ssl_context() function behavior in isolation:
+- Function logic and return values
+- Configuration options
+- Error handling
+- Logging behavior
+"""
+
 import logging
 import ssl
 import tempfile
@@ -91,7 +100,6 @@ def test_ssl_context_with_system_and_custom_ca():
             assert str(cert_path) in str(mock_ctx.load_verify_locations.call_args)
     finally:
         Path(cert_path).unlink()
-
 
 def test_ssl_context_certificate_file_not_found():
     """Test SSL context with non-existent certificate file."""
