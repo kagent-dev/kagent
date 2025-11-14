@@ -16,6 +16,7 @@ import pytest
 from kagent.adk.models._openai import OpenAI
 from kagent.adk.models._ssl import create_ssl_context, get_ssl_troubleshooting_message, validate_certificate
 
+
 @pytest.fixture
 def temp_cert_file():
     """Create a temporary certificate file for testing."""

@@ -428,7 +428,7 @@ async def test_e2e_backward_compatibility_default_behavior():
             api_key="test-key",
             base_url="https://localhost:8453/v1",
             tls_disable_verify=None,  # Not set - defaults to False (verification enabled)
-            tls_ca_cert_path=None, 
+            tls_ca_cert_path=None,
             tls_disable_system_cas=None,  # Not set - defaults to False (system CAs enabled)
         )
 
