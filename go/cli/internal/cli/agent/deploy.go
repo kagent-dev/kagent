@@ -65,6 +65,8 @@ type DeployCfg struct {
 
 	// DryRun when true, outputs YAML manifests without actually creating resources
 	DryRun bool
+
+	Registry string
 }
 
 // DeployCmd deploys an agent to Kubernetes
@@ -645,7 +647,7 @@ func createOrUpdateSecret(ctx context.Context, k8sClient client.Client, secret *
 
 // createAgentCRD creates or updates the Agent CRD
 func createAgentCRD(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest, envData *envFileData, verbose bool) error {
-	imageName := determineImageName(cfg.Image, manifest.Name)
+	imageName := determineImageName(cfg.Image, manifest.Name, cfg.Config.Registry)
 	agent := buildAgentCRD(cfg.Config.Namespace, manifest, imageName, envData)
 
 	// In dry-run mode, just output the YAML
@@ -658,8 +660,8 @@ func createAgentCRD(ctx context.Context, k8sClient client.Client, cfg *DeployCfg
 }
 
 // determineImageName returns the image name to use, either from config or default
-func determineImageName(configImage, agentName string) string {
-	return commonimage.ConstructImageName(configImage, agentName)
+func determineImageName(configImage, agentName, registry string) string {
+	return commonimage.ConstructImageName(configImage, agentName, registry)
 }
 
 // buildAgentCRD constructs an Agent CRD object
