@@ -18,6 +18,7 @@ type BuildCfg struct {
 	Platform       string
 	Config         *config.Config
 	SkipMCPServers bool
+	Registry 	   string
 }
 
 // BuildCmd builds a Docker image for an agent project
@@ -96,7 +97,7 @@ func constructImageName(cfg *BuildCfg) string {
 	}
 
 	// Construct full image name using common utility
-	return commonimage.ConstructImageName(cfg.Image, agentName)
+	return commonimage.ConstructImageName(cfg.Image, agentName, cfg.Registry)
 }
 
 // getAgentNameFromManifest attempts to load the agent name from kagent.yaml
@@ -202,5 +203,5 @@ func constructMcpServerImageName(cfg *BuildCfg, serverName string) string {
 	if agentName == "" {
 		agentName = filepath.Base(cfg.ProjectDir)
 	}
-	return commonimage.ConstructMCPServerImageName(agentName, serverName)
+	return commonimage.ConstructMCPServerImageName(agentName, serverName, cfg.Registry)
 }

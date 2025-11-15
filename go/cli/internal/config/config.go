@@ -18,6 +18,7 @@ type Config struct {
 	OutputFormat string        `mapstructure:"output_format"`
 	Verbose      bool          `mapstructure:"verbose"`
 	Timeout      time.Duration `mapstructure:"timeout"`
+	Registry 	 string		   `mapstructure:"registry"`
 }
 
 func (c *Config) Client() *kagentclient.ClientSet {
@@ -47,6 +48,8 @@ func Init() error {
 	viper.SetDefault("output_format", "table")
 	viper.SetDefault("namespace", "kagent")
 	viper.SetDefault("timeout", 300*time.Second)
+	viper.SetDefault("registry", "localhost:5001")
+	viper.BindEnv("registry", "KAGENT_REGISTRY")
 	viper.MustBindEnv("USER_ID")
 
 	if err := viper.ReadInConfig(); err != nil {
