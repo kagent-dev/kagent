@@ -49,7 +49,9 @@ func Init() error {
 	viper.SetDefault("namespace", "kagent")
 	viper.SetDefault("timeout", 300*time.Second)
 	viper.SetDefault("registry", "localhost:5001")
-	viper.BindEnv("registry", "KAGENT_REGISTRY")
+	if err := viper.BindEnv("registry", "KAGENT_REGISTRY"); err != nil {
+		return fmt.Errorf("error binding KAGENT_REGISTRY: %w", err)
+	}
 	viper.MustBindEnv("USER_ID")
 
 	if err := viper.ReadInConfig(); err != nil {

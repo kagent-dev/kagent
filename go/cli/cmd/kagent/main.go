@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -49,7 +50,9 @@ func main() {
 	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", 300*time.Second, "Timeout")
 	rootCmd.PersistentFlags().StringVar(&cfg.Registry, "registry", "localhost:5001", "Default registry for local builds")
 
-	viper.BindPFlag("registry", rootCmd.PersistentFlags().Lookup("registry"))
+	if err := viper.BindPFlag("registry", rootCmd.PersistentFlags().Lookup("registry")); err != nil {
+		log.Fatalf("Failed to bind pflag: %v", err)
+	}
 
 	installCfg := &cli.InstallCfg{
 		Config: cfg,
