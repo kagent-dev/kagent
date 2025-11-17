@@ -16,10 +16,6 @@ import pytest
 from kagent.adk.models._openai import OpenAI
 from kagent.adk.models._ssl import create_ssl_context, get_ssl_troubleshooting_message, validate_certificate
 
-# ============================================================================
-# Test Fixtures
-# ============================================================================
-
 
 @pytest.fixture
 def temp_cert_file():
@@ -59,11 +55,6 @@ def mock_env_vars(temp_cert_file):
         yield env_vars
 
 
-# ============================================================================
-# Integration Test 1: End-to-End Agent Config Flow
-# ============================================================================
-
-
 def test_e2e_agent_config_to_ssl_context(temp_cert_file):
     """Test end-to-end flow: Agent config JSON → SSL context creation."""
     # Simulate the flow in a Kubernetes pod:
@@ -94,11 +85,6 @@ def test_e2e_agent_config_to_ssl_context(temp_cert_file):
         assert ctx is mock_ctx
 
 
-# ============================================================================
-# Integration Test 2: Certificate Validation Flow
-# ============================================================================
-
-
 def test_e2e_certificate_validation_flow(temp_cert_file, caplog):
     """Test certificate validation is called during SSL context creation."""
     with caplog.at_level(logging.INFO):
@@ -118,11 +104,6 @@ def test_e2e_certificate_validation_flow(temp_cert_file, caplog):
                 # but should not block SSL context creation
                 assert ctx is mock_ctx
                 assert "TLS Mode" in caplog.text
-
-
-# ============================================================================
-# Integration Test 3: Backward Compatibility (No TLS Config)
-# ============================================================================
 
 
 def test_e2e_backward_compatibility_no_tls_config():
@@ -145,11 +126,6 @@ def test_e2e_backward_compatibility_no_tls_config():
         assert openai_llm.model == "gpt-3.5-turbo"
 
 
-# ============================================================================
-# Integration Test 4: Invalid Certificate File Path
-# ============================================================================
-
-
 def test_e2e_invalid_certificate_path():
     """Test error handling when certificate file does not exist."""
     with pytest.raises(FileNotFoundError) as exc_info:
@@ -162,11 +138,6 @@ def test_e2e_invalid_certificate_path():
     # Verify error message includes troubleshooting guidance
     assert "CA certificate file not found" in str(exc_info.value)
     assert "kubectl get secret" in str(exc_info.value)
-
-
-# ============================================================================
-# Integration Test 5: All Three TLS Modes
-# ============================================================================
 
 
 @pytest.mark.parametrize(
@@ -191,7 +162,7 @@ def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, disable_system_cas, ex
                 ca_cert_path=ca_cert_path,
                 disable_system_cas=disable_system_cas,
             )
-            assert ctx is None
+            assert ctx is False
             assert "TLS Mode: Disabled" in caplog.text
         else:
             with mock.patch("ssl.create_default_context") as mock_default_ctx:
@@ -225,11 +196,6 @@ def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, disable_system_cas, ex
                 assert "Custom CA + System CAs" in caplog.text
 
 
-# ============================================================================
-# Integration Test 6: SSL Error Troubleshooting Message
-# ============================================================================
-
-
 def test_e2e_ssl_error_troubleshooting_message(temp_cert_file):
     """Test that SSL errors generate helpful troubleshooting messages."""
     error = ssl.SSLError("certificate verify failed")
@@ -248,11 +214,6 @@ def test_e2e_ssl_error_troubleshooting_message(temp_cert_file):
     assert temp_cert_file in message
     assert "litellm.internal.corp:8080" in message
     assert "https://kagent.dev/docs" in message
-
-
-# ============================================================================
-# Integration Test 7: OpenAI Client with Config-Based TLS
-# ============================================================================
 
 
 def test_e2e_openai_client_reads_config_based_tls(temp_cert_file):
@@ -282,11 +243,6 @@ def test_e2e_openai_client_reads_config_based_tls(temp_cert_file):
                 assert call_kwargs["disable_verify"] is False
                 assert call_kwargs["ca_cert_path"] == temp_cert_file
                 assert call_kwargs["disable_system_cas"] is False
-
-
-# ============================================================================
-# Integration Test 8: Certificate Validation with Expiry Warnings
-# ============================================================================
 
 
 def test_e2e_certificate_validation_expiry_warnings(caplog):
@@ -335,11 +291,6 @@ def test_e2e_certificate_validation_expiry_warnings(caplog):
         pytest.skip("cryptography library not installed - skipping certificate validation test")
 
 
-# ============================================================================
-# Integration Test 9: Structured Logging at Startup
-# ============================================================================
-
-
 def test_e2e_structured_logging_at_startup(temp_cert_file, caplog):
     """Test that TLS configuration logs structured information at startup."""
     with caplog.at_level(logging.INFO):
@@ -363,15 +314,10 @@ def test_e2e_structured_logging_at_startup(temp_cert_file, caplog):
                 assert temp_cert_file in log_text
 
 
-# ============================================================================
-# Integration Test 10: Complete Flow with LiteLLM Base URL
-# ============================================================================
-
-
 def test_e2e_litellm_with_tls(temp_cert_file):
     """Test complete flow: LiteLLM base URL + TLS configuration."""
     with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
-        with mock.patch("httpx.AsyncClient") as mock_httpx:
+        with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
                 mock_create_ssl.return_value = mock_ssl_context

@@ -111,7 +111,6 @@
         ]
       },
       "spec": {
-        "replicas": 1,
         "selector": {
           "matchLabels": {
             "app": "kagent",
@@ -142,7 +141,6 @@
             "containers": [
               {
                 "args": [
-                  "static",
                   "--host",
                   "0.0.0.0",
                   "--port",
@@ -150,17 +148,10 @@
                   "--filepath",
                   "/config"
                 ],
-                "command": [
-                  "kagent-adk"
-                ],
                 "env": [
                   {
                     "name": "OLLAMA_API_BASE",
                     "value": "http://localhost:11434"
-                  },
-                  {
-                    "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
-                    "value": "delta"
                   },
                   {
                     "name": "KAGENT_NAMESPACE",

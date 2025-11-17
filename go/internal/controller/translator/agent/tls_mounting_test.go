@@ -6,17 +6,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 )
-
-// envVarToMapHelper converts a slice of environment variables to a map for O(n) lookups
-func envVarToMapHelper(envVars []corev1.EnvVar) map[string]string {
-	result := make(map[string]string)
-	for _, env := range envVars {
-		result[env.Name] = env.Value
-	}
-	return result
-}
 
 // Test_addTLSConfiguration_NoTLSConfig verifies that no volumes are added when TLS config is nil
 func Test_addTLSConfiguration_NoTLSConfig(t *testing.T) {
@@ -60,9 +50,9 @@ func Test_addTLSConfiguration_WithCACertSecret(t *testing.T) {
 
 	volume := mdd.Volumes[0]
 	assert.Equal(t, tlsCACertVolumeName, volume.Name, "Volume name should match TLS CA cert volume name")
-	require.NotNil(t, volume.VolumeSource.Secret, "Expected Secret volume source")
-	assert.Equal(t, "internal-ca-cert", volume.VolumeSource.Secret.SecretName, "Secret name should match CACertSecretRef")
-	assert.Equal(t, int32(0444), *volume.VolumeSource.Secret.DefaultMode, "DefaultMode should be 0444 for read-only cert")
+	require.NotNil(t, volume.Secret, "Expected Secret volume source")
+	assert.Equal(t, "internal-ca-cert", volume.Secret.SecretName, "Secret name should match CACertSecretRef")
+	assert.Equal(t, int32(0444), *volume.Secret.DefaultMode, "DefaultMode should be 0444 for read-only cert")
 
 	// Verify volume mount is added
 	require.Len(t, mdd.VolumeMounts, 1, "Expected 1 volume mount for TLS cert")
@@ -158,8 +148,8 @@ func Test_addTLSConfiguration_AllFieldsCombined(t *testing.T) {
 
 	// Verify volume references correct Secret
 	volume := mdd.Volumes[0]
-	require.NotNil(t, volume.VolumeSource.Secret, "Expected Secret volume source")
-	assert.Equal(t, "my-ca-bundle", volume.VolumeSource.Secret.SecretName, "Secret name should match CACertSecretRef")
+	require.NotNil(t, volume.Secret, "Expected Secret volume source")
+	assert.Equal(t, "my-ca-bundle", volume.Secret.SecretName, "Secret name should match CACertSecretRef")
 
 	// Verify mount path is correct
 	mount := mdd.VolumeMounts[0]

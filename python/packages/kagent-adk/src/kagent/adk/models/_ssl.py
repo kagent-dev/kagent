@@ -119,21 +119,18 @@ def validate_certificate(cert_path: str) -> None:
         now = datetime.now(timezone.utc)
         if cert.not_valid_after_utc < now:
             logger.warning(
-                "Certificate has EXPIRED on %s. "
-                "Please update the certificate Secret.",
+                "Certificate has EXPIRED on %s. Please update the certificate Secret.",
                 cert.not_valid_after_utc,
             )
         elif cert.not_valid_before_utc > now:
             logger.warning(
-                "Certificate is not yet valid until %s. "
-                "Check system clock or certificate validity period.",
+                "Certificate is not yet valid until %s. Check system clock or certificate validity period.",
                 cert.not_valid_before_utc,
             )
 
     except Exception as e:
         logger.warning(
-            "Could not validate certificate format at %s: %s. "
-            "Certificate will still be loaded, but may be invalid.",
+            "Could not validate certificate format at %s: %s. Certificate will still be loaded, but may be invalid.",
             cert_path,
             e,
         )
@@ -175,17 +172,13 @@ def create_ssl_context(
 
         >>> # Use only custom CA certificate
         >>> ctx = create_ssl_context(
-        ...     disable_verify=False,
-        ...     ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-        ...     disable_system_cas=True
+        ...     disable_verify=False, ca_cert_path="/etc/ssl/certs/custom/ca.crt", disable_system_cas=True
         ... )
         >>> assert isinstance(ctx, ssl.SSLContext)
 
         >>> # Use system CAs plus custom CA
         >>> ctx = create_ssl_context(
-        ...     disable_verify=False,
-        ...     ca_cert_path="/etc/ssl/certs/custom/ca.crt",
-        ...     disable_system_cas=False
+        ...     disable_verify=False, ca_cert_path="/etc/ssl/certs/custom/ca.crt", disable_system_cas=False
         ... )
         >>> assert isinstance(ctx, ssl.SSLContext)
     """

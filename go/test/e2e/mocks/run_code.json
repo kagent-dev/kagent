@@ -1,0 +1,29 @@
+{
+  "openai": [
+    {
+      "name": "initial_request",
+      "match": {
+        "match_type": "exact",
+        "message": {
+          "content": "write some code",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "```python\nprint('Hello, World!'.lower())\n```"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

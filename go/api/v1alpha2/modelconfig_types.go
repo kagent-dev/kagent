@@ -257,6 +257,7 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))"
+// +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef (unless disableVerify is true)",rule="!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
 // +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey (unless disableVerify is true)",rule="!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify) && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef) > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey) == 0))"
 type ModelConfigSpec struct {

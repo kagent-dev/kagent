@@ -36,7 +36,7 @@ dependencies = [
 kagent-core = {workspace = true}
 
 [project.scripts]
-kagent-adk = "kagent.adk.cli:app"
+kagent-adk = "kagent.adk.cli:run_cli"
 
 [project.optional-dependencies]
 test = [

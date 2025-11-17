@@ -26,11 +26,28 @@ These certificates were generated using the following openssl commands:
 ### 1. Generate CA Certificate
 
 ```bash
+# Create a config file for CA extensions
+cat > ca-extensions.conf <<EOF
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_ca
+
+[req_distinguished_name]
+
+[v3_ca]
+basicConstraints = critical,CA:TRUE
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+EOF
+
 openssl req -x509 -newkey rsa:4096 -nodes \
   -keyout ca-key.pem \
   -out ca-cert.pem \
   -days 365 \
-  -subj "/CN=Test CA/O=Kagent Test/OU=Test"
+  -subj "/CN=Test CA/O=Kagent Test/OU=Test" \
+  -extensions v3_ca \
+  -config ca-extensions.conf
 ```
 
 ### 2. Generate Server Key and Certificate Request
