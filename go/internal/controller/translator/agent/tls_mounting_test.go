@@ -73,24 +73,19 @@ func Test_addTLSConfiguration_WithCACertSecret(t *testing.T) {
 	assert.True(t, mount.ReadOnly, "Volume mount should be read-only")
 }
 
-// Test_addTLSConfiguration_DefaultCACertKey verifies volume mounting works with default key
-func Test_addTLSConfiguration_DefaultCACertKey(t *testing.T) {
+// Test_addTLSConfiguration_MissingCACertKey verifies no volumes are mounted when CACertSecretKey is not set
+func Test_addTLSConfiguration_MissingCACertKey(t *testing.T) {
 	mdd := &modelDeploymentData{}
 	tlsConfig := &v1alpha2.TLSConfig{
 		CACertSecretRef: "internal-ca-cert",
-		// CACertSecretKey not set, should default to "ca.crt"
+		// CACertSecretKey not set - both fields are required
 	}
 
 	addTLSConfiguration(mdd, tlsConfig)
 
-	// Verify volume is added
-	require.Len(t, mdd.Volumes, 1, "Expected 1 volume for TLS cert with default key")
-
-	// Verify volume mount is added at the correct path
-	require.Len(t, mdd.VolumeMounts, 1, "Expected 1 volume mount for TLS cert")
-
-	mount := mdd.VolumeMounts[0]
-	assert.Equal(t, tlsCACertMountPath, mount.MountPath, "Mount path should be TLS cert mount path")
+	// Should not add volumes when CACertSecretKey is not provided
+	assert.Empty(t, mdd.Volumes, "Expected no volumes when CACertSecretKey is empty")
+	assert.Empty(t, mdd.VolumeMounts, "Expected no volume mounts when CACertSecretKey is empty")
 }
 
 // Test_addTLSConfiguration_CustomCertKey verifies volume mounting works with custom key

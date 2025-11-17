@@ -560,13 +560,9 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) 
 	baseModel.TLSDisableVerify = &tlsConfig.DisableVerify
 	baseModel.TLSDisableSystemCAs = &tlsConfig.DisableSystemCAs
 
-	// Set CA cert path if Secret is specified
-	if tlsConfig.CACertSecretRef != "" {
-		certKey := tlsConfig.CACertSecretKey
-		if certKey == "" {
-			certKey = "ca.crt" // Default value
-		}
-		certPath := fmt.Sprintf("%s/%s", tlsCACertMountPath, certKey)
+	// Set CA cert path if Secret and key are both specified
+	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
+		certPath := fmt.Sprintf("%s/%s", tlsCACertMountPath, tlsConfig.CACertSecretKey)
 		baseModel.TLSCACertPath = &certPath
 	}
 }
@@ -580,8 +576,8 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 		return
 	}
 
-	// Add Secret volume mount if CA certificate Secret is specified
-	if tlsConfig.CACertSecretRef != "" {
+	// Add Secret volume mount if both CA certificate Secret and key are specified
+	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
 		// Add volume from Secret
 		modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
 			Name: tlsCACertVolumeName,

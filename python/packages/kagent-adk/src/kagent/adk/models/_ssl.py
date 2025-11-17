@@ -143,11 +143,11 @@ def create_ssl_context(
     disable_verify: bool,
     ca_cert_path: str | None,
     disable_system_cas: bool,
-) -> ssl.SSLContext | None:
+) -> ssl.SSLContext | bool:
     """Create SSL context for httpx client based on TLS configuration.
 
     This function creates an appropriate SSL context based on three possible modes:
-    1. Verification disabled: Returns None (httpx accepts None to disable verification)
+    1. Verification disabled: Returns False (httpx accepts False to disable verification)
     2. Custom CA only: Creates SSL context with custom CA certificate, no system CAs
     3. System + Custom CA: Creates SSL context with system CAs plus custom CA certificate
 
@@ -161,7 +161,7 @@ def create_ssl_context(
             When True with ca_cert_path, only the custom CA is trusted.
 
     Returns:
-        - None if disable_verify=True (httpx special value to disable verification)
+        - False if disable_verify=True (httpx special value to disable verification)
         - ssl.SSLContext configured with appropriate CA certificates otherwise
 
     Raises:
@@ -171,7 +171,7 @@ def create_ssl_context(
     Examples:
         >>> # Disable verification (development only)
         >>> ctx = create_ssl_context(disable_verify=True, ca_cert_path=None, disable_system_cas=False)
-        >>> assert ctx is None
+        >>> assert ctx is False
 
         >>> # Use only custom CA certificate
         >>> ctx = create_ssl_context(
@@ -202,7 +202,7 @@ def create_ssl_context(
             "=" * 60
         )
         logger.info("TLS Mode: Disabled (disable_verify=True)")
-        return None  # httpx accepts None to disable verification
+        return False  # httpx accepts False to disable verification
 
     # Determine TLS mode
     if ca_cert_path and not disable_system_cas:
