@@ -8,12 +8,11 @@ import typer
 import uvicorn
 from a2a.types import AgentCard
 from google.adk.cli.utils.agent_loader import AgentLoader
-
 from kagent.core import KAgentConfig, configure_tracing
-from .skill_fetcher import fetch_skill
 
 from . import AgentConfig, KAgentApp
-from .skills.skills_plugin import SkillsPlugin
+from .skill_fetcher import fetch_skill
+from .tools.skills_plugin import SkillsPlugin
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
