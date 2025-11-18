@@ -31,6 +31,7 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
+  skills?: string;
 }
 
 interface AgentPageContentProps {
@@ -67,6 +68,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     systemPrompt: string;
     selectedModel: SelectedModelType | null;
     selectedTools: Tool[];
+    skillRefs: string[];
     byoImage: string;
     byoCmd: string;
     byoArgs: string;
@@ -87,6 +89,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
     selectedModel: null,
     selectedTools: [],
+    skillRefs: [""],
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
@@ -130,6 +133,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   systemPrompt: agent.spec?.declarative?.systemMessage || "",
                   selectedTools: (agent.spec?.declarative?.tools && agentResponse.tools) ? agentResponse.tools : [],
                   selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
+                  skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
@@ -174,6 +178,13 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     void fetchAgentData();
   }, [isEditMode, agentName, agentNamespace, getAgent]);
 
+  const isValidContainerImage = (image: string): boolean => {
+    if (!image.trim()) return false;
+    // Basic regex for container image format: [registry/]repository[:tag|@digest]
+    const imageRegex = /^(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?::\d+)?\/)?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*(?::[a-z0-9][a-z0-9._-]*)?(?:@sha256:[a-f0-9]{64})?$/i;
+    return imageRegex.test(image.trim());
+  };
+
   const validateForm = () => {
     const formData = {
       name: state.name,
@@ -187,6 +198,23 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     };
 
     const newErrors = validateAgentData(formData);
+
+    if (state.agentType === "Declarative" && state.skillRefs && state.skillRefs.length > 0) {
+      const validRefs = state.skillRefs.filter(ref => ref.trim());
+      
+      // Check for invalid image formats
+      const invalidRefs = validRefs.filter(ref => !isValidContainerImage(ref));
+      if (invalidRefs.length > 0) {
+        newErrors.skills = `Invalid container image format: ${invalidRefs[0]}`;
+      }
+      
+      // Check for duplicates
+      const duplicates = validRefs.filter((ref, index) => validRefs.indexOf(ref) !== index);
+      if (duplicates.length > 0) {
+        newErrors.skills = `Duplicate skill detected: ${duplicates[0]}`;
+      }
+    }
+
     setState(prev => ({ ...prev, errors: newErrors }));
     return Object.keys(newErrors).length === 0;
   };
@@ -240,6 +268,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         modelName: state.selectedModel?.ref || "",
         stream: true,
         tools: state.selectedTools,
+        skillRefs: state.agentType === "Declarative" ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
         // BYO
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -574,6 +603,83 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       onBlur={() => validateField('tools', state.selectedTools)}
                       currentAgentName={state.name}
                     />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Settings2 className="h-5 w-5 text-blue-500" />
+                      Skills
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="text-sm mb-2 block font-semibold">Skill Container Images</Label>
+                        <p className="text-xs mb-2 block text-muted-foreground">
+                          Add skills container images. Each skill will be pulled and mounted for your agent to use.
+                        </p>
+                        <div className="space-y-2">
+                          {(state.skillRefs || []).map((ref, idx) => {
+                            const isDuplicate = ref.trim() && state.skillRefs.filter(r => r.trim() === ref.trim()).length > 1;
+                            const isInvalid = ref.trim() && !isValidContainerImage(ref);
+                            const hasError = isDuplicate || isInvalid;
+
+                            return (
+                              <div key={idx} className="space-y-1">
+                                <div className="flex gap-2 items-center">
+                                  <div className="flex-1">
+                                    <Input
+                                      placeholder={"ghcr.io/example/python-skill:v1.0.0"}
+                                      value={ref}
+                                      onChange={(e) => {
+                                        const copy = [...state.skillRefs];
+                                        copy[idx] = e.target.value;
+                                        setState(prev => ({ ...prev, skillRefs: copy, errors: { ...prev.errors, skills: undefined } }));
+                                      }}
+                                      disabled={state.isSubmitting || state.isLoading}
+                                      className={hasError ? "border-red-500" : ""}
+                                    />
+                                    {isDuplicate && (
+                                      <p className="text-xs text-red-500 mt-1">⚠️ This skill is already added</p>
+                                    )}
+                                    {isInvalid && !isDuplicate && (
+                                      <p className="text-xs text-red-500 mt-1">⚠️ Invalid image format (expected: registry/repository:tag)</p>
+                                    )}
+                                  </div>
+                                  <Button 
+                                    variant="outline" 
+                                    size="icon"
+                                    onClick={() => {
+                                      if ((state.skillRefs || []).length < 20) {
+                                        setState(prev => ({ ...prev, skillRefs: [...prev.skillRefs, ""] }));
+                                      }
+                                    }}
+                                    disabled={(state.skillRefs || []).length >= 20}
+                                    title="Add skill"
+                                  >
+                                    <PlusCircle className="h-4 w-4" />
+                                  </Button>
+                                  <Button 
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setState(prev => ({ ...prev, skillRefs: prev.skillRefs.filter((_, i) => i !== idx) }))} 
+                                    disabled={(state.skillRefs || []).length <= 1}
+                                    title="Remove skill"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {state.errors.skills && (
+                          <p className="text-red-500 text-sm mt-2">❌ {state.errors.skills}</p>
+                        )}
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </>

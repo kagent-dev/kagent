@@ -16,6 +16,7 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
+  skills?: string;
 }
 
 export interface AgentFormData {
@@ -28,6 +29,9 @@ export interface AgentFormData {
   modelName?: string;
   tools: Tool[];
   stream?: boolean;
+  // Skills
+  skillRefs?: string[];
+  // BYO fields
   byoImage?: string;
   byoCmd?: string;
   byoArgs?: string[];
