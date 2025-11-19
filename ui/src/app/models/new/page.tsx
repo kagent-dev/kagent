@@ -175,7 +175,7 @@ function ModelPageContent() {
     const fetchModelData = async () => {
       if (isEditMode && modelConfigName && providers.length > 0 && providerModelsData) {
         try {
-          if (!isLoading) setIsLoading(true);
+          setIsLoading(true);
           const response = await getModelConfig(
             k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName)
           );
@@ -252,7 +252,7 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelConfigName, providers, providerModelsData, modelConfigNamespace, isLoading]);
+  }, [isEditMode, modelConfigName, providers, providerModelsData, modelConfigNamespace]);
 
   useEffect(() => {
     if (selectedProvider) {

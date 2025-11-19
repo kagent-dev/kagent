@@ -8,7 +8,8 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Copy project files
 COPY samples samples
@@ -19,7 +20,8 @@ COPY .python-version .python-version
 COPY uv.lock uv.lock
 
 # Install dependencies
-RUN uv venv && uv sync --locked --no-dev --package poem-flow
+RUN uv venv && uv sync --locked --no-dev --package poem-flow \
+    && uv cache clean
 
 # Set environment variables
 ENV PORT=8080
