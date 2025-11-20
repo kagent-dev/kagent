@@ -154,7 +154,7 @@ class A2aAgentExecutor(AgentExecutor):
                     or "APIConnectionError" in error_message
                 ):
                     # Check if it's related to function calling
-                    if "function_call" in error_message.lower() or "json.loads" in error_message: 
+                    if "function_call" in error_message.lower() or "json.loads" in error_message:
                         error_message = (
                             "The model does not support function calling properly. "
                             "This error typically occurs when using Ollama models with tools. "
