@@ -134,8 +134,6 @@ def test(
     asyncio.run(test_agent(agent_config, agent_card, task))
 
 
-
-
 def run_cli():
     configure_logging()
     logger.info("Starting KAgent")

@@ -8,8 +8,7 @@ _logging_configured = False
 
 
 def configure_logging() -> None:
-    """Configure logging based on LOG_LEVEL environment variable.
-    """
+    """Configure logging based on LOG_LEVEL environment variable."""
     global _logging_configured
 
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
