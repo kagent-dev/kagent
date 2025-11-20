@@ -18,7 +18,7 @@ lint:
 	uv run ruff format --diff
 
 .PHONY: test
-test: update
+test: update generate-test-certs
 	uv run pytest tests packages/*/tests
 
 .PHONY: build
@@ -41,3 +41,35 @@ research-crew-sample:
 .PHONY: poem-flow-sample
 poem-flow-sample:
 	docker build . -f samples/crewai/poem_flow/Dockerfile --tag localhost:5001/poem-flow:latest --push
+
+.PHONY: generate-test-certs
+generate-test-certs:
+	@CERT_DIR=packages/kagent-adk/tests/fixtures/certs; \
+	if [ -f "$$CERT_DIR/ca-cert.pem" ] && [ -f "$$CERT_DIR/server-cert.pem" ] && [ -f "$$CERT_DIR/server-key.pem" ]; then \
+		echo "Test certificates already exist, skipping generation"; \
+	else \
+		echo "Generating test certificates..."; \
+		cd $$CERT_DIR && \
+		openssl req -x509 -newkey rsa:4096 -nodes \
+			-keyout ca-key.pem \
+			-out ca-cert.pem \
+			-days 365 \
+			-subj "/CN=Test CA/O=Kagent Test/OU=Test" \
+			-extensions v3_ca \
+			-config ca-extensions.conf && \
+		openssl req -newkey rsa:4096 -nodes \
+			-keyout server-key.pem \
+			-out server-req.pem \
+			-subj "/CN=localhost/O=Kagent Test/OU=Test Server" && \
+		echo "subjectAltName=DNS:localhost,IP:127.0.0.1" > server-extensions.conf && \
+		openssl x509 -req \
+			-in server-req.pem \
+			-CA ca-cert.pem \
+			-CAkey ca-key.pem \
+			-CAcreateserial \
+			-out server-cert.pem \
+			-days 365 \
+			-extfile server-extensions.conf && \
+		rm -f server-extensions.conf server-req.pem && \
+		echo "Test certificates generated successfully"; \
+	fi

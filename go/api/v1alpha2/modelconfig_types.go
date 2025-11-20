@@ -210,6 +210,42 @@ type OllamaConfig struct {
 
 type GeminiConfig struct{}
 
+// TLSConfig contains TLS/SSL configuration options for model provider connections.
+// This enables agents to connect to internal LiteLLM gateways or other providers
+// that use self-signed certificates or custom certificate authorities.
+type TLSConfig struct {
+	// DisableVerify disables SSL certificate verification entirely.
+	// When false (default), SSL certificates are verified.
+	// When true, SSL certificate verification is disabled.
+	// WARNING: This should ONLY be used in development/testing environments.
+	// Production deployments MUST use proper certificates.
+	// +optional
+	// +kubebuilder:default=false
+	DisableVerify bool `json:"disableVerify,omitempty"`
+
+	// CACertSecretRef is a reference to a Kubernetes Secret containing
+	// CA certificate(s) in PEM format. The Secret must be in the same
+	// namespace as the ModelConfig.
+	// When set, the certificate will be used to verify the provider's SSL certificate.
+	// This field follows the same pattern as APIKeySecret.
+	// +optional
+	CACertSecretRef string `json:"caCertSecretRef,omitempty"`
+
+	// CACertSecretKey is the key within the Secret that contains the CA certificate data.
+	// This field follows the same pattern as APIKeySecretKey.
+	// Required when CACertSecretRef is set (unless DisableVerify is true).
+	// +optional
+	CACertSecretKey string `json:"caCertSecretKey,omitempty"`
+
+	// DisableSystemCAs disables the use of system CA certificates.
+	// When false (default), system CA certificates are used for verification (safe behavior).
+	// When true, only the custom CA from CACertSecretRef is trusted.
+	// This allows strict security policies where only corporate CAs should be trusted.
+	// +optional
+	// +kubebuilder:default=false
+	DisableSystemCAs bool `json:"disableSystemCAs,omitempty"`
+}
+
 // ModelConfigSpec defines the desired state of ModelConfig.
 //
 // +kubebuilder:validation:XValidation:message="provider.openAI must be nil if the provider is not OpenAI",rule="!(has(self.openAI) && self.provider != 'OpenAI')"
@@ -221,6 +257,9 @@ type GeminiConfig struct{}
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))"
+// +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
+// +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef (unless disableVerify is true)",rule="!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
+// +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey (unless disableVerify is true)",rule="!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify) && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef) > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey) == 0))"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
@@ -266,6 +305,12 @@ type ModelConfigSpec struct {
 	// Anthropic-specific configuration
 	// +optional
 	AnthropicVertexAI *AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+
+	// TLS configuration for provider connections.
+	// Enables agents to connect to internal LiteLLM gateways or other providers
+	// that use self-signed certificates or custom certificate authorities.
+	// +optional
+	TLS *TLSConfig `json:"tls,omitempty"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.

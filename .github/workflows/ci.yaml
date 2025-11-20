@@ -264,6 +264,10 @@ jobs:
         run: |
           uv sync --all-extras
 
+      - name: Generate test certificates
+        working-directory: ./python
+        run: make generate-test-certs
+
       - name: Run tests
         working-directory: ./python
         run: uv run pytest ./packages/**/tests/

@@ -602,7 +602,58 @@ func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1al
 
 const (
 	googleCredsVolumeName = "google-creds"
+	tlsCACertVolumeName   = "tls-ca-cert"
+	tlsCACertMountPath    = "/etc/ssl/certs/custom"
 )
+
+// populateTLSFields populates TLS configuration fields in the BaseModel
+// from the ModelConfig TLS spec.
+func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) {
+	if tlsConfig == nil {
+		return
+	}
+
+	// Set TLS configuration fields in BaseModel
+	baseModel.TLSDisableVerify = &tlsConfig.DisableVerify
+	baseModel.TLSDisableSystemCAs = &tlsConfig.DisableSystemCAs
+
+	// Set CA cert path if Secret and key are both specified
+	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
+		certPath := fmt.Sprintf("%s/%s", tlsCACertMountPath, tlsConfig.CACertSecretKey)
+		baseModel.TLSCACertPath = &certPath
+	}
+}
+
+// addTLSConfiguration adds TLS certificate volume mounts to modelDeploymentData
+// when TLS configuration is present in the ModelConfig.
+// Note: TLS configuration fields are now included in agent config JSON via BaseModel,
+// so this function only handles volume mounting.
+func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig) {
+	if tlsConfig == nil {
+		return
+	}
+
+	// Add Secret volume mount if both CA certificate Secret and key are specified
+	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
+		// Add volume from Secret
+		modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
+			Name: tlsCACertVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  tlsConfig.CACertSecretRef,
+					DefaultMode: ptr.To(int32(0444)), // Read-only for all users
+				},
+			},
+		})
+
+		// Add volume mount
+		modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
+			Name:      tlsCACertVolumeName,
+			MountPath: tlsCACertMountPath,
+			ReadOnly:  true,
+		})
+	}
+}
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, error) {
 	model := &v1alpha2.ModelConfig{}
@@ -612,6 +663,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	}
 
 	modelDeploymentData := &modelDeploymentData{}
+
+	// Add TLS configuration if present
+	addTLSConfiguration(modelDeploymentData, model.Spec.TLS)
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
@@ -634,6 +688,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+
 		if model.Spec.OpenAI != nil {
 			openai.BaseUrl = model.Spec.OpenAI.BaseURL
 			openai.Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
@@ -686,6 +743,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+
 		if model.Spec.Anthropic != nil {
 			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
 		}
@@ -729,6 +789,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
+
 		return azureOpenAI, modelDeploymentData, nil
 	case v1alpha2.ModelProviderGeminiVertexAI:
 		if model.Spec.GeminiVertexAI == nil {
@@ -770,6 +833,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+
 		return gemini, modelDeploymentData, nil
 	case v1alpha2.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
@@ -807,6 +873,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+
 		return anthropic, modelDeploymentData, nil
 	case v1alpha2.ModelProviderOllama:
 		if model.Spec.Ollama == nil {
@@ -822,6 +891,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
+
 		return ollama, modelDeploymentData, nil
 	case v1alpha2.ModelProviderGemini:
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -841,6 +913,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+
 		return gemini, modelDeploymentData, nil
 	}
 	return nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
