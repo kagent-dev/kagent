@@ -9,7 +9,7 @@ import uvicorn
 from a2a.types import AgentCard
 from google.adk.cli.utils.agent_loader import AgentLoader
 
-from kagent.core import KAgentConfig, configure_tracing
+from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
 from .skill_fetcher import fetch_skill
@@ -134,14 +134,6 @@ def test(
     asyncio.run(test_agent(agent_config, agent_card, task))
 
 
-# --- Configure Logging ---
-def configure_logging() -> None:
-    """Configure logging based on LOG_LEVEL environment variable."""
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    logging.basicConfig(
-        level=log_level,
-    )
-    logging.info(f"Logging configured with level: {log_level}")
 
 
 def run_cli():
