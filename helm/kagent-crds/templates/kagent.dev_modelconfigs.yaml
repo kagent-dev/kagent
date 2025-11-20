@@ -638,6 +638,10 @@ spec:
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))'
+            - message: caCertSecretKey requires caCertSecretRef
+              rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
+                > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)
+                == 0))'
             - message: caCertSecretKey requires caCertSecretRef (unless disableVerify
                 is true)
               rule: '!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify)
@@ -712,6 +716,12 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              secretHash:
+                description: The secret hash stores a hash of any secrets required
+                  by the model config (i.e. api key, tls cert) to ensure agents referencing
+                  this model config detect changes to these secrets and restart if
+                  necessary.
+                type: string
             required:
             - conditions
             - observedGeneration
