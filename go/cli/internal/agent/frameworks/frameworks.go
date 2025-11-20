@@ -17,7 +17,7 @@ func NewGenerator(framework, language string) (Generator, error) {
 	case "adk":
 		switch language {
 		case "python":
-			return adk_python.NewPythonGenerator(), nil
+			return adk_python.NewADKGenerator(), nil
 		default:
 			return nil, fmt.Errorf("unsupported language '%s' for adk", language)
 		}
