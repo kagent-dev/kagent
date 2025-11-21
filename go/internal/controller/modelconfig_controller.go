@@ -104,17 +104,29 @@ func (r *ModelConfigController) findModelsUsingSecret(ctx context.Context, cl cl
 	for i := range modelsList.Items {
 		model := &modelsList.Items[i]
 
-		if model.Namespace != obj.Namespace {
-			continue
-		}
-
-		if model.Spec.APIKeySecret == "" {
-			continue
-		}
-		if model.Spec.APIKeySecret == obj.Name {
+		if modelReferencesSecret(model, obj) {
 			models = append(models, model)
 		}
 	}
 
 	return models
+}
+
+func modelReferencesSecret(model *v1alpha2.ModelConfig, secretObj types.NamespacedName) bool {
+	// secrets must be in the same namespace as the model
+	if model.Namespace != secretObj.Namespace {
+		return false
+	}
+
+	// check if secret is referenced as an APIKey
+	if model.Spec.APIKeySecret != "" && model.Spec.APIKeySecret == secretObj.Name {
+		return true
+	}
+
+	// check if secret is referenced as a TLS CA certificate
+	if model.Spec.TLS != nil && model.Spec.TLS.CACertSecretRef != "" && model.Spec.TLS.CACertSecretRef == secretObj.Name {
+		return true
+	}
+
+	return false
 }

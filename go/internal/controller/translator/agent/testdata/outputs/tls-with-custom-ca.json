@@ -130,7 +130,8 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "16692844799113135924"
+              "kagent.dev/config-hash": "16692844799113135924",
+              "kagent.dev/model-config-secret-hash": ""
             },
             "labels": {
               "app": "kagent",
