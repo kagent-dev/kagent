@@ -2,7 +2,7 @@
 import faulthandler
 import logging
 import os
-from typing import Callable, List
+from typing import Callable, List, Any, Optional
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
@@ -53,12 +53,14 @@ class KAgentApp:
         agent_card: AgentCard,
         kagent_url: str,
         app_name: str,
+        lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
     ):
         self.root_agent = root_agent
         self.kagent_url = kagent_url
         self.app_name = app_name
         self.agent_card = agent_card
+        self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
 
     def build(self) -> FastAPI:
@@ -100,7 +102,7 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-        app = FastAPI(lifespan=token_service.lifespan())
+        app = FastAPI(lifespan=self._compose_lifespan(token_service.lifespan()))
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
@@ -138,7 +140,10 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-        app = FastAPI()
+        if self._lifespan is not None:
+            app = FastAPI(lifespan=self._lifespan)
+        else:
+            app = FastAPI()
 
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
@@ -185,3 +190,18 @@ class KAgentApp:
             # Key Concept: is_final_response() marks the concluding message for the turn.
             jsn = event.model_dump_json()
             logger.info(f"  [Event] {jsn}")
+
+    def _compose_lifespan(self, base_lifespan: Callable[[Any], Any]) -> Callable[[Any], Any]:
+        if self._lifespan is None:
+            return base_lifespan
+
+        # Compose base lifespan with optional user-provided lifespan
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def composed(app):
+            async with base_lifespan(app):
+                async with self._lifespan(app):
+                    yield
+
+        return composed
