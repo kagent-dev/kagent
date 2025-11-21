@@ -151,7 +151,7 @@ func (a *adkApiTranslator) TranslateAgent(
 			DefaultInputModes:  []string{"text"},
 			DefaultOutputModes: []string{"text"},
 		}
-		return a.buildManifest(ctx, agent, dep, nil, agentCard, "") // TODO: should we pass secret hash on BYO?
+		return a.buildManifest(ctx, agent, dep, nil, agentCard, "")
 
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
