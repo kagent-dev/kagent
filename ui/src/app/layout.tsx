@@ -27,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
               <AppInitializer>
                 <Header />
-                <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
+                <main className="flex-1 overflow-y-auto w-full mx-auto min-h-0">{children}</main>
                 <Footer />
               </AppInitializer>
               <Toaster richColors/>
