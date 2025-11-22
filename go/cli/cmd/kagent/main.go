@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func main() {
@@ -46,6 +48,12 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", 300*time.Second, "Timeout")
+	rootCmd.PersistentFlags().StringVar(&cfg.Registry, "registry", "localhost:5001", "Default registry for local builds")
+
+	if err := viper.BindPFlag("registry", rootCmd.PersistentFlags().Lookup("registry")); err != nil {
+		log.Fatalf("Failed to bind pflag: %v", err)
+	}
+
 	installCfg := &cli.InstallCfg{
 		Config: cfg,
 	}
@@ -420,6 +428,24 @@ Examples:
 		fmt.Fprintf(os.Stderr, "Error initializing config: %v\n", err)
 		os.Exit(1)
 	}
+
+	finalCfg, err := config.Get()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading final config: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg = finalCfg
+	if buildCfg != nil {
+		buildCfg.Registry = cfg.Registry
+	}
+	if deployCfg != nil {
+		deployCfg.Registry = cfg.Registry
+	}
+	if runCfg != nil {
+		runCfg.Registry = cfg.Registry
+	}
+
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
