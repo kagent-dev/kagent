@@ -16,6 +16,7 @@ const (
 	OPENAI_API_KEY      = "OPENAI_API_KEY"
 	ANTHROPIC_API_KEY   = "ANTHROPIC_API_KEY"
 	AZUREOPENAI_API_KEY = "AZUREOPENAI_API_KEY"
+	XAI_API_KEY         = "XAI_API_KEY"
 
 	// kagent env variables
 	KAGENT_DEFAULT_MODEL_PROVIDER = "KAGENT_DEFAULT_MODEL_PROVIDER"
@@ -40,6 +41,8 @@ func GetModelProvider() v1alpha2.ModelProvider {
 		return v1alpha2.ModelProviderAnthropic
 	case GetModelProviderHelmValuesKey(v1alpha2.ModelProviderAzureOpenAI):
 		return v1alpha2.ModelProviderAzureOpenAI
+	case GetModelProviderHelmValuesKey(v1alpha2.ModelProviderXAI):
+		return v1alpha2.ModelProviderXAI
 	default:
 		return v1alpha2.ModelProviderOpenAI
 	}
@@ -63,6 +66,8 @@ func GetProviderAPIKey(provider v1alpha2.ModelProvider) string {
 		return ANTHROPIC_API_KEY
 	case v1alpha2.ModelProviderAzureOpenAI:
 		return AZUREOPENAI_API_KEY
+	case v1alpha2.ModelProviderXAI:
+		return XAI_API_KEY
 	default:
 		return ""
 	}
