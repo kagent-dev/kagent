@@ -192,6 +192,7 @@ export function ModelConfigStep({
             case 'Gemini': payload.gemini = {}; break;
             case 'GeminiVertexAI': payload.geminiVertexAI = {}; break;
             case 'AnthropicVertexAI': payload.anthropicVertexAI = {}; break;
+            case 'XAI': payload.xAI = {}; break;
             case 'Ollama':
                 const modelTag = values.modelTag?.trim() || "";
                 if (modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
