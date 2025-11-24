@@ -108,6 +108,12 @@ export interface AnthropicVertexAIConfigPayload {
   topK?: number;
 }
 
+// XAI uses OpenAI-compatible API, so extend OpenAI config and add XAI-specific fields
+export interface XAIConfigPayload extends OpenAIConfigPayload {
+  tools?: string[];
+  liveSearchMode?: string;
+}
+
 export interface CreateModelConfigRequest {
   ref: string;
   provider: Pick<Provider, "name" | "type">;
@@ -120,6 +126,7 @@ export interface CreateModelConfigRequest {
   gemini?: GeminiConfigPayload;
   geminiVertexAI?: GeminiVertexAIConfigPayload;
   anthropicVertexAI?: AnthropicVertexAIConfigPayload;
+  xAI?: XAIConfigPayload;
 }
 
 export interface UpdateModelConfigPayload {
@@ -133,6 +140,7 @@ export interface UpdateModelConfigPayload {
   gemini?: GeminiConfigPayload;
   geminiVertexAI?: GeminiVertexAIConfigPayload;
   anthropicVertexAI?: AnthropicVertexAIConfigPayload;
+  xAI?: XAIConfigPayload;
 }
 
 /**
