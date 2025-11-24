@@ -8,6 +8,8 @@ metadata:
 spec:
   group: kagent.dev
   names:
+    categories:
+    - kagent
     kind: ModelConfig
     listKind: ModelConfigList
     plural: modelconfigs
@@ -638,6 +640,10 @@ spec:
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))'
+            - message: caCertSecretKey requires caCertSecretRef
+              rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
+                > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)
+                == 0))'
             - message: caCertSecretKey requires caCertSecretRef (unless disableVerify
                 is true)
               rule: '!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify)
