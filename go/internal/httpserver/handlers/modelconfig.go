@@ -168,7 +168,13 @@ func getStructJSONKeys(structType reflect.Type) []string {
 	for i := 0; i < structType.NumField(); i++ {
 		field := structType.Field(i)
 		jsonTag := field.Tag.Get("json")
-		if jsonTag != "" && jsonTag != "-" {
+
+		// Handle embedded structs (anonymous fields) with json:",inline"
+		if field.Anonymous && strings.Contains(jsonTag, "inline") {
+			// Recursively get keys from embedded struct
+			embeddedKeys := getStructJSONKeys(field.Type)
+			keys = append(keys, embeddedKeys...)
+		} else if jsonTag != "" && jsonTag != "-" {
 			tagParts := strings.Split(jsonTag, ",")
 			keys = append(keys, tagParts[0])
 		}
