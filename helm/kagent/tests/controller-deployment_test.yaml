@@ -16,11 +16,24 @@ tests:
       - hasDocuments:
           count: 1
 
-  - it: should render controller deployment with custom replica count
+  - it: should fail when replicas > 1 and database type is sqlite
     template: controller-deployment.yaml
     set:
       controller:
         replicas: 3
+      database:
+        type: sqlite
+    asserts:
+      - failedTemplate:
+          errorMessage: "ERROR: controller.replicas cannot be greater than 1 when database.type is 'sqlite' as the SQLite database is local to the pod. Please either set controller.replicas to 1 or change database.type to 'postgres'."
+
+  - it: should render controller deployment with custom replica count if database type is postgres
+    template: controller-deployment.yaml
+    set:
+      controller:
+        replicas: 3
+      database:
+        type: postgres
     asserts:
       - equal:
           path: spec.replicas
