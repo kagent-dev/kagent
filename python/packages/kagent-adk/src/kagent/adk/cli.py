@@ -8,18 +8,26 @@ from typing import Annotated
 import typer
 import uvicorn
 from a2a.types import AgentCard
+from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
 
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
 from .skill_fetcher import fetch_skill
-from .skills.skills_plugin import SkillsPlugin
+from .skills.skills_plugin import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
 
 app = typer.Typer()
+
+
+def maybe_add_skills(root_agent: BaseAgent) -> BaseAgent:
+    skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
+    if skills_directory:
+        logger.info(f"Adding skills from directory: {skills_directory}")
+        add_skills_tool_to_agent(skills_directory, root_agent)
 
 
 @app.command()
@@ -39,14 +47,9 @@ def static(
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
     root_agent = agent_config.to_agent(app_cfg.name)
-    skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
-    if skills_directory:
-        logger.info(f"Adding skills from directory: {skills_directory}")
-        plugins = [SkillsPlugin(skills_directory=skills_directory)]
+    maybe_add_skills(root_agent)
 
-    kagent_app = KAgentApp(
-        root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins if skills_directory else None
-    )
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
 
     server = kagent_app.build()
     configure_tracing(server)
@@ -89,6 +92,7 @@ def run(
 
     agent_loader = AgentLoader(agents_dir=working_dir)
     root_agent = agent_loader.load_agent(name)
+    maybe_add_skills(root_agent)
 
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)

@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+import os
 import faulthandler
 import logging
 import os
@@ -45,6 +46,7 @@ def thread_dump(request: Request) -> PlainTextResponse:
 
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
+propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN")
 
 
 class KAgentApp:
@@ -66,16 +68,24 @@ class KAgentApp:
 
     def build(self) -> FastAPI:
         token_service = KAgentTokenService(self.app_name)
-        http_client = httpx.AsyncClient(  # TODO: add user  and agent headers
-            base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks()
+        http_client = httpx.AsyncClient(
+            # TODO: add user  and agent headers
+            base_url=kagent_url_override or self.kagent_url,
+            event_hooks=token_service.event_hooks(),
         )
         session_service = KAgentSessionService(http_client)
 
-        if sts_well_known_uri:
-            sts_integration = ADKSTSIntegration(sts_well_known_uri)
-            self.plugins.append(ADKTokenPropagationPlugin(sts_integration))
+        if sts_well_known_uri or propagate_token:
+            sts_integration = None
+            if sts_well_known_uri:
+                sts_integration = ADKSTSIntegration(sts_well_known_uri)
+            plug = ADKTokenPropagationPlugin(sts_integration)
+            plug.add_to_agent(self.root_agent)
+            self.plugins.append(plug)
 
-        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
+        adk_app = App(
+            name=self.app_name, root_agent=self.root_agent, plugins=self.plugins
+        )
 
         def create_runner() -> Runner:
             return Runner(
@@ -90,7 +100,9 @@ class KAgentApp:
 
         kagent_task_store = KAgentTaskStore(http_client)
 
-        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
+        request_context_builder = KAgentRequestContextBuilder(
+            task_store=kagent_task_store
+        )
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=kagent_task_store,
