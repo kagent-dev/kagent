@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+data:
+  DATABASE_TYPE: {{ .Values.database.type | quote }}
+  DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
+  IMAGE_PULL_POLICY: {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy | quote }}
+  {{- if and .Values.controller.agentImage.pullSecret (not (eq .Values.controller.agentImage.pullSecret "")) }}
+  IMAGE_PULL_SECRET: {{ .Values.controller.agentImage.pullSecret | quote }}
+  {{- end }}
+  IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry  | quote }}
+  IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
+  IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+  OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
+  OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
+  OTEL_TRACING_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  {{- if eq .Values.database.type "sqlite" }}
+  SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
+  {{- else if and (eq .Values.database.type "postgres") (not (eq .Values.database.postgres.url "")) }}
+  POSTGRES_DATABASE_URL: {{ .Values.database.postgres.url | quote }}
+  {{- end }}
+  STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
+  STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
+  STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
+  WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
+  ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
