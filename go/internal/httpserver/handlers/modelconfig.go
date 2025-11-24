@@ -312,6 +312,13 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No AnthropicVertexAI params provided in create.")
 		}
+	case v1alpha2.ModelProviderXAI:
+		if req.XAIParams != nil {
+			modelConfig.Spec.XAI = req.XAIParams
+			log.V(1).Info("Assigned XAI params to spec")
+		} else {
+			log.V(1).Info("No XAI params provided in create.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
 	}
@@ -432,6 +439,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		Gemini:            nil,
 		GeminiVertexAI:    nil,
 		AnthropicVertexAI: nil,
+		XAI:               nil,
 	}
 
 	// --- Update Secret if API Key is provided (and not Ollama) ---
@@ -510,6 +518,13 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 			log.V(1).Info("Assigned updated AnthropicVertexAI params to spec")
 		} else {
 			log.V(1).Info("No AnthropicVertexAI params provided in update.")
+		}
+	case v1alpha2.ModelProviderXAI:
+		if req.XAIParams != nil {
+			modelConfig.Spec.XAI = req.XAIParams
+			log.V(1).Info("Assigned updated XAI params to spec")
+		} else {
+			log.V(1).Info("No XAI params provided in update.")
 		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)

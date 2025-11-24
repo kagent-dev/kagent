@@ -83,6 +83,17 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "claude-sonnet-4@20250514", FunctionCalling: true},
 			{Name: "claude-3-5-haiku@20241022", FunctionCalling: true},
 		},
+		v1alpha2.ModelProviderXAI: {
+			{Name: "grok-4-1-fast-reasoning", FunctionCalling: true},
+			{Name: "grok-4-1-fast-non-reasoning", FunctionCalling: true},
+			{Name: "grok-code-fast-1", FunctionCalling: true},
+			{Name: "grok-4-fast-reasoning", FunctionCalling: true},
+			{Name: "grok-4-fast-non-reasoning", FunctionCalling: true},
+			{Name: "grok-4-0709", FunctionCalling: true},
+			{Name: "grok-3-mini", FunctionCalling: true},
+			{Name: "grok-3", FunctionCalling: true},
+			{Name: "grok-2-vision-1212", FunctionCalling: true},
+		},
 	}
 
 	log.Info("Successfully listed supported models", "count", len(supportedModels))
