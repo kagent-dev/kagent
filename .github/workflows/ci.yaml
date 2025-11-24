@@ -301,3 +301,34 @@ jobs:
             echo "Ruff formatting issues detected. Please run 'uv run ruff format' locally to fix formatting issues."
             exit 1
           fi
+
+  manifests-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Generate controller manifests
+        run: make controller-manifests
+
+      - name: Check for uncommitted changes
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Controller manifests are out of date!"
+            echo "::error::Please run 'make controller-manifests' and commit the changes."
+            echo ""
+            echo "The following files have differences:"
+            git diff --name-only
+            echo ""
+            echo "Diff details:"
+            git diff
+            exit 1
+          fi
+          echo "✓ Controller manifests are up to date"
