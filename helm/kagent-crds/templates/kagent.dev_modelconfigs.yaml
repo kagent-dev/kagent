@@ -8,8 +8,6 @@ metadata:
 spec:
   group: kagent.dev
   names:
-    categories:
-    - kagent
     kind: ModelConfig
     listKind: ModelConfigList
     plural: modelconfigs
@@ -577,6 +575,44 @@ spec:
                 - GeminiVertexAI
                 - AnthropicVertexAI
                 type: string
+              tls:
+                description: |-
+                  TLS configuration for provider connections.
+                  Enables agents to connect to internal LiteLLM gateways or other providers
+                  that use self-signed certificates or custom certificate authorities.
+                properties:
+                  caCertSecretKey:
+                    description: |-
+                      CACertSecretKey is the key within the Secret that contains the CA certificate data.
+                      This field follows the same pattern as APIKeySecretKey.
+                      Required when CACertSecretRef is set (unless DisableVerify is true).
+                    type: string
+                  caCertSecretRef:
+                    description: |-
+                      CACertSecretRef is a reference to a Kubernetes Secret containing
+                      CA certificate(s) in PEM format. The Secret must be in the same
+                      namespace as the ModelConfig.
+                      When set, the certificate will be used to verify the provider's SSL certificate.
+                      This field follows the same pattern as APIKeySecret.
+                    type: string
+                  disableSystemCAs:
+                    default: false
+                    description: |-
+                      DisableSystemCAs disables the use of system CA certificates.
+                      When false (default), system CA certificates are used for verification (safe behavior).
+                      When true, only the custom CA from CACertSecretRef is trusted.
+                      This allows strict security policies where only corporate CAs should be trusted.
+                    type: boolean
+                  disableVerify:
+                    default: false
+                    description: |-
+                      DisableVerify disables SSL certificate verification entirely.
+                      When false (default), SSL certificates are verified.
+                      When true, SSL certificate verification is disabled.
+                      WARNING: This should ONLY be used in development/testing environments.
+                      Production deployments MUST use proper certificates.
+                    type: boolean
+                type: object
             required:
             - model
             - provider
@@ -602,6 +638,18 @@ spec:
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))'
+            - message: caCertSecretKey requires caCertSecretRef (unless disableVerify
+                is true)
+              rule: '!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify)
+                && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
+                > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)
+                == 0))'
+            - message: caCertSecretRef requires caCertSecretKey (unless disableVerify
+                is true)
+              rule: '!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify)
+                && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef)
+                > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey)
+                == 0))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

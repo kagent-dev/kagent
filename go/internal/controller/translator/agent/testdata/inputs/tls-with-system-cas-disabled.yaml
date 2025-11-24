@@ -1,0 +1,57 @@
+operation: translateAgent
+targetObject: tls-agent-with-system-cas-disabled
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: corporate-ca-cert
+      namespace: test
+    data:
+      ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURCVENDQWUyZ0F3SUJBZ0lKQUt5VzVJcG9NWUk1TUEwR0NTcUdTSWIzRFFFQkN3VUFNQm94R0RBV0JnTlYKQkFNTUQwTnZjbkJ2Y21GMFpTQkRRU0JEWlhKME1CNFhEVEl3TURJeU1EQXdNREF3TUZvWERUTXhNREl5TURBdwpNREF3TUZvd0dqRVlNQllHQTFVRUF3d1BRMjl5Y0c5eVlYUmxJRU5CSUVObGNuUXdnZ0VpTUEwR0NTcUdTSWIzCkRRRUJBUVVBQTRJQkR3QXdnZ0VLQW9JQkFRRER3SFpsQU5tN0hHTEY1dnpEM3E4dGNLSVdvejNXekpTeDREV3IKR2JNMGtqNXg5Nnhaa3dmQm9SQTRSMHRxVXh6RGRRTXlxZjJqRWpYa1JSenE1V0xvRDBWQWNRcVVWVzB2bndUZgpocTVTekNxdkNONGgyS0wxeGtKVGY5U3pieEdWcUhudHNQZ3RpdnRlNUdXdWE2Y2dIdlp0alFsQ3JhZGlIcjZlCnVEd3prM01aZ05Kd2QrTmxzK0t1dDJUamhpZEMrZU11S0dDZ3pzd0N0VzdZS3IraUFiQkxucnJNdTNNdGFHM3EKdGVoNnRzUVJDRkU2UEJ2UXlTeHRMMTlaUnN4ZWdlcWVVMEZjSnZoWHFXZjYrUEp5Ry9wZGhDK3VHVDQvclEydgoyT2FYVUZ4Nmk2QTlEY3REbWNGeVRyaUFSblFETU5yUktUSWtHUnpWSWMwencwWnBBZ01CQUFHalVEQk9NQjBHCkExVWREZ1FXQkJSYU1reU92WWlRekIwbEc0R29GZ2EyRDhnQ2FEQWZCZ05WSFNNRUdEQVdnQlJhTWt5T3ZZaVEKekIwbEc0R29GZ2EyRDhnQ2FEQU1CZ05WSFJNRUJUQURBUUgvTUEwR0NTcUdTSWIzRFFFQkN3VUFBNElCQVFDdApIaWdST1FDVzJtcE9ZR3prdEthdzNNWEVnWmxOYXdLQ08yeHZVVjNtYWQxZGhYdGJxVFZkRUpsSW9ZVUFJcTlOCjdyekpSU1lXTFByemRaVit3bVVDNmZKcHFac3NPT3pEaEZLT0xTa05CSG9qY1FRY1VoY0VwRUl5VGNJbDR1SlUKOGNWL0hpaGJKRFU2U3ZZcFBUaGtZQVB5RDZhaTNubmhsaEtJbmhDQmg4a2pGZFdLUTdXYW9VMFQ3dUlDNGpOQgplUjZBQlhId3ZCMk41WlhGVUVkYmdCWEhodnZCMU41WlhGVWRCZ0JYSGh2QjFONVpYRlVFZGJnQlhIaHZCMU41ClpYRlVkQmdCWEhoZ3ZCMU41WlhGVUVkYmdCWEhodnZCMU41WlhGVWRCZ0JYSGd2QjFONVpYRlVFZGJnQlhIaHYKQjFONVpYRlVkQmdCWEhnZ3ZCMU41WlhGVUVkYmdCWEhnZ1JpCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K  # base64 encoded corporate CA cert
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: tls-model-system-cas-disabled
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        baseUrl: https://corp-llm-gateway.internal
+        temperature: "0.7"
+        maxTokens: 1024
+      tls:
+        disableVerify: false
+        caCertSecretRef: corporate-ca-cert
+        caCertSecretKey: ca.crt
+        disableSystemCAs: true
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: tls-agent-with-system-cas-disabled
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: Agent with system CAs disabled, only using corporate CA
+        systemMessage: You are a helpful assistant in a corporate environment.
+        modelConfig: tls-model-system-cas-disabled
+        deployment:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 684Mi
+            limits:
+              cpu: 3000m
+              memory: 2Gi
+        tools: []
