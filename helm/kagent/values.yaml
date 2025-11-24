@@ -105,18 +105,18 @@ controller:
       targetPort: 8083
   env: []
 
-# Additional volumes on the output Deployment definition.
+  # Additional volumes on the output Deployment definition.
   volumes: []
-#   - name: foo
-#     secret:
-#       secretName: mysecret
-#       optional: false
+  # - name: foo
+  #   secret:
+  #     secretName: mysecret
+  #     optional: false
 
-# Additional volumeMounts on the output Deployment definition.
+  # Additional volumeMounts on the output Deployment definition.
   volumeMounts: []
-#   - name: foo
-#     mountPath: "/etc/foo"
-#     readOnly: true
+  # - name: foo
+  #   mountPath: "/etc/foo"
+  #   readOnly: true
 
 # ==============================================================================
 # UI CONFIGURATION

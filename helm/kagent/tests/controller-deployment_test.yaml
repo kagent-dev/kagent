@@ -151,3 +151,50 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+
+  - it: should not render sqlite volume and mount when using postgres with extra volumes
+    template: controller-deployment.yaml
+    set:
+      database:
+        type: postgres
+      controller:
+        volumes:
+          - name: extra-data
+            emptyDir: {}
+        volumeMounts:
+          - name: extra-data
+            mountPath: /extra
+    asserts:
+      # volumes block should exist due to provided extra volumes
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: extra-data
+            emptyDir: {}
+      # sqlite volume must not be present
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: sqlite-volume
+      # volumeMounts block should include our extra mount
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: extra-data
+            mountPath: /extra
+      # sqlite volume mount must not be present
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sqlite-volume
+
+  - it: should not render volumes or volumeMounts sections when using postgres without extra volumes or mounts
+    template: controller-deployment.yaml
+    set:
+      database:
+        type: postgres
+    asserts:
+      - isNull:
+          path: spec.template.spec.volumes
+      - isNull:
+          path: spec.template.spec.containers[0].volumeMounts
