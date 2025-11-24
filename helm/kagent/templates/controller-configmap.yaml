@@ -15,6 +15,7 @@ data:
   IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry  | quote }}
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
+  LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
   OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
