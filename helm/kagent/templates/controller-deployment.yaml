@@ -58,6 +58,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "kagent.fullname" . }}-controller
+            {{- with .Values.controller.envFrom }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
