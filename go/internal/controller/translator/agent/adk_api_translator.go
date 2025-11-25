@@ -1189,12 +1189,11 @@ type modelDeploymentData struct {
 // Internal to translator – a unified deployment spec for any agent.
 type resolvedDeployment struct {
 	// Required concrete runtime properties
-	Image                 string
-	Cmd                   string // empty → no explicit command
-	Args                  []string
-	Port                  int32 // container port and Service port
-	ImagePullPolicy       corev1.PullPolicy
-	ModelConfigSecretHash string // hash of any secrets referenced by the model config to handle redeployment on secret changes
+	Image           string
+	Cmd             string // empty → no explicit command
+	Args            []string
+	Port            int32 // container port and Service port
+	ImagePullPolicy corev1.PullPolicy
 
 	// SharedDeploymentSpec merged
 	Replicas         *int32
