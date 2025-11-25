@@ -19,10 +19,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/retry"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/internal/database"
@@ -53,7 +51,6 @@ type KagentReconciler interface {
 
 type kagentReconciler struct {
 	adkTranslator agent_translator.AdkApiTranslator
-	a2aReconciler a2a.A2AReconciler
 
 	kube     client.Client
 	dbClient database.Client
@@ -69,14 +66,12 @@ func NewKagentReconciler(
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
-	a2aReconciler a2a.A2AReconciler,
 ) KagentReconciler {
 	return &kagentReconciler{
 		adkTranslator:      translator,
 		kube:               kube,
 		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
-		a2aReconciler:      a2aReconciler,
 	}
 }
 
@@ -100,9 +95,6 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 }
 
 func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
-	// remove a2a handler if it exists
-	a.a2aReconciler.ReconcileAgentDeletion(req.String())
-
 	if err := a.dbClient.DeleteAgent(req.String()); err != nil {
 		return fmt.Errorf("failed to delete agent %s: %w",
 			req.String(), err)
@@ -499,10 +491,6 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 		return fmt.Errorf("failed to reconcile owned objects: %v", err)
 	}
 
-	if err := a.reconcileA2A(ctx, agent, agentOutputs.AgentCard); err != nil {
-		return fmt.Errorf("failed to reconcile A2A for agent %s/%s: %v", agent.Namespace, agent.Name, err)
-	}
-
 	if err := a.upsertAgent(ctx, agent, agentOutputs); err != nil {
 		return fmt.Errorf("failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
@@ -742,14 +730,6 @@ func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef 
 	}
 
 	return discoveredTools, nil
-}
-
-func (a *kagentReconciler) reconcileA2A(
-	ctx context.Context,
-	agent *v1alpha2.Agent,
-	card server.AgentCard,
-) error {
-	return a.a2aReconciler.ReconcileAgent(ctx, agent, card)
 }
 
 func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {
