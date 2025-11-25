@@ -65,6 +65,7 @@ type CreateModelConfigRequest struct {
 	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
 	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
 	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	XAIParams               *v1alpha2.XAIConfig               `json:"xAI,omitempty"`
 }
 
 // UpdateModelConfigRequest represents a request to update a model configuration
@@ -79,6 +80,7 @@ type UpdateModelConfigRequest struct {
 	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
 	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
 	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	XAIParams               *v1alpha2.XAIConfig               `json:"xAI,omitempty"`
 }
 
 // Agent types

@@ -25,7 +25,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;XAI
 type ModelProvider string
 
 const (
@@ -36,6 +36,7 @@ const (
 	ModelProviderGemini            ModelProvider = "Gemini"
 	ModelProviderGeminiVertexAI    ModelProvider = "GeminiVertexAI"
 	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
+	ModelProviderXAI               ModelProvider = "XAI"
 )
 
 type BaseVertexAIConfig struct {
@@ -202,6 +203,19 @@ type OllamaConfig struct {
 
 type GeminiConfig struct{}
 
+// XAIConfig contains xAI-specific configuration options
+type XAIConfig struct {
+	OpenAIConfig `json:",inline"`
+
+	// Server-side tools to enable
+	// +optional
+	Tools []string `json:"tools,omitempty"`
+
+	// Live search mode for real-time data retrieval
+	// +optional
+	LiveSearchMode string `json:"liveSearchMode,omitempty"`
+}
+
 // ModelConfigSpec defines the desired state of ModelConfig.
 //
 // +kubebuilder:validation:XValidation:message="provider.openAI must be nil if the provider is not OpenAI",rule="!(has(self.openAI) && self.provider != 'OpenAI')"
@@ -211,6 +225,7 @@ type GeminiConfig struct{}
 // +kubebuilder:validation:XValidation:message="provider.gemini must be nil if the provider is not Gemini",rule="!(has(self.gemini) && self.provider != 'Gemini')"
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
+// +kubebuilder:validation:XValidation:message="provider.xAI must be nil if the provider is not XAI",rule="!(has(self.xAI) && self.provider != 'XAI')"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
@@ -262,6 +277,10 @@ type ModelConfigSpec struct {
 	// Anthropic-specific configuration
 	// +optional
 	AnthropicVertexAI *AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+
+	// xAI-specific configuration
+	// +optional
+	XAI *XAIConfig `json:"xAI,omitempty"`
 }
 
 // Model Configurations

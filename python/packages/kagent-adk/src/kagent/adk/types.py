@@ -18,6 +18,7 @@ from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 
 from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
+from .models import XAI as XAINative
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,13 @@ class OpenAI(BaseLLM):
     type: Literal["openai"]
 
 
+class XAI(OpenAI):
+    tools: list[str] | None = None
+    live_search_mode: str | None = None
+
+    type: Literal["xai"]
+
+
 class AzureOpenAI(BaseLLM):
     type: Literal["azure_openai"]
 
@@ -92,7 +100,7 @@ class Gemini(BaseLLM):
 
 
 class AgentConfig(BaseModel):
-    model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini] = Field(
+    model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, XAI] = Field(
         discriminator="type"
     )
     description: str
@@ -176,6 +184,29 @@ class AgentConfig(BaseModel):
             )
         elif self.model.type == "gemini":
             model = self.model.model
+        elif self.model.type == "xai":
+            model = XAINative(
+                type="xai",
+                base_url=self.model.base_url,
+                default_headers=extra_headers,
+                frequency_penalty=self.model.frequency_penalty,
+                max_tokens=self.model.max_tokens,
+                model=self.model.model,
+                n=self.model.n,
+                presence_penalty=self.model.presence_penalty,
+                reasoning_effort=self.model.reasoning_effort,
+                seed=self.model.seed,
+                temperature=self.model.temperature,
+                timeout=self.model.timeout,
+                top_p=self.model.top_p,
+                # XAI-specific fields (not yet implemented in basic support)
+                tools=self.model.tools,
+                live_search_mode=self.model.live_search_mode,
+                # TLS configuration
+                tls_disable_verify=self.model.tls_disable_verify,
+                tls_ca_cert_path=self.model.tls_ca_cert_path,
+                tls_disable_system_cas=self.model.tls_disable_system_cas,
+            )
         else:
             raise ValueError(f"Invalid model type: {self.model.type}")
         return Agent(

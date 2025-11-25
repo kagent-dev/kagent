@@ -17,7 +17,8 @@ import type {
     ProviderModelsResponse,
     GeminiConfigPayload,
     GeminiVertexAIConfigPayload,
-    AnthropicVertexAIConfigPayload
+    AnthropicVertexAIConfigPayload,
+    XAIConfigPayload
 } from "@/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
@@ -68,6 +69,11 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
     'stream'
   ]);
 
+  // Special handling for array parameters
+  const arrayKeys = new Set([
+    'tools'
+  ]);
+
   Object.entries(allParams).forEach(([key, value]) => {
     if (numericKeys.has(key)) {
       const numValue = parseFloat(value);
@@ -87,6 +93,10 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
       } else {
         console.warn(`Invalid boolean for parameter '${key}': '${value}'. Treating as false.`);
         providerParams[key] = false;
+      }
+    } else if (arrayKeys.has(key)) {
+      if (value.trim() !== '') {
+        providerParams[key] = value.split(',').map(t => t.trim()).filter(t => t !== '');
       }
     } else {
       if (value.trim() !== '') {
@@ -229,7 +239,14 @@ function ModelPageContent() {
           const initialOptional: ModelParam[] = Object.entries(fetchedParams)
             .filter(([key]) => !requiredKeys.includes(key))
             .map(([key, value], index) => {
-              const displayValue = (value === null || value === undefined) ? "" : String(value);
+              let displayValue = "";
+              if (value !== null && value !== undefined) {
+                if (Array.isArray(value)) {
+                  displayValue = value.join(', ');
+                } else {
+                  displayValue = String(value);
+                }
+              }
               return { id: `fetched-opt-${index}`, key, value: displayValue };
             });
 
@@ -451,6 +468,9 @@ function ModelPageContent() {
       case 'AnthropicVertexAI':
         payload.anthropicVertexAI = providerParams as AnthropicVertexAIConfigPayload;
         break;
+      case 'XAI':
+        payload.xAI = providerParams as XAIConfigPayload;
+        break;
       default:
         console.error("Unsupported provider type during payload construction:", providerType);
         toast.error("Internal error: Unsupported provider type.");
@@ -469,6 +489,10 @@ function ModelPageContent() {
           anthropic: payload.anthropic,
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
+          gemini: payload.gemini,
+          geminiVertexAI: payload.geminiVertexAI,
+          anthropicVertexAI: payload.anthropicVertexAI,
+          xAI: payload.xAI,
         };
         const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
         response = await updateModelConfig(modelConfigRef, updatePayload);
@@ -607,8 +631,3 @@ export default function ModelPage() {
     </React.Suspense>
   );
 }
-
-
-
-
-

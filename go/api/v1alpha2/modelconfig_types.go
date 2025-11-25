@@ -25,7 +25,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;XAI
 type ModelProvider string
 
 const (
@@ -36,6 +36,7 @@ const (
 	ModelProviderGemini            ModelProvider = "Gemini"
 	ModelProviderGeminiVertexAI    ModelProvider = "GeminiVertexAI"
 	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
+	ModelProviderXAI               ModelProvider = "XAI"
 )
 
 type BaseVertexAIConfig struct {
@@ -210,6 +211,19 @@ type OllamaConfig struct {
 
 type GeminiConfig struct{}
 
+// XAIConfig contains xAI-specific configuration options
+type XAIConfig struct {
+	OpenAIConfig `json:",inline"`
+
+	// Server-side tools to enable
+	// +optional
+	Tools []string `json:"tools,omitempty"`
+
+	// Live search mode for real-time data retrieval
+	// +optional
+	LiveSearchMode string `json:"liveSearchMode,omitempty"`
+}
+
 // TLSConfig contains TLS/SSL configuration options for model provider connections.
 // This enables agents to connect to internal LiteLLM gateways or other providers
 // that use self-signed certificates or custom certificate authorities.
@@ -255,6 +269,7 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.gemini must be nil if the provider is not Gemini",rule="!(has(self.gemini) && self.provider != 'Gemini')"
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
+// +kubebuilder:validation:XValidation:message="provider.xAI must be nil if the provider is not XAI",rule="!(has(self.xAI) && self.provider != 'XAI')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
@@ -305,6 +320,10 @@ type ModelConfigSpec struct {
 	// Anthropic-specific configuration
 	// +optional
 	AnthropicVertexAI *AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+
+	// xAI-specific configuration
+	// +optional
+	XAI *XAIConfig `json:"xAI,omitempty"`
 
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers
