@@ -67,6 +67,10 @@ type AdkApiTranslator interface {
 		ctx context.Context,
 		agent *v1alpha2.Agent,
 	) (*AgentOutputs, error)
+	TranslateAgentCard(
+		ctx context.Context,
+		agent *v1alpha2.Agent,
+	) (server.AgentCard, error)
 	GetOwnedResourceTypes() []client.Object
 }
 
@@ -117,45 +121,42 @@ func (a *adkApiTranslator) TranslateAgent(
 		return nil, err
 	}
 
+	var cfg *adk.AgentConfig
+	var dep *resolvedDeployment
+
 	switch agent.Spec.Type {
 	case v1alpha2.AgentType_Declarative:
-
-		cfg, card, mdd, err := a.translateInlineAgent(ctx, agent)
+		var mdd *modelDeploymentData
+		cfg, mdd, err = a.translateInlineAgent(ctx, agent)
 		if err != nil {
 			return nil, err
 		}
-		dep, err := a.resolveInlineDeployment(agent, mdd)
+		dep, err = a.resolveInlineDeployment(agent, mdd)
 		if err != nil {
 			return nil, err
 		}
-		return a.buildManifest(ctx, agent, dep, cfg, card)
 
 	case v1alpha2.AgentType_BYO:
 
-		dep, err := a.resolveByoDeployment(agent)
+		dep, err = a.resolveByoDeployment(agent)
 		if err != nil {
 			return nil, err
 		}
-		// TODO: Resolve this from the actual pod
-		agentCard := &server.AgentCard{
-			Name:        strings.ReplaceAll(agent.Name, "-", "_"),
-			Description: agent.Spec.Description,
-			URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
-			Capabilities: server.AgentCapabilities{
-				Streaming:              ptr.To(true),
-				PushNotifications:      ptr.To(false),
-				StateTransitionHistory: ptr.To(true),
-			},
-			// Can't be null for Python, so set to empty list
-			Skills:             []server.AgentSkill{},
-			DefaultInputModes:  []string{"text"},
-			DefaultOutputModes: []string{"text"},
-		}
-		return a.buildManifest(ctx, agent, dep, nil, agentCard)
 
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
+
+	card := a.buildAgentCard(agent)
+
+	return a.buildManifest(ctx, agent, dep, cfg, &card)
+}
+
+func (a *adkApiTranslator) TranslateAgentCard(
+	ctx context.Context,
+	agent *v1alpha2.Agent,
+) (server.AgentCard, error) {
+	return a.buildAgentCard(agent), nil
 }
 
 // GetOwnedResourceTypes returns all the resource types that may be created for an agent.
@@ -175,6 +176,29 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 	}
 
 	return ownedResources
+}
+
+func (a *adkApiTranslator) buildAgentCard(agent *v1alpha2.Agent) server.AgentCard {
+	card := server.AgentCard{
+		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
+		Description: agent.Spec.Description,
+		URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
+		Capabilities: server.AgentCapabilities{
+			Streaming:              ptr.To(true),
+			PushNotifications:      ptr.To(false),
+			StateTransitionHistory: ptr.To(true),
+		},
+		// Can't be null for Python, so set to empty list
+		Skills:             []server.AgentSkill{},
+		DefaultInputModes:  []string{"text"},
+		DefaultOutputModes: []string{"text"},
+	}
+	if agent.Spec.Type == v1alpha2.AgentType_Declarative && agent.Spec.Declarative.A2AConfig != nil {
+		card.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Declarative.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
+			return server.AgentSkill(skill)
+		}))
+	}
+	return card
 }
 
 func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) error {
@@ -500,16 +524,16 @@ func (a *adkApiTranslator) buildManifest(
 	return outputs, a.runPlugins(ctx, agent, outputs)
 }
 
-func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, error) {
+func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent) (*adk.AgentConfig, *modelDeploymentData, error) {
 
 	model, mdd, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Declarative.ModelConfig)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	systemMessage, err := a.resolveSystemMessage(ctx, agent)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	cfg := &adk.AgentConfig{
@@ -518,26 +542,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Model:       model,
 		ExecuteCode: ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false),
 	}
-	agentCard := &server.AgentCard{
-		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
-		Description: agent.Spec.Description,
-		URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
-		Capabilities: server.AgentCapabilities{
-			Streaming:              ptr.To(true),
-			PushNotifications:      ptr.To(false),
-			StateTransitionHistory: ptr.To(true),
-		},
-		// Can't be null for Python, so set to empty list
-		Skills:             []server.AgentSkill{},
-		DefaultInputModes:  []string{"text"},
-		DefaultOutputModes: []string{"text"},
-	}
-
-	if agent.Spec.Declarative.A2AConfig != nil {
-		agentCard.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Declarative.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
-			return server.AgentSkill(skill)
-		}))
-	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
 		// Skip tools that are not applicable to the model provider
@@ -545,7 +549,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		case tool.McpServer != nil:
 			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 		case tool.Agent != nil:
 			agentRef := types.NamespacedName{
@@ -554,14 +558,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			}
 
 			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+				return nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
 			}
 
 			// Translate a nested tool
 			toolAgent := &v1alpha2.Agent{}
 			err := a.kube.Get(ctx, agentRef, toolAgent)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 
 			switch toolAgent.Spec.Type {
@@ -569,7 +573,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
 				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 				if err != nil {
-					return nil, nil, nil, err
+					return nil, nil, err
 				}
 
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
@@ -579,15 +583,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					Description: toolAgent.Spec.Description,
 				})
 			default:
-				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
+				return nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
 			}
 
 		default:
-			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
+			return nil, nil, fmt.Errorf("tool must have a provider or tool server")
 		}
 	}
 
-	return cfg, agentCard, mdd, nil
+	return cfg, mdd, nil
 }
 
 func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
