@@ -40,7 +40,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/database"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
-	a2a_reconciler "github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -351,25 +350,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		extensionCfg.AgentPlugins,
 	)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, extensionCfg.Authenticator)
-
-	a2aReconciler := a2a_reconciler.NewReconciler(
-		a2aHandler,
-		cfg.A2ABaseUrl+httpserver.APIPathA2A,
-		a2a_reconciler.ClientOptions{
-			StreamingMaxBufSize:     int(cfg.Streaming.MaxBufSize.Value()),
-			StreamingInitialBufSize: int(cfg.Streaming.InitialBufSize.Value()),
-			Timeout:                 cfg.Streaming.Timeout,
-		},
-		extensionCfg.Authenticator,
-	)
-
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
-		a2aReconciler,
 	)
 
 	if err := (&controller.ServiceController{
@@ -415,6 +400,23 @@ func Start(getExtensionConfig GetExtensionConfig) {
 
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned resources")
+		os.Exit(1)
+	}
+
+	// Register A2A handlers on all replicas
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, extensionCfg.Authenticator)
+
+	if err := mgr.Add(a2a.NewA2ARegistrar(
+		mgr.GetCache(),
+		apiTranslator,
+		a2aHandler,
+		cfg.A2ABaseUrl+httpserver.APIPathA2A,
+		extensionCfg.Authenticator,
+		int(cfg.Streaming.MaxBufSize.Value()),
+		int(cfg.Streaming.InitialBufSize.Value()),
+		cfg.Streaming.Timeout,
+	)); err != nil {
+		setupLog.Error(err, "unable to set up a2a registrar")
 		os.Exit(1)
 	}
 
