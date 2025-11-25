@@ -1,0 +1,29 @@
+# Kagent Slackbot Permissions Configuration
+#
+# This file defines which users and user groups can access which agents.
+# Format:
+#   <namespace>/<agent-name>:
+#     users:
+#       - user@example.com
+#     user_groups:
+#       - slack_group_id
+#     deny_message: "Custom denial message (optional)"
+#
+# Example:
+#
+# kagent/k8s-agent:
+#   users:
+#     - admin@company.com
+#   user_groups:
+#     - S01ABC123XYZ  # Slack user group ID
+#   deny_message: "Access to k8s-agent requires SRE group membership"
+#
+# kagent/data-agent:
+#   users:
+#     - data-engineer@company.com
+#     - analyst@company.com
+#   user_groups:
+#     - S01DEF456UVW
+#
+# Default: If no permissions are specified for an agent, all users have access.
+# To restrict an agent, add it to this file with specific users or groups.

@@ -106,3 +106,19 @@ Engine labels
 {{ include "kagent.labels" . }}
 app.kubernetes.io/component: engine
 {{- end }}
+
+{{/*
+Slackbot selector labels
+*/}}
+{{- define "kagent.slackbot.selectorLabels" -}}
+{{ include "kagent.selectorLabels" . }}
+app.kubernetes.io/component: slackbot
+{{- end }}
+
+{{/*
+Slackbot labels
+*/}}
+{{- define "kagent.slackbot.labels" -}}
+{{ include "kagent.labels" . }}
+app.kubernetes.io/component: slackbot
+{{- end }}

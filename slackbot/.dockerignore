@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Documentation
+*.md
+docs/
+
+# Environment files (should be injected at runtime)
+.env
+.env.*
+
+# Temporary files
+*.log
+*.tmp
+tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Development tools
+Makefile
+mypy.ini
+.mypy_cache/
+.ruff_cache/
+
+# Manifests (not needed in runtime image)
+manifests/

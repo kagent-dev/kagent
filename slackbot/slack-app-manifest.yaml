@@ -1,0 +1,36 @@
+display_information:
+  name: kagent-bot
+  description: Kagent Multi-Agent AI Assistant
+  background_color: "#483354"
+  long_description: Kagent Bot connects you to multiple AI agents in the Kagent platform. It automatically routes your questions to the right agent based on keywords, or you can manually select specific agents. Conversations maintain full context across multiple turns, and you can interact via @mentions or direct messages.
+features:
+  bot_user:
+    display_name: kagent-bot
+    always_online: true
+  slash_commands:
+    - command: /agents
+      description: List available Kagent agents
+      usage_hint: "[no parameters]"
+      should_escape: false
+    - command: /agent-switch
+      description: Switch to a specific agent or reset to auto-routing
+      usage_hint: "<namespace>/<name> or reset"
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - commands
+      - reactions:write
+      - im:history
+      - users:read
+      - users:read.email
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

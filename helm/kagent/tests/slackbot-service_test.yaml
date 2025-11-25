@@ -1,0 +1,61 @@
+suite: test slackbot service
+templates:
+  - slackbot-service.yaml
+tests:
+  - it: should not create service when slackbot is disabled
+    set:
+      slackbot.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create service when slackbot is enabled
+    set:
+      slackbot.enabled: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-slackbot
+      - equal:
+          path: spec.type
+          value: ClusterIP
+
+  - it: should configure service ports correctly
+    set:
+      slackbot.enabled: true
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 8080
+      - equal:
+          path: spec.ports[0].name
+          value: http
+
+  - it: should apply custom annotations
+    set:
+      slackbot.enabled: true
+      slackbot.service.annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            prometheus.io/scrape: "true"
+            prometheus.io/port: "8080"
+
+  - it: should have correct selector labels
+    set:
+      slackbot.enabled: true
+    asserts:
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: kagent
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/component: slackbot
