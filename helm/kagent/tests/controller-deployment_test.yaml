@@ -1,6 +1,7 @@
 suite: test controller deployment
 templates:
   - controller-deployment.yaml
+  - controller-configmap.yaml
 tests:
   - it: should render controller deployment with default values
     template: controller-deployment.yaml
@@ -16,11 +17,24 @@ tests:
       - hasDocuments:
           count: 1
 
-  - it: should render controller deployment with custom replica count
+  - it: should fail when replicas > 1 and database type is sqlite
     template: controller-deployment.yaml
     set:
       controller:
         replicas: 3
+      database:
+        type: sqlite
+    asserts:
+      - failedTemplate:
+          errorMessage: "ERROR: controller.replicas cannot be greater than 1 when database.type is 'sqlite' as the SQLite database is local to the pod. Please either set controller.replicas to 1 or change database.type to 'postgres'."
+
+  - it: should render controller deployment with custom replica count if database type is postgres
+    template: controller-deployment.yaml
+    set:
+      controller:
+        replicas: 3
+      database:
+        type: postgres
     asserts:
       - equal:
           path: spec.replicas
@@ -76,54 +90,48 @@ tests:
           value: 8083
 
   - it: should use custom loglevel when set
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller:
         loglevel: "debug"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "debug"
+      - equal:
+          path: data.ZAP_LOG_LEVEL
+          value: "debug"
   - it: should use controller.agentImage.pullSecret when set
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller:
         agentImage:
           pullSecret: "pull-secret"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "-image-pull-secret"
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "pull-secret"
+      - equal:
+          path: data.IMAGE_PULL_SECRET
+          value: "pull-secret"
   - it: should not use controller.agentImage.pullSecret when not set
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller:
         agentImage:
           pullSecret: ""
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "-image-pull-secret"
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "pull-secret"
+      - notExists:
+          path: data.IMAGE_PULL_SECRET
 
   - it: should configure watch namespaces
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller:
         watchNamespaces:
           - namespace-1
           - namespace-2
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "namespace-1,namespace-2"
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: "namespace-1,namespace-2"
 
   - it: should set nodeSelector
+    template: controller-deployment.yaml
     set:
       controller:
         nodeSelector:
@@ -135,6 +143,7 @@ tests:
             role: AI
 
   - it: should set tolerations
+    template: controller-deployment.yaml
     set:
       controller:
         tolerations:
@@ -151,3 +160,50 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+
+  - it: should not render sqlite volume and mount when using postgres with extra volumes
+    template: controller-deployment.yaml
+    set:
+      database:
+        type: postgres
+      controller:
+        volumes:
+          - name: extra-data
+            emptyDir: {}
+        volumeMounts:
+          - name: extra-data
+            mountPath: /extra
+    asserts:
+      # volumes block should exist due to provided extra volumes
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: extra-data
+            emptyDir: {}
+      # sqlite volume must not be present
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: sqlite-volume
+      # volumeMounts block should include our extra mount
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: extra-data
+            mountPath: /extra
+      # sqlite volume mount must not be present
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sqlite-volume
+
+  - it: should not render volumes or volumeMounts sections when using postgres without extra volumes or mounts
+    template: controller-deployment.yaml
+    set:
+      database:
+        type: postgres
+    asserts:
+      - isNull:
+          path: spec.template.spec.volumes
+      - isNull:
+          path: spec.template.spec.containers[0].volumeMounts

@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/internal/version"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -38,7 +40,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/database"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
-	a2a_reconciler "github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -149,6 +150,30 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
 	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
 	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
+
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+}
+
+// LoadFromEnv loads configuration values from environment variables.
+// Flag names are converted to uppercase with underscores (e.g., metrics-bind-address -> METRICS_BIND_ADDRESS).
+func LoadFromEnv(fs *flag.FlagSet) error {
+	var loadErr error
+
+	fs.VisitAll(func(f *flag.Flag) {
+		envName := strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
+
+		if envVal := os.Getenv(envName); envVal != "" {
+			if err := f.Value.Set(envVal); err != nil {
+				loadErr = multierror.Append(loadErr, fmt.Errorf("failed to set flag %s from env %s=%s: %w", f.Name, envName, envVal, err))
+			}
+		}
+	})
+
+	return loadErr
 }
 
 type BootstrapConfig struct {
@@ -176,17 +201,18 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	ctx := context.Background()
 
 	cfg.SetFlags(flag.CommandLine)
-	flag.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
-	flag.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
-	flag.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
-	flag.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
-	flag.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 
 	opts := zap.Options{
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	// Load configuration from environment variables (overrides flags)
+	if err := LoadFromEnv(flag.CommandLine); err != nil {
+		setupLog.Error(err, "failed to load configuration from environment variables")
+		os.Exit(1)
+	}
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
 
@@ -332,25 +358,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		extensionCfg.AgentPlugins,
 	)
 
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, extensionCfg.Authenticator)
-
-	a2aReconciler := a2a_reconciler.NewReconciler(
-		a2aHandler,
-		cfg.A2ABaseUrl+httpserver.APIPathA2A,
-		a2a_reconciler.ClientOptions{
-			StreamingMaxBufSize:     int(cfg.Streaming.MaxBufSize.Value()),
-			StreamingInitialBufSize: int(cfg.Streaming.InitialBufSize.Value()),
-			Timeout:                 cfg.Streaming.Timeout,
-		},
-		extensionCfg.Authenticator,
-	)
-
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
-		a2aReconciler,
 	)
 
 	if err := (&controller.ServiceController{
@@ -396,6 +408,23 @@ func Start(getExtensionConfig GetExtensionConfig) {
 
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned resources")
+		os.Exit(1)
+	}
+
+	// Register A2A handlers on all replicas
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, extensionCfg.Authenticator)
+
+	if err := mgr.Add(a2a.NewA2ARegistrar(
+		mgr.GetCache(),
+		apiTranslator,
+		a2aHandler,
+		cfg.A2ABaseUrl+httpserver.APIPathA2A,
+		extensionCfg.Authenticator,
+		int(cfg.Streaming.MaxBufSize.Value()),
+		int(cfg.Streaming.InitialBufSize.Value()),
+		cfg.Streaming.Timeout,
+	)); err != nil {
+		setupLog.Error(err, "unable to set up a2a registrar")
 		os.Exit(1)
 	}
 
