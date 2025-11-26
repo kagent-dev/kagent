@@ -316,6 +316,7 @@ helm-install-provider: helm-version check-api-key
 		--set registry=$(DOCKER_REGISTRY) \
 		--set imagePullPolicy=Always \
 		--set tag=$(VERSION) \
+		--set controller.loglevel=debug \
 		--set controller.image.pullPolicy=Always \
 		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \

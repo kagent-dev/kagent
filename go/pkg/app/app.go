@@ -89,8 +89,6 @@ func init() {
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
-
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 }
 
 type Config struct {
@@ -182,22 +180,16 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	flag.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	flag.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 
-	opts := zap.Options{
-		Development: true,
-	}
+	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
-
-	logger.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
-	logger.Info("Config", "config", cfg)
-
 	ctrl.SetLogger(logger)
 
-	goruntime.SetMaxProcs(logger)
+	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg)
 
-	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
+	goruntime.SetMaxProcs(logger)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
