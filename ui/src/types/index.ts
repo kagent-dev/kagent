@@ -207,6 +207,7 @@ export interface TypedLocalReference {
   kind?: string;
   apiGroup?: string;
   name: string;
+  namespace?: string;
 }
 
 export interface McpServerTool extends TypedLocalReference {
