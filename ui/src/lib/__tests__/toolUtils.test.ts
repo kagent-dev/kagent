@@ -79,13 +79,14 @@ describe('Tool Utility Functions', () => {
   });
 
   describe('groupMcpToolsByServer', () => {
-    it('should group multiple MCP tools from same server into single entry', () => {
+    it('should group multiple MCP tools from same server into single entry and preserve namespace', () => {
       const githubServerRef = k8sRefUtils.toRef("default", "github-server");
       const tools: Tool[] = [
         {
           type: "McpServer",
           mcpServer: {
             name: githubServerRef,
+            namespace: "kagent",
             apiGroup: "kagent.dev",
             kind: "MCPServer",
             toolNames: ["create_pull_request"]
@@ -95,6 +96,7 @@ describe('Tool Utility Functions', () => {
           type: "McpServer",
           mcpServer: {
             name: githubServerRef,
+            namespace: "kagent",
             apiGroup: "kagent.dev",
             kind: "MCPServer",
             toolNames: ["create_repository"]
@@ -104,6 +106,7 @@ describe('Tool Utility Functions', () => {
           type: "McpServer",
           mcpServer: {
             name: githubServerRef,
+            namespace: "kagent",
             apiGroup: "kagent.dev",
             kind: "MCPServer",
             toolNames: ["fork_repository"]
@@ -117,6 +120,7 @@ describe('Tool Utility Functions', () => {
       expect(result.groupedTools).toHaveLength(1);
       expect(result.groupedTools[0].type).toBe("McpServer");
       expect(result.groupedTools[0].mcpServer?.name).toBe(githubServerRef);
+      expect(result.groupedTools[0].mcpServer?.namespace).toBe("kagent");
       expect(result.groupedTools[0].mcpServer?.toolNames).toEqual([
         "create_pull_request",
         "create_repository",
@@ -447,30 +451,55 @@ describe('Tool Utility Functions', () => {
   });
 
   describe('getToolDisplayName', () => {
-    it('should return agent ref for Agent tools', () => {
+    it('should return namespaced ref for Agent tools with explicit namespace', () => {
+      const agentTool: Tool = {
+        type: "Agent",
+        agent: {
+          name: "test-agent",
+          namespace: "kagent"
+        }
+      };
+      expect(getToolDisplayName(agentTool, "default")).toBe("kagent/test-agent");
+    });
+
+    it('should return namespaced ref for Agent tools using default namespace', () => {
       const agentTool: Tool = {
         type: "Agent",
         agent: {
           name: "test-agent"
         }
       };
-      expect(getToolDisplayName(agentTool)).toBe("test-agent");
+      expect(getToolDisplayName(agentTool, "default")).toBe("default/test-agent");
     });
 
-    it('should return server name for MCP tools', () => {
+    it('should return namespaced ref for MCP tools with explicit namespace', () => {
       const mcpTool: Tool = {
         type: "McpServer",
         mcpServer: {
-          name: "default/github-server",
+          name: "github-server",
+          namespace: "tools",
           apiGroup: "kagent.dev",
           kind: "MCPServer",
           toolNames: ["create_pull_request"]
         }
       };
-      expect(getToolDisplayName(mcpTool)).toBe("default/github-server");
+      expect(getToolDisplayName(mcpTool, "default")).toBe("tools/github-server");
     });
 
-    it('should return "No name" for MCP tools with missing name', () => {
+    it('should return namespaced ref for MCP tools using default namespace', () => {
+      const mcpTool: Tool = {
+        type: "McpServer",
+        mcpServer: {
+          name: "github-server",
+          apiGroup: "kagent.dev",
+          kind: "MCPServer",
+          toolNames: ["create_pull_request"]
+        }
+      };
+      expect(getToolDisplayName(mcpTool, "default")).toBe("default/github-server");
+    });
+
+    it('should return "Unknown Tool" for MCP tools with missing name', () => {
       const mcpTool: Tool = {
         type: "McpServer",
         mcpServer: {
@@ -480,12 +509,12 @@ describe('Tool Utility Functions', () => {
           toolNames: ["create_pull_request"]
         }
       };
-      expect(getToolDisplayName(mcpTool)).toBe("No name");
+      expect(getToolDisplayName(mcpTool, "default")).toBe("Unknown Tool");
     });
 
     it('should return "Unknown Tool" for unknown tool types', () => {
       const unknownTool = { type: "Unknown" as any } as Tool;
-      expect(getToolDisplayName(unknownTool)).toBe("Unknown Tool");
+      expect(getToolDisplayName(unknownTool, "default")).toBe("Unknown Tool");
     });
   });
 
@@ -707,7 +736,7 @@ describe('Tool Utility Functions', () => {
   });
 
   describe('toolResponseToAgentTool', () => {
-    it('should use groupKind to set correct apiGroup and kind', () => {
+    it('should use groupKind to set correct apiGroup and kind, and extract namespace from serverRef', () => {
       const tool: ToolsResponse = {
         id: "create_pull_request",
         server_name: "default/ragflow-mcp-server",
@@ -723,7 +752,8 @@ describe('Tool Utility Functions', () => {
       expect(result).toEqual({
         type: "McpServer",
         mcpServer: {
-          name: "default/ragflow-mcp-server",
+          name: "ragflow-mcp-server",
+          namespace: "default",
           apiGroup: "kagent.dev",
           kind: "RemoteMCPServer",
           toolNames: ["create_pull_request"]
@@ -731,7 +761,7 @@ describe('Tool Utility Functions', () => {
       });
     });
 
-    it('should handle special case for kagent-querydoc with empty apiGroup', () => {
+    it('should handle special case for kagent-querydoc with empty apiGroup and extract namespace', () => {
       const tool: ToolsResponse = {
         id: "query_documentation",
         server_name: "kagent/kagent-querydoc",
@@ -747,7 +777,8 @@ describe('Tool Utility Functions', () => {
       expect(result).toEqual({
         type: "McpServer",
         mcpServer: {
-          name: "kagent/kagent-querydoc",
+          name: "kagent-querydoc",
+          namespace: "kagent",
           apiGroup: "",
           kind: "Service",
           toolNames: ["query_documentation"]
@@ -755,7 +786,7 @@ describe('Tool Utility Functions', () => {
       });
     });
 
-    it('should handle fallback when groupKind is empty', () => {
+    it('should handle fallback when groupKind is empty and extract namespace', () => {
       const tool: ToolsResponse = {
         id: "some_tool",
         server_name: "default/some-server",
@@ -771,7 +802,8 @@ describe('Tool Utility Functions', () => {
       expect(result).toEqual({
         type: "McpServer",
         mcpServer: {
-          name: "default/some-server",
+          name: "some-server",
+          namespace: "default",
           apiGroup: "kagent.dev",
           kind: "MCPServer",
           toolNames: ["some_tool"]
@@ -779,7 +811,7 @@ describe('Tool Utility Functions', () => {
       });
     });
 
-    it('should handle groupKind with only kind', () => {
+    it('should handle groupKind with only kind and extract namespace', () => {
       const tool: ToolsResponse = {
         id: "some_tool",
         server_name: "default/some-server",
@@ -795,7 +827,33 @@ describe('Tool Utility Functions', () => {
       expect(result).toEqual({
         type: "McpServer",
         mcpServer: {
-          name: "default/some-server",
+          name: "some-server",
+          namespace: "default",
+          apiGroup: "kagent.dev",
+          kind: "MCPServer",
+          toolNames: ["some_tool"]
+        }
+      });
+    });
+
+    it('should handle serverRef without namespace (no slash)', () => {
+      const tool: ToolsResponse = {
+        id: "some_tool",
+        server_name: "some-server",
+        description: "Some tool",
+        created_at: "2023-01-01T00:00:00Z",
+        updated_at: "2023-01-01T00:00:00Z",
+        deleted_at: "",
+        group_kind: "MCPServer"
+      };
+
+      const result = toolResponseToAgentTool(tool, tool.server_name);
+
+      expect(result).toEqual({
+        type: "McpServer",
+        mcpServer: {
+          name: "some-server",
+          namespace: undefined,
           apiGroup: "kagent.dev",
           kind: "MCPServer",
           toolNames: ["some_tool"]
@@ -905,8 +963,8 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle null/undefined inputs for getToolDisplayName', () => {
-      expect(getToolDisplayName(null as any)).toBe("Unknown Tool");
-      expect(getToolDisplayName(undefined as any)).toBe("Unknown Tool");
+      expect(getToolDisplayName(null as any, "default")).toBe("Unknown Tool");
+      expect(getToolDisplayName(undefined as any, "default")).toBe("Unknown Tool");
     });
 
     it('should handle null/undefined inputs for getToolDescription', () => {
@@ -917,14 +975,14 @@ describe('Tool Utility Functions', () => {
     it('should handle malformed tool objects', () => {
       const malformedTool = { type: "Agent" } as Tool; // Missing agent property
       expect(getToolIdentifier(malformedTool)).toMatch(/^unknown-tool-[a-z0-9]+$/);
-      expect(getToolDisplayName(malformedTool)).toBe("Unknown Tool");
+      expect(getToolDisplayName(malformedTool, "default")).toBe("Unknown Tool");
       expect(getToolDescription(malformedTool, [])).toBe("No description available");
     });
 
     it('should handle MCP tools with null/undefined mcpServer', () => {
       const malformedMcpTool = { type: "McpServer" } as Tool; // Missing mcpServer property
       expect(getToolIdentifier(malformedMcpTool)).toMatch(/^unknown-tool-[a-z0-9]+$/);
-      expect(getToolDisplayName(malformedMcpTool)).toBe("Unknown Tool");
+      expect(getToolDisplayName(malformedMcpTool, "default")).toBe("Unknown Tool");
       expect(getToolDescription(malformedMcpTool, [])).toBe("No description available");
     });
   });
