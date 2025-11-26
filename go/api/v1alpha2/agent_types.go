@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"trpc.group/trpc-go/trpc-a2a-go/server"
@@ -213,7 +214,6 @@ func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespa
 
 type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
-	// Can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
 	// +optional
 	TypedLocalReference `json:",inline"`
 
@@ -229,12 +229,26 @@ type TypedLocalReference struct {
 	// +optional
 	ApiGroup string `json:"apiGroup"`
 	Name     string `json:"name"`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 }
 
 func (t *TypedLocalReference) GroupKind() schema.GroupKind {
 	return schema.GroupKind{
 		Group: t.ApiGroup,
 		Kind:  t.Kind,
+	}
+}
+
+func (t *TypedLocalReference) NamespacedName(defaultNamespace string) types.NamespacedName {
+	namespace := t.Namespace
+	if namespace == "" {
+		namespace = defaultNamespace
+	}
+
+	return types.NamespacedName{
+		Namespace: namespace,
+		Name:      t.Name,
 	}
 }
 
