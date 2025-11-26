@@ -193,10 +193,7 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 			return fmt.Errorf("tool must have an agent reference")
 		}
 
-		agentRef := types.NamespacedName{
-			Namespace: agent.Namespace,
-			Name:      tool.Agent.Name,
-		}
+		agentRef := tool.Agent.NamespacedName(agent.Namespace)
 
 		if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
 			return fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
@@ -523,10 +520,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				return nil, nil, nil, err
 			}
 		case tool.Agent != nil:
-			agentRef := types.NamespacedName{
-				Namespace: agent.Namespace,
-				Name:      tool.Agent.Name,
-			}
+			agentRef := tool.Agent.NamespacedName(agent.Namespace)
 
 			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
 				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
@@ -967,7 +961,9 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "MCPServer",
 	}:
 		mcpServer := &v1alpha1.MCPServer{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.Name}, mcpServer)
+		mcpServerRef := toolServer.NamespacedName(agentNamespace)
+
+		err := a.kube.Get(ctx, mcpServerRef, mcpServer)
 		if err != nil {
 			return err
 		}
@@ -990,7 +986,9 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "RemoteMCPServer",
 	}:
 		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.Name}, remoteMcpServer)
+		remoteMcpServerRef := toolServer.NamespacedName(agentNamespace)
+
+		err := a.kube.Get(ctx, remoteMcpServerRef, remoteMcpServer)
 		if err != nil {
 			return err
 		}
@@ -1008,7 +1006,9 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "Service",
 	}:
 		svc := &corev1.Service{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.Name}, svc)
+		svcRef := toolServer.NamespacedName(agentNamespace)
+
+		err := a.kube.Get(ctx, svcRef, svc)
 		if err != nil {
 			return err
 		}

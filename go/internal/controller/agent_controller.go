@@ -181,10 +181,6 @@ func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl clien
 
 	var agents []*v1alpha2.Agent
 	for _, agent := range agentsList.Items {
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-
 		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
 			continue
 		}
@@ -198,7 +194,8 @@ func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl clien
 				continue
 			}
 
-			if tool.McpServer.Name == obj.Name {
+			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
+			if mcpServerRef == obj {
 				agents = append(agents, &agent)
 			}
 		}
@@ -229,11 +226,8 @@ func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 				return
 			}
 
-			if agent.Namespace != obj.Namespace {
-				continue
-			}
-
-			if tool.McpServer.Name == obj.Name {
+			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
+			if mcpServerRef == obj {
 				agents = append(agents, agent)
 				return
 			}
@@ -249,6 +243,7 @@ func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 
 func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
 	var agentsList v1alpha2.AgentList
+
 	if err := cl.List(
 		ctx,
 		&agentsList,
@@ -259,10 +254,6 @@ func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl clie
 
 	var agents []*v1alpha2.Agent
 	for _, agent := range agentsList.Items {
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-
 		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
 			continue
 		}
@@ -276,7 +267,8 @@ func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl clie
 				continue
 			}
 
-			if tool.McpServer.Name == obj.Name {
+			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
+			if mcpServerRef == obj {
 				agents = append(agents, &agent)
 			}
 		}
