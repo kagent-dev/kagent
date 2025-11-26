@@ -185,15 +185,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	flag.Parse()
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
-
-	logger.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
-	logger.Info("Config", "config", cfg)
-
 	ctrl.SetLogger(logger)
 
-	goruntime.SetMaxProcs(logger)
+	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg)
 
-	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
+	goruntime.SetMaxProcs(logger)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
