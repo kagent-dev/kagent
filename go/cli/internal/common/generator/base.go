@@ -125,8 +125,15 @@ func (g *BaseGenerator) GenerateProject(config ProjectConfig) error {
 
 // RenderTemplate renders a template string with the provided data.
 // This is the core template rendering logic used by all generators.
+//
+//nolint:unused
 func (g *BaseGenerator) RenderTemplate(tmplContent string, data interface{}) (string, error) {
-	tmpl, err := template.New("template").Parse(tmplContent)
+	funcMap := template.FuncMap{
+		"upper":        strings.ToUpper,
+		"ToUpper":      strings.ToUpper,
+		"ToPascalCase": ToPascalCase,
+	}
+	tmpl, err := template.New("template").Funcs(funcMap).Parse(tmplContent)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
@@ -160,4 +167,15 @@ func (g *BaseGenerator) initGitRepo(dir string, verbose bool) error {
 func (g *BaseGenerator) ReadTemplateFile(templatePath string) ([]byte, error) {
 	fullPath := filepath.Join(g.TemplateRoot, templatePath)
 	return fs.ReadFile(g.TemplateFiles, fullPath)
+}
+
+// ToPascalCase converts a string to PascalCase (e.g., "hello_world" -> "HelloWorld")
+func ToPascalCase(s string) string {
+	words := strings.Split(s, "_")
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	return strings.Join(words, "")
 }
