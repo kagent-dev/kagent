@@ -317,6 +317,8 @@ type ModelConfigSpec struct {
 type ModelConfigStatus struct {
 	Conditions         []metav1.Condition `json:"conditions"`
 	ObservedGeneration int64              `json:"observedGeneration"`
+	// The secret hash stores a hash of any secrets required by the model config (i.e. api key, tls cert) to ensure agents referencing this model config detect changes to these secrets and restart if necessary.
+	SecretHash string `json:"secretHash,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -2,9 +2,12 @@ package reconciler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
@@ -211,6 +214,11 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 	return nil
 }
 
+type secretRef struct {
+	NamespacedName types.NamespacedName
+	Secret         *corev1.Secret
+}
+
 func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha2.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
@@ -222,21 +230,79 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 	}
 
 	var err error
+	var secrets []secretRef
+
+	// check for api key secret
 	if modelConfig.Spec.APIKeySecret != "" {
 		secret := &corev1.Secret{}
-		if err = a.kube.Get(ctx, types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}, secret); err != nil {
-			err = fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, err)
+		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}
+
+		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, kubeErr))
+		} else {
+			secrets = append(secrets, secretRef{
+				NamespacedName: namespacedName,
+				Secret:         secret,
+			})
 		}
 	}
+
+	// check for tls cert secret
+	if modelConfig.Spec.TLS != nil && modelConfig.Spec.TLS.CACertSecretRef != "" {
+		secret := &corev1.Secret{}
+		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.TLS.CACertSecretRef}
+
+		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.TLS.CACertSecretRef, kubeErr))
+		} else {
+			secrets = append(secrets, secretRef{
+				NamespacedName: namespacedName,
+				Secret:         secret,
+			})
+		}
+	}
+
+	// compute the hash for the status
+	secretHash := computeStatusSecretHash(secrets)
 
 	return a.reconcileModelConfigStatus(
 		ctx,
 		modelConfig,
 		err,
+		secretHash,
 	)
 }
 
-func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha2.ModelConfig, err error) error {
+// computeStatusSecretHash computes a deterministic singular hash of the secrets the model config references for the status
+// this loses per-secret context (i.e. versioning/hash status per-secret), but simplifies the number of statuses tracked
+func computeStatusSecretHash(secrets []secretRef) string {
+	// sort secret references for deterministic output
+	sort.Slice(secrets, func(i, j int) bool {
+		return secrets[i].NamespacedName.String() < secrets[j].NamespacedName.String()
+	})
+
+	// compute a singular hash of the secrets
+	// this loses per-secret context (i.e. versioning/hash status per-secret), but simplifies the number of statuses tracked
+	hash := sha256.New()
+	for _, s := range secrets {
+		hash.Write([]byte(s.NamespacedName.String()))
+
+		keys := make([]string, 0, len(s.Secret.Data))
+		for k := range s.Secret.Data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			hash.Write([]byte(k))
+			hash.Write(s.Secret.Data[k])
+		}
+	}
+
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha2.ModelConfig, err error, secretHash string) error {
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -260,8 +326,14 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 		Message:            message,
 	})
 
+	// check if the secret hash has changed
+	secretHashChanged := modelConfig.Status.SecretHash != secretHash
+	if secretHashChanged {
+		modelConfig.Status.SecretHash = secretHash
+	}
+
 	// update the status if it has changed or the generation has changed
-	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation {
+	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation || secretHashChanged {
 		modelConfig.Status.ObservedGeneration = modelConfig.Generation
 		if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
 			return fmt.Errorf("failed to update model config status: %v", err)
