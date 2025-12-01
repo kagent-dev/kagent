@@ -16,9 +16,7 @@
   - [DCO](#dco)
   - [Testing](#testing)
     - [Unit Tests](#unit-tests)
-    - [Integration Tests](#integration-tests)
     - [End-to-End (E2E) Tests](#end-to-end-e2e-tests)
-  - [Error Reporting](#error-reporting)
   - [Code review guidelines](#code-review-guidelines)
 - [Documentation](#documentation)
 - [Get in touch](#get-in-touch)
@@ -196,17 +194,6 @@ Features that introduce behavior changes should be covered by E2E tests (excepti
 - Ensures the feature is not deprecated.
 - Confirms the feature works as the user expects it to.
 
-### Error Reporting
-
-If you are contributing a feature that produces error conditions, it is important to surface these errors to the user. Use the following methods to report errors, and try to use **all** of them if possible:
-
-- **Logs**: Structured logging with appropriate log levels
-- **Metrics**: Prometheus metrics for error rates and counts
-- **Status on the Custom Resource**: Using Kubernetes conditions on Agent, ModelConfig, etc.
-- **OpenTelemetry Traces**: Error spans in distributed traces
-
-It is important to surface errors in multiple ways because different users interact with kagent differently. By reporting errors in various places, we maximize the chances of users noticing and addressing them.
-
 ### Code review guidelines
 
 Code can be reviewed by anyone! Even if you are not a maintainer, please feel free to add your comments.
@@ -246,8 +233,4 @@ The kagent documentation lives at [kagent.dev/docs](https://kagent.dev/docs/kage
 
 ## Get in touch
 
-* [CNCF Slack](https://cloud-native.slack.com/archives/C08ETST0076): The `#kagent-dev` channel is the best way to get in touch and ask quick questions of the community.
-* [Discord](https://discord.gg/Fu3k65f2k3): For real-time discussions and community support.
-* [GitHub issues](https://github.com/kagent-dev/kagent/issues): For raising bugs, feature requests, CI flakes, and other issues.
-* [Community calendar](https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20): For regular community meetings.
-* [Website](https://kagent.dev/): For general information and the blog.
+Please refer to the [Project README](README.md#get-involved) for methods to get in touch
