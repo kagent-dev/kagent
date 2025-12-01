@@ -125,7 +125,13 @@ It's difficult to cover all the possible scenarios that you might encounter when
 
 DCO, short for Developer Certificate of Origin, is a per-commit signoff that you, the contributor, agree to the terms published at [https://developercertificate.org](https://developercertificate.org) for that particular commit. This will appear as a `Signed-off-by: Your Name <your.email>` trailer at the end of each commit message. The kagent project requires that every commit contains this DCO signoff.
 
-The easiest way to make sure each of your commits contains the signoff is to use the `--signoff` option (or `-s` for short) on each of your commits when you check in code:
+The easiest way to make sure each of your commits contains the signoff is to run make `init-git-hooks` in the repo to which you are contributing. This will configure your repo to use a Git hook which will automatically add the required trailer to all of your commit messages.
+
+```shell
+make init-git-hooks
+```
+
+If you prefer not to use a Git hook, you must remember to use the `--signoff` option (or `-s` for short) on each of your commits when you check in code:
 
 ```shell
 git commit -s -m "description of my excellent contribution"
@@ -141,7 +147,7 @@ git rebase --signoff main
 
 Tests are essential for any non-trivial PR. They ensure that your feature remains operational and does not break due to future updates. Tests are a critical part of maintaining kagent's stability and long-term maintainability.
 
-When writing tests, consider how users will interact with the feature and design the tests to reflect user behavior - i.e. test what the user would care about.
+A useful way to explore the different tests that the project maintains, is to inspect the [GitHub action that runs the CI pipeline](.github/workflows/ci.yaml)
 
 We have the following types of tests:
 
@@ -150,30 +156,33 @@ We have the following types of tests:
 These are useful for testing small, isolated units of code, such as a single function or a small component.
 
 **Go Unit Tests**:
+
 ```bash
 cd go
-go test ./...
+go test -race -skip 'TestE2E.*' -v ./...
+```
+
+**Helm Unit Tests**:
+
+```bash
+helm plugin install https://github.com/helm-unittest/helm-unittest
+make helm-version
+helm unittest helm/kagent
 ```
 
 **Python Unit Tests**:
+
    ```bash
 cd python
-uv run pytest
+uv run pytest ./packages/**/tests/
    ```
 
 **UI Unit Tests**:
+
    ```bash
 cd ui
-npm test
+npm run test
 ```
-
-#### Integration Tests
-
-Integration tests verify that different components work together correctly. For kagent, this includes:
-
-- **Controller Tests**: Testing CRD reconciliation and Kubernetes resource management
-- **Agent Tests**: Testing agent initialization, tool invocation, and LLM interaction
-- **Database Tests**: Testing session management and data persistence
 
 #### End-to-End (E2E) Tests
 
@@ -186,14 +195,6 @@ Features that introduce behavior changes should be covered by E2E tests (excepti
 - Detects behavior changes from dependencies.
 - Ensures the feature is not deprecated.
 - Confirms the feature works as the user expects it to.
-
-To run E2E tests locally:
-   ```bash
-make create-kind-cluster
-make helm-install
-cd go
-go test -v ./test/e2e
-```
 
 ### Error Reporting
 
@@ -220,8 +221,7 @@ All code must be reviewed by at least one [maintainer](https://github.com/kagent
 
    **Python Code**:
    - Follow PEP 8 style guidelines.
-   - Run `uv run ruff check` and `uv run ruff format` before submitting.
-   - Use type hints where appropriate.
+   - Run `make lint` to check for common issues before submitting.
 
    **UI Code**:
    - Follow the project's ESLint configuration.
@@ -231,8 +231,7 @@ All code must be reviewed by at least one [maintainer](https://github.com/kagent
 
    - Add unit tests for new functionality.
    - Ensure existing tests pass.
-   - Include integration and e2e tests when needed.
-   - Run the full test suite: `make test` (in respective directories)
+   - Include e2e tests when needed.
 
 3. **Documentation**
 
@@ -241,52 +240,14 @@ All code must be reviewed by at least one [maintainer](https://github.com/kagent
    - Update API documentation if changing interfaces.
    - Add examples for new features.
 
-4. **Change management**
-
-   - Follow [Conventional Commits](https://www.conventionalcommits.org/) specification:
-     - `feat`: A new feature
-     - `fix`: A bug fix
-     - `docs`: Documentation only changes
-     - `style`: Changes that do not affect the meaning of the code
-     - `refactor`: A code change that neither fixes a bug nor adds a feature
-     - `perf`: A code change that improves performance
-     - `test`: Adding missing tests or correcting existing tests
-     - `chore`: Changes to the build process or auxiliary tools
-   - If your PR potentially introduces a breaking change, make sure to call it out in the PR description, explaining how it follows the agreed-upon design from your issue.
-   - Please address or acknowledge review comments on your PRs.
-   - If you are reviewing, please try to leave helpful, polite, substantive comments. Minor preferences can be called out with `nit`.
-   - Write a PR description that can be pulled into a changelog.
-
-**Example commit message**:
-```
-feat(controller): add support for custom resource validation
-
-This adds validation for the Agent custom resource to ensure
-that the configuration is valid before applying it to the cluster.
-
-Closes #123
-```
-
 ## Documentation
 
-The kagent documentation lives at [kagent.dev/docs](https://kagent.dev/docs/kagent). Documentation updates should be included in the same PR as code changes when possible. For documentation-only changes or large documentation updates, please:
-
-1. Update the relevant documentation files
-2. Test documentation locally if possible
-3. Include screenshots or examples where helpful
-4. Update the README if necessary
+The kagent documentation lives at [kagent.dev/docs](https://kagent.dev/docs/kagent). The code lives at [kagent website](https://github.com/kagent-dev/website).
 
 ## Get in touch
 
 * [CNCF Slack](https://cloud-native.slack.com/archives/C08ETST0076): The `#kagent-dev` channel is the best way to get in touch and ask quick questions of the community.
 * [Discord](https://discord.gg/Fu3k65f2k3): For real-time discussions and community support.
-* [GitHub discussions](https://github.com/kagent-dev/kagent/discussions): For more in-depth discussions and questions related to project functionality that is not as ephemeral as the Slack/Discord channels.
 * [GitHub issues](https://github.com/kagent-dev/kagent/issues): For raising bugs, feature requests, CI flakes, and other issues.
 * [Community calendar](https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20): For regular community meetings.
 * [Website](https://kagent.dev/): For general information and the blog.
-
----
-
-## License
-
-By contributing to this project, you agree that your contributions will be licensed under the Apache 2.0 license.
