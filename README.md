@@ -106,7 +106,7 @@ There are many ways to get involved:
 - 🐛 [Report bugs and issues](https://github.com/kagent-dev/kagent/issues/)
 - 💡 [Suggest new features](https://github.com/kagent-dev/kagent/issues/)
 - 📖 [Improve documentation](https://github.com/kagent-dev/website/)
-- 🔧 [Submit pull requests](/CONTRIBUTING.md)
+- 🔧 [Submit pull requests](/CONTRIBUTION.md)
 - ⭐ Star the repository
 - 💬 [Help others in Discord](https://discord.gg/Fu3k65f2k3)
 - 💬 [Join the kagent community meetings](https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20)

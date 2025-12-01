@@ -5,7 +5,7 @@ _This document provides a General Technical Review of the kagent project. This i
 - **Project:** kagent
 - **Project Version:** v0.7.5
 - **Website:** [https://kagent.dev](https://kagent.dev)
-- **Date Updated:** 2025-11-30
+- **Date Updated:** 2025-12-01
 - **Template Version:** v1.0
 - **Description:** kagent is a Kubernetes native framework for building AI agents. Kubernetes is the most popular orchestration platform for running workloads, and **kagent** makes it easy to build, deploy and manage AI agents in Kubernetes. The **kagent** framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
@@ -610,7 +610,7 @@ Documentation for security configuration: https://kagent.dev/docs/kagent (securi
 3. **Vulnerability Scanning**:
    - Trivy scans for container images
    - `govulncheck` for Go dependencies
-   - `uv runpip-audit` for Python dependencies
+   - `uv run pip-audit` for Python dependencies
    - `npm audit` for UI dependencies
    - Run via `make audit` (see [Makefile](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/Makefile))
 4. **Dependency Management**:
