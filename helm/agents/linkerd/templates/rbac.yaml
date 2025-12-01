@@ -11,8 +11,15 @@ rules:
     - namespaces
     - services
     - endpoints
+    - nodes
     - pods
     - persistentvolumeclaims
+  verbs:
+    - "*"
+- apiGroups:
+    - discovery.k8s.io
+  resources:
+    - endpointslices
   verbs:
     - "*"
 - apiGroups:
@@ -89,6 +96,12 @@ rules:
   verbs:
     - "*"
 - apiGroups:
+    - apiregistration.k8s.io
+  resources:
+    - apiservices
+  verbs:
+    - "*"
+- apiGroups:
     - ''
   resources:
     - secrets
@@ -97,11 +110,12 @@ rules:
   verbs:
     - "*"
 - apiGroups:
-    - networking.istio.io
-    - security.istio.io
-    - telemetry.istio.io
-    - extensions.istio.io
-    - install.istio.io
+    - linkerd.io
+    - policy.linkerd.io
+    - multicluster.linkerd.io
+    - serviceprofiles.linkerd.io
+    - split.smi-spec.io
+    - tap.linkerd.io
     - gateway.networking.k8s.io
   resources:
     - "*"

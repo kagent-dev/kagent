@@ -35,6 +35,19 @@ from kagent.tools.istio._istioctl import (
     remote_clusters,
     ztunnel_config,
 )
+from kagent.tools.linkerd._linkerd import (
+    check,
+    edges,
+    install_linkerd,
+    proxy_check,
+    proxy_metrics,
+    routes,
+    stat,
+    tap,
+    version,
+    viz_check,
+    viz_install,
+)
 from kagent.tools.k8s._kubectl import (
     annotate_resource,
     apply_manifest,
@@ -214,6 +227,23 @@ def argo():
     mcp.add_tool(pause_rollout._func, pause_rollout.name, pause_rollout.description)
     mcp.add_tool(promote_rollout._func, promote_rollout.name, promote_rollout.description)
     mcp.add_tool(set_rollout_image._func, set_rollout_image.name, set_rollout_image.description)
+
+    mcp.run()
+
+
+@app.command()
+def linkerd():
+    mcp.add_tool(version._func, version.name, version.description)
+    mcp.add_tool(install_linkerd._func, install_linkerd.name, install_linkerd.description)
+    mcp.add_tool(check._func, check.name, check.description)
+    mcp.add_tool(proxy_check._func, proxy_check.name, proxy_check.description)
+    mcp.add_tool(viz_install._func, viz_install.name, viz_install.description)
+    mcp.add_tool(viz_check._func, viz_check.name, viz_check.description)
+    mcp.add_tool(edges._func, edges.name, edges.description)
+    mcp.add_tool(stat._func, stat.name, stat.description)
+    mcp.add_tool(routes._func, routes.name, routes.description)
+    mcp.add_tool(tap._func, tap.name, tap.description)
+    mcp.add_tool(proxy_metrics._func, proxy_metrics.name, proxy_metrics.description)
 
     mcp.run()
 

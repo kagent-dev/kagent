@@ -36,6 +36,7 @@ FROM python-os AS python-builder
 ARG TARGETARCH
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
+ARG TOOLS_LINKERD_VERSION
 
 RUN mkdir -p /app/downloads /usr/local/bin/
 WORKDIR /app/downloads
@@ -51,6 +52,9 @@ RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$TOOLS_ISTIO_VERSION 
     && mv istio-*/bin/istioctl /usr/local/bin/istioctl \
     && rm -rf istio-*
 
+RUN curl -sLo /usr/local/bin/linkerd https://github.com/linkerd/linkerd2/releases/download/${TOOLS_LINKERD_VERSION}/linkerd2-cli-${TOOLS_LINKERD_VERSION}-linux-${TARGETARCH} \
+    && chmod +x /usr/local/bin/linkerd
+
 # Install Helm
 RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
     && chmod 700 get_helm.sh \
@@ -64,6 +68,7 @@ COPY --from=python-builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 COPY --from=python-builder /usr/local/bin/istioctl /usr/local/bin/istioctl
 COPY --from=python-builder /usr/local/bin/helm /usr/local/bin/helm
 COPY --from=python-builder /usr/local/bin/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
+COPY --from=python-builder /usr/local/bin/linkerd /usr/local/bin/linkerd
 
 COPY pyproject.toml .
 COPY .python-version .

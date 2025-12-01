@@ -39,6 +39,7 @@ TOOLS_K9S_VERSION ?= 0.50.4
 TOOLS_KIND_VERSION ?= 0.27.0
 TOOLS_NODE_VERSION ?= 22.15.0
 TOOLS_ISTIO_VERSION ?= 1.26.0
+TOOLS_LINKERD_VERSION ?= edge-25.10.7
 TOOLS_ARGO_CD_VERSION ?= 3.0.0
 TOOLS_KUBECTL_VERSION ?= 1.33.4
 
@@ -51,6 +52,7 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_K9S_VERSION=$(TOOLS_K9S_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KIND_VERSION=$(TOOLS_KIND_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ISTIO_VERSION=$(TOOLS_ISTIO_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_LINKERD_VERSION=$(TOOLS_LINKERD_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_ARGO_CD_VERSION=$(TOOLS_ARGO_CD_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_KUBECTL_VERSION=$(TOOLS_KUBECTL_VERSION)
 
@@ -68,6 +70,7 @@ print-tools-versions:
 	@echo "Tools Kind   : $(TOOLS_KIND_VERSION)"
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
+	@echo "Tools Linkerd: $(TOOLS_LINKERD_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
 # Check if OPENAI_API_KEY is set
@@ -186,6 +189,8 @@ helm-agents:
 	helm package helm/agents/kgateway
 	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
 	helm package helm/agents/istio
+	VERSION=$(VERSION) envsubst < helm/agents/linkerd/Chart-template.yaml > helm/agents/linkerd/Chart.yaml
+	helm package helm/agents/linkerd
 	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
 	helm package helm/agents/promql
 	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml

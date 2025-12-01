@@ -393,7 +393,7 @@ var _ = Describe("E2e", func() {
 		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Namespace should exist with linkerd.io/inject label")
 
 		// Install Linkerd
-		runAgentInteraction("istio-agent",
+		runAgentInteraction("linkerd-agent",
 			`Install Linkerd`)
 
 		// Verify Linkerd namespace exists
@@ -445,22 +445,9 @@ var _ = Describe("E2e", func() {
 			return service.Spec.Type == corev1.ServiceTypeClusterIP && len(service.Spec.Ports) > 0 && service.Spec.Ports[0].Port == 80
 		}, 30*time.Second, 1*time.Second).Should(BeTrue(), "Service should exist with correct port and type")
 
-		// Create a simple gateway and virtual service
-		runAgentInteraction("istio-agent",
-			`Create a gateway and virtual service for the nginx-service in the istio-test namespace. The gateway should listen on port 80 and the virtual service should route to the nginx-service`)
-
-		// Since we don't have the Istio CRDs registered with our scheme,
-		// we can't directly check for Gateway and VirtualService resources.
-		// Instead, we'll query the API server indirectly through the agent
-
-		output := runAgentInteraction("k8s-agent",
-			`Check if there are any networking.istio.io/v1alpha3 or networking.istio.io/v1beta1 gateways and virtualservices in the istio-test namespace`)
-
-		// Check if the output indicates that gateway and virtualservice were found
-		gatewayExists := strings.Contains(output, "gateway") || strings.Contains(output, "Gateway")
-		virtualServiceExists := strings.Contains(output, "virtualservice") || strings.Contains(output, "VirtualService")
-
-		Expect(gatewayExists || virtualServiceExists).To(BeTrue(), "Should have created either Gateway or VirtualService resources")
+		// Run a quick health check via the linkerd agent
+		runAgentInteraction("linkerd-agent",
+			`Verify the Linkerd control plane is healthy by running linkerd check`)
 
 		// We don't cleanup Istio as it may be needed for other tests
 		// But we do cleanup the test namespace

@@ -1,4 +1,4 @@
-from typing import Annotated, List, Optional
+from typing import Annotated, Optional
 
 from autogen_core.tools import FunctionTool
 
@@ -6,227 +6,262 @@ from .._utils import create_typed_fn_tool
 from ..common import run_command
 
 
-async def _ztunnel_config(
-    ns: Annotated[Optional[str], "The namespace of the pod to get proxy configuration for"] = None,
-    config_type: Annotated[
-        Optional[str],
-        "The type of configuration to get, the allowed values are: all, bootstrap, cluster, ecds, listener, log, route, secret",
-    ] = "all",
-) -> str:
-    return _run_istioctl_command(f"ztunnel-config {config_type} {'-n ' + ns if ns else ''}")
+def _run_linkerd_command(command: str, timeout: Optional[float] = None) -> str:
+    """Run a linkerd command with simple arguments."""
+    return run_command("linkerd", command.split(), timeout=timeout)
 
 
-async def _waypoint_status(
-    name: Annotated[str, "Name of the waypoint to get status for"],
-    ns: Annotated[str, "Namespace of the waypoint to get status for"],
-) -> str:
-    return _run_istioctl_command(f"waypoint status {name if name else ''} {f'-n {ns} ' if ns else ''}")
-
-
-async def _list_waypoints(
-    ns: Annotated[Optional[str], "Namespace to list waypoints for"] = None,
-    all_namespaces: Annotated[Optional[bool], "List waypoints for all namespaces"] = False,
-) -> str:
-    return _run_istioctl_command(f"waypoint list {f'-n {ns} ' if ns else ''} {'-A' if all_namespaces else ''}")
-
-
-async def _generate_waypoint(
-    ns: Annotated[str, "Namespace to generate the waypoint for"],
-    name: Annotated[Optional[str], "Name of the waypoint to generate"] = "waypoint",
-    traffic_type: Annotated[str, "Traffic type for the waypoint"] = "all",
-) -> str:
-    return _run_istioctl_command(
-        f"waypoint generate {name if name else ''} {f'-n {ns} ' if ns else ''} {f'--for {traffic_type}' if traffic_type else ''}"
-    )
-
-
-async def _delete_waypoint(
-    name: Annotated[List[str], "Name of the waypoints to delete"],
-    ns: Annotated[str, "Namespace to delete the waypoint from"],
-    all: Annotated[bool, "Delete all waypoints in the namespace"],
-) -> str:
-    return _run_istioctl_command(
-        f"waypoint delete {' '.join(name)} {f'-n {ns} ' if ns else ''} {'--all' if all else ''}"
-    )
-
-
-async def _apply_waypoint(
-    ns: Annotated[str, "Namespace to apply the waypoint to"],
-    enroll_namespace: Annotated[bool, "If set, the namespace will be labeled with the waypoint name"],
-) -> str:
-    return _run_istioctl_command(
-        f"waypoint apply {'-n ' + ns if ns else ''} {'--enroll-namespace' if enroll_namespace else ''}"
-    )
-
-
-async def _remote_clusters() -> str:
-    return _run_istioctl_command("remote-clusters")
-
-
-async def _analyze_cluster_configuration() -> str:
-    return _run_istioctl_command("analyze")
-
-
-async def _proxy_status(
-    pod_name: Annotated[Optional[str], "The name of the pod to get Envoy proxy status for"] = None,
-    ns: Annotated[Optional[str], "The namespace of the pod to get Envoy proxy status for"] = None,
-) -> str:
-    return _run_istioctl_command(f"proxy-status {'-n ' + ns if ns else ''} {pod_name if pod_name else ''}")
-
-
-async def _install_istio(
-    profile: Annotated[
-        str, "Istio configuration profile to install, the allowed values are: ambient, default, demo, minimal, empty"
-    ],
-) -> str:
-    return _run_istioctl_command(f"install --set profile={profile} -y")
-
-
-async def _proxy_config(
-    pod_name: Annotated[str, "The name of the pod to get proxy configuration for"],
-    ns: Annotated[Optional[str], "The namespace of the pod to get proxy configuration for"] = None,
-    config_type: Annotated[
-        Optional[str],
-        "The type of configuration to get, the allowed values are: all, bootstrap, cluster, ecds, listener, log, route, secret",
-    ] = "all",
-) -> str:
-    return _run_istioctl_command(f"proxy-config {config_type} {pod_name}{'.' + ns if ns else ''}")
-
-
-async def _generate_manifest(
-    profile: Annotated[
-        str,
-        "Istio configuration profile to generate manifest for, the allowed values are: ambient, default, demo, minimal, empty",
-    ],
-) -> str:
-    return _run_istioctl_command(f"manifest generate --set profile={profile}")
+def _run_linkerd_shell_command(command: str, timeout: Optional[float] = None) -> str:
+    """Run a linkerd command that requires shell features (e.g., pipes)."""
+    return run_command("sh", ["-c", command], timeout=timeout)
 
 
 async def _version() -> str:
-    return _run_istioctl_command("version")
+    return _run_linkerd_command("version")
+
+
+async def _install_linkerd(
+    ha: Annotated[bool, "Install the high-availability configuration"] = False,
+    skip_crds: Annotated[bool, "Skip applying CRDs if they already exist"] = False,
+) -> str:
+    flags = " --ha" if ha else ""
+    outputs: list[str] = []
+
+    if not skip_crds:
+        outputs.append(_run_linkerd_shell_command(f"linkerd install --crds{flags} | kubectl apply -f -"))
+
+    outputs.append(_run_linkerd_shell_command(f"linkerd install{flags} | kubectl apply -f -"))
+    return "\n".join(outputs)
+
+
+async def _check(pre: Annotated[bool, "Run pre-installation checks"] = False) -> str:
+    return _run_linkerd_command(f"check{' --pre' if pre else ''}")
+
+
+async def _proxy_check(
+    ns: Annotated[Optional[str], "Namespace to validate proxy health for"] = None,
+) -> str:
+    return _run_linkerd_command(f"check --proxy{' -n ' + ns if ns else ''}")
+
+
+async def _viz_install(
+    ha: Annotated[bool, "Install the viz extension in high-availability mode"] = False,
+) -> str:
+    flags = " --ha" if ha else ""
+    return _run_linkerd_shell_command(f"linkerd viz install{flags} | kubectl apply -f -")
+
+
+async def _viz_check() -> str:
+    return _run_linkerd_command("viz check")
+
+
+async def _edges(
+    resource: Annotated[str, "Target resource to inspect (e.g., deploy/nginx)"],
+    ns: Annotated[Optional[str], "Namespace of the resource"] = None,
+) -> str:
+    return _run_linkerd_command(f"edges {resource}{' -n ' + ns if ns else ''}")
+
+
+async def _stat(
+    resource: Annotated[str, "Target resource to inspect (e.g., deploy/nginx)"],
+    ns: Annotated[Optional[str], "Namespace of the resource"] = None,
+    time_window: Annotated[Optional[str], "Time window (e.g., 1m, 5m)"] = "1m",
+) -> str:
+    return _run_linkerd_command(
+        f"stat {resource}{' -n ' + ns if ns else ''}{' -t ' + time_window if time_window else ''}"
+    )
+
+
+async def _routes(
+    resource: Annotated[str, "Target resource to inspect routes for (e.g., deploy/nginx)"],
+    ns: Annotated[Optional[str], "Namespace of the resource"] = None,
+) -> str:
+    return _run_linkerd_command(f"routes {resource}{' -n ' + ns if ns else ''}")
+
+
+async def _controller_metrics() -> str:
+    return _run_linkerd_command("diagnostics controller-metrics")
+
+
+async def _diagnostics_endpoints(
+    authority: Annotated[str, "Authority to introspect (e.g., web.linkerd-viz.svc.cluster.local:8084)"],
+) -> str:
+    return _run_linkerd_command(f"diagnostics endpoints {authority}")
+
+
+async def _diagnostics_policy(
+    resource: Annotated[str, "Resource to inspect policy state for (e.g., deploy/web)"],
+    port: Annotated[str, "Port to query on the resource (e.g., 80)"],
+    ns: Annotated[Optional[str], "Namespace of the resource"] = None,
+) -> str:
+    ns_flag = f" -n {ns}" if ns else ""
+    return _run_linkerd_command(f"diagnostics policy{ns_flag} {resource} {port}")
+
+
+async def _diagnostics_profile(
+    resource: Annotated[str, "Resource to inspect profile/service discovery state for (e.g., deploy/web)"],
+    ns: Annotated[Optional[str], "Namespace of the resource"] = None,
+) -> str:
+    return _run_linkerd_command(f"diagnostics profile {resource}{' -n ' + ns if ns else ''}")
+
+
+async def _tap(
+    resource: Annotated[str, "Target resource to tap (e.g., ns/simple-app or deploy/nginx)"],
+    ns: Annotated[Optional[str], "Namespace of the resource"] = None,
+    duration: Annotated[
+        Optional[str],
+        "Not executed here; included for compatibility. The suggested command streams until stopped.",
+    ] = "10s",
+    max_rps: Annotated[Optional[int], "Optional max sample rate to include in the suggested command"] = None,
+) -> str:
+    target_display = resource if not ns else f"{resource} (namespace: {ns})"
+    example_command = f"linkerd viz tap {resource}{' -n ' + ns if ns else ''}{' --max-rps ' + str(max_rps) if max_rps else ''}"
+
+    return (
+        'The "linkerd tap" command you are trying to use is deprecated and expects usage via the "linkerd viz tap" command instead.\n\n'
+        'Unfortunately, I cannot directly run the "linkerd viz tap" command in this environment. But I can help you craft the exact command you should run on your local machine or environment with the Linkerd CLI installed.\n\n'
+        f'For example, to tap the target "{target_display}" you want to observe, the command is:\n\n'
+        f"{example_command}\n\n"
+        "This command will stream live requests until you stop it (Ctrl+C). You can add filters such as --method, --to, or --path to narrow down the requests.\n\n"
+        "Would you like me to help you create specific tap commands or assist with any other Linkerd diagnostics?"
+    )
+
+
+async def _proxy_metrics(
+    pod: Annotated[str, "Pod name to retrieve proxy metrics for"],
+    ns: Annotated[Optional[str], "Namespace of the pod"] = None,
+) -> str:
+    return _run_linkerd_command(f"diagnostics proxy-metrics {pod}{' -n ' + ns if ns else ''}")
 
 
 version = FunctionTool(
     _version,
-    description="Returns the Linkerd CLI client version, control plane and the data plane versions and number of proxies running in the cluster. If Linkerd is not installed, it will return the Linkerd CLI client version.",
+    description="Returns the Linkerd CLI client version and control-plane version information.",
     name="version",
 )
 
 Version, VersionConfig = create_typed_fn_tool(version, "kagent.tools.linkerd.Version", "Version")
 
-ztunnel_config = FunctionTool(
-    _ztunnel_config,
-    description="Get ztunnel configuration",
-    name="ztunnel_config",
-)
-
-ZTunnelConfig, ZTunnelConfigConfig = create_typed_fn_tool(
-    ztunnel_config, "kagent.tools.istio.ZTunnelConfig", "ZTunnelConfig"
-)
-
-waypoint_status = FunctionTool(
-    _waypoint_status,
-    description="Get status of a waypoint",
-    name="waypoint_status",
-)
-
-WaypointStatus, WaypointStatusConfig = create_typed_fn_tool(
-    waypoint_status, "kagent.tools.istio.WaypointStatus", "WaypointStatus"
-)
-
-list_waypoints = FunctionTool(
-    _list_waypoints,
-    description="List managed waypoint configurations in the cluster",
-    name="list_waypoints",
-)
-
-ListWaypoints, ListWaypointsConfig = create_typed_fn_tool(
-    list_waypoints, "kagent.tools.istio.ListWaypoints", "ListWaypoints"
-)
-
-generate_waypoint = FunctionTool(
-    _generate_waypoint,
-    description="Generate a waypoint configuration as YAML",
-    name="generate_waypoint",
-)
-
-GenerateWaypoint, GenerateWaypointConfig = create_typed_fn_tool(
-    generate_waypoint, "kagent.tools.istio.GenerateWaypoint", "GenerateWaypoint"
-)
-
-delete_waypoint = FunctionTool(
-    _delete_waypoint,
-    description="Delete a waypoint configuration from a cluster",
-    name="delete_waypoint",
-)
-
-DeleteWaypoint, DeleteWaypointConfig = create_typed_fn_tool(
-    delete_waypoint, "kagent.tools.istio.DeleteWaypoint", "DeleteWaypoint"
-)
-
-apply_waypoint = FunctionTool(
-    _apply_waypoint, description="Apply a waypoint configuration to a cluster", name="apply_waypoint"
-)
-
-ApplyWaypoint, ApplyWaypointConfig = create_typed_fn_tool(
-    apply_waypoint, "kagent.tools.istio.ApplyWaypoint", "ApplyWaypoint"
-)
-
-remote_clusters = FunctionTool(
-    _remote_clusters,
-    description="Lists the remote clusters each istiod instance is connected to",
-    name="remote_clusters",
-)
-
-RemoteClusters, RemoteClustersConfig = create_typed_fn_tool(
-    remote_clusters, "kagent.tools.istio.RemoteClusters", "RemoteClusters"
-)
-
-proxy_status = FunctionTool(
-    _proxy_status,
-    description="Get Envoy proxy status for a pod, retrieves last sent and last acknowledged xDS sync from Istiod to each Envoy in the mesh",
-    name="proxy_status",
-)
-
-ProxyStatus, ProxyStatusConfig = create_typed_fn_tool(proxy_status, "kagent.tools.istio.ProxyStatus", "ProxyStatus")
-
-generate_manifest = FunctionTool(
-    _generate_manifest,
-    description="Generates an Istio install manifest and outputs to the console by default.",
-    name="generate_manifest",
-)
-
-GenerateManifest, GenerateManifestConfig = create_typed_fn_tool(
-    generate_manifest, "kagent.tools.istio.GenerateManifest", "GenerateManifest"
-)
-
 install_linkerd = FunctionTool(
     _install_linkerd,
-    description="Install linkerd",
+    description="Install or upgrade the Linkerd control plane (CRDs plus core components).",
     name="install_linkerd",
 )
 
-Installlinkerd, InstalllinkerdConfig = create_typed_fn_tool(install_linkerd, "kagent.tools.linkerd.Install", "Install")
-
-analyze_cluster_configuration = FunctionTool(
-    _analyze_cluster_configuration,
-    description="Analyzes live cluster configuration",
-    name="analyze_cluster_configuration",
+InstallLinkerd, InstallLinkerdConfig = create_typed_fn_tool(
+    install_linkerd, "kagent.tools.linkerd.InstallLinkerd", "InstallLinkerd"
 )
 
-AnalyzeClusterConfig, AnalyzeClusterConfigConfig = create_typed_fn_tool(
-    analyze_cluster_configuration, "kagent.tools.istio.AnalyzeClusterConfig", "AnalyzeClusterConfig"
+check = FunctionTool(
+    _check,
+    description="Run Linkerd pre- or post-installation checks.",
+    name="check",
 )
 
-proxy_config = FunctionTool(
-    _proxy_config,
-    description="Get specific proxy configuration for a single pod",
-    name="proxy_config",
+Check, CheckConfig = create_typed_fn_tool(check, "kagent.tools.linkerd.Check", "Check")
+
+proxy_check = FunctionTool(
+    _proxy_check,
+    description="Validate Linkerd proxies in a namespace.",
+    name="proxy_check",
 )
 
-ProxyConfig, ProxyConfigConfig = create_typed_fn_tool(proxy_config, "kagent.tools.istio.ProxyConfig", "ProxyConfig")
+ProxyCheck, ProxyCheckConfig = create_typed_fn_tool(proxy_check, "kagent.tools.linkerd.ProxyCheck", "ProxyCheck")
 
+viz_install = FunctionTool(
+    _viz_install,
+    description="Install the Linkerd viz extension.",
+    name="viz_install",
+)
 
-# Function that runs the linkerd command in the shell
-def _run_istioctl_command(command: str) -> str:
-    return run_command("linkerd", command.split(" "))
+VizInstall, VizInstallConfig = create_typed_fn_tool(viz_install, "kagent.tools.linkerd.VizInstall", "VizInstall")
+
+viz_check = FunctionTool(
+    _viz_check,
+    description="Validate the Linkerd viz extension.",
+    name="viz_check",
+)
+
+VizCheck, VizCheckConfig = create_typed_fn_tool(viz_check, "kagent.tools.linkerd.VizCheck", "VizCheck")
+
+edges = FunctionTool(
+    _edges,
+    description="Inspect live connections between services.",
+    name="edges",
+)
+
+Edges, EdgesConfig = create_typed_fn_tool(edges, "kagent.tools.linkerd.Edges", "Edges")
+
+stat = FunctionTool(
+    _stat,
+    description="Show success rates, latencies, and request volumes for a resource.",
+    name="stat",
+)
+
+Stat, StatConfig = create_typed_fn_tool(stat, "kagent.tools.linkerd.Stat", "Stat")
+
+routes = FunctionTool(
+    _routes,
+    description="Display per-route success rates for a resource.",
+    name="routes",
+)
+
+Routes, RoutesConfig = create_typed_fn_tool(routes, "kagent.tools.linkerd.Routes", "Routes")
+
+tap = FunctionTool(
+    _tap,
+    description="Provide instructions for running linkerd viz tap manually (linkerd tap is deprecated and not executed here).",
+    name="tap",
+)
+
+Tap, TapConfig = create_typed_fn_tool(tap, "kagent.tools.linkerd.Tap", "Tap")
+
+controller_metrics = FunctionTool(
+    _controller_metrics,
+    description="Fetch metrics directly from Linkerd control-plane containers.",
+    name="controller_metrics",
+)
+
+ControllerMetrics, ControllerMetricsConfig = create_typed_fn_tool(
+    controller_metrics, "kagent.tools.linkerd.ControllerMetrics", "ControllerMetrics"
+)
+
+diagnostics_endpoints = FunctionTool(
+    _diagnostics_endpoints,
+    description="Introspect Linkerd's service discovery state for an authority.",
+    name="diagnostics_endpoints",
+)
+
+DiagnosticsEndpoints, DiagnosticsEndpointsConfig = create_typed_fn_tool(
+    diagnostics_endpoints, "kagent.tools.linkerd.DiagnosticsEndpoints", "DiagnosticsEndpoints"
+)
+
+diagnostics_policy = FunctionTool(
+    _diagnostics_policy,
+    description="Inspect Linkerd policy state for a resource.",
+    name="diagnostics_policy",
+)
+
+DiagnosticsPolicy, DiagnosticsPolicyConfig = create_typed_fn_tool(
+    diagnostics_policy, "kagent.tools.linkerd.DiagnosticsPolicy", "DiagnosticsPolicy"
+)
+
+diagnostics_profile = FunctionTool(
+    _diagnostics_profile,
+    description="Inspect Linkerd profile/service discovery state for a resource.",
+    name="diagnostics_profile",
+)
+
+DiagnosticsProfile, DiagnosticsProfileConfig = create_typed_fn_tool(
+    diagnostics_profile, "kagent.tools.linkerd.DiagnosticsProfile", "DiagnosticsProfile"
+)
+
+proxy_metrics = FunctionTool(
+    _proxy_metrics,
+    description="Fetch metrics from a specific Linkerd proxy.",
+    name="proxy_metrics",
+)
+
+ProxyMetrics, ProxyMetricsConfig = create_typed_fn_tool(
+    proxy_metrics, "kagent.tools.linkerd.ProxyMetrics", "ProxyMetrics"
+)

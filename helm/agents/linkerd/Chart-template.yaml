@@ -1,4 +1,4 @@
-apiVersion: v1
+apiVersion: v2
 name: linkerd-agent
 description: A Linkerd Agent for kagent
 type: application
