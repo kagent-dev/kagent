@@ -1,0 +1,378 @@
+# GitHub MCP Server Configuration
+# This Helm chart provides configurable access to GitHub MCP Server tools.
+# All tools are disabled by default and must be explicitly enabled.
+
+# -- Base URL for GitHub MCP Server API
+baseUrl: "https://api.githubcopilot.com/mcp"
+
+# -- GitHub API token for authentication
+# This creates a new secret during chart installation (not recommended for production)
+# For referencing existing secrets, use tokenSecretRef instead
+tokenSecret: {}
+  # -- Name of the secret to be created
+  # name: "github-mcp-server-token"
+  # -- Key within the secret containing the token
+  # key: "token"
+  # -- The token value
+  # value: "ghp_..."
+
+# -- Reference existing token secret globally (alternative to tokenSecret)
+# If specified, this takes precedence over tokenSecret for all toolsets
+# Both name and key are required when using tokenSecretRef
+tokenSecretRef: {}
+  # name: "existing-global-secret"  # Name of existing secret (required)
+  # key: "github-token"             # Key within the secret (required)
+
+# -- HTTP timeout for requests
+timeout: "30s"
+
+# -- Common description prefix for all ToolServers
+descriptionPrefix: "Official GitHub MCP Remote Server"
+
+# Available GitHub MCP Server tools
+# Each endpoint can be enabled with readwrite and readonly access
+tools:
+  # All available GitHub MCP toolsets
+  all:
+    # -- Enable all toolsets endpoint
+    enabled: false
+    # -- Enable readonly access to all tools
+    readonly: false
+    # -- Enable readwrite access to all tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "all available tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # GitHub Actions workflows and CI/CD operations
+  actions:
+    # -- Enable GitHub Actions tools
+    enabled: false
+    # -- Enable readonly access to GitHub Actions tools
+    readonly: false
+    # -- Enable readwrite access to GitHub Actions tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "GitHub Actions workflows and CI/CD operations"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # Code security related tools
+  codeSecurity:
+    # -- Enable code security tools
+    enabled: false
+    # -- Enable readonly access to code security tools
+    readonly: false
+    # -- Enable readwrite access to code security tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "code security related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # Dependabot tools
+  dependabot:
+    # -- Enable Dependabot tools
+    enabled: false
+    # -- Enable readonly access to Dependabot tools
+    readonly: false
+    # -- Enable readwrite access to Dependabot tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "Dependabot tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # GitHub Discussions related tools
+  discussions:
+    # -- Enable GitHub Discussions tools
+    enabled: false
+    # -- Enable readonly access to GitHub Discussions tools
+    readonly: false
+    # -- Enable readwrite access to GitHub Discussions tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "GitHub Discussions related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # Experimental features
+  experiments:
+    # -- Enable experimental tools
+    enabled: false
+    # -- Enable readonly access to experimental tools
+    readonly: false
+    # -- Enable readwrite access to experimental tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "experimental features"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # GitHub Issues related tools
+  issues:
+    # -- Enable GitHub Issues tools
+    enabled: false
+    # -- Enable readonly access to GitHub Issues tools
+    readonly: false
+    # -- Enable readwrite access to GitHub Issues tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "GitHub Issues related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # GitHub Notifications related tools
+  notifications:
+    # -- Enable GitHub Notifications tools
+    enabled: false
+    # -- Enable readonly access to GitHub Notifications tools
+    readonly: false
+    # -- Enable readwrite access to GitHub Notifications tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "GitHub Notifications related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # GitHub Organization related tools
+  organizations:
+    # -- Enable GitHub Organization tools
+    enabled: false
+    # -- Enable readonly access to GitHub Organization tools
+    readonly: false
+    # -- Enable readwrite access to GitHub Organization tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "GitHub Organization related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # GitHub Pull Request related tools
+  pullRequests:
+    # -- Enable GitHub Pull Request tools
+    enabled: false
+    # -- Enable readonly access to GitHub Pull Request tools
+    readonly: false
+    # -- Enable readwrite access to GitHub Pull Request tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "GitHub Pull Request related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # GitHub Repository related tools
+  repositories:
+    # -- Enable GitHub Repository tools
+    enabled: false
+    # -- Enable readonly access to GitHub Repository tools
+    readonly: false
+    # -- Enable readwrite access to GitHub Repository tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "GitHub Repository related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # Secret protection related tools
+  secretProtection:
+    # -- Enable secret protection tools
+    enabled: false
+    # -- Enable readonly access to secret protection tools
+    readonly: false
+    # -- Enable readwrite access to secret protection tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "secret protection related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+  # GitHub User related tools
+  users:
+    # -- Enable GitHub User tools
+    enabled: false
+    # -- Enable readonly access to GitHub User tools
+    readonly: false
+    # -- Enable readwrite access to GitHub User tools
+    readwrite: false
+    # -- Description for this toolset
+    description: "GitHub User related tools"
+    # -- Override global timeout (optional)
+    timeout: ""
+    # -- Create new token secret for this toolset (optional)
+    tokenSecret: {}
+      # name: "custom-secret-name"  # Optional: custom name (defaults to global or <release>-<toolset>-token if value provided)
+      # key: "token"                # Optional: custom key, defaults to global key
+      # value: "ghp_..."            # Token value (Bearer prefix added automatically)
+    # -- Reference existing token secret (optional)
+    # Both name and key are required when using tokenSecretRef
+    tokenSecretRef: {}
+      # name: "existing-secret"     # Name of existing secret (required)
+      # key: "token"                # Key within the secret (required)
+
+# Example configurations:
+#
+# Enable multiple tools:
+# tools:
+#   repositories:
+#     readwrite: true
+#   pullRequests:
+#     readwrite: true
+#   issues:
+#     readonly: true
+#
+# Enable both readonly and readwrite for same tool:
+# tools:
+#   repositories:
+#     readwrite: true
+#     readonly: true
+#
+# Custom token per tool (create new secret):
+# tools:
+#   repositories:
+#     readwrite: true
+#     tokenSecret:
+#       value: "ghp_custom_token"
+#
+# Reference existing secret:
+# tools:
+#   repositories:
+#     readwrite: true
+#     tokenSecretRef:
+#       name: "existing-secret"
+#       key: "github-token"
+#
+# Override timeout for specific tool:
+# tools:
+#   actions:
+#     readwrite: true
+#     timeout: "60s"
+#
+# Custom base URL:
+# baseUrl: "https://custom.github.api.com/mcp"
+#
+# Global secret reference (applies to all toolsets):
+# tokenSecretRef:
+#   name: "global-github-secret"
+#   key: "token"

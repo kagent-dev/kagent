@@ -1,0 +1,43 @@
+package com.example.tools;
+
+import io.modelcontextprotocol.spec.McpSchema;
+import java.util.Map;
+
+/**
+ * Interface for MCP tools.
+ * 
+ * All tools should implement this interface and be registered in the Tools class.
+ * This interface provides the basic structure for MCP tools with input schema support.
+ */
+public interface Tool {
+    /**
+     * Get the name of the tool.
+     * 
+     * @return the tool name
+     */
+    String getName();
+    
+    /**
+     * Get the description of the tool.
+     * 
+     * @return the tool description
+     */
+    String getDescription();
+    
+    /**
+     * Get the input schema for the tool.
+     * This defines the expected parameters and their types.
+     * 
+     * @return the input schema as a JsonSchema
+     */
+    McpSchema.JsonSchema getInputSchema();
+    
+    /**
+     * Execute the tool with the given parameters.
+     * 
+     * @param parameters the input parameters for the tool
+     * @return the result of the tool execution
+     * @throws Exception if the tool execution fails
+     */
+    Object execute(Map<String, Object> parameters) throws Exception;
+}

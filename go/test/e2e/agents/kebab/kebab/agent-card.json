@@ -1,0 +1,19 @@
+{
+  "name": "kebab",
+  "description": "A kebab agent",
+  "url": "localhost:8080",
+  "version": "0.0.1",
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "kebab",
+      "name": "Kebab",
+      "description": "A kebab agent that responds with 'kebab'",
+      "tags": ["kebab", "test"]
+    }
+  ]
+}

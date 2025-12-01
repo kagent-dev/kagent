@@ -1,0 +1,14 @@
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: {{ include "grafana-mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "grafana-mcp.labels" . | nindent 4 }}
+spec:
+  description: Grafana MCP server
+  protocol: STREAMABLE_HTTP
+  sseReadTimeout: 5m0s
+  terminateOnClose: true
+  timeout: 30s
+  url: {{ include "grafana-mcp.serverUrl" . }}

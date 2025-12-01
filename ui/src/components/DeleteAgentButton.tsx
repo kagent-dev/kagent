@@ -4,17 +4,19 @@ import { useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { deleteTeam } from "@/app/actions/teams";
+import { deleteAgent } from "@/app/actions/agents";
 import { useAgents } from "./AgentsProvider";
 
 interface DeleteButtonProps {
-  teamLabel: string;
+  agentName: string;
+  namespace: string;
+  disabled?: boolean;
 }
 
-export function DeleteButton({ teamLabel }: DeleteButtonProps) {
+export function DeleteButton({ agentName, namespace, disabled = false }: DeleteButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { refreshTeams } = useAgents();
+  const { refreshAgents } = useAgents();
 
   const handleDelete = async (e: React.MouseEvent) => {
     // Prevent the event from bubbling up to the Card component
@@ -23,9 +25,9 @@ export function DeleteButton({ teamLabel }: DeleteButtonProps) {
 
     try {
       setIsDeleting(true);
-      await deleteTeam(teamLabel);
+      await deleteAgent(agentName, namespace);
 
-      await refreshTeams();
+      await refreshAgents();
     } catch (error) {
       console.error("Error deleting agent:", error);
     } finally {
@@ -49,9 +51,11 @@ export function DeleteButton({ teamLabel }: DeleteButtonProps) {
         onClick={(e) => {
           e.stopPropagation();
           e.preventDefault();
-          setIsOpen(true);
+          if (!disabled) {
+            setIsOpen(true);
+          }
         }}
-        disabled={isDeleting}
+        disabled={isDeleting || disabled}
       >
         {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
       </Button>

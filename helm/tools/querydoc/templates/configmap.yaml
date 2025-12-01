@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "querydoc.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "querydoc.labels" . | nindent 4 }}
+data:
+  KAGENT_NAMESPACE: {{ .Release.Namespace | quote }}
+  KAGENT_LOG_LEVEL: {{ .Values.logLevel | quote }}
+  PORT: {{ .Values.service.port | quote }}
+  TRANSPORT_TYPE: "http"
+  OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+
+  # Custom configuration
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

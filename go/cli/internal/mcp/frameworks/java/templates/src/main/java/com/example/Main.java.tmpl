@@ -1,0 +1,111 @@
+package com.example;
+
+import com.example.tools.Tools;
+import com.example.tools.Tool;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Map;
+
+/**
+ * {{.ProjectName}} MCP Server
+ * 
+ * This server automatically discovers and loads tools from the tools package.
+ * Each tool should implement the Tool interface and be registered in Tools.java.
+ * 
+ * Usage Examples:
+ *   # Stdio mode (default MCP transport)
+ *   mvn exec:java -Dexec.mainClass="com.example.Main"
+ *   
+ *   # HTTP mode with MCP protocol over HTTP
+ *   mvn exec:java -Dexec.mainClass="com.example.Main" -Dexec.args="--transport http"
+ *   
+ *   # Custom host/port
+ *   mvn exec:java -Dexec.mainClass="com.example.Main" -Dexec.args="--transport http --host localhost --port 8080"
+ *   
+ *   # Environment variable mode
+ *   MCP_TRANSPORT_MODE=http mvn exec:java -Dexec.mainClass="com.example.Main"
+ */
+public class Main {
+    private static final Logger logger = LoggerFactory.getLogger(Main.class);
+    
+    public static void main(String[] args) {
+        try {
+            // Parse command line arguments
+            ServerConfig config = parseArgs(args);
+            
+            // Check environment variable for transport mode
+            String envTransport = System.getenv("MCP_TRANSPORT_MODE");
+            if (envTransport != null && !envTransport.isEmpty()) {
+                config.setTransport(envTransport);
+            }
+            
+            // Initialize the MCP server
+            MCPServer server = new MCPServer("{{.ProjectName}}", config);
+            
+            // Load all available tools
+            Map<String, Tool> tools = Tools.getAllTools();
+            for (Tool tool : tools.values()) {
+                server.registerTool(tool);
+                logger.info("Registered tool: {}", tool.getName());
+            }
+            
+            logger.info("Starting {{.ProjectName}} MCP server with {} tools", tools.size());
+            
+            // Start the server
+            server.start();
+            
+        } catch (Exception e) {
+            logger.error("Failed to start MCP server", e);
+            System.exit(1);
+        }
+    }
+    
+    private static ServerConfig parseArgs(String[] args) {
+        ServerConfig config = new ServerConfig();
+        
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--transport":
+                    if (i + 1 < args.length) {
+                        config.setTransport(args[++i]);
+                    }
+                    break;
+                case "--host":
+                    if (i + 1 < args.length) {
+                        config.setHost(args[++i]);
+                    }
+                    break;
+                case "--port":
+                    if (i + 1 < args.length) {
+                        try {
+                            config.setPort(Integer.parseInt(args[++i]));
+                        } catch (NumberFormatException e) {
+                            logger.warn("Invalid port number: {}", args[i]);
+                        }
+                    }
+                    break;
+                case "--help":
+                    printUsage();
+                    System.exit(0);
+                    break;
+            }
+        }
+        
+        return config;
+    }
+    
+    private static void printUsage() {
+        System.out.println("Usage: java -cp target/{{.ProjectName}}-{{.Version}}.jar com.example.Main [options]");
+        System.out.println("Options:");
+        System.out.println("  --transport <stdio|http>  Transport mode (default: stdio)");
+        System.out.println("  --host <host>            Host to bind to in HTTP mode (default: localhost)");
+        System.out.println("  --port <port>            Port to bind to in HTTP mode (default: 3000)");
+        System.out.println("  --help                   Show this help message");
+        System.out.println();
+        System.out.println("Environment Variables:");
+        System.out.println("  MCP_TRANSPORT_MODE       Transport mode (stdio or http)");
+        System.out.println("  HOST                     Host to bind to in HTTP mode");
+        System.out.println("  PORT                     Port to bind to in HTTP mode");
+    }
+}

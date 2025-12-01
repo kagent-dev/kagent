@@ -1,0 +1,9 @@
+apiVersion: v2
+name: github-mcp-server
+description: A Helm chart for GitHub MCP Remote Server with configurable endpoints
+type: application
+version: 0.1.0
+appVersion: "0.6.0"
+sources:
+  - https://github.com/github/github-mcp-server
+  - https://github.com/kagent-dev/kagent

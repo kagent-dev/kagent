@@ -1,0 +1,35 @@
+suite: test readonly toolservers
+tests:
+  - it: should create readonly toolserver when readonly is enabled
+    template: templates/toolserver.yaml
+    set:
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readonly: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ToolServer
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-github-mcp-server-repositories-readonly
+      - equal:
+          path: spec.config.streamableHttp.url
+          value: https://api.githubcopilot.com/mcp/x/repos/readonly
+      - matchRegex:
+          path: spec.description
+          pattern: ".*GitHub Repository related tools \\(read-only\\).*"
+
+  - it: should create both readonly and readwrite toolservers
+    template: templates/toolserver.yaml
+    set:
+      tokenSecretRef.name: "test-token"
+      tokenSecretRef.key: "token"
+      tools.repositories.readonly: true
+      tools.repositories.readwrite: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ToolServer

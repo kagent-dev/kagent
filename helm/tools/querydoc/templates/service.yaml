@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "querydoc.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    kagent.dev/mcp-service: "true"
+    {{- include "querydoc.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      appProtocol: mcp
+  selector:
+    {{- include "querydoc.selectorLabels" . | nindent 4 }}

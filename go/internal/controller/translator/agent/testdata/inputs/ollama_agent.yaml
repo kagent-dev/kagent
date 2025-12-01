@@ -1,0 +1,33 @@
+operation: translateAgent
+targetObject: ollama-agent
+namespace: test
+objects:
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: ollama-model
+      namespace: test
+    spec:
+      provider: Ollama
+      model: llama3.2:latest
+      # No API key needed for Ollama
+      ollama:
+        host: "http://localhost:11434"
+        options:
+          temperature: "0.8"
+          top_p: "0.9"
+          num_ctx: "2048"
+      defaultHeaders:
+        User-Agent: "kagent/1.0"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: ollama-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent using Ollama local model
+        systemMessage: You are a helpful AI assistant running locally via Ollama.
+        modelConfig: ollama-model
+        tools: [] 

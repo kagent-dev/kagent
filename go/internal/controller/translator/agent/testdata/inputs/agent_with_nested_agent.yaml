@@ -1,0 +1,60 @@
+operation: translateAgent
+targetObject: parent-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: agent-secret
+      namespace: test
+    data:
+      foo: c3VwM3JzM2NyM3Q=  # base64 encoded "sup3rs3cr3t"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: nested-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: specialist-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A specialist agent for math problems
+        systemMessage: You are a math specialist. Focus on solving mathematical problems step by step.
+        modelConfig: nested-model
+        tools: []
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: parent-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A parent agent that can delegate to specialists
+        systemMessage: You are a coordinating agent that can delegate tasks to specialists.
+        modelConfig: nested-model
+        tools:
+          - agent:
+              name: specialist-agent
+            headersFrom:
+              - name: FOO
+                valueFrom:
+                  type: Secret
+                  name: agent-secret
+                  key: foo

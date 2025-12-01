@@ -1,0 +1,43 @@
+operation: translateAgent
+targetObject: agent-with-configmap-system-message
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5 # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: system-message-config
+      namespace: test
+    data:
+      system-message: "Speak in the style of Shakespeare."
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: default-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-configmap-system-message
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: Agent using system message from ConfigMap
+        systemMessageFrom:
+          type: ConfigMap
+          name: system-message-config
+          key: system-message
+        modelConfig: default-model
+        tools: []

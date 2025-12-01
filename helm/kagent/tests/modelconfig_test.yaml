@@ -1,0 +1,116 @@
+suite: test modelconfig
+templates:
+  - modelconfig.yaml
+tests:
+  - it: should render modelconfig with default provider
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: default-model-config
+      - equal:
+          path: spec.provider
+          value: "OpenAI"
+      - equal:
+          path: spec.model
+          value: "gpt-4.1-mini"
+
+  - it: should use openai configuration by default
+    asserts:
+      - equal:
+          path: spec.provider
+          value: "OpenAI"
+      - equal:
+          path: spec.model
+          value: "gpt-4.1-mini"
+      - equal:
+          path: spec.apiKeySecret
+          value: kagent-openai
+      - equal:
+          path: spec.apiKeySecretKey
+          value: OPENAI_API_KEY
+
+  - it: should use anthropic when set as default provider
+    set:
+      providers:
+        default: anthropic
+    asserts:
+      - equal:
+          path: spec.provider
+          value: "Anthropic"
+      - equal:
+          path: spec.model
+          value: "claude-3-5-haiku-20241022"
+      - equal:
+          path: spec.apiKeySecret
+          value: kagent-anthropic
+      - equal:
+          path: spec.apiKeySecretKey
+          value: ANTHROPIC_API_KEY
+
+  - it: should use azure openai when set as default provider
+    set:
+      providers:
+        default: azureOpenAI
+    asserts:
+      - equal:
+          path: spec.provider
+          value: "AzureOpenAI"
+      - equal:
+          path: spec.model
+          value: "gpt-4.1-mini"
+      - equal:
+          path: spec.apiKeySecret
+          value: kagent-azure-openai
+      - equal:
+          path: spec.apiKeySecretKey
+          value: AZUREOPENAI_API_KEY
+
+  - it: should configure ollama provider
+    set:
+      providers:
+        default: ollama
+    asserts:
+      - equal:
+          path: spec.provider
+          value: "Ollama"
+      - equal:
+          path: spec.model
+          value: "llama3.2"
+
+  - it: should use custom model when configured
+    set:
+      providers:
+        openAI:
+          model: "gpt-4-turbo"
+    asserts:
+      - equal:
+          path: spec.model
+          value: "gpt-4-turbo"
+
+  - it: should have correct labels
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: kagent
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm
+
+  - it: should be in correct namespace
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+
+  - it: should use custom namespace when overridden
+    set:
+      namespaceOverride: "custom-namespace"
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace 

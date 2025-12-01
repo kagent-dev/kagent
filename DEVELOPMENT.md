@@ -4,40 +4,41 @@ To understand how to develop for kagent, It's important to understand the archit
 
 When making changes to `kagent`, the most important thing is to figure out which piece of the project is affected by the change, and then make the change in the appropriate folder. Each piece of the project has its own README with more information about how to setup the development environment and run that piece of the project.
 
-- [python](python): Contains the code for the autogen engine.
+- [python](python): Contains the code for the ADK  engine.
 - [go](go): Contains the code for the kubernetes controller, and the CLI.
 - [ui](ui): Contains the code for the web UI.
 
+## Dependencies
 
-## How to run everything locally
+Before you can run kagent in Kubernetes, you need to have the following tools installed:
 
-Running outside Kubernetes:
+### Required Dependencies
+
+- **Kind** (v0.27.0+)
+- **kubectl** (v1.33.4+)
+- **Helm**
+- **Go** (v1.24.6+)
+- **Docker**
+- **Docker Buildx** (v0.23.0+)
+- **Make**
 
 
-1. Run the backend from the `python` folder:
 
-```bash
-uv sync --all-extras
+### Installation Verification
 
-# Run the autogen backend
-uv run kagent-engine serve
+You can verify your installation by running:
+
+```shell
+# Check core dependencies
+kind version
+kubectl version
+helm version
+go version
+docker version
+docker buildx version
+make --version
 ```
 
-If you get an error that looks like this:
-
-```
-Smudge error: Error downloading...
-```
-
-Set the `GIT_LFS_SKIP_SMUDGE=1` variable and then run sync command.
-
-2. Run the frontend from the `ui` folder:
-
-```bash
-npm install
-
-npm run dev
-```
 
 ## How to run everything in Kubernetes
 
@@ -47,7 +48,15 @@ npm run dev
 make create-kind-cluster
 ```
 
-2. Set your providers API_KEY:
+2. Set your model provider:
+
+```shell
+export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+#or
+export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
+```
+
+3. Set your providers API_KEY:
 
 ```shell
 export OPENAI_API_KEY=your-openai-api-key
@@ -55,16 +64,58 @@ export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-3. Build images, load them into kind cluster and deploy everything using Helm:
+4. Build images, load them into kind cluster and deploy everything using Helm:
 
 ```shell
 make helm-install
 ```
 
-To access the UI, port-forward to the app service:
+To access the UI, port-forward to the UI port on the `kagent-ui` service:
 
 ```shell
-kubectl port-forward svc/app 8001:80
+kubectl port-forward svc/kagent-ui 8001:80
 ```
 
 Then open your browser and go to `http://localhost:8001`.
+
+### Troubleshooting
+
+### buildx localhost access
+
+The `make helm-install` command might time out with an error similar to the following:
+
+> ERROR: failed to solve: DeadlineExceeded: failed to push localhost:5001/kagent-dev/kagent/controller
+
+As part of the build process, the `buildx` container tries to build and push the kagent images to the local Docker registry. The `buildx` command requires access to your host machine's Docker daemon.
+
+Recreate the buildx builder with host networking, such as with the following example commands. Update the version and platform accordingly.
+
+```shell
+docker buildx rm kagent-builder-v0.23.0
+
+docker buildx create --name kagent-builder-v0.23.0 --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host
+```
+
+Then run the `make helm-install` command again.
+
+### Run kagent and an agent locally.
+
+create a minimal cluster with kind. scale kagent to 0 replicas, as we will run it locally.
+
+```bash
+make create-kind-cluster helm-install-provider helm-tools push-test-agent push-test-skill
+kubectl scale -n kagent deployment kagent-controller --replicas 0
+```
+
+Run kagent with `KAGENT_A2A_DEBUG_ADDR=localhost:8080` environment variable set, and when it connect to agents it will go to "localhost:8080" instead of the Kubernetes service.
+
+Run the agent locally as well, with `--net=host` option, so it can connect to the kagent service on localhost. For example:
+
+```bash
+docker run --rm \
+  -e KAGENT_URL=http://localhost:8083 \
+  -e KAGENT_NAME=kebab-agent \
+  -e KAGENT_NAMESPACE=kagent \
+  --net=host \
+  localhost:5001/kebab:latest
+```

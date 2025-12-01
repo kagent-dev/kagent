@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pencil, ExternalLinkIcon, AlertCircle } from "lucide-react";
 import Link from "next/link";
-import { Provider } from "@/lib/types";
-import { ProviderModelsResponse } from '@/app/actions/models';
+import type { Provider, ProviderModelsResponse } from "@/types";
 import { ModelProviderCombobox } from "@/components/ModelProviderCombobox";
 import { PROVIDERS_INFO, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
 import { OLLAMA_DEFAULT_TAG } from '@/lib/constants';
+import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   selectedCombinedModel?: string;
   apiKey?: string;
   requiredParams?: Record<string, string>;
@@ -21,11 +22,13 @@ interface ValidationErrors {
 interface BasicInfoSectionProps {
   name: string;
   isEditingName: boolean;
+  namespace: string;
   errors: ValidationErrors;
   isSubmitting: boolean;
   isLoading: boolean;
   onNameChange: (value: string) => void;
   onToggleEditName: () => void;
+  onNamespaceChange: (value: string) => void;
   providers: Provider[];
   providerModelsData: ProviderModelsResponse | null;
   selectedCombinedModel: string | undefined;
@@ -39,8 +42,8 @@ interface BasicInfoSectionProps {
 }
 
 export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
-  name, isEditingName, errors, isSubmitting, isLoading, onNameChange,
-  onToggleEditName, providers, providerModelsData, selectedCombinedModel,
+  name, isEditingName, namespace, errors, isSubmitting, isLoading, onNameChange,
+  onToggleEditName, onNamespaceChange, providers, providerModelsData, selectedCombinedModel,
   onModelChange, selectedProvider, selectedModelSupportsFunctionCalling,
   loadingError, isEditMode, modelTag, onModelTagChange
 }) => {
@@ -69,6 +72,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
               </div>
             )}
             <Button
+              data-test="edit-model-name-button"
               variant="outline"
               size="icon"
               onClick={onToggleEditName}
@@ -79,6 +83,17 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             </Button>
           </div>
           {errors.name && <p className="text-destructive text-sm mt-1">{errors.name}</p>}
+        </div>
+
+        <div>
+          <label className="text-sm mb-2 block">Namespace</label>
+          <div className="flex items-center space-x-2">
+            <NamespaceCombobox
+              value={namespace}
+              onValueChange={onNamespaceChange}
+              disabled={isSubmitting || isLoading || isEditMode}
+            />
+          </div>
         </div>
 
         <div>

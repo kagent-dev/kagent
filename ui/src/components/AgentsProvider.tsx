@@ -1,30 +1,49 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { getTeams, createAgent } from "@/app/actions/teams";
-import { Component, ToolConfig, Agent, Tool, AgentResponse } from "@/types/datamodel";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
-import type { BaseResponse, ModelConfig } from "@/lib/types";
+import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
 interface ValidationErrors {
   name?: string;
+  namespace?: string;
   description?: string;
+  type?: string;
   systemPrompt?: string;
   model?: string;
   knowledgeSources?: string;
   tools?: string;
-  memory?: string;
+  skills?: string;
 }
 
 export interface AgentFormData {
   name: string;
+  namespace: string;
   description: string;
-  systemPrompt: string;
-  model: Partial<ModelConfig>;
+  type?: AgentType;
+  // Declarative fields
+  systemPrompt?: string;
+  modelName?: string;
   tools: Tool[];
-  memory?: string[];
+  stream?: boolean;
+  // Skills
+  skillRefs?: string[];
+  // BYO fields
+  byoImage?: string;
+  byoCmd?: string;
+  byoArgs?: string[];
+  // Shared deployment optional fields
+  replicas?: number;
+  imagePullSecrets?: Array<{ name: string }>;
+  volumes?: unknown[];
+  volumeMounts?: unknown[];
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  env?: EnvVar[];
+  imagePullPolicy?: string;
 }
 
 interface AgentsContextType {
@@ -32,11 +51,11 @@ interface AgentsContextType {
   models: ModelConfig[];
   loading: boolean;
   error: string;
-  tools: Component<ToolConfig>[];
-  refreshTeams: () => Promise<void>;
+  tools: ToolsResponse[];
+  refreshAgents: () => Promise<void>;
   createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
-  updateAgent: (id: string, agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
-  getAgentById: (id: string) => Promise<AgentResponse | null>;
+  updateAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
+  getAgent: (name: string, namespace: string) => Promise<AgentResponse | null>;
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
 }
 
@@ -58,30 +77,29 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const [agents, setAgents] = useState<AgentResponse[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [tools, setTools] = useState<Component<ToolConfig>[]>([]);
+  const [tools, setTools] = useState<ToolsResponse[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
 
-  const fetchTeams = async () => {
+  const fetchAgents = useCallback(async () => {
     try {
       setLoading(true);
-      const teamsResult = await getTeams();
+      const agentsResult = await getAgents();
 
-      if (!teamsResult.data || teamsResult.error) {
-        throw new Error(teamsResult.error || "Failed to fetch teams");
+      if (!agentsResult.data || agentsResult.error) {
+        throw new Error(agentsResult.error || "Failed to fetch agents");
       }
 
-      setAgents(teamsResult.data);
+      setAgents(agentsResult.data);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     try {
-      setLoading(true);
       const response = await getModelConfigs();
       if (!response.data || response.error) {
         throw new Error(response.error || "Failed to fetch models");
@@ -90,31 +108,29 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       setModels(response.data);
       setError("");
     } catch (err) {
-      console.error("Error fetching models:", error);
+      console.error("Error fetching models:", err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchTools = async () => {
+  const fetchTools = useCallback(async () => {
     try {
       setLoading(true);
       const response = await getTools();
-      if (response.success && response.data) {
-        setTools(response.data);
-        setError("");
-      }
+      setTools(response);
+      setError("");
     } catch (err) {
-      console.error("Error fetching tools:", error);
+      console.error("Error fetching tools:", err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Validation logic moved from the component
-  const validateAgentData = (data: Partial<AgentFormData>): ValidationErrors => {
+  const validateAgentData = useCallback((data: Partial<AgentFormData>): ValidationErrors => {
     const errors: ValidationErrors = {};
 
     if (data.name !== undefined) {
@@ -127,108 +143,117 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       errors.name = `Agent name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
     }
 
+    if (data.namespace !== undefined && data.namespace.trim()) {
+      if (!isResourceNameValid(data.namespace)) {
+        errors.namespace = `Agent namespace can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
+      }
+    }
+
     if (data.description !== undefined && !data.description.trim()) {
       errors.description = "Description is required";
     }
 
-    if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
-      errors.systemPrompt = "Agent instructions are required";
-    }
-
-    if (!data.model || data.model === undefined) {
-      errors.model = "Please select a model";
+    const type = data.type || "Declarative";
+    if (type === "Declarative") {
+      if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
+        errors.systemPrompt = "Agent instructions are required";
+      }
+      if (!data.modelName || data.modelName.trim() === "") {
+        errors.model = "Please select a model";
+      }
+    } else if (type === "BYO") {
+      if (!data.byoImage || data.byoImage.trim() === "") {
+        errors.model = "Container image is required";
+      }
     }
 
     return errors;
-  };
+  }, []);
 
   // Get agent by ID function
-  const getAgentById = async (id: string): Promise<AgentResponse | null> => {
+  const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
     try {
-      // Fetch all teams
-      const teamsResult = await getTeams();
-      if (!teamsResult.data || teamsResult.error) {
-        console.error("Failed to get teams:", teamsResult.error);
-        setError("Failed to get teams");
+      // Fetch all agents
+      const agentResult = await getAgentAction(name, namespace);
+      if (!agentResult.data || agentResult.error) {
+        console.error("Failed to get agent:", agentResult.error);
+        setError("Failed to get agent");
         return null;
       }
 
-      const teams = teamsResult.data;
+      const agent = agentResult.data;
       
-      // Find the team/agent with the matching ID
-      const agent = teams.find((team) => String(team.id) === id);
-
       if (!agent) {
-        console.warn(`Agent with ID ${id} not found`);
+        console.warn(`Agent with name ${name} and namespace ${namespace} not found`);
         return null;
       }
       return agent;
     } catch (error) {
-      console.error("Error getting agent by ID:", error);
+      console.error("Error getting agent by name and namespace:", error);
       setError(error instanceof Error ? error.message : "Failed to get agent");
       return null;
     }
-  };
+  }, []);
 
   // Agent creation logic moved from the component
-  const createNewAgent = async (agentData: AgentFormData) => {
+  const createNewAgent = useCallback(async (agentData: AgentFormData) => {
     try {
       const errors = validateAgentData(agentData);
       if (Object.keys(errors).length > 0) {
-        return { success: false, error: "Validation failed", data: {} as Agent };
+        return { message: "Validation failed", error: "Validation failed", data: {} as Agent };
       }
 
       const result = await createAgent(agentData);
 
-      if (result.success) {
-        // Refresh teams to get the newly created one
-        await fetchTeams();
+      if (!result.error) {
+        // Refresh agents to get the newly created one
+        await fetchAgents();
       }
 
       return result;
     } catch (error) {
       console.error("Error creating agent:", error);
       return {
-        success: false,
+        message: "Failed to create agent",
         error: error instanceof Error ? error.message : "Failed to create agent",
       };
     }
-  };
+  }, [fetchAgents, validateAgentData]);
 
   // Update existing agent
-  const updateAgent = async (id: string, agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
+  const updateAgent = useCallback(async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
     try {
       const errors = validateAgentData(agentData);
 
       if (Object.keys(errors).length > 0) {
         console.log("Errors validating agent data", errors);
-        return { success: false, error: "Validation failed", data: {} as Agent };
+        return { message: "Validation failed", error: "Validation failed", data: {} as Agent };
       }
 
-      // Use the same createTeam endpoint for updates
+      // Use the same createAgent endpoint for updates
       const result = await createAgent(agentData, true);
 
-      if (result.success) {
-        // Refresh teams to get the updated one
-        await fetchTeams();
+      if (!result.error) {
+        // Refresh agents to get the updated one
+        await fetchAgents();
       }
 
       return result;
     } catch (error) {
       console.error("Error updating agent:", error);
       return {
-        success: false,
+        message: "Failed to update agent",
         error: error instanceof Error ? error.message : "Failed to update agent",
       };
     }
-  };
+  }, [fetchAgents, validateAgentData]);
 
   // Initial fetches
   useEffect(() => {
-    fetchTeams();
+    fetchAgents();
     fetchTools();
     fetchModels();
-  }, []);
+  }, [fetchAgents, fetchTools, fetchModels]);
 
   const value = {
     agents,
@@ -236,10 +261,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     loading,
     error,
     tools,
-    refreshTeams: fetchTeams,
+    refreshAgents: fetchAgents,
     createNewAgent,
     updateAgent,
-    getAgentById,
+    getAgent,
     validateAgentData,
   };
 

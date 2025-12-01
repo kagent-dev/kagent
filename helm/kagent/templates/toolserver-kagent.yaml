@@ -1,0 +1,12 @@
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: {{ include "kagent.fullname" . }}-tool-server
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  url: "http://{{ include "kagent.fullname" . }}-tools.{{ include "kagent.namespace" . }}:8084/mcp"
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  description: "Official KAgent tool server"

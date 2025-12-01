@@ -1,0 +1,105 @@
+suite: test ui deployment
+templates:
+  - ui-deployment.yaml
+tests:
+  - it: should render ui deployment with default values
+    template: ui-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ui
+      - equal:
+          path: spec.replicas
+          value: 1
+      - hasDocuments:
+          count: 1
+
+  - it: should render ui deployment with custom replica count
+    template: ui-deployment.yaml
+    set:
+      ui:
+        replicas: 2
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: should have correct ui container image
+    template: ui-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: ui
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/ui:.+"
+
+  - it: should use global tag when set
+    template: ui-deployment.yaml
+    set:
+      tag: "v1.0.0"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: cr.kagent.dev/kagent-dev/kagent/ui:v1.0.0
+
+  - it: should have correct ui resources
+    template: ui-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 256Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 1000m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi
+
+  - it: should have correct service account name
+    template: ui-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-ui
+
+  - it: should have correct container port
+    template: ui-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8080
+
+  - it: should set nodeSelector
+    set:
+      ui:
+        nodeSelector:
+          role: AI
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            role: AI
+
+  - it: should set tolerations
+    set:
+      ui:
+        tolerations:
+          - key: role
+            operator: Equal
+            value: AI
+            effect: NoSchedule
+    asserts:
+      - contains:
+          any: true
+          path: spec.template.spec.tolerations
+          content:
+            key: role
+            value: AI
+            effect: NoSchedule
+            operator: Equal

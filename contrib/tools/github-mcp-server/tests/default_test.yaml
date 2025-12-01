@@ -1,0 +1,13 @@
+suite: test default values
+tests:
+  - it: should not create any toolservers when all tools are disabled
+    template: templates/toolserver.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+  
+  - it: should not create any secrets when no token values are provided
+    template: templates/secret.yaml
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -1,0 +1,49 @@
+{{- range $toolset, $config := .Values.tools }}
+{{- if or $config.readwrite $config.readonly }}
+{{- include "github-mcp-server.validateToken" (dict "config" $config "toolset" $toolset "context" $) }}
+{{- if $config.readwrite }}
+---
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: {{ include "github-mcp-server.resourceName" (dict "toolset" $toolset "readonly" false "context" $) }}
+  labels:
+    {{- include "github-mcp-server.labels" $ | nindent 4 }}
+spec:
+  config:
+    streamableHttp:
+      headersFrom:
+      - name: "Authorization"
+        valueFrom:
+          type: Secret
+          key: {{ include "github-mcp-server.tokenSecretKey" (dict "config" $config "toolset" $toolset "context" $) }}
+          valueRef: {{ include "github-mcp-server.tokenSecretName" (dict "config" $config "toolset" $toolset "context" $) }}
+      timeout: {{ include "github-mcp-server.timeout" (dict "config" $config "context" $) }}
+      url: {{ include "github-mcp-server.toolUrl" (dict "toolset" $toolset "readonly" false "context" $) }}
+  description: |
+    {{ include "github-mcp-server.description" (dict "toolset" $toolset "readonly" false "config" $config "context" $) }}
+{{- end }}
+{{- if $config.readonly }}
+---
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: {{ include "github-mcp-server.resourceName" (dict "toolset" $toolset "readonly" true "context" $) }}
+  labels:
+    {{- include "github-mcp-server.labels" $ | nindent 4 }}
+spec:
+  config:
+    streamableHttp:
+      headersFrom:
+      - name: "Authorization"
+        valueFrom:
+          type: Secret
+          key: {{ include "github-mcp-server.tokenSecretKey" (dict "config" $config "toolset" $toolset "context" $) }}
+          valueRef: {{ include "github-mcp-server.tokenSecretName" (dict "config" $config "toolset" $toolset "context" $) }}
+      timeout: {{ include "github-mcp-server.timeout" (dict "config" $config "context" $) }}
+      url: {{ include "github-mcp-server.toolUrl" (dict "toolset" $toolset "readonly" true "context" $) }}
+  description: |
+    {{ include "github-mcp-server.description" (dict "toolset" $toolset "readonly" true "config" $config "context" $) }}
+{{- end }}
+{{- end }}
+{{- end }}

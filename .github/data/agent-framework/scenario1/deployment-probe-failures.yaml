@@ -5,9 +5,9 @@ metadata:
 spec:
   description: Readiness probe is failing
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 is not working.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`.
   steps:
     - run: |
-        kubectl patch deployment frontend-v1 --context ${CLUSTER1} -p '{"spec":{"template":{"spec":{"containers":[{"name":"frontend","readinessProbe":{"tcpSocket":{"port":9999}}}]}}}}'
+        kubectl patch deployment frontend-v1 --context ${CLUSTER_CTX} -p '{"spec":{"template":{"spec":{"containers":[{"name":"frontend","readinessProbe":{"tcpSocket":{"port":9999}}}]}}}}'

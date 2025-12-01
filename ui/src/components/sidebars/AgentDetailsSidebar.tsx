@@ -1,27 +1,54 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
-import type { AgentResponse, Tool, Component, ToolConfig, MCPToolConfig } from "@/types/datamodel";
+import { ChevronRight, Edit } from "lucide-react";
+import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
-import { AgentActions } from "./AgentActions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
-import { getToolIdentifier, getToolProvider, getToolDisplayName, SSE_MCP_TOOL_PROVIDER_NAME, STDIO_MCP_TOOL_PROVIDER_NAME, isAgentTool } from "@/lib/toolUtils";
+import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { getAgents } from "@/app/actions/agents";
+import { k8sRefUtils } from "@/lib/k8sUtils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 
 interface AgentDetailsSidebarProps {
-  selectedAgentId: number;
+  selectedAgentName: string;
   currentAgent: AgentResponse;
-  allTools: Component<ToolConfig>[];
+  allTools: ToolsResponse[];
 }
 
-export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }: AgentDetailsSidebarProps) {
+export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools }: AgentDetailsSidebarProps) {
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
+  const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
 
   const selectedTeam = currentAgent;
+
+  // Fetch agents for looking up agent tool descriptions
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const response = await getAgents();
+        if (response.data) {
+          setAvailableAgents(response.data);
+
+        } else if (response.error) {
+          console.error("AgentDetailsSidebar: Error fetching agents:", response.error);
+        }
+      } catch (error) {
+        console.error("AgentDetailsSidebar: Failed to fetch agents:", error);
+      }
+    };
+
+    fetchAgents();
+  }, []);
+
+
 
   const RenderToolCollapsibleItem = ({
     itemKey,
@@ -70,76 +97,48 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
   };
 
   useEffect(() => {
-    const processToolDescriptions = async () => {
+    const processToolDescriptions = () => {
       setToolDescriptions({});
 
       if (!selectedTeam || !allTools) return;
 
-      try {
-        const descriptions: Record<string, string> = {};
-        const toolsInSpec = selectedTeam.agent.spec.tools;
-        const allToolDefinitions = allTools;
+      const descriptions: Record<string, string> = {};
+      const toolRefs = selectedTeam.tools;
 
-        if (toolsInSpec && Array.isArray(toolsInSpec)) {
-          await Promise.all(toolsInSpec.map(async (tool) => {
-            if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
-              const baseMcpIdentifier = getToolIdentifier(tool);
-              await Promise.all(tool.mcpServer.toolNames.map(async (mcpToolName) => {
-                const subToolIdentifier = `${baseMcpIdentifier}::${mcpToolName}`;
-                let description = "No description available";
-                try {
-                  const foundToolDefinition = allToolDefinitions.find(
-                    (def) => (
-                      (def.provider === SSE_MCP_TOOL_PROVIDER_NAME || def.provider === STDIO_MCP_TOOL_PROVIDER_NAME) &&
-                      (def.config as MCPToolConfig)?.tool?.name === mcpToolName
-                    )
-                  ) || null;
+      if (toolRefs && Array.isArray(toolRefs)) {
+        toolRefs.forEach((tool) => {
+          if (isMcpTool(tool)) {
+            const mcpTool = tool as Tool;
+            // For MCP tools, each tool name gets its own description
+            const baseToolIdentifier = getToolIdentifier(mcpTool);
+            mcpTool.mcpServer?.toolNames.forEach((mcpToolName) => {
+              const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
+              
+              // Find the tool in allTools by matching server ref and tool name
+              const toolFromDB = allTools.find(server => {
+                const { name } = k8sRefUtils.fromRef(server.server_name);
+                return name === mcpTool.mcpServer?.name && server.id === mcpToolName;
+              });
 
-                  if (foundToolDefinition) {
-                    const toolConfig = foundToolDefinition.config as MCPToolConfig;
-                    // isMcpProvider check is implicitly true due to the find condition
-                    description = toolConfig?.tool?.description || `Description for MCP tool \'${mcpToolName}\' is missing in definition`;
-                  } else {
-                    description = `Definition for MCP tool \'${mcpToolName}\' not available`;
-                  }
-                } catch (err) {
-                  console.error(`Failed to process description for MCP tool ${subToolIdentifier}:`, err);
-                  description = "Failed to load description for MCP tool";
-                }
-                descriptions[subToolIdentifier] = description;
-              }));
-            } else {
-              // Handle Agent tools or Builtin tools
-              const toolIdentifier = getToolIdentifier(tool);
-              let description = "No description available";
-              try {
-                if (isAgentTool(tool)) {
-                  description = tool.agent?.description || "Agent description not found";
-                } else {
-                  const toolProvider = getToolProvider(tool);
-                  const foundToolDefinition = allToolDefinitions.find(def => def.provider === toolProvider) || null;
-
-                  if (foundToolDefinition) {
-                      description = foundToolDefinition.description || "Description not found";
-                  }
-
-                }
-              } catch (err) {
-                console.error(`Failed to process description for tool ${toolIdentifier}:`, err);
-                description = "Failed to load description";
+              if (toolFromDB) {
+                descriptions[subToolIdentifier] = toolFromDB.description;
+              } else {
+                descriptions[subToolIdentifier] = "No description available";
               }
-              descriptions[toolIdentifier] = description;
-            }
-          }));
-        }
-        setToolDescriptions(descriptions);
-      } catch (err) {
-        console.error("Failed processing tool descriptions:", err);
+            });
+          } else {
+            // Handle Agent tools or regular tools using getToolDescription
+            const toolIdentifier = getToolIdentifier(tool);
+            descriptions[toolIdentifier] = getToolDescription(tool, allTools);
+          }
+        });
       }
+      
+      setToolDescriptions(descriptions);
     };
 
     processToolDescriptions();
-  }, [selectedTeam, allTools]);
+  }, [selectedTeam, allTools, availableAgents]);
 
   const toggleToolExpansion = (toolIdentifier: string) => {
     setExpandedTools(prev => ({
@@ -167,7 +166,7 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
           const baseToolIdentifier = getToolIdentifier(tool);
 
           if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
-            const mcpProvider = getToolProvider(tool) || "mcp_server";
+            const mcpProvider = tool.mcpServer.name || "mcp_server";
             const mcpProviderParts = mcpProvider.split(".");
             const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
 
@@ -190,7 +189,7 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
             });
           } else {
             const toolIdentifier = baseToolIdentifier;
-            const provider = getToolProvider(tool) || "unknown";
+            const provider = isAgentTool(tool) ? (tool.agent?.name || "unknown") : (tool.mcpServer?.name || "unknown");
             const displayName = getToolDisplayName(tool);
             const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
             const isExpanded = expandedTools[toolIdentifier] || false;
@@ -215,6 +214,9 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
     );
   };
 
+    // Check if agent is BYO type
+  const isDeclarativeAgent = selectedTeam?.agent.spec.type === "Declarative";
+  
   return (
     <>
       <Sidebar side={"right"} collapsible="offcanvas">
@@ -222,37 +224,62 @@ export function AgentDetailsSidebar({ selectedAgentId, currentAgent, allTools }:
         <SidebarContent>
           <ScrollArea>
             <SidebarGroup>
-              <SidebarGroupLabel className="font-bold">
-                {selectedTeam?.agent.metadata.name} ({selectedTeam?.model})
-              </SidebarGroupLabel>
+              <div className="flex items-center justify-between px-2 mb-1">
+                <SidebarGroupLabel className="font-bold mb-0 p-0">
+                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
+                </SidebarGroupLabel>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  asChild
+                  aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
+                >
+                  <Link href={`/agents/new?edit=true&name=${selectedAgentName}&namespace=${currentAgent.agent.metadata.namespace}`}>
+                    <Edit className="h-3.5 w-3.5" />
+                  </Link>
+                </Button>
+              </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>
-            <SidebarGroup>
-              <AgentActions
-                agentId={selectedAgentId}
-                onCopyJson={() => navigator.clipboard.writeText(JSON.stringify(selectedTeam, null, 2))}
-              />
-            </SidebarGroup>
-            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-              <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
-              {selectedTeam && renderAgentTools(selectedTeam.agent.spec.tools)}
-            </SidebarGroup>
-            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-              <SidebarGroupLabel>Memory</SidebarGroupLabel>
-              <SidebarMenu>
-                {selectedTeam?.agent.spec.memory && selectedTeam.agent.spec.memory.length > 0 ? (
-                  selectedTeam.agent.spec.memory.map((memoryName) => (
-                    <SidebarMenuItem key={memoryName}>
-                      <SidebarMenuButton className="justify-start" disabled>
-                        <span className="truncate max-w-[200px]">{memoryName}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))
-                ) : (
-                  <div className="text-sm italic px-2 text-muted-foreground">No memory configured</div>
-                )}
-              </SidebarMenu>
-            </SidebarGroup>
+            {isDeclarativeAgent &&(
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
+                {selectedTeam && renderAgentTools(selectedTeam.tools)}
+              </SidebarGroup>
+            )}
+
+            {isDeclarativeAgent && selectedTeam?.agent.spec?.skills?.refs && selectedTeam.agent.spec.skills.refs.length > 0 && (
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <div className="flex items-center justify-between px-2 mb-2">
+                  <SidebarGroupLabel className="mb-0">Skills</SidebarGroupLabel>
+                  <Badge variant="secondary" className="h-5">
+                    {selectedTeam.agent.spec.skills.refs.length}
+                  </Badge>
+                </div>
+                <SidebarMenu>
+                  <TooltipProvider>
+                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => (
+                      <SidebarMenuItem key={index}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <SidebarMenuButton className="w-full">
+                              <div className="flex items-center justify-between w-full">
+                                <span className="truncate max-w-[200px] text-sm">{skillRef}</span>
+                              </div>
+                            </SidebarMenuButton>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">
+                            <p className="max-w-xs break-all">{skillRef}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </SidebarMenuItem>
+                    ))}
+                  </TooltipProvider>
+                </SidebarMenu>
+              </SidebarGroup>
+            )}
+
           </ScrollArea>
         </SidebarContent>
       </Sidebar>

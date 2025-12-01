@@ -5,10 +5,10 @@ metadata:
 spec:
   description: ConfigMap that is not correctly referenced in the deployment.
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 I see an error message telling about issues in the 'backend-v3' service.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`. And you have my permission to keep trying out things until you fix the environment and all tests pass.
   steps:
     - run: |
-        kubectl patch deployment backend-v3 --context ${CLUSTER1} -p '{"spec":{"template":{"spec":{"volumes":[{"name":"backend-v3-code","configMap":{"name":"backend-v3-code-cm"}}]}}}}'
-        kubectl --context ${CLUSTER1} delete rs -l "app=backend,version=v3"
+        kubectl patch deployment backend-v3 --context ${CLUSTER_CTX} -p '{"spec":{"template":{"spec":{"volumes":[{"name":"backend-v3-code","configMap":{"name":"backend-v3-code-cm"}}]}}}}'
+        kubectl --context ${CLUSTER_CTX} delete rs -l "app=backend,version=v3"

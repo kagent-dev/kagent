@@ -1,53 +1,136 @@
 name: CI Build
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
   workflow_dispatch:
 
+env:
+  # Cache key components for better organization
+  CACHE_KEY_PREFIX: kagent-v2
+  BRANCH_CACHE_KEY: ${{ github.head_ref || github.ref_name }}
+  # Consistent builder configuration
+  BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
+  BUILDX_VERSION: v0.23.0
 jobs:
-  build:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - name: Generate cache keys
+        id: cache-key
+        run: |
+          # Generate branch-based cache key
+          BRANCH_KEY="${CACHE_KEY_PREFIX}-${BRANCH_CACHE_KEY}"
+          echo "key=${BRANCH_KEY}" >> $GITHUB_OUTPUT
+          echo "::notice title=Cache Key::Branch: ${BRANCH_KEY}"
+  test-e2e:
+    needs:
+      - setup
     env:
       VERSION: v0.0.1-test
-    strategy:
-      matrix:
-        image:
-          - controller
-          - ui
-          - app
-          - cli
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Initialize Environment
+        uses: ./.github/actions/initialize-environment
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
           platforms: linux/amd64,linux/arm64
-          version: v0.23.0
           use: 'true'
-      - name: Run make build
+          driver-opts: network=host
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4.2.0
+        with:
+          version: v3.17.0
+
+      - name: Install Kind
+        id: kind
+        uses: helm/kind-action@b72c923563e6e80ea66e8e8c810798cc73e97e5e
+        with:
+          install_only: true
+
+      - name: Install Kagent
+        id: install-kagent
         env:
-          DOCKER_BUILDKIT: 1
+          OPENAI_API_KEY: fake
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha
-            --cache-to=type=gha,mode=max
-            --platform=linux/amd64,linux/arm64
-            --output=type=tar,dest=/dev/null
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
+            --platform=linux/amd64
+            --push
+        run: |
+          make create-kind-cluster
+          echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
+          make helm-install
+          make push-test-agent push-test-skill
+          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
+          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
-          DOCKER_BUILDER: "docker buildx"
-        run: make build-${{ matrix.image }}
-        working-directory: ./
-    # - name: Upload artifact
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: ${{matrix.image}}.tar
-    #     path: ${{ runner.temp }}
+      - name: Run e2e tests
+        if: success()
+        working-directory: go
+        run: |
+          # Get the Kind network gateway IP that pods can reach
+          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+          echo "Detected Kind network gateway: $HOST_IP"
+          export KAGENT_LOCAL_HOST=$HOST_IP
+          
+          export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
+          echo "KAGENT_URL: $KAGENT_URL"
+          echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
 
-  e2e-test:
+          go test -race -v github.com/kagent-dev/kagent/go/test/e2e
+      - name: fail print info
+        if: failure()
+        run: |
+          echo "::error::Failed to run e2e tests"
+          echo "::error::Kubectl get pods -n kagent"
+          kubectl describe pods -n kagent
+          echo "::error::Kubectl get events -n kagent"
+          kubectl get events -n kagent
+          echo "::error::Kubectl get agents -n kagent"
+          echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
+          kubectl logs -n kagent deployment/kagent-controller
+
+  go-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Run cmd/main.go tests
+        working-directory: go
+        run: |
+          go test -race -skip 'TestE2E.*' -v ./...
+
+  helm-unit-tests:
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
@@ -59,64 +142,18 @@ jobs:
         uses: azure/setup-helm@v4.2.0
         with:
           version: v3.17.0
-
-      - name: Create k8s Kind Cluster
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: kagent
-
-      - name: Install Kagent
-        env:
-          OPENAI_API_KEY: fake-key
+      # Install unittest plugin
+      - name: Install unittest plugin
         run: |
-          make helm-install
-          kubectl wait --for=condition=Accepted  agents.kagent.dev -n kagent --all --timeout=60s
+          helm plugin install https://github.com/helm-unittest/helm-unittest
 
-  go-unit-tests:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        unit-test-paths:
-          - go/controller/cmd
-          - go/cli/internal/cli
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.24"
-          cache: true
-
-      - name: Run cmd/main.go tests
-        working-directory: ${{ matrix.unit-test-paths }}
+      - name: Chart init
         run: |
-          go test -v ./...
+          make helm-version
 
-  python-test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install python
-        run: uv python install 3.12
-        working-directory: ./python
-
-      - name: Sync dependencies
-        working-directory: ./python
+      - name: Run helm unit tests
         run: |
-          export GIT_LFS_SKIP_SMUDGE=1
-          uv sync --all-extras
-
-      - name: Run tests
-        working-directory: ./python
-        run: uv run pytest tests
+          helm unittest helm/kagent
 
   ui-tests:
     runs-on: ubuntu-latest
@@ -135,6 +172,163 @@ jobs:
         working-directory: ./ui
         run: npm ci
 
+      - name: Run lint
+        working-directory: ./ui
+        run: npm run lint
+
       - name: Run tests
         working-directory: ./ui
         run: npm run test
+
+  # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
+  build:
+    needs: setup
+    env:
+      VERSION: v0.0.1-test
+    strategy:
+      matrix:
+        image:
+          - controller
+          - ui
+          - app
+          - cli
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5001:5000
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          platforms: linux/amd64,linux/arm64
+          version: ${{ env.BUILDX_VERSION }}
+          use: 'true'
+          driver-opts: network=host
+      - name: Run make build
+        env:
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
+            --platform=linux/amd64,linux/arm64
+            --push
+          DOCKER_REPO: "${{ github.repository_owner }}/kagent"
+          DOCKER_BUILDER: "docker buildx"
+        run: make build-${{ matrix.image }}
+        working-directory: ./
+
+  go-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go/go.sum
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.5.0
+          working-directory: go
+
+  python-test:
+    env:
+      OPENAI_API_KEY: fake
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install python
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        working-directory: ./python
+        run: |
+          uv sync --all-extras
+
+      - name: Generate test certificates
+        working-directory: ./python
+        run: make generate-test-certs
+
+      - name: Run tests
+        working-directory: ./python
+        run: uv run pytest ./packages/**/tests/
+
+  python-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install python
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        working-directory: ./python
+        run: |
+          uv sync --all-extras
+
+      - name: Run ruff linter
+        working-directory: ./python
+        run: uv run ruff check
+
+      - name: Run ruff format check
+        working-directory: ./python
+        run: |
+          if ! uv run ruff format --diff .; then
+            echo "Ruff formatting issues detected. Please run 'uv run ruff format' locally to fix formatting issues."
+            exit 1
+          fi
+
+  manifests-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Generate controller manifests
+        run: make controller-manifests
+
+      - name: Check for uncommitted changes
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Controller manifests are out of date!"
+            echo "::error::Please run 'make controller-manifests' and commit the changes."
+            echo ""
+            echo "The following files have differences:"
+            git diff --name-only
+            echo ""
+            echo "Diff details:"
+            git diff
+            exit 1
+          fi
+          echo "✓ Controller manifests are up to date"

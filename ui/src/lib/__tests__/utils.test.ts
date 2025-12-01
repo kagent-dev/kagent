@@ -1,4 +1,5 @@
-import { getWsUrl, getBackendUrl, getWebSocketUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
+import { describe, expect, it, jest, beforeEach, afterEach, afterAll } from '@jest/globals';
+import { createRFC1123ValidName, getBackendUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
 
 describe('URL Generation Utilities', () => {
   const originalEnv = process.env;
@@ -10,33 +11,6 @@ describe('URL Generation Utilities', () => {
 
   afterAll(() => {
     process.env = originalEnv;
-  });
-
-  describe('getWsUrl', () => {
-    it('should use NEXT_PUBLIC_WS_URL if provided', () => {
-      process.env.NEXT_PUBLIC_WS_URL = 'ws://custom-url';
-      expect(getWsUrl()).toBe('ws://custom-url');
-    });
-
-    it('should use wss in production with https', () => {
-      Object.defineProperty(process.env, 'NODE_ENV', {
-        value: 'production',
-        configurable: true
-      });
-      Object.defineProperty(window, 'location', {
-        value: { protocol: 'https:', host: 'example.com' },
-        writable: true
-      });
-      expect(getWsUrl()).toBe('wss://example.com/api/ws');
-    });
-
-    it('should use ws in development', () => {
-      Object.defineProperty(process.env, 'NODE_ENV', {
-        value: 'development',
-        configurable: true
-      });
-      expect(getWsUrl()).toBe('ws://localhost:8081/api/ws');
-    });
   });
 
   describe('getBackendUrl', () => {
@@ -64,17 +38,7 @@ describe('URL Generation Utilities', () => {
     });
   });
 
-  describe('getWebSocketUrl', () => {
-    it('should convert http to ws', () => {
-      process.env.NEXT_PUBLIC_BACKEND_URL = 'http://example.com/api';
-      expect(getWebSocketUrl()).toBe('ws://example.com/api');
-    });
 
-    it('should convert https to wss', () => {
-      process.env.NEXT_PUBLIC_BACKEND_URL = 'https://example.com/api';
-      expect(getWebSocketUrl()).toBe('wss://example.com/api');
-    });
-  });
 });
 
 describe('Time Utilities', () => {
@@ -127,47 +91,20 @@ describe('Resource Name Validation', () => {
   });
 });
 
-describe('Message Utilities', () => {
-  describe('messageUtils', () => {
-    describe('isToolCallContent', () => {
-      it('should identify valid tool call content', () => {
-        const validContent = [{
-          id: '1',
-          name: 'tool',
-          arguments: {}
-        }];
-        expect(messageUtils.isToolCallContent(validContent)).toBe(true);
-      });
 
-      it('should reject invalid tool call content', () => {
-        expect(messageUtils.isToolCallContent([])).toBe(false);
-        expect(messageUtils.isToolCallContent([{ id: '1' }])).toBe(false);
-        expect(messageUtils.isToolCallContent('not an array')).toBe(false);
-      });
+describe('RFC 1123 Valid Name', () => {
+  describe('createRFC1123ValidName', () => {
+    it('should create a valid RFC 1123 subdomain name with a single part', () => {
+      expect(createRFC1123ValidName(['awslabs.terraform-mcp-server-latest'])).toBe('awslabs-terraform-mcp-server-latest');
     });
 
-    describe('isTextMessageContent', () => {
-      it('should identify valid text message content', () => {
-        const validContent = {
-          content: 'Hello',
-          type: 'TextMessage'
-        };
-        expect(messageUtils.isTextMessageContent(validContent)).toBe(true);
-      });
-
-      it('should reject invalid text message content', () => {
-        expect(messageUtils.isTextMessageContent({ content: 'Hello' })).toBe(false);
-        expect(messageUtils.isTextMessageContent({ type: 'TextMessage' })).toBe(false);
-        expect(messageUtils.isTextMessageContent('not an object')).toBe(false);
-      });
+    it('should sanitize and join multiple parts', () => {
+      expect(createRFC1123ValidName(['My Service', 'v1.0', 'prod@us-east-1']))
+        .toBe('my-service-v1-0-prod-us-east-1');
     });
 
-    describe('isUser', () => {
-      it('should identify user source', () => {
-        expect(messageUtils.isUser('user')).toBe(true);
-        expect(messageUtils.isUser('assistant')).toBe(false);
-        expect(messageUtils.isUser('system')).toBe(false);
-      });
+    it('should return empty string when all parts are invalid or empty', () => {
+      expect(createRFC1123ValidName(['***', '___', ''])).toBe('');
     });
   });
-}); 
+});

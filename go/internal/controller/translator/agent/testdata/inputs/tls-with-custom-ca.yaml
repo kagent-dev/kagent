@@ -1,0 +1,57 @@
+operation: translateAgent
+targetObject: tls-agent-with-custom-ca
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: custom-ca-cert
+      namespace: test
+    data:
+      ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURBVENDQWVtZ0F3SUJBZ0lKQUt5VzVJcG9NWUk0TUEwR0NTcUdTSWIzRFFFQkN3VUFNQmd4RmpBVUJnTlYKQkFNTURVTjFjM1J2YlNCRFFTQlVaWE4wTUI0WERUSXdNREl5TURBd01EQXdNRm9YRFRNeE1ESXlNREF3TURBdwpNRm93R0RFV01CUUdBMVVFQXd3TlEzVnpkRzl0SUVOQklGUmxjM1F3Z2dFaU1BMEdDU3FHU0liM0RRRUJBUVVBCkE0SUJEd0F3Z2dFS0FvSUJBUUM0d0daakFNbTdHR0xGNXZ6RDNxN3RjS0lXb3ozV3pKU3g0RFdyR2JNMGtqNXgKODZ4UWY4a2ZvdGdSMHRxVXh6RGRRTXlxZjJqRWpYa1JSenE1V0xvRDBWQWNRcVVWVzB2bndUZmhxNVN6Q3F2LwpDdDRoMklKMXhrSlRmOVN6YnhHVXFGbnRzUGd0aXZ0ZTVHV3VhNmNnSHZadGpRbENyYWRpSHI2ZXVEd3prM01aCmdOSndkK05scytLdXQyVGpoaWRDK2VNdUtHQ2d6c3dDdFc3WUtyK2lBYkJMbnJyTXUzTXRhRzNxdGVoNnRzUVIKQ0ZFNlBCdlF5U3h0TDE5WlJzeGVnZXFlVTBGY0p2aFhxV2Y2K1BKeUcvcGRoQyt1R1Q0L3JRMnYyT2FYVUZ4NgppNkE5RGN0RG1jRnlUcmlBUm5RRE1OclJLVElrR1J6VkljMHp3MFpwQWdNQkFBR2pVREJPTUIwR0ExVWREZ1FXCkJCUmFNa3lPdllpUXpCMGxHNEdvRmdhMkQ4Z0NhREFmQmdOVkhTTUVHREFXZ0JSYU1reU92WWlRekIwbEc0R28KRmdxMkQ4Z0NhREFNQmdOVkhSTUVCVEFEQVFIL01BMEdDU3FHU0liM0RRRUJDd1VBQTRJQkFRQnNHaGdST1FDVwoxbWpPWUZ6a3RLWXczTVhFZ1psTmF3S0JPMXh2VVYzbWFkMWRoWHRicVRWZEVKbElvWVVBSXE5TjZyekpSU1lXCkxQcnpkWlYrd21VQzZmSnBxWnNzT0t6RGhGS09MU2tOQkhvamNRUWNVaGNFcEVJeVRjSWw0dUpVOGNWL0hpaGIKSkRVNlN2WXBQVGhrWUFQeUQ2YWkzbm5obGhLSW5oQ0JoOGtqRmRXS1E3V2FvVTBUN3VJQzRqTkJlUjZBQlhIdwp2QjJONVpYRlVFZGJnQlhIaHZCMU41WlhGVWRCZ0JYSGh2QjFONVpYRlVFZGJnQlhIaHZCMU41WlhGVWRCZ0JYCkhndkIxTjVaWEZVRWRiZ0JYSGh2QjFONVpYRlVkQmdCWEhndkIxTjVaWEZVRWRiZ0JYSGh2QjFONVpYRlVkQmcKQlhIZ3ZCMU41WlhGVUVkYmdCWEhoZ1JpCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K  # base64 encoded custom CA cert
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: tls-model-custom-ca
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        baseUrl: https://internal-litellm.company.com
+        temperature: "0.7"
+        maxTokens: 1024
+      tls:
+        disableVerify: false
+        caCertSecretRef: custom-ca-cert
+        caCertSecretKey: ca.crt
+        disableSystemCAs: false
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: tls-agent-with-custom-ca
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: Agent with custom CA certificate for TLS
+        systemMessage: You are a helpful assistant with custom CA support.
+        modelConfig: tls-model-custom-ca
+        deployment:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 684Mi
+            limits:
+              cpu: 3000m
+              memory: 2Gi
+        tools: []

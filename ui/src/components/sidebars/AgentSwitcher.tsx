@@ -5,9 +5,10 @@ import { ChevronsUpDown, Plus } from "lucide-react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
-import { AgentResponse } from "@/types/datamodel";
+import type { AgentResponse } from "@/types";
 import KagentLogo from "../kagent-logo";
 import { useRouter } from "next/navigation";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface AgentSwitcherProps {
   currentAgent: AgentResponse;
@@ -18,12 +19,20 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
   const router = useRouter();
   const { isMobile } = useSidebar();
 
-  const selectedTeam = currentAgent;
+  const selectedAgent = currentAgent;
   const agentResponses = allAgents;
 
-  if (!selectedTeam) {
+  if (!selectedAgent) {
     return null;
   }
+
+  const selectedAgentRef = k8sRefUtils.toRef(
+    selectedAgent.agent.metadata.namespace || "",
+    selectedAgent.agent.metadata.name
+  );
+
+  // We don't want to show agents that are not ready or accepted
+  const filteredAgentResponses = agentResponses.filter(({ deploymentReady, accepted }) => deploymentReady && accepted);
 
   return (
     <SidebarMenu>
@@ -35,24 +44,25 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
                 <KagentLogo className="w-4 h-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{selectedTeam.agent.metadata.name}</span>
-                <span className="truncate text-xs">{selectedTeam.provider} ({selectedTeam.model})</span>
+                <span className="truncate font-semibold">{selectedAgentRef}</span>
+                <span className="truncate text-xs">{selectedAgent.modelProvider} {selectedAgent.model && `(${selectedAgent.model})`}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg" align="start" side={isMobile ? "bottom" : "right"} sideOffset={4}>
             <DropdownMenuLabel className="text-xs text-muted-foreground">Agents</DropdownMenuLabel>
-            {agentResponses.map(({ id, agent}, index) => {
+            {filteredAgentResponses.map(({ agent }, index) => {
+              const agentRef = k8sRefUtils.toRef(agent.metadata.namespace || "", agent.metadata.name)
               return (
                 <DropdownMenuItem
-                  key={agent.metadata.name}
+                  key={agentRef}
                   onClick={() => {
-                    router.push(`/agents/${id}/chat`);
+                    router.push(`/agents/${agentRef}/chat`);
                   }}
                   className="gap-2 p-2"
                 >
-                  {agent.metadata.name}
+                  {agentRef}
                   <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
                 </DropdownMenuItem>
               );

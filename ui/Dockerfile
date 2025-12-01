@@ -1,26 +1,27 @@
-### STAGE 1: base image
+### STAGE 1: Dependencies and Build
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM --platform=linux/$BUILDARCH $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
-
+ARG BUILDPLATFORM
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS deps
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-RUN apk update \
-    && apk add curl openssl unzip bash git ca-certificates nginx supervisor \
-    && update-ca-certificates \
-    && rm -rf /var/cache/apk/*
+# This is used to print the build platform in the logs
+ARG BUILDPLATFORM
 
-### STAGE 2: python
-FROM base-os AS node-os
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    echo "Installing on $BUILDPLATFORM" \
+    && apk update \
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor \
+    && update-ca-certificates
+
 ARG TOOLS_BUN_VERSION
 ARG TARGETARCH
 
+ENV DO_NOT_TRACK=1
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUN_INSTALL_CACHE_DIR=/cache/bun
 ENV BUN_INSTALL=/usr/local/bun
-ENV NVM_DIR=/usr/local/nvm
 ENV NODE_ENV=production
 ENV CYPRESS_INSTALL_BINARY=0
-ENV NODE_PATH=/cache/node_modules
 ENV PATH=$BUN_INSTALL/bin:$PATH
 
 # Install Bun (uses official install script)
@@ -30,52 +31,81 @@ RUN --mount=type=cache,target=/cache/bun,rw \
     && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
     && bun --version
 
-### STAGE 2: build + ui
-FROM --platform=linux/$BUILDARCH node-os AS ui-builder
-ARG TARGETARCH
-
 WORKDIR /app/ui
 
-#copy the package.json
-COPY package*.json .
-RUN --mount=type=cache,target=/cache/bun,rw             \
-    bun install
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN --mount=type=cache,target=/cache/node_modules,rw \
+    bun install --frozen-lockfile \
+    && bun pm ls --all \
+    && bun pm hash
 
-#copy the rest of the files
+### STAGE 2: Build
+FROM --platform=$BUILDPLATFORM deps AS builder
+
+# Copy source files
 COPY . .
-RUN --mount=type=cache,target=/cache/bun,rw             \
-    bun install                                      \
-    && bun run build  --no-lint                         \
+
+# Build the application (native compilation for speed)
+RUN --mount=type=cache,target=/cache/node_modules,rw \
+    --mount=type=cache,target=/app/ui/.next/cache,rw \
+    export NEXT_TELEMETRY_DEBUG=1 \
+    && bun install --frozen-lockfile \
+    && bun run build --no-lint --turbopack \
     && mkdir -p /app/ui/public
 
-### STAGE 3: final
-FROM node-os AS final
+### STAGE 3: Runtime
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+# This is used to print the build platform in the logs
+ARG BUILDPLATFORM
 
-RUN mkdir -p /app/ui /run/nginx /var/lib/nginx/tmp/     \
-    && addgroup -g 1001    nginx                        \
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    echo "Installing on $BUILDPLATFORM" \
+    && apk update \
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor \
+    && update-ca-certificates
+
+ARG TOOLS_BUN_VERSION
+ENV BUN_INSTALL=/usr/local/bun
+ENV PATH=$BUN_INSTALL/bin:$PATH
+# Install Bun in native arch for running (uses official install script)
+# brew install oven-sh/bun/bun
+RUN mkdir -p $BUN_INSTALL  \
+    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
+    && bun --version
+
+RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp  \
+    && addgroup -g 1001 nginx                        \
     && adduser  -u 1001 -G nginx -s /bin/bash -D nextjs \
     && adduser  -u 1002 -G nginx -s /bin/bash -D nginx  \
-    && chown    -vR nextjs:nginx /app/ui
+    && chown    -vR nextjs:nginx /app/ui                \
+    && chown    -vR nextjs:nginx /tmp/nginx/
 
 WORKDIR /app
 COPY conf/nginx.conf /etc/nginx/nginx.conf
 COPY conf/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 WORKDIR /app/ui
-COPY --from=ui-builder /app/ui/next.config.ts ./
-COPY --from=ui-builder /app/ui/public ./public
-COPY --from=ui-builder /app/ui/package.json ./package.json
-COPY --from=ui-builder --chown=nextjs:nginx /app/ui/.next/standalone ./
-COPY --from=ui-builder --chown=nextjs:nginx /app/ui/.next/static ./.next/static
+COPY --from=builder /app/ui/next.config.ts ./
+COPY --from=builder /app/ui/public ./public
+COPY --from=builder /app/ui/package.json ./package.json
+COPY --from=builder --chown=nextjs:nginx /app/ui/.next/standalone ./
+COPY --from=builder --chown=nextjs:nginx /app/ui/.next/static ./.next/static
 
 # Ensure correct permissions
 RUN chown -R nextjs:nginx /app/ui && \
     chmod -R 755 /app
 
-EXPOSE 80
+EXPOSE 8080
+ARG VERSION
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
 LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver for running agents."
 LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
+LABEL org.opencontainers.image.version="$VERSION"
+
+USER nextjs
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

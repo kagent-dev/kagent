@@ -5,12 +5,12 @@ metadata:
 spec:
   description: Namespace resource quota is exceeded, pod cannot be created
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 I see backend-v2 pods stuck in pending state due to quota.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`. And you have my permission to keep trying out things until you fix the environment and all tests pass.
   steps:
     - run: |
-        kubectl apply --context ${CLUSTER1} -f - <<EOF
+        kubectl apply --context ${CLUSTER_CTX} -f - <<EOF
         apiVersion: v1
         kind: ResourceQuota
         metadata:
@@ -20,4 +20,4 @@ spec:
           hard:
             pods: "1"
         EOF
-        kubectl --context ${CLUSTER1} delete rs -l "app=backend,version=v2"
+        kubectl --context ${CLUSTER_CTX} delete rs -l "app=backend,version=v2"

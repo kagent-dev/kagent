@@ -194,7 +194,20 @@ cython_debug/
 #.idea/
 
 go/bin/
+*.db
 .vscode/
+.cursor/rules
 
 ## Helm
 *.tgz
+/tmp/
+/reports/*.csv
+/reports/*.txt
+/go/tools/tool-server
+/contrib/memory/doc2vec/bun.lock
+
+.cursor/
+
+## Test certificates
+python/packages/kagent-adk/tests/fixtures/certs/*.pem
+python/packages/kagent-adk/tests/fixtures/certs/*.srl

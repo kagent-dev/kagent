@@ -1,0 +1,18 @@
+---
+#if route crd exists
+{{- if .Capabilities.APIVersions.Has "route.openshift.io/v1" }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+    name: {{ include "kagent.fullname" . }}-ui
+    namespace: {{ include "kagent.namespace" . }}
+spec:
+    to:
+        kind: Service
+        name: {{ include "kagent.fullname" . }}-ui
+    port:
+        targetPort: {{ .Values.ui.service.ports.port }}
+    tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+{{- end }}

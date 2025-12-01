@@ -3,11 +3,13 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: toolservers.kagent.dev
 spec:
   group: kagent.dev
   names:
+    categories:
+    - kagent
     kind: ToolServer
     listKind: ToolServerList
     plural: toolservers
@@ -42,12 +44,50 @@ spec:
             description: ToolServerSpec defines the desired state of ToolServer.
             properties:
               config:
+                description: Only one of stdio, sse, or streamableHttp can be specified.
                 properties:
                   sse:
                     properties:
                       headers:
                         x-kubernetes-preserve-unknown-fields: true
-                      sse_read_timeout:
+                      headersFrom:
+                        items:
+                          description: ValueRef represents a configuration value
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                                valueRef:
+                                  description: |-
+                                    The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+                                    or a reference to a resource in a different namespace in the form "namespace/name".
+                                    If namespace is not provided, the default namespace is used.
+                                  type: string
+                              required:
+                              - key
+                              - type
+                              type: object
+                          required:
+                          - name
+                          type: object
+                          x-kubernetes-validations:
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
+                        type: array
+                      sseReadTimeout:
                         type: string
                       timeout:
                         type: string
@@ -68,10 +108,110 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
+                      envFrom:
+                        items:
+                          description: ValueRef represents a configuration value
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                                valueRef:
+                                  description: |-
+                                    The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+                                    or a reference to a resource in a different namespace in the form "namespace/name".
+                                    If namespace is not provided, the default namespace is used.
+                                  type: string
+                              required:
+                              - key
+                              - type
+                              type: object
+                          required:
+                          - name
+                          type: object
+                          x-kubernetes-validations:
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
+                        type: array
+                      readTimeoutSeconds:
+                        default: 10
+                        description: Default value is 10 seconds
+                        type: integer
                     required:
                     - command
                     type: object
+                  streamableHttp:
+                    properties:
+                      headers:
+                        x-kubernetes-preserve-unknown-fields: true
+                      headersFrom:
+                        items:
+                          description: ValueRef represents a configuration value
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                                valueRef:
+                                  description: |-
+                                    The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
+                                    or a reference to a resource in a different namespace in the form "namespace/name".
+                                    If namespace is not provided, the default namespace is used.
+                                  type: string
+                              required:
+                              - key
+                              - type
+                              type: object
+                          required:
+                          - name
+                          type: object
+                          x-kubernetes-validations:
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
+                        type: array
+                      sseReadTimeout:
+                        type: string
+                      terminateOnClose:
+                        type: boolean
+                      timeout:
+                        type: string
+                      url:
+                        type: string
+                    required:
+                    - url
+                    type: object
+                  type:
+                    type: string
                 type: object
+                x-kubernetes-validations:
+                - message: Exactly one of stdio, sse, or streamableHttp must be specified
+                  rule: (has(self.stdio) && !has(self.sse) && !has(self.streamableHttp))
+                    || (!has(self.stdio) && has(self.sse) && !has(self.streamableHttp))
+                    || (!has(self.stdio) && !has(self.sse) && has(self.streamableHttp))
               description:
                 type: string
             required:
@@ -166,10 +306,12 @@ spec:
                       - provider
                       - version
                       type: object
+                    description:
+                      type: string
                     name:
                       type: string
                   required:
-                  - component
+                  - description
                   - name
                   type: object
                 type: array

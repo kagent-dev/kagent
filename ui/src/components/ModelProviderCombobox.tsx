@@ -1,16 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Provider } from '@/lib/types';
-import { ProviderModel, ProviderModelsResponse } from '@/app/actions/models';
-import { PROVIDERS_INFO, isValidProviderInfoKey, getApiKeyForProviderFormKey, ModelProviderKey } from '@/lib/providers';
+import { Provider, ProviderModel, ProviderModelsResponse } from '@/types';
+import { PROVIDERS_INFO, isValidProviderInfoKey, ModelProviderKey } from '@/lib/providers';
 import { OpenAI } from './icons/OpenAI';
 import { Anthropic } from './icons/Anthropic';
 import { Ollama } from './icons/Ollama';
 import { Azure } from './icons/Azure';
+import { Gemini } from './icons/Gemini';
 
 interface ComboboxOption {
     label: string; // e.g., "OpenAI - gpt-4o"
@@ -55,20 +55,22 @@ export function ModelProviderCombobox({
 }: ModelProviderComboboxProps) {
     const [comboboxOpen, setComboboxOpen] = useState(false);
 
-    const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?: string }>> = {
-        'openai': OpenAI,
-        'anthropic': Anthropic,
-        'ollama': Ollama,
-        'azure-openai': Azure,
-    };
-
-    const getProviderIcon = (providerKey: ModelProviderKey | undefined): React.ReactNode | null => {
+    const getProviderIcon = useCallback((providerKey: ModelProviderKey | undefined): React.ReactNode | null => {
+        const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?: string }>> = {
+            'OpenAI': OpenAI,
+            'Anthropic': Anthropic,
+            'Ollama': Ollama,
+            'AzureOpenAI': Azure,
+            'Gemini': Gemini,
+            'GeminiVertexAI': Gemini,
+            'AnthropicVertexAI': Anthropic,
+        };
         if (!providerKey || !PROVIDER_ICONS[providerKey]) {
             return null;
         }
         const IconComponent = PROVIDER_ICONS[providerKey];
         return <IconComponent className="h-4 w-4 mr-2 shrink-0" />;
-    };
+    }, []);
 
     const groupedProviderModelOptions = useMemo(() => {
         if (!providers || !models || providers.length === 0 || Object.keys(models).length === 0) {
@@ -78,11 +80,8 @@ export function ModelProviderCombobox({
         const groups: { [groupName: string]: ComboboxOption[] } = {};
         providers.forEach(provider => {
             let providerFormKey: ModelProviderKey;
-            const providerNameLower = provider.name.toLowerCase();
-            if (providerNameLower === 'azureopenai') {
-                providerFormKey = 'azure-openai';
-            } else if (isValidProviderInfoKey(providerNameLower)) {
-                providerFormKey = providerNameLower;
+            if (isValidProviderInfoKey(provider.name)) {
+                providerFormKey = provider.name;
             } else {
                 console.warn(`Unsupported provider name found: ${provider.name}`);
                 return;
@@ -90,11 +89,10 @@ export function ModelProviderCombobox({
 
             if (!isValidProviderInfoKey(providerFormKey)) return;
 
-            const actualModelKey = getApiKeyForProviderFormKey(providerFormKey);
             let providerModels: ProviderModel[] = [];
 
-            if (actualModelKey && models[actualModelKey]) {
-                providerModels = models[actualModelKey]
+            if (models[providerFormKey]) {
+                providerModels = models[providerFormKey]
                     .filter(m => filterFunctionCalling ? m.function_calling === true : true);
             }
 
@@ -139,7 +137,7 @@ export function ModelProviderCombobox({
         }
         if (flatProviderModelOptions.length === 0 && !loading && !error) return emptyPlaceholder;
         return placeholder;
-    }, [loading, error, currentSelection, flatProviderModelOptions.length, loadingPlaceholder, errorPlaceholder, emptyPlaceholder, placeholder]);
+    }, [loading, error, currentSelection, flatProviderModelOptions.length, loadingPlaceholder, errorPlaceholder, emptyPlaceholder, placeholder, getProviderIcon]);
 
     return (
         <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
@@ -179,8 +177,7 @@ export function ModelProviderCombobox({
                                             const selectedOption = flatProviderModelOptions.find(opt => opt.value === currentValue);
                                             let modelDetail: ProviderModel | undefined = undefined;
                                             if (selectedOption && selectedOption.provider && models) {
-                                                const apiKey = getApiKeyForProviderFormKey(selectedOption.provider);
-                                                modelDetail = models[apiKey]?.find(m => m.name === selectedOption.modelName);
+                                                modelDetail = models[selectedOption.provider]?.find(m => m.name === selectedOption.modelName);
                                             }
 
                                             if (selectedOption) {

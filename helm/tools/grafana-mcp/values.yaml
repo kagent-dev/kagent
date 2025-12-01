@@ -1,0 +1,58 @@
+replicas: 1
+
+grafana:
+  url: "grafana.kagent:3000/api"
+  apiKey: "-"
+
+image:
+  registry: mcp
+  repository: grafana
+  pullPolicy: Always 
+  tag: "latest" # Only latest is available via docker hub at present. See https://github.com/grafana/mcp-grafana/issues/180
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+securityContext: {}
+  
+tolerations: []
+
+nodeSelector: {}
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Additional Arguments for the mcp server
+args: []
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+# Deployment configuration - used to populate the ConfigMap template.
+# Add custom configuration values here as needed.
+config:
+

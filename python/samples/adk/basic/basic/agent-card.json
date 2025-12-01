@@ -1,0 +1,19 @@
+{
+  "name": "basic",
+  "description": "A basic agent",
+  "url": "localhost:8080",
+  "version": "0.0.1",
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "basic",
+      "name": "Basic",
+      "description": "A basic agent",
+      "tags": ["basic", "test"]
+    }
+  ]
+}

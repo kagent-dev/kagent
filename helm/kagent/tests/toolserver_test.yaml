@@ -1,0 +1,62 @@
+suite: test toolserver
+templates:
+  - toolserver-kagent.yaml
+tests:
+  - it: should render toolserver with default values
+    asserts:
+      - isKind:
+          of: RemoteMCPServer
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-tool-server
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - equal:
+          path: spec.description
+          value: "Official KAgent tool server"
+      - hasDocuments:
+          count: 1
+
+  - it: should have correct SSE configuration
+    asserts:
+      - equal:
+          path: spec.sseReadTimeout
+          value: 5m0s
+      - equal:
+          path: spec.timeout
+          value: 30s
+      - equal:
+          path: spec.url
+          value: http://RELEASE-NAME-tools.NAMESPACE:8084/mcp
+
+  - it: should use custom namespace when overridden
+    set:
+      namespaceOverride: "custom-namespace"
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace
+
+  - it: should use custom fullname when overridden
+    set:
+      fullnameOverride: "custom-kagent"
+    asserts:
+      - equal:
+          path: metadata.name
+          value: custom-kagent-tool-server
+
+  - it: should have hardcoded port 8084 in SSE URL
+    asserts:
+      - equal:
+          path: spec.url
+          value: http://RELEASE-NAME-tools.NAMESPACE:8084/mcp
+
+  - it: should have correct APIVersion and Kind
+    asserts:
+      - equal:
+          path: apiVersion
+          value: kagent.dev/v1alpha2
+      - equal:
+          path: kind
+          value: RemoteMCPServer

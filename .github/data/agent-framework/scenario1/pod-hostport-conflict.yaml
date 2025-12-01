@@ -5,11 +5,11 @@ metadata:
 spec:
   description: HostPort conflict prevents pod from scheduling on the same node
   prompt: |
-    There is a kubernetes cluster running in context 'cluster1'.
+    There is a kubernetes cluster running in context 'kind-kagent'.
     Calling the frontend service at http://frontend-v1:8080 I see backend-v2 pods stuck in pending state when scaling up.
-    You can find a mocha file 'test.js' in the directory $(git rev-parse --show-toplevel)/.github/data/agent-framework/scenario1
+    To make sure you fixed the environment run the tool `checkKubernetesClusterFixed`. And you have my permission to keep trying out things until you fix the environment and all tests pass.
   steps:
     - run: |
-        kubectl patch deployment backend-v1 --context ${CLUSTER1} -p '{"spec":{"template":{"spec":{"containers":[{"name":"backend","ports":[{"containerPort": 8080, "hostPort": 28080}]}]}}}}'
-        kubectl patch deployment backend-v2 --context ${CLUSTER1} -p '{"spec":{"template":{"spec":{"containers":[{"name":"backend","ports":[{"containerPort": 8080, "hostPort": 28080}]}]}}}}'
-        kubectl --context ${CLUSTER1} delete rs -l "app=backend,version=v2"
+        kubectl patch deployment backend-v1 --context ${CLUSTER_CTX} -p '{"spec":{"template":{"spec":{"containers":[{"name":"backend","ports":[{"containerPort": 8080, "hostPort": 28080}]}]}}}}'
+        kubectl patch deployment backend-v2 --context ${CLUSTER_CTX} -p '{"spec":{"template":{"spec":{"containers":[{"name":"backend","ports":[{"containerPort": 8080, "hostPort": 28080}]}]}}}}'
+        kubectl --context ${CLUSTER_CTX} delete rs -l "app=backend,version=v2"

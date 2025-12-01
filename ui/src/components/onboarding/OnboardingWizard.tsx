@@ -4,13 +4,14 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { useAgents, AgentFormData } from "@/components/AgentsProvider";
-import { Tool } from "@/types/datamodel";
+import type { Tool } from "@/types";
 import { WelcomeStep } from './steps/WelcomeStep';
 import { ModelConfigStep } from './steps/ModelConfigStep';
 import { AgentSetupStep, AgentSetupFormData } from './steps/AgentSetupStep';
 import { ToolSelectionStep } from './steps/ToolSelectionStep';
 import { ReviewStep } from './steps/ReviewStep';
 import { FinishStep } from './steps/FinishStep';
+import { k8sRefUtils } from '@/lib/k8sUtils';
 
 interface OnboardingWizardProps {
   onOnboardingComplete: () => void;
@@ -18,9 +19,9 @@ interface OnboardingWizardProps {
 }
 
 interface OnboardingStateData {
-    modelConfigName?: string;
+    modelConfigRef?: string;
     modelName?: string;
-    agentName?: string;
+    agentRef?: string;
     agentDescription?: string;
     agentInstructions?: string;
     selectedTools?: Tool[];
@@ -28,15 +29,16 @@ interface OnboardingStateData {
 
 export const K8S_AGENT_DEFAULTS = {
     name: "my-first-k8s-agent",
+    namespace: "kagent",
     description: "This agent can interact with the Kubernetes API to get information about the cluster.",
     instructions: `You're a friendly and helpful agent that uses Kubernetes tools to answer users questions about the cluster.
 
 # Instructions
-
 - If user question is unclear, ask for clarification before running any tools
 - Always be helpful and friendly
 - If you don't know how to answer the question DO NOT make things up
   respond with "Sorry, I don't know how to answer that" and ask the user to further clarify the question
+  If you are unable to help, or something goes wrong, refer the user to https://kagent.dev for more information or support.
 
 # Response format
 - ALWAYS format your response as Markdown
@@ -47,7 +49,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [onboardingData, setOnboardingData] = useState<OnboardingStateData>({
-      agentName: K8S_AGENT_DEFAULTS.name,
+      agentRef: k8sRefUtils.toRef(K8S_AGENT_DEFAULTS.namespace, K8S_AGENT_DEFAULTS.name),
       agentDescription: K8S_AGENT_DEFAULTS.description,
       agentInstructions: K8S_AGENT_DEFAULTS.instructions,
       selectedTools: [],
@@ -67,10 +69,10 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       setCurrentStep(1);
   };
 
-  const handleNextFromModelConfig = (modelConfigName: string, modelName: string) => {
+  const handleNextFromModelConfig = (modelConfigRef: string, modelName: string) => {
       setOnboardingData(prev => ({
           ...prev,
-          modelConfigName: modelConfigName,
+          modelConfigRef: modelConfigRef,
           modelName: modelName
       }));
       setCurrentStep(2);
@@ -79,7 +81,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
   const handleNextFromAgentSetup = (data: AgentSetupFormData) => {
       setOnboardingData(prev => ({
           ...prev,
-          agentName: data.agentName,
+          agentRef: k8sRefUtils.toRef(data.agentNamespace || K8S_AGENT_DEFAULTS.namespace, data.agentName),
           agentDescription: data.agentDescription,
           agentInstructions: data.agentInstructions,
       }));
@@ -99,22 +101,24 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
   };
 
   const handleFinalSubmit = async () => {
-      if (!onboardingData.modelConfigName || !onboardingData.agentName || !onboardingData.agentInstructions) {
+      if (!onboardingData.modelConfigRef || !onboardingData.agentRef || !onboardingData.agentInstructions) {
           toast.error("Some agent details are missing. Please review previous steps.");
           return;
       }
       setIsLoading(true);
       try {
+          const agentRef = k8sRefUtils.fromRef(onboardingData.agentRef);
           const agentPayload: AgentFormData = {
-              name: onboardingData.agentName,
+              name: agentRef.name,
+              namespace: agentRef.namespace,
               description: onboardingData.agentDescription || "",
               systemPrompt: onboardingData.agentInstructions,
-              model: { name: onboardingData.modelConfigName },
+              modelName: onboardingData.modelConfigRef || "",
               tools: onboardingData.selectedTools || [],
           };
           const result = await createNewAgent(agentPayload);
-          if (result.success) {
-              toast.success(`Agent '${onboardingData.agentName}' created successfully!`);
+          if (!result.error) {
+              toast.success(`Agent '${onboardingData.agentRef}' created successfully!`);
               setCurrentStep(5);
           } else {
               const errorMessage = result.error || 'Failed to create agent.';
@@ -159,7 +163,8 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
           case 2:
               return <AgentSetupStep
                           initialData={{
-                              agentName: onboardingData.agentName,
+                              agentName: k8sRefUtils.fromRef(onboardingData.agentRef || "").name,
+                              agentNamespace: k8sRefUtils.fromRef(onboardingData.agentRef || "").namespace,
                               agentDescription: onboardingData.agentDescription,
                               agentInstructions: onboardingData.agentInstructions
                           }}
@@ -184,7 +189,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
                      />;
           case 5:
               return <FinishStep
-                          agentName={onboardingData.agentName}
+                          agentName={onboardingData.agentRef}
                           onFinish={handleFinish}
                           shareOnTwitter={shareOnTwitter}
                           shareOnLinkedIn={shareOnLinkedIn}
@@ -198,7 +203,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
       <Card className="w-full max-w-2xl relative">
         {renderCurrentStep()}
-        <div className="absolute bottom-4 right-4">
+        <div className="flex justify-between items-center px-6 pb-4 pt-2 w-full">
           <button
             onClick={onSkip}
             className="text-sm text-muted-foreground hover:text-primary underline cursor-pointer"

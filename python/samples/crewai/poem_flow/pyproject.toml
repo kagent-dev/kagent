@@ -1,0 +1,20 @@
+[project]
+name = "poem_flow"
+version = "0.1.0"
+description = "poem-flow using crewAI"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "kagent-crewai",
+    "crewai[tools]>=0.193.2,<1.0.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.crewai]
+type = "flow"
+
+[tool.uv.sources]
+kagent-crewai = { workspace = true }
