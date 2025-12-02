@@ -26,13 +26,17 @@ spec:
       securityContext:
         {{- toYaml (.Values.controller.podSecurityContext | default .Values.podSecurityContext) | nindent 8 }}
       serviceAccountName: {{ include "kagent.fullname" . }}-controller
+      {{- if or (eq .Values.database.type "sqlite") (gt (len .Values.controller.volumes) 0) }}
       volumes:
+      {{- if eq .Values.database.type "sqlite" }}
       - name: sqlite-volume
         emptyDir:
           sizeLimit: 500Mi
           medium: Memory
+      {{- end }}
       {{- with .Values.controller.volumes }}
       {{- toYaml . | nindent 6 }}
+      {{- end }}
       {{- end }}
       {{- with .Values.controller.nodeSelector }}
       nodeSelector:
@@ -127,9 +131,13 @@ spec:
               path: /health
               port: http
             periodSeconds: 30
+          {{- if or (eq .Values.database.type "sqlite") (gt (len .Values.controller.volumeMounts) 0) }}
           volumeMounts:
+            {{- if eq .Values.database.type "sqlite" }}
             - name: sqlite-volume
               mountPath: /sqlite-volume
+            {{- end }}
             {{- with .Values.controller.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- end }}
