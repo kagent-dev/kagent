@@ -23,7 +23,7 @@
 
 ## Ways to contribute
 
-Thanks for your interest in contributing to kagent! We have a few different ways you can get involved. To understand contributor roles, refer to the [contributor ladder guide](CONTRIBUTOR_LADDER.md).
+Thanks for your interest in contributing to kagent! We have a few different ways you can get involved. To understand contributor roles, refer to the [contributor ladder guide](https://github.com/kagent-dev/community/blob/main/CONTRIBUTOR_LADDER.md).
 
 ### Report Security Vulnerabilities
 
