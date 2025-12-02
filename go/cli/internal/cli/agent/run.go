@@ -19,7 +19,8 @@ import (
 type RunCfg struct {
 	ProjectDir string
 	Config     *config.Config
-	Build	   bool	
+	Build	   bool
+	Registry   string
 }
 
 // RunCmd starts docker-compose in the background and launches a chat session with the local agent
