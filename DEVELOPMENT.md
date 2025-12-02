@@ -78,6 +78,50 @@ kubectl port-forward svc/kagent-ui 8001:80
 
 Then open your browser and go to `http://localhost:8001`.
 
+### Addons
+
+Optional addons are available to enhance your development environment with
+observability and infrastructure components.
+
+**Prerequisites:** Complete steps 1-3 above (cluster creation and environment variables).
+
+To install all addons:
+
+```shell
+make kagent-addon-install
+```
+
+This installs the following components into your cluster:
+
+| Addon          | Description                                         | Namespace |
+|----------------|-----------------------------------------------------|-----------|
+| Istio          | Service mesh (demo profile)                         | `istio-system` |
+| Grafana        | Dashboards and visualization                        | `kagent` |
+| Prometheus     | Metrics collection                                  | `kagent` |
+| Metrics Server | Kubernetes resource metrics                         | `kube-system` |
+| Postgres       | Relational database (for kagent controller storage) | `kagent` |
+
+#### Using Postgres as the Datastore
+
+By default, kagent uses a local SQLite database for data persistence. To use
+postgres as the backing store instead, deploy kagent via:
+
+> **Warning:**  
+> The following example uses hardcoded Postgres credentials (`postgres:kagent`) for local development only.  
+> **Do not use these credentials in production environments.**  
+```shell
+KAGENT_HELM_EXTRA_ARGS="--set database.type=postgres --set database.postgres.url=postgres://postgres:kagent@postgres.kagent.svc.cluster.local:5432/kagent" \
+  make helm-install
+```
+
+Verify the connection by checking the controller logs:
+
+```shell
+kubectl logs -n kagent deployment/kagent-controller | grep -i postgres
+```
+
+**To revert to SQLite:** Run `make helm-install` without the `KAGENT_HELM_EXTRA_ARGS` variable.
+
 ### Troubleshooting
 
 ### buildx localhost access
