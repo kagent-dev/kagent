@@ -106,6 +106,9 @@ This installs the following components into your cluster:
 By default, kagent uses a local SQLite database for data persistence. To use
 postgres as the backing store instead, deploy kagent via:
 
+> **Warning:**  
+> The following example uses hardcoded Postgres credentials (`postgres:kagent`) for local development only.  
+> **Do not use these credentials in production environments.**  
 ```shell
 KAGENT_HELM_EXTRA_ARGS="--set database.type=postgres --set database.postgres.url=postgres://postgres:kagent@postgres.kagent.svc.cluster.local:5432/kagent" \
   make helm-install
