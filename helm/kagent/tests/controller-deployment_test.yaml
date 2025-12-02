@@ -1,6 +1,7 @@
 suite: test controller deployment
 templates:
   - controller-deployment.yaml
+  - controller-configmap.yaml
 tests:
   - it: should render controller deployment with default values
     template: controller-deployment.yaml
@@ -89,54 +90,48 @@ tests:
           value: 8083
 
   - it: should use custom loglevel when set
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller:
         loglevel: "debug"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "debug"
+      - equal:
+          path: data.ZAP_LOG_LEVEL
+          value: "debug"
   - it: should use controller.agentImage.pullSecret when set
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller:
         agentImage:
           pullSecret: "pull-secret"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "-image-pull-secret"
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "pull-secret"
+      - equal:
+          path: data.IMAGE_PULL_SECRET
+          value: "pull-secret"
   - it: should not use controller.agentImage.pullSecret when not set
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller:
         agentImage:
           pullSecret: ""
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "-image-pull-secret"
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "pull-secret"
+      - notExists:
+          path: data.IMAGE_PULL_SECRET
 
   - it: should configure watch namespaces
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller:
         watchNamespaces:
           - namespace-1
           - namespace-2
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "namespace-1,namespace-2"
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: "namespace-1,namespace-2"
 
   - it: should set nodeSelector
+    template: controller-deployment.yaml
     set:
       controller:
         nodeSelector:
@@ -148,6 +143,7 @@ tests:
             role: AI
 
   - it: should set tolerations
+    template: controller-deployment.yaml
     set:
       controller:
         tolerations:

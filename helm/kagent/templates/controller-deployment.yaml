@@ -14,6 +14,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
         {{- with .Values.controller.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -49,78 +50,30 @@ spec:
       {{- end }}
       containers:
         - name: controller
-          args:
-          # Consider using env vars (stored in a dedicated ConfigMap(s)) rather than this
-          {{/* #we need to pass the default model config name to the app otherwise helm upgrade will not allow provider type change due to validations */}}
-            - -default-model-config-name
-            - {{ include "kagent.defaultModelConfigName" . | quote }}
-            - -zap-log-level
-            - {{ .Values.controller.loglevel }}
-            - -watch-namespaces
-            - "{{ include "kagent.watchNamespaces" . }}"
-            - -streaming-max-buf-size
-            - {{ .Values.controller.streaming.maxBufSize | quote }}
-            - -streaming-initial-buf-size
-            - {{ .Values.controller.streaming.initialBufSize | quote }}
-            - -streaming-timeout
-            - {{ .Values.controller.streaming.timeout | quote }}
-            - -database-type
-            - {{ .Values.database.type }}
-            {{- if eq .Values.database.type "sqlite" }}
-            - -sqlite-database-path
-            - /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
-            {{- else if eq .Values.database.type "postgres" }}
-            - -postgres-database-url
-            - {{ .Values.database.postgres.url }}
-            {{- end }}
-            - -image-registry
-            - {{ .Values.controller.agentImage.registry | default .Values.registry  }}
-            - -image-repository
-            - {{ .Values.controller.agentImage.repository }}
-            - -image-tag
-            - {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version  }}
-            - -image-pull-policy
-            - {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy }}
-            {{- if and .Values.controller.agentImage.pullSecret (not (eq .Values.controller.agentImage.pullSecret "")) }}
-            - -image-pull-secret
-            - {{ .Values.controller.agentImage.pullSecret | default "" }}
-            {{- end }}
-          securityContext:
-            {{- toYaml .Values.controller.securityContext | nindent 12 }}
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
-          resources:
-            {{- toYaml .Values.controller.resources | nindent 12 }}
           env:
             - name: KAGENT_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: OTEL_TRACING_ENABLED
-              value: {{ .Values.otel.tracing.enabled | quote }}
-            - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
-            - name: OTEL_TRACING_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
-            - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
-              value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
-            - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
-              value: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
-            - name: OTEL_LOGGING_ENABLED
-              value: {{ .Values.otel.logging.enabled | quote }}
-            - name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-              value: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
-            - name: OTEL_EXPORTER_OTLP_LOGS_TIMEOUT
-              value: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
-            - name: OTEL_EXPORTER_OTLP_LOGS_INSECURE
-              value: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
             {{- with .Values.controller.env }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "kagent.fullname" . }}-controller
+            {{- with .Values.controller.envFrom }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
               protocol: TCP
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.controller.securityContext | nindent 12 }}
           startupProbe:
             httpGet:
               path: /health

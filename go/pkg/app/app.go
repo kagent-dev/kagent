@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/internal/version"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -147,6 +149,30 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
 	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
 	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
+
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
+	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+}
+
+// LoadFromEnv loads configuration values from environment variables.
+// Flag names are converted to uppercase with underscores (e.g., metrics-bind-address -> METRICS_BIND_ADDRESS).
+func LoadFromEnv(fs *flag.FlagSet) error {
+	var loadErr error
+
+	fs.VisitAll(func(f *flag.Flag) {
+		envName := strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
+
+		if envVal := os.Getenv(envName); envVal != "" {
+			if err := f.Value.Set(envVal); err != nil {
+				loadErr = multierror.Append(loadErr, fmt.Errorf("failed to set flag %s from env %s=%s: %w", f.Name, envName, envVal, err))
+			}
+		}
+	})
+
+	return loadErr
 }
 
 type BootstrapConfig struct {
@@ -174,15 +200,16 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	ctx := context.Background()
 
 	cfg.SetFlags(flag.CommandLine)
-	flag.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
-	flag.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
-	flag.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
-	flag.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
-	flag.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	// Load configuration from environment variables (overrides flags)
+	if err := LoadFromEnv(flag.CommandLine); err != nil {
+		setupLog.Error(err, "failed to load configuration from environment variables")
+		os.Exit(1)
+	}
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
 	ctrl.SetLogger(logger)

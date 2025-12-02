@@ -104,6 +104,7 @@ controller:
       port: 8083
       targetPort: 8083
   env: []
+  envFrom: []
 
   # Additional volumes on the output Deployment definition.
   volumes: []
