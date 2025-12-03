@@ -68,10 +68,6 @@ type AdkApiTranslator interface {
 		ctx context.Context,
 		agent *v1alpha2.Agent,
 	) (*AgentOutputs, error)
-	TranslateAgentCard(
-		ctx context.Context,
-		agent *v1alpha2.Agent,
-	) (*server.AgentCard, error)
 	GetOwnedResourceTypes() []client.Object
 }
 
@@ -149,16 +145,9 @@ func (a *adkApiTranslator) TranslateAgent(
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
 
-	card := a.buildAgentCard(agent)
+	card := GetA2AAgentCard(agent)
 
 	return a.buildManifest(ctx, agent, dep, cfg, card, secretHashBytes)
-}
-
-func (a *adkApiTranslator) TranslateAgentCard(
-	ctx context.Context,
-	agent *v1alpha2.Agent,
-) (*server.AgentCard, error) {
-	return a.buildAgentCard(agent), nil
 }
 
 // GetOwnedResourceTypes returns all the resource types that may be created for an agent.
@@ -178,29 +167,6 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 	}
 
 	return ownedResources
-}
-
-func (a *adkApiTranslator) buildAgentCard(agent *v1alpha2.Agent) *server.AgentCard {
-	card := server.AgentCard{
-		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
-		Description: agent.Spec.Description,
-		URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
-		Capabilities: server.AgentCapabilities{
-			Streaming:              ptr.To(true),
-			PushNotifications:      ptr.To(false),
-			StateTransitionHistory: ptr.To(true),
-		},
-		// Can't be null for Python, so set to empty list
-		Skills:             []server.AgentSkill{},
-		DefaultInputModes:  []string{"text"},
-		DefaultOutputModes: []string{"text"},
-	}
-	if agent.Spec.Type == v1alpha2.AgentType_Declarative && agent.Spec.Declarative.A2AConfig != nil {
-		card.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Declarative.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
-			return server.AgentSkill(skill)
-		}))
-	}
-	return &card
 }
 
 func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) error {

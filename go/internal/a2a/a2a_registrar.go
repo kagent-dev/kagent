@@ -122,10 +122,7 @@ func (a *A2ARegistrar) Start(ctx context.Context) error {
 
 func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.Agent, log logr.Logger) error {
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
-	card, err := a.translator.TranslateAgentCard(ctx, agent)
-	if err != nil {
-		return fmt.Errorf("translate agent %s: %w", agentRef, err)
-	}
+	card := agent_translator.GetA2AAgentCard(agent)
 
 	client, err := a2aclient.NewA2AClient(
 		card.URL,
