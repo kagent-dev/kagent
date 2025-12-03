@@ -52,6 +52,13 @@ type RemoteMCPServerSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	TerminateOnClose *bool `json:"terminateOnClose,omitempty"`
+
+	// AllowedNamespaces defines which namespaces are allowed to reference this RemoteMCPServer.
+	// This follows the Gateway API pattern for cross-namespace route attachments.
+	// If not specified, only Agents in the same namespace can reference this RemoteMCPServer.
+	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
 var _ sql.Scanner = (*RemoteMCPServerSpec)(nil)

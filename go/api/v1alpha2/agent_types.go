@@ -59,6 +59,14 @@ type AgentSpec struct {
 	// and made available to the agent under the `/skills` folder.
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
+
+	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
+	// This follows the Gateway API pattern for cross-namespace route attachments.
+	// If not specified, only Agents in the same namespace can reference this Agent as a tool.
+	// This field only applies when this Agent is used as a tool by another Agent.
+	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
 type SkillForAgent struct {
