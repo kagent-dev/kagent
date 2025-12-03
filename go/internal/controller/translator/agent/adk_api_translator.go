@@ -512,10 +512,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
+		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
 		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.McpServer != nil:
-			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom)
+			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, headers)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -545,10 +550,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			switch toolAgent.Spec.Type {
 			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
-				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
-				if err != nil {
-					return nil, nil, nil, err
-				}
 
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
 					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
@@ -910,48 +911,52 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	return nil, nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
 }
 
-func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.StreamableHTTPConnectionParams, error) {
-	headers, err := tool.ResolveHeaders(ctx, a.kube, namespace)
+func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string) (*adk.StreamableHTTPConnectionParams, error) {
+	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
 	}
+	// Agent headers override tool headers
+	maps.Copy(headers, agentHeaders)
 
 	params := &adk.StreamableHTTPConnectionParams{
-		Url:     tool.URL,
+		Url:     server.Spec.URL,
 		Headers: headers,
 	}
-	if tool.Timeout != nil {
-		params.Timeout = ptr.To(tool.Timeout.Seconds())
+	if server.Spec.Timeout != nil {
+		params.Timeout = ptr.To(server.Spec.Timeout.Seconds())
 	}
-	if tool.SseReadTimeout != nil {
-		params.SseReadTimeout = ptr.To(tool.SseReadTimeout.Seconds())
+	if server.Spec.SseReadTimeout != nil {
+		params.SseReadTimeout = ptr.To(server.Spec.SseReadTimeout.Seconds())
 	}
-	if tool.TerminateOnClose != nil {
-		params.TerminateOnClose = tool.TerminateOnClose
+	if server.Spec.TerminateOnClose != nil {
+		params.TerminateOnClose = server.Spec.TerminateOnClose
 	}
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.SseConnectionParams, error) {
-	headers, err := tool.ResolveHeaders(ctx, a.kube, namespace)
+func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string) (*adk.SseConnectionParams, error) {
+	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
 	}
+	// Agent headers override tool headers
+	maps.Copy(headers, agentHeaders)
 
 	params := &adk.SseConnectionParams{
-		Url:     tool.URL,
+		Url:     server.Spec.URL,
 		Headers: headers,
 	}
-	if tool.Timeout != nil {
-		params.Timeout = ptr.To(tool.Timeout.Seconds())
+	if server.Spec.Timeout != nil {
+		params.Timeout = ptr.To(server.Spec.Timeout.Seconds())
 	}
-	if tool.SseReadTimeout != nil {
-		params.SseReadTimeout = ptr.To(tool.SseReadTimeout.Seconds())
+	if server.Spec.SseReadTimeout != nil {
+		params.SseReadTimeout = ptr.To(server.Spec.SseReadTimeout.Seconds())
 	}
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, toolServer *v1alpha2.McpServerTool, toolHeaders []v1alpha2.ValueRef) error {
+func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, toolServer *v1alpha2.McpServerTool, agentHeaders map[string]string) error {
 	gvk := toolServer.GroupKind()
 
 	switch gvk {
@@ -983,14 +988,12 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return fmt.Errorf("cross-namespace reference to MCPServer %s is not allowed from namespace %s: MCPServer does not support cross-namespace references", mcpServerRef, agentNamespace)
 		}
 
-		spec, err := ConvertMCPServerToRemoteMCPServer(mcpServer)
+		remoteMcpServer, err := ConvertMCPServerToRemoteMCPServer(mcpServer)
 		if err != nil {
 			return err
 		}
 
-		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
-
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames)
+		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer.ToolNames, agentHeaders)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "RemoteMCPServer",
@@ -1017,9 +1020,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return fmt.Errorf("cross-namespace reference to RemoteMCPServer %s is not allowed from namespace %s", remoteMcpServerRef, agentNamespace)
 		}
 
-		remoteMcpServer.Spec.HeadersFrom = append(remoteMcpServer.Spec.HeadersFrom, toolHeaders...)
-
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer.ToolNames)
+		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer.ToolNames, agentHeaders)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "Service",
@@ -1043,21 +1044,19 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return fmt.Errorf("cross-namespace reference to Service %s is not allowed from namespace %s: Service does not support cross-namespace references", svcRef, agentNamespace)
 		}
 
-		spec, err := ConvertServiceToRemoteMCPServer(svc)
+		remoteMcpServer, err := ConvertServiceToRemoteMCPServer(svc)
 		if err != nil {
 			return err
 		}
 
-		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
-
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames)
+		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer.ToolNames, agentHeaders)
 
 	default:
 		return fmt.Errorf("unknown tool server type: %s", gvk)
 	}
 }
 
-func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPServerSpec, error) {
+func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPServer, error) {
 	// Check wellknown annotations
 	port := int64(0)
 	protocol := string(MCPServiceProtocolDefault)
@@ -1098,27 +1097,39 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 	if port == 0 {
 		return nil, fmt.Errorf("no port found for service %s with protocol %s", svc.Name, protocol)
 	}
-	return &v1alpha2.RemoteMCPServerSpec{
-		URL:      fmt.Sprintf("http://%s.%s:%d%s", svc.Name, svc.Namespace, port, path),
-		Protocol: v1alpha2.RemoteMCPServerProtocol(protocol),
+	return &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svc.Name,
+			Namespace: svc.Namespace,
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      fmt.Sprintf("http://%s.%s:%d%s", svc.Name, svc.Namespace, port, path),
+			Protocol: v1alpha2.RemoteMCPServerProtocol(protocol),
+		},
 	}, nil
 }
 
-func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2.RemoteMCPServerSpec, error) {
+func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2.RemoteMCPServer, error) {
 	if mcpServer.Spec.Deployment.Port == 0 {
 		return nil, fmt.Errorf("cannot determine port for MCP server %s", mcpServer.Name)
 	}
 
-	return &v1alpha2.RemoteMCPServerSpec{
-		URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
-		Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+	return &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mcpServer.Name,
+			Namespace: mcpServer.Namespace,
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
+			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+		},
 	}, nil
 }
 
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string) error {
-	switch remoteMcpServer.Protocol {
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServer, toolNames []string, agentHeaders map[string]string) error {
+	switch remoteMcpServer.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
-		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentNamespace)
+		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders)
 		if err != nil {
 			return err
 		}
@@ -1127,7 +1138,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			Tools:  toolNames,
 		})
 	default:
-		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentNamespace)
+		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders)
 		if err != nil {
 			return err
 		}
