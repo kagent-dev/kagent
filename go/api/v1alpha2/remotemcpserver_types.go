@@ -64,21 +64,6 @@ func (t *RemoteMCPServerSpec) Scan(src any) error {
 	return nil
 }
 
-func (s *RemoteMCPServerSpec) ResolveHeaders(ctx context.Context, client client.Client, namespace string) (map[string]string, error) {
-	result := map[string]string{}
-
-	for _, h := range s.HeadersFrom {
-		k, v, err := h.Resolve(ctx, client, namespace)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve header: %v", err)
-		}
-
-		result[k] = v
-	}
-
-	return result, nil
-}
-
 var _ driver.Valuer = (*RemoteMCPServerSpec)(nil)
 
 func (t RemoteMCPServerSpec) Value() (driver.Value, error) {
@@ -114,6 +99,22 @@ type RemoteMCPServer struct {
 
 	Spec   RemoteMCPServerSpec   `json:"spec,omitempty"`
 	Status RemoteMCPServerStatus `json:"status,omitempty"`
+}
+
+// ResolveHeaders resolves all HeadersFrom entries using the object's namespace.
+func (r *RemoteMCPServer) ResolveHeaders(ctx context.Context, client client.Client) (map[string]string, error) {
+	result := map[string]string{}
+
+	for _, h := range r.Spec.HeadersFrom {
+		k, v, err := h.Resolve(ctx, client, r.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve header: %v", err)
+		}
+
+		result[k] = v
+	}
+
+	return result, nil
 }
 
 // +kubebuilder:object:root=true
