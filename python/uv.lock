@@ -1861,7 +1861,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", specifier = ">=0.3.1" },
+    { name = "a2a-sdk", specifier = ">=0.3.8" },
     { name = "agentsts-adk", specifier = ">=0.0.6" },
     { name = "agentsts-core", specifier = ">=0.0.6" },
     { name = "aiofiles", specifier = ">=24.1.0" },
