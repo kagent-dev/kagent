@@ -533,6 +533,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				return nil, nil, nil, err
 			}
 
+			// Check cross-namespace reference is allowed
+			allowed, err := toolAgent.Spec.AllowedNamespaces.AllowsNamespace(ctx, a.kube, agent.Namespace, toolAgent.Namespace)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to check cross-namespace reference for agent %s: %w", agentRef, err)
+			}
+			if !allowed {
+				return nil, nil, nil, fmt.Errorf("cross-namespace reference to agent %s is not allowed from namespace %s", agentRef, agent.Namespace)
+			}
+
 			switch toolAgent.Spec.Type {
 			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
@@ -968,6 +977,12 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return err
 		}
 
+		// MCPServer type doesn't support cross-namespace references (external type)
+		// Only same-namespace references are allowed
+		if mcpServerRef.Namespace != agentNamespace {
+			return fmt.Errorf("cross-namespace reference to MCPServer %s is not allowed from namespace %s: MCPServer does not support cross-namespace references", mcpServerRef, agentNamespace)
+		}
+
 		spec, err := ConvertMCPServerToRemoteMCPServer(mcpServer)
 		if err != nil {
 			return err
@@ -993,6 +1008,15 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return err
 		}
 
+		// Check cross-namespace reference is allowed
+		allowed, err := remoteMcpServer.Spec.AllowedNamespaces.AllowsNamespace(ctx, a.kube, agentNamespace, remoteMcpServer.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to check cross-namespace reference for RemoteMCPServer %s: %w", remoteMcpServerRef, err)
+		}
+		if !allowed {
+			return fmt.Errorf("cross-namespace reference to RemoteMCPServer %s is not allowed from namespace %s", remoteMcpServerRef, agentNamespace)
+		}
+
 		remoteMcpServer.Spec.HeadersFrom = append(remoteMcpServer.Spec.HeadersFrom, toolHeaders...)
 
 		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer.ToolNames)
@@ -1011,6 +1035,12 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		err := a.kube.Get(ctx, svcRef, svc)
 		if err != nil {
 			return err
+		}
+
+		// Service type doesn't support cross-namespace references (external type)
+		// Only same-namespace references are allowed
+		if svcRef.Namespace != agentNamespace {
+			return fmt.Errorf("cross-namespace reference to Service %s is not allowed from namespace %s: Service does not support cross-namespace references", svcRef, agentNamespace)
 		}
 
 		spec, err := ConvertServiceToRemoteMCPServer(svc)
