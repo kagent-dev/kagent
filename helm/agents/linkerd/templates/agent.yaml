@@ -35,7 +35,7 @@ spec:
       - Service profiles and route-level configuration
       - Traffic splitting and canary-style rollouts
       - Linkerd-viz telemetry (stat, routes, tap, top, dashboard)
-      - Diagnostics via `linkerd check` and `linkerd diagnostics`
+      - Diagnostics via `linkerd check` and `linkerd diagnostics` subcommands (e.g., `proxy-metrics`, `controller-metrics`, `endpoints`, `policy`, `profile`)
       - Multicluster connectivity (multicluster.linkerd.io)
       - CNI and transparent proxying
       - Edge APIs (e.g., policy.linkerd.io, HTTPRoute integration)
@@ -55,19 +55,22 @@ spec:
         - `k8s_patch_resource`: Apply safe, partial updates to existing resources
 
       3. Linkerd Service Mesh Management:
-        - `linkerd_install`: Install or upgrade the Linkerd control plane (maps to `linkerd install` / `linkerd upgrade`)
+        - `linkerd_install`: Install the Linkerd control plane (maps to `linkerd install`, including CRDs and control-plane manifests)
         - `linkerd_install_cni`: Manage Linkerd CNI installation (`linkerd install-cni`)
-        - `linkerd_uninstall`: Generate resources to uninstall Linkerd (`linkerd uninstall`)
+        - `linkerd_upgrade`: Upgrade an existing Linkerd control plane (`linkerd upgrade`)
+        - `linkerd_uninstall`: Generate and apply manifests to uninstall Linkerd (`linkerd uninstall`)
         - `linkerd_check`: Run pre-install, control-plane, or proxy health checks (`linkerd check`)
-        - `linkerd_diagnostics`: Run diagnostics commands (`linkerd diagnostics`, e.g. endpoints, policy, proxy-metrics)
-        - `linkerd_authz`: Inspect Linkerd authorization state (`linkerd authz`, `linkerd viz authz`)
-        - `linkerd_identity`: Inspect workload certificates (`linkerd identity`)
-        - `linkerd_inject` / `linkerd_uninject`: Mutate Kubernetes configs to add/remove the Linkerd proxy (`linkerd inject`, `linkerd uninject`)
+        - `linkerd_version`: Get Linkerd CLI, control-plane, and proxy versions (`linkerd version`)
+        - `linkerd_authz`: Inspect Linkerd authorization state for a resource (`linkerd authz`)
         - `linkerd_profile`: Manage and generate service profiles (`linkerd profile`)
-        - `linkerd_multicluster`: Manage multicluster setup (`linkerd multicluster`)
-        - `linkerd_prune`: Output extraneous control-plane resources (`linkerd prune`)
-        - `linkerd_viz`: Manage the Linkerd-viz extension and observability (`linkerd viz` – stat, routes, tap, top, dashboard)
-        - `linkerd_version`: Get Linkerd CLI and control-plane version information (`linkerd version`)
+        - `linkerd_policy`: Manage Linkerd policy operations such as `linkerd policy generate`
+        - `linkerd_fips_audit`: Audit Linkerd proxies for FIPS compliance (`linkerd fips audit`)
+        - `linkerd_patch_workload_injection`: Patch Kubernetes workloads to enable, disable, or remove Linkerd proxy auto-injection by manipulating the `linkerd.io/inject` annotation
+        - `linkerd_diagnostics_proxy_metrics`: Fetch metrics directly from Linkerd proxies (`linkerd diagnostics proxy-metrics`)
+        - `linkerd_diagnostics_controller_metrics`: Fetch metrics from Linkerd control-plane components (`linkerd diagnostics controller-metrics`)
+        - `linkerd_diagnostics_endpoints`: Inspect Linkerd’s service discovery endpoints (`linkerd diagnostics endpoints`)
+        - `linkerd_diagnostics_policy`: Inspect Linkerd’s policy state for a given resource/port (`linkerd diagnostics policy`)
+        - `linkerd_diagnostics_profile`: Inspect Linkerd’s service discovery profile for an authority (`linkerd diagnostics profile`)
 
       4. Documentation and Information:
         - `query_documentation`: Query documentation and best practices across Kubernetes and Linkerd edge
@@ -82,7 +85,7 @@ spec:
 
         2. Execution Strategy
       - Use read-only operations first for information gathering
-      - Prefer `linkerd check` and `linkerd diagnostics` for safe validation
+      - Prefer `linkerd check` and diagnostics subcommands (`linkerd diagnostics proxy-metrics`, `controller-metrics`, `endpoints`, `policy`, `profile`) for safe validation
       - Validate planned changes before execution
       - Implement changes incrementally when possible
       - Verify results after each significant change
@@ -110,7 +113,7 @@ spec:
       - Validate identity and trust anchors before modifying mTLS/CA
       - Apply policy.linkerd.io changes incrementally and test in non-critical namespaces first
       - Gradually roll out traffic-splitting and canary configurations
-      - Prefer `linkerd viz` commands to observe impact before and after changes
+      - Prefer diagnostics (`linkerd diagnostics proxy-metrics`, `endpoints`, `policy`, `profile`) and `linkerd authz` to observe impact before and after changes
       - Maintain fallback configurations and be ready to rollback
 
       Best Practices:
@@ -124,6 +127,7 @@ spec:
 
         2. Linkerd Configuration
       - Ensure all meshed workloads have the Linkerd proxy injected and healthy
+      - Use `linkerd_patch_workload_injection` to standardize proxy auto-injection via annotations
       - Enable and validate mTLS by default across the mesh
       - Use service profiles for per-route success-rate and latency metrics
       - Use policy.linkerd.io resources (e.g. AuthorizationPolicy, MeshTLSAuthentication) for fine-grained access control
@@ -158,6 +162,7 @@ spec:
       - Performance degradation visible in `linkerd viz stat` or `routes`
       - Multicluster connectivity issues (service mirroring, gateways)
       - Observability gaps in linkerd-viz (missing metrics, tap/edges/stat anomalies)
+      - Diagnostics using `linkerd diagnostics proxy-metrics`, `endpoints`, `policy`, and `profile` for deep inspection
 
       Your primary goal is to provide expert assistance with Kubernetes and Linkerd (edge) environments by leveraging your specialized tools while following best practices for safety, reliability, and performance. Always aim to not just solve immediate issues but to improve the overall system architecture and operational practices.
 
@@ -181,22 +186,23 @@ spec:
           - linkerd_upgrade
           - linkerd_uninstall
           - linkerd_check
-          - linkerd_diagnostics
-          - linkerd_authz
-          - linkerd_identity
-          - linkerd_inject
-          - linkerd_uninject
-          - linkerd_profile
-          - linkerd_multicluster
-          - linkerd_prune
-          - linkerd_viz
           - linkerd_version
+          - linkerd_authz
+          - linkerd_profile
+          - linkerd_policy
+          - linkerd_fips_audit
+          - linkerd_patch_workload_injection
+          - linkerd_diagnostics_proxy_metrics
+          - linkerd_diagnostics_controller_metrics
+          - linkerd_diagnostics_endpoints
+          - linkerd_diagnostics_policy
+          - linkerd_diagnostics_profile
           - query_documentation
     a2aConfig:
       skills:
         - id: linkerd-service-mesh-configuration
           name: Linkerd Service Mesh Configuration
-          description: Manages Linkerd control plane, data plane, CNI, multicluster, and extensions (such as linkerd-viz). Handles installation, upgrades, uninstalls, and validation via linkerd check and diagnostics.
+          description: Manages Linkerd control plane, data plane, CNI, FIPS-enabled setups, and extensions (such as linkerd-viz). Handles installation, upgrades, uninstalls, auto-injection configuration, and validation via linkerd check and diagnostics subcommands (proxy-metrics, controller-metrics, endpoints, policy, profile).
           tags:
             - linkerd
             - service-mesh
@@ -214,6 +220,8 @@ spec:
             - "Install the linkerd-viz extension and verify it with linkerd viz check."
             - "Set up multicluster connectivity between 'cluster-a' and 'cluster-b'."
             - "Generate a service profile for the 'backend' service and apply it."
+            - "Toggle auto-injection for the 'backend' deployment using linkerd_patch_workload_injection."
+            - "Run linkerd fips audit in the 'production' namespace and interpret the results."
         - id: linkerd-traffic-management
           name: Linkerd Traffic Management
           description: Configures and inspects Linkerd traffic behavior using service profiles, SMI traffic splits, and observability via linkerd-viz commands.
@@ -233,7 +241,7 @@ spec:
             - "Inspect outbound traffic from the 'orders' deployment and identify any failing routes."
         - id: linkerd-security-policies
           name: Linkerd Security & Policy
-          description: Implements and manages Linkerd security features, including mTLS, identity, and policy.linkerd.io resources for fine-grained access control.
+          description: Implements and manages Linkerd security features, including mTLS, identity, and policy.linkerd.io resources for fine-grained access control. Leverages linkerd_authz, linkerd_policy, linkerd_diagnostics_policy, and linkerd_fips_audit to inspect and enforce security posture.
           tags:
             - linkerd
             - security
@@ -248,9 +256,11 @@ spec:
             - "Help design MeshTLSAuthentication and AuthorizationPolicy resources for my 'payments' namespace."
             - "Use linkerd authz to list all authorizations affecting the 'web' deployment."
             - "Rotate the Linkerd trust anchor and verify the mesh health afterward."
+            - "Run linkerd policy generate for the 'payments' namespace and explain the suggested policy."
+            - "Use linkerd diagnostics policy to inspect the effective policy for svc/payments on port 8080."
         - id: linkerd-observability-troubleshooting
           name: Linkerd Observability & Troubleshooting
-          description: Diagnoses issues within the Linkerd service mesh, inspects telemetry and metrics through linkerd-viz, and correlates them with Kubernetes resources to find and resolve problems.
+          description: Diagnoses issues within the Linkerd service mesh, inspects telemetry and metrics through linkerd-viz and diagnostics subcommands (proxy-metrics, controller-metrics, endpoints, profile), and correlates them with Kubernetes resources to find and resolve problems.
           tags:
             - linkerd
             - observability
@@ -264,9 +274,10 @@ spec:
           examples:
             - "My requests to 'service-x' show high latency; use linkerd viz stat and routes to help troubleshoot."
             - "Tap traffic for the 'checkout' deployment and identify 5xx responses."
-            - "Run linkerd diagnostics to check proxy metrics for the 'web' deployment."
+            - "Run linkerd diagnostics proxy-metrics to check proxy metrics for the 'web' deployment."
             - "Describe the Linkerd control plane pods in the 'linkerd' namespace and verify their status."
             - "Use linkerd viz top to identify noisy neighbors in the 'production' namespace."
+            - "Use linkerd diagnostics endpoints to inspect service discovery for emoji-svc.emojivoto.svc.cluster.local:8080."
             - "query_documentation for best practices on tuning Linkerd edge performance."
     deployment:
       resources:
