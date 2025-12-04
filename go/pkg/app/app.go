@@ -99,6 +99,11 @@ type Config struct {
 		CertName string
 		CertKey  string
 	}
+	Webhook struct {
+		CertPath string
+		CertName string
+		CertKey  string
+	}
 	Streaming struct {
 		MaxBufSize     resource.QuantityValue `default:"1Mi"`
 		InitialBufSize resource.QuantityValue `default:"4Ki"`
@@ -132,6 +137,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 		"The directory that contains the metrics server certificate.")
 	commandLine.StringVar(&cfg.Metrics.CertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
 	commandLine.StringVar(&cfg.Metrics.CertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+	commandLine.StringVar(&cfg.Webhook.CertPath, "webhook-cert-path", "",
+		"The directory that contains the webhook server certificate.")
+	commandLine.StringVar(&cfg.Webhook.CertName, "webhook-cert-name", "tls.crt", "The name of the wehbook server certificate file.")
+	commandLine.StringVar(&cfg.Webhook.CertKey, "webhook-cert-key", "tls.key", "The name of the webhook server key file.")
 	commandLine.BoolVar(&cfg.EnableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 
@@ -280,6 +289,21 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
 			config.GetCertificate = metricsCertWatcher.GetCertificate
 		})
+	}
+
+	if len(cfg.Webhook.CertPath) > 0 {
+		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
+			"webhook-cert-path", cfg.Webhook.CertPath, "webhook-cert-name", cfg.Webhook.CertName, "webhook-cert-key", cfg.Webhook.CertKey)
+
+		var err error
+		webhookCertWatcher, err = certwatcher.New(
+			filepath.Join(cfg.Webhook.CertPath, cfg.Webhook.CertName),
+			filepath.Join(cfg.Webhook.CertPath, cfg.Webhook.CertKey),
+		)
+		if err != nil {
+			setupLog.Error(err, "to initialize webhook certificate watcher", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
