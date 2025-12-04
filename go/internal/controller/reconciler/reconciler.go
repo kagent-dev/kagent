@@ -663,7 +663,15 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 		return nil, fmt.Errorf("failed to create client for toolServer %s: %v", toolServer.Name, err)
 	}
 
-	tools, err := a.listTools(ctx, tsp, toolServer)
+	// Apply timeout from spec to context
+	timeoutCtx := ctx
+	if remoteMcpServer.Timeout != nil {
+		var cancel context.CancelFunc
+		timeoutCtx, cancel = context.WithTimeout(ctx, remoteMcpServer.Timeout.Duration)
+		defer cancel()
+	}
+
+	tools, err := a.listTools(timeoutCtx, tsp, toolServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
 	}
