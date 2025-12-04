@@ -275,7 +275,7 @@ def _convert_tool_output(
     # Create a DataPart for the function response
     function_data = {
         "id": call_id,
-        "name": call_id, # This is not returned by the tool
+        "name": call_id,  # Name is not returned by the tool
         "response": {"result": actual_output},
     }
 
