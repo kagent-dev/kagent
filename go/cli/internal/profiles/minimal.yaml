@@ -7,6 +7,8 @@ agents:
     enabled: false
   istio-agent:
     enabled: false
+  linkerd-agent:
+    enabled: false
   promql-agent:
     enabled: false
   observability-agent:

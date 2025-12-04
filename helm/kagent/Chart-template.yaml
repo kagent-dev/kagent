@@ -32,6 +32,10 @@ dependencies:
     version: ${VERSION}
     repository: file://../agents/istio
     condition: agents.istio-agent.enabled
+  - name: linkerd-agent
+    version: ${VERSION}
+    repository: file://../agents/linkerd
+    condition: agents.linkerd-agent.enabled
   - name: promql-agent
     version: ${VERSION}
     repository: file://../agents/promql

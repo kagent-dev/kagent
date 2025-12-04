@@ -228,7 +228,7 @@ kagent-tools:
 
 agents:
   k8s-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -237,7 +237,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   kgateway-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -254,8 +254,17 @@ agents:
       limits:
         cpu: 1000m
         memory: 1Gi
-  promql-agent:
+  linkerd-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+  promql-agent:
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -264,7 +273,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   observability-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -273,7 +282,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   argo-rollouts-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -291,7 +300,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-policy-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -300,7 +309,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-manager-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -309,7 +318,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-debug-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -324,9 +333,9 @@ agents:
 
 tools:
   grafana-mcp:
-    enabled: true
+    enabled: false
   querydoc:
-    enabled: true
+    enabled: false
 
 grafana-mcp:
   grafana:
