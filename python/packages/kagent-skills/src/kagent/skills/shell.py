@@ -135,10 +135,6 @@ async def execute_command(
         env["PATH"] = f"{bash_venv_bin}:{env.get('PATH', '')}"
         env["VIRTUAL_ENV"] = bash_venv_path
 
-    logger.warning(f"path modified: {env['PATH']}")
-    logger.warning(f"Set virtual env to: {env.get('VIRTUAL_ENV')}")
-    logger.warning(f"Set pythonpath to: {env.get('PYTHONPATH')}")
-
     sandboxed_command = f'srt "{command}"'
 
     try:

@@ -1,5 +1,4 @@
-from .discovery import discover_skills
-from .loader import load_skill_content
+from .discovery import discover_skills, load_skill_content
 from .models import Skill
 from .prompts import (
     generate_skills_tool_description,
