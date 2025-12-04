@@ -115,11 +115,11 @@ RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     && echo "Installation complete."
 
 # Create a separate venv for bash tool commands (sandbox environment)
+# This venv does not have pip installed
 RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     echo "Creating bash tool sandbox environment..."                          \
     && mkdir -p /.kagent/sandbox-venv                                         \
     && uv venv --python=python$TOOLS_PYTHON_VERSION /.kagent/sandbox-venv     \
-    && uv pip install --python /.kagent/sandbox-venv/bin/python --upgrade pip setuptools \
     && echo "Bash tool sandbox environment created."
 
 ENV PATH="/.kagent/.venv/bin:$PATH"
