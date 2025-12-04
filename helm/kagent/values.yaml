@@ -229,7 +229,7 @@ kagent-tools:
 
 agents:
   k8s-agent:
-    enabled: false
+    enabled: true
     resources:
       requests:
         cpu: 100m
@@ -238,7 +238,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   kgateway-agent:
-    enabled: false
+    enabled: true
     resources:
       requests:
         cpu: 100m
@@ -265,7 +265,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   promql-agent:
-    enabled: false
+    enabled: true
     resources:
       requests:
         cpu: 100m
@@ -274,7 +274,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   observability-agent:
-    enabled: false
+    enabled: true
     resources:
       requests:
         cpu: 100m
@@ -283,7 +283,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   argo-rollouts-agent:
-    enabled: false
+    enabled: true
     resources:
       requests:
         cpu: 100m
@@ -301,7 +301,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-policy-agent:
-    enabled: false
+    enabled: true
     resources:
       requests:
         cpu: 100m
@@ -310,7 +310,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-manager-agent:
-    enabled: false
+    enabled: true
     resources:
       requests:
         cpu: 100m
@@ -319,7 +319,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-debug-agent:
-    enabled: false
+    enabled: true
     resources:
       requests:
         cpu: 100m
