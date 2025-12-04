@@ -624,7 +624,7 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	require.NoError(t, cmd.Run())
 
 	defer func() {
-		cli.Delete(t.Context(), agent) //nolint:errcheck
+		cli.Delete(t.Context(), agent)    //nolint:errcheck
 		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
 	}()
 
