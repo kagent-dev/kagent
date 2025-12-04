@@ -624,8 +624,8 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	require.NoError(t, cmd.Run())
 
 	defer func() {
-		cli.Delete(t.Context(), agent)
-		cli.Delete(t.Context(), modelCfg)
+		cli.Delete(t.Context(), agent) //nolint:errcheck
+		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
 	}()
 
 	// Setup A2A client - use the agent's actual name

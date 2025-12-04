@@ -16,7 +16,7 @@ from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
-from agents import Agent
+from agents import Agent, set_tracing_disabled
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from kagent.core import KAgentConfig, configure_tracing
@@ -143,6 +143,9 @@ class KAgentApp:
 
         if self.tracing:
             try:
+                # Set OpenAI tracing disabled and set custom OTEL tracing to be enabled
+                logger.info("Configuring tracing for KAgent OpenAI app")
+                set_tracing_disabled(True)
                 configure_tracing(app)
 
                 # Configure tracing for OpenAI Agents SDK
