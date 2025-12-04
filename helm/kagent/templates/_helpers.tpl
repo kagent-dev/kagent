@@ -108,13 +108,6 @@ app.kubernetes.io/component: engine
 {{- end }}
 
 {{/*
-Check if leader election should be enabled (more than 1 replica)
-*/}}
-{{- define "kagent.leaderElectionEnabled" -}}
-{{- gt (.Values.controller.replicas | int) 1 -}}
-{{- end -}}
-
-{{/*
 Validate controller configuration
 */}}
 {{- define "kagent.validateController" -}}

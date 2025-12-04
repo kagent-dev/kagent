@@ -2,6 +2,8 @@ suite: test controller deployment
 templates:
   - controller-deployment.yaml
   - controller-configmap.yaml
+  - rbac/leader-election-role.yaml
+  - rbac/leader-election-rolebinding.yaml
 tests:
   - it: should render controller deployment with default values
     template: controller-deployment.yaml
@@ -207,3 +209,26 @@ tests:
           path: spec.template.spec.volumes
       - isNull:
           path: spec.template.spec.containers[0].volumeMounts
+
+  - it: should always enable leader election
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.LEADER_ELECT
+          value: "true"
+
+  - it: should always create leader election Role
+    template: rbac/leader-election-role.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Role
+
+  - it: should always create leader election RoleBinding
+    template: rbac/leader-election-rolebinding.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: RoleBinding
