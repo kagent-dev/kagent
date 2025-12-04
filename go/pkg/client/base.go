@@ -83,7 +83,7 @@ func (c *BaseClient) addUserID(req *http.Request, userID string) {
 	req.Header.Set("X-User-ID", userID)
 }
 
-func (c *BaseClient) doRequest(ctx context.Context, method, path string, body interface{}, userID string) (*http.Response, error) {
+func (c *BaseClient) doRequest(ctx context.Context, method, path string, body any, userID string) (*http.Response, error) {
 	var reqBody io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -113,7 +113,7 @@ func (c *BaseClient) doRequest(ctx context.Context, method, path string, body in
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		resp.Body.Close() //nolint:errcheck
+		resp.Body.Close()
 
 		var apiErr api.APIError
 		if json.Unmarshal(bodyBytes, &apiErr) == nil && apiErr.Error != "" {
@@ -138,11 +138,11 @@ func (c *BaseClient) Get(ctx context.Context, path string, userID string) (*http
 	return c.doRequest(ctx, http.MethodGet, path, nil, userID)
 }
 
-func (c *BaseClient) Post(ctx context.Context, path string, body interface{}, userID string) (*http.Response, error) {
+func (c *BaseClient) Post(ctx context.Context, path string, body any, userID string) (*http.Response, error) {
 	return c.doRequest(ctx, http.MethodPost, path, body, userID)
 }
 
-func (c *BaseClient) Put(ctx context.Context, path string, body interface{}, userID string) (*http.Response, error) {
+func (c *BaseClient) Put(ctx context.Context, path string, body any, userID string) (*http.Response, error) {
 	return c.doRequest(ctx, http.MethodPut, path, body, userID)
 }
 
@@ -150,8 +150,8 @@ func (c *BaseClient) Delete(ctx context.Context, path string, userID string) (*h
 	return c.doRequest(ctx, http.MethodDelete, path, nil, userID)
 }
 
-func DecodeResponse(resp *http.Response, target interface{}) error {
-	defer resp.Body.Close() //nolint:errcheck
+func DecodeResponse(resp *http.Response, target any) error {
+	defer resp.Body.Close()
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 

@@ -32,18 +32,18 @@ func TestHandlesErrorWhenCreatingConfigDir(t *testing.T) {
 func checkGetConfig(t *testing.T, homeDir string) {
 	configDir, err := GetConfigDir(homeDir)
 
-	//check for error
+	// check for error
 	if err != nil {
 		t.Fatalf("Expected no error, but got %v", err)
 	}
 
-	//check it's equal to the expected path
+	// check it's equal to the expected path
 	expectedDir := path.Join(homeDir, ".config", "kagent")
 	if configDir != expectedDir {
 		t.Fatalf("Expected %s, but got %s", expectedDir, configDir)
 	}
 
-	//check kagent folder is exists
+	// check kagent folder is exists
 	if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
 		t.Fatalf("Expected %s to exist, but it does not", path.Join(homeDir, "kagent"))
 	}

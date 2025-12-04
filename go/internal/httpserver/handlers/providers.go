@@ -53,10 +53,10 @@ func (h *ProviderHandler) HandleListSupportedMemoryProviders(w ErrorResponseWrit
 		providerEnum v1alpha1.MemoryProvider
 		configType   reflect.Type
 	}{
-		{v1alpha1.Pinecone, reflect.TypeOf(v1alpha1.PineconeConfig{})},
+		{v1alpha1.Pinecone, reflect.TypeFor[v1alpha1.PineconeConfig]()},
 	}
 
-	providersResponse := []map[string]interface{}{}
+	providersResponse := []map[string]any{}
 
 	for _, pData := range providersData {
 		allKeys := getStructJSONKeys(pData.configType)
@@ -73,7 +73,7 @@ func (h *ProviderHandler) HandleListSupportedMemoryProviders(w ErrorResponseWrit
 			}
 		}
 
-		providersResponse = append(providersResponse, map[string]interface{}{
+		providersResponse = append(providersResponse, map[string]any{
 			"name":           string(pData.providerEnum),
 			"type":           string(pData.providerEnum),
 			"requiredParams": requiredKeys,
@@ -94,16 +94,16 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 		providerEnum v1alpha2.ModelProvider
 		configType   reflect.Type
 	}{
-		{v1alpha2.ModelProviderOpenAI, reflect.TypeOf(v1alpha2.OpenAIConfig{})},
-		{v1alpha2.ModelProviderAnthropic, reflect.TypeOf(v1alpha2.AnthropicConfig{})},
-		{v1alpha2.ModelProviderAzureOpenAI, reflect.TypeOf(v1alpha2.AzureOpenAIConfig{})},
-		{v1alpha2.ModelProviderOllama, reflect.TypeOf(v1alpha2.OllamaConfig{})},
-		{v1alpha2.ModelProviderGemini, reflect.TypeOf(v1alpha2.GeminiConfig{})},
-		{v1alpha2.ModelProviderGeminiVertexAI, reflect.TypeOf(v1alpha2.GeminiVertexAIConfig{})},
-		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeOf(v1alpha2.AnthropicVertexAIConfig{})},
+		{v1alpha2.ModelProviderOpenAI, reflect.TypeFor[v1alpha2.OpenAIConfig]()},
+		{v1alpha2.ModelProviderAnthropic, reflect.TypeFor[v1alpha2.AnthropicConfig]()},
+		{v1alpha2.ModelProviderAzureOpenAI, reflect.TypeFor[v1alpha2.AzureOpenAIConfig]()},
+		{v1alpha2.ModelProviderOllama, reflect.TypeFor[v1alpha2.OllamaConfig]()},
+		{v1alpha2.ModelProviderGemini, reflect.TypeFor[v1alpha2.GeminiConfig]()},
+		{v1alpha2.ModelProviderGeminiVertexAI, reflect.TypeFor[v1alpha2.GeminiVertexAIConfig]()},
+		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha2.AnthropicVertexAIConfig]()},
 	}
 
-	providersResponse := []map[string]interface{}{}
+	providersResponse := []map[string]any{}
 
 	for _, pData := range providersData {
 		allKeys := getStructJSONKeys(pData.configType)
@@ -120,7 +120,7 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 			}
 		}
 
-		providersResponse = append(providersResponse, map[string]interface{}{
+		providersResponse = append(providersResponse, map[string]any{
 			"name":           string(pData.providerEnum),
 			"type":           string(pData.providerEnum),
 			"requiredParams": requiredKeys,

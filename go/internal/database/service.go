@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -13,7 +14,7 @@ type Model interface {
 
 type Clause struct {
 	Key   string
-	Value interface{}
+	Value any
 }
 
 func list[T Model](db *gorm.DB, clauses ...Clause) ([]T, error) {
@@ -76,12 +77,12 @@ func delete[T Model](db *gorm.DB, clauses ...Clause) error {
 
 // BuildWhereClause is deprecated, use individual Where clauses instead
 func BuildWhereClause(clauses ...Clause) string {
-	clausesStr := ""
+	var clausesStr strings.Builder
 	for idx, clause := range clauses {
 		if idx > 0 {
-			clausesStr += " AND "
+			clausesStr.WriteString(" AND ")
 		}
-		clausesStr += fmt.Sprintf("%s = %v", clause.Key, clause.Value)
+		clausesStr.WriteString(fmt.Sprintf("%s = %v", clause.Key, clause.Value))
 	}
-	return clausesStr
+	return clausesStr.String()
 }

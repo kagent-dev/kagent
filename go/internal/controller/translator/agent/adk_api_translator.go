@@ -112,7 +112,6 @@ func (a *adkApiTranslator) TranslateAgent(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
 ) (*AgentOutputs, error) {
-
 	err := a.validateAgent(ctx, agent, &tState{})
 	if err != nil {
 		return nil, err
@@ -170,7 +169,6 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 }
 
 func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) error {
-
 	agentRef := utils.GetObjectRef(agent)
 
 	if state.isVisited(agentRef) {
@@ -214,7 +212,6 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 		if err != nil {
 			return err
 		}
-
 	}
 
 	return nil
@@ -500,7 +497,6 @@ func (a *adkApiTranslator) buildManifest(
 }
 
 func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
-
 	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Declarative.ModelConfig)
 	if err != nil {
 		return nil, nil, nil, err

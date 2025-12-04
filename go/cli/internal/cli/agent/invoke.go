@@ -67,7 +67,6 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 	var a2aClient *a2aclient.A2AClient
 	var err error
 	if cfg.URLOverride != "" {
-
 		a2aClient, err = a2aclient.NewA2AClient(cfg.URLOverride, a2aclient.WithTimeout(cfg.Config.Timeout))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
@@ -139,6 +138,6 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 			return
 		}
 
-		fmt.Fprintf(os.Stdout, "%+v\n", string(jsn)) //nolint:errcheck
+		fmt.Fprintf(os.Stdout, "%+v\n", string(jsn))
 	}
 }

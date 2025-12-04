@@ -73,14 +73,14 @@ func (a *A2ARegistrar) Start(ctx context.Context) error {
 	}
 
 	if _, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			if agent, ok := obj.(*v1alpha2.Agent); ok {
 				if err := a.upsertAgentHandler(ctx, agent, log); err != nil {
 					log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(agent))
 				}
 			}
 		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			oldAgent, ok1 := oldObj.(*v1alpha2.Agent)
 			newAgent, ok2 := newObj.(*v1alpha2.Agent)
 			if !ok1 || !ok2 {
@@ -92,7 +92,7 @@ func (a *A2ARegistrar) Start(ctx context.Context) error {
 				}
 			}
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			agent, ok := obj.(*v1alpha2.Agent)
 			if !ok {
 				if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {

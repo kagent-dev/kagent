@@ -136,7 +136,7 @@ func runFastMCPPython(projectDir string, manifest *manifests.ProjectManifest) er
 	}
 
 	// Create server configuration for inspector
-	serverConfig := map[string]interface{}{
+	serverConfig := map[string]any{
 		"command": "uv",
 		"args":    []string{"run", "python", "src/main.py"},
 	}
@@ -189,7 +189,7 @@ func runMCPGo(projectDir string, manifest *manifests.ProjectManifest) error {
 	}
 
 	// Create server configuration for inspector
-	serverConfig := map[string]interface{}{
+	serverConfig := map[string]any{
 		"command": "go",
 		"args":    []string{"run", "cmd/server/main.go"},
 	}
@@ -290,7 +290,7 @@ func runTypeScript(projectDir string, manifest *manifests.ProjectManifest) error
 	}
 
 	// Create server configuration for inspector
-	serverConfig := map[string]interface{}{
+	serverConfig := map[string]any{
 		"command": "npx",
 		"args":    []string{"tsx", "src/index.ts"},
 	}
@@ -356,14 +356,14 @@ func runJava(projectDir string, manifest *manifests.ProjectManifest) error {
 	}
 
 	// Create server configuration for inspector
-	var serverConfig map[string]interface{}
+	var serverConfig map[string]any
 	if runTransport == transportHTTP {
-		serverConfig = map[string]interface{}{
+		serverConfig = map[string]any{
 			"type": "streamable-http",
 			"url":  "http://localhost:3000/mcp",
 		}
 	} else {
-		serverConfig = map[string]interface{}{
+		serverConfig = map[string]any{
 			"command": "mvn",
 			"args":    mavenArgs,
 		}

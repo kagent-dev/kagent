@@ -429,6 +429,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		}
 	}
 
+	//nolint:govet
 	if webhookCertWatcher != nil {
 		setupLog.Info("Adding webhook certificate watcher to manager")
 		if err := mgr.Add(webhookCertWatcher); err != nil {
@@ -484,7 +485,6 @@ func configureNamespaceWatching(watchNamespacesList []string) map[string]cache.C
 	if len(watchNamespacesList) == 0 {
 		setupLog.Info("Watching all namespaces (no valid namespaces specified)")
 		return map[string]cache.Config{"": {}}
-
 	}
 	setupLog.Info("Watching specific namespaces at cache level", "namespaces", watchNamespacesList)
 

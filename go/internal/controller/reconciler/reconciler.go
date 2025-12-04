@@ -7,14 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
-	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -79,7 +80,7 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 	// TODO(sbx0r): missing finalizer logic
 	agent := &v1alpha2.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return a.handleAgentDeletion(req)
 		}
 
@@ -171,7 +172,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error {
 	service := &corev1.Service{}
 	if err := a.kube.Get(ctx, req.NamespacedName, service); err != nil {
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			// Delete from DB if the service is deleted
 			dbService := &database.ToolServer{
 				Name:      req.String(),
@@ -214,7 +215,7 @@ type secretRef struct {
 func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha2.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return nil
 		}
 
@@ -269,8 +270,8 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 // this loses per-secret context (i.e. versioning/hash status per-secret), but simplifies the number of statuses tracked
 func computeStatusSecretHash(secrets []secretRef) string {
 	// sort secret references for deterministic output
-	sort.Slice(secrets, func(i, j int) bool {
-		return secrets[i].NamespacedName.String() < secrets[j].NamespacedName.String()
+	slices.SortStableFunc(secrets, func(a, b secretRef) int {
+		return strings.Compare(a.NamespacedName.String(), b.NamespacedName.String())
 	})
 
 	// compute a singular hash of the secrets
@@ -283,7 +284,7 @@ func computeStatusSecretHash(secrets []secretRef) string {
 		for k := range s.Secret.Data {
 			keys = append(keys, k)
 		}
-		sort.Strings(keys)
+		slices.Sort(keys)
 
 		for _, k := range keys {
 			hash.Write([]byte(k))
@@ -337,7 +338,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {
 	mcpServer := &v1alpha1.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			// Delete from DB if the mcp server is deleted
 			dbServer := &database.ToolServer{
 				Name:      req.String(),
@@ -380,7 +381,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	server := &v1alpha2.RemoteMCPServer{}
 	if err := a.kube.Get(ctx, nns, server); err != nil {
 		// if the remote MCP server is not found, we can ignore it
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			// Delete from DB if the remote mcp server is deleted
 			dbServer := &database.ToolServer{
 				Name:      serverRef,
@@ -552,7 +553,7 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 func createOrUpdate(ctx context.Context, c client.Client, obj client.Object, f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
 	key := client.ObjectKeyFromObject(obj)
 	if err := c.Get(ctx, key, obj); err != nil {
-		if !k8s_errors.IsNotFound(err) {
+		if !apierrors.IsNotFound(err) {
 			return controllerutil.OperationResultNone, err
 		}
 		if f != nil {
@@ -683,7 +684,7 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 	if err != nil {
 		return nil, fmt.Errorf("failed to start client for toolServer %s: %v", toolServer.Name, err)
 	}
-	defer client.Close() //nolint:errcheck
+	defer client.Close()
 	_, err = client.Initialize(ctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
