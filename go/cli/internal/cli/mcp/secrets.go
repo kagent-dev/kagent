@@ -206,9 +206,9 @@ func loadEnvFile(filename string) (map[string]string, error) {
 	}
 
 	envVars := make(map[string]string)
-	lines := strings.Split(string(data), "\n")
+	lines := strings.SplitSeq(string(data), "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue // Skip empty lines and comments

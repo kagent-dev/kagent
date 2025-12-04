@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -61,7 +61,7 @@ func NewPortForward(ctx context.Context, cfg *config.Config) (*PortForward, erro
 
 	client := cfg.Client()
 	var err error
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err = CheckServerConnection(ctx, client)
 		if err == nil {
 			// Connection successful, port-forward is working
@@ -97,17 +97,17 @@ func StreamA2AEvents(ch <-chan protocol.StreamingMessageEvent, verbose bool) {
 				fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
 				continue
 			}
-			fmt.Fprintf(os.Stdout, "%+v\n", string(json)) //nolint:errcheck
+			fmt.Fprintf(os.Stdout, "%+v\n", string(json))
 		} else {
 			json, err := event.MarshalJSON()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
 				continue
 			}
-			fmt.Fprintf(os.Stdout, "%+v\n", string(json)) //nolint:errcheck
+			fmt.Fprintf(os.Stdout, "%+v\n", string(json))
 		}
 	}
-	fmt.Fprintln(os.Stdout) //nolint:errcheck // Add a newline after streaming is complete
+	fmt.Fprintln(os.Stdout)
 }
 
 // ResolveProjectDir resolves the project directory to an absolute path
@@ -168,7 +168,7 @@ func ReadTemplateFile(templatePath string) ([]byte, error) {
 }
 
 // RenderTemplate reads and renders a template file with the given data
-func RenderTemplate(templatePath string, data interface{}) (string, error) {
+func RenderTemplate(templatePath string, data any) (string, error) {
 	gen := pygen.NewPythonGenerator()
 	tmplBytes, err := fs.ReadFile(gen.TemplateFiles, templatePath)
 	if err != nil {
@@ -265,7 +265,7 @@ func extractEnvVarsFromHeaders(mcpServers []common.McpServerType) []string {
 	for varName := range envVarSet {
 		envVars = append(envVars, varName)
 	}
-	sort.Strings(envVars)
+	slices.Sort(envVars)
 
 	return envVars
 }

@@ -125,7 +125,7 @@ func (g *BaseGenerator) GenerateProject(config ProjectConfig) error {
 
 // RenderTemplate renders a template string with the provided data.
 // This is the core template rendering logic used by all generators.
-func (g *BaseGenerator) RenderTemplate(tmplContent string, data interface{}) (string, error) {
+func (g *BaseGenerator) RenderTemplate(tmplContent string, data any) (string, error) {
 	tmpl, err := template.New("template").Parse(tmplContent)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template: %w", err)

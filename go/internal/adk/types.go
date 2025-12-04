@@ -96,7 +96,7 @@ func (a *AzureOpenAI) GetType() string {
 }
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeAzureOpenAI,
 		"model":   a.Model,
 		"headers": a.Headers,
@@ -109,7 +109,7 @@ type Anthropic struct {
 }
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":     ModelTypeAnthropic,
 		"model":    a.Model,
 		"base_url": a.BaseUrl,
@@ -126,7 +126,7 @@ type GeminiVertexAI struct {
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeGeminiVertexAI,
 		"model":   g.Model,
 		"headers": g.Headers,
@@ -142,7 +142,7 @@ type GeminiAnthropic struct {
 }
 
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeGeminiAnthropic,
 		"model":   g.Model,
 		"headers": g.Headers,
@@ -158,7 +158,7 @@ type Ollama struct {
 }
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeOllama,
 		"model":   o.Model,
 		"headers": o.Headers,
@@ -174,7 +174,7 @@ type Gemini struct {
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeGemini,
 		"model":   g.Model,
 		"headers": g.Headers,
@@ -282,7 +282,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 
 var _ sql.Scanner = &AgentConfig{}
 
-func (a *AgentConfig) Scan(value interface{}) error {
+func (a *AgentConfig) Scan(value any) error {
 	return json.Unmarshal(value.([]byte), a)
 }
 

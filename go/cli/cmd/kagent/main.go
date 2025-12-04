@@ -426,7 +426,6 @@ Examples:
 
 		os.Exit(1)
 	}
-
 }
 
 func runInteractive(cmd *cobra.Command, args []string) {

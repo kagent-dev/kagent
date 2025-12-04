@@ -43,13 +43,13 @@ type VersionResponse struct {
 
 // ModelConfigResponse represents a model configuration response
 type ModelConfigResponse struct {
-	Ref             string                 `json:"ref"`
-	ProviderName    string                 `json:"providerName"`
-	Model           string                 `json:"model"`
-	APIKeySecret    string                 `json:"apiKeySecret"`
-	APIKeySecretKey string                 `json:"apiKeySecretKey"`
-	ModelParams     map[string]interface{} `json:"modelParams"`
-	TLS             *v1alpha2.TLSConfig    `json:"tls,omitempty"`
+	Ref             string              `json:"ref"`
+	ProviderName    string              `json:"providerName"`
+	Model           string              `json:"model"`
+	APIKeySecret    string              `json:"apiKeySecret"`
+	APIKeySecretKey string              `json:"apiKeySecretKey"`
+	ModelParams     map[string]any      `json:"modelParams"`
+	TLS             *v1alpha2.TLSConfig `json:"tls,omitempty"`
 }
 
 // CreateModelConfigRequest represents a request to create a model configuration
@@ -145,11 +145,11 @@ type ToolServerResponse struct {
 
 // MemoryResponse represents a memory response
 type MemoryResponse struct {
-	Ref             string                 `json:"ref"`
-	ProviderName    string                 `json:"providerName"`
-	APIKeySecretRef string                 `json:"apiKeySecretRef"`
-	APIKeySecretKey string                 `json:"apiKeySecretKey"`
-	MemoryParams    map[string]interface{} `json:"memoryParams"`
+	Ref             string         `json:"ref"`
+	ProviderName    string         `json:"providerName"`
+	APIKeySecretRef string         `json:"apiKeySecretRef"`
+	APIKeySecretKey string         `json:"apiKeySecretKey"`
+	MemoryParams    map[string]any `json:"memoryParams"`
 }
 
 // CreateMemoryRequest represents a request to create a memory
@@ -185,11 +185,11 @@ type ProviderInfo struct {
 
 // SessionRunsResponse represents the response for session runs
 type SessionRunsResponse struct {
-	Status bool        `json:"status"`
-	Data   interface{} `json:"data"`
+	Status bool `json:"status"`
+	Data   any  `json:"data"`
 }
 
 // SessionRunsData represents the data part of session runs response
 type SessionRunsData struct {
-	Runs []interface{} `json:"runs"`
+	Runs []any `json:"runs"`
 }

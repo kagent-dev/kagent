@@ -21,7 +21,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -65,7 +65,7 @@ func (r *ModelConfigController) SetupWithManager(mgr ctrl.Manager) error {
 		}).
 		For(&v1alpha2.ModelConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
-			&v1.Secret{},
+			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 

@@ -77,7 +77,6 @@ func (a *handlerMux) getHandler(name string) (http.Handler, bool) {
 }
 
 func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
 	vars := mux.Vars(r)
 	// get the handler name from the first path segment
 	agentNamespace, ok := vars["namespace"]
