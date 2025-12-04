@@ -20,7 +20,7 @@ COPY .python-version .python-version
 COPY uv.lock uv.lock
 
 # Install dependencies
-RUN uv venv && uv sync --locked --no-dev --package poem-flow \
+RUN uv venv && uv sync --no-dev --package poem-flow \
     && uv cache clean
 
 # Set environment variables
