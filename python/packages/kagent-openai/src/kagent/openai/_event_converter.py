@@ -38,6 +38,7 @@ from kagent.core.a2a import (
 logger = logging.getLogger(__name__)
 
 # Track tool call names by call_id to correlate with tool outputs
+# OpenAI Agents SDK does not send the tool name with the tool output 
 _tool_call_registry: dict[str, str] = {}
 
 
@@ -213,6 +214,9 @@ def _convert_tool_call(
             logger.warning(f"Failed to parse arguments: {raw_call.arguments}")
             tool_arguments = {"raw": str(raw_call.arguments)}
 
+    # Store tool name in registry for later output correlation
+    _tool_call_registry[call_id] = tool_name
+
     # Create a DataPart for the function call
     # Note: Frontend expects 'args' not 'arguments', and 'id' for the call ID
     function_data = {
@@ -271,13 +275,20 @@ def _convert_tool_output(
 
     # Extract tool output details from the raw item
     call_id = raw_output.call_id if hasattr(raw_output, "call_id") else str(uuid.uuid4())
-    actual_output = item.output.raw_item if hasattr(item.output, "raw_item") else str(item.output)
+    
+    # Retrieve tool name from registry
+    tool_name = _tool_call_registry.pop(call_id, "unknown")
+    
+    # item.output is the actual return value (Any)
+    actual_output = item.output
 
     # Create a DataPart for the function response
     function_data = {
-        "call_id": call_id,
-        "name": call_id,  # name field doesn't exist in output, use call_id as placeholder
-        "response": actual_output,
+        "id": call_id,
+        "name": tool_name,
+        "response": {
+            "result": actual_output.get("raw_item", "No string output from the tool")
+        },
     }
 
     data_part = DataPart(
@@ -320,15 +331,38 @@ def _convert_agent_updated_event(
     context_id: str,
     app_name: str,
 ) -> list[A2AEvent]:
-    """Convert an agent updated event (handoff) to A2A event."""
+    """Convert an agent updated event (handoff) to A2A event.
+    
+    This is converted to a function_call event so the frontend renders it
+    using the AgentCallDisplay component. This is ideal if there are multiple handoffs.
+    """
+    agent_name = event.new_agent.name
+    if "/" in agent_name:
+        tool_name = agent_name.replace("/", "__NS__")
+    else:
+        tool_name = f"{agent_name}__NS__agent"
+
+    function_data = {
+        "id": str(uuid.uuid4()),
+        "name": tool_name,
+        "args": {"target_agent": agent_name},
+    }
+
+    data_part = DataPart(
+        data=function_data,
+        metadata={
+            get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+        },
+    )
+
     message = Message(
         message_id=str(uuid.uuid4()),
         role=Role.agent,
-        parts=[A2APart(TextPart(text=f"Handoff to agent: {event.new_agent.name}"))],
+        parts=[A2APart(data_part)],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "agent_handoff",
-            get_kagent_metadata_key("new_agent_name"): event.new_agent.name,
+            get_kagent_metadata_key("new_agent_name"): agent_name,
         },
     )
 
