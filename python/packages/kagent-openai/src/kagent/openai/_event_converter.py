@@ -37,10 +37,6 @@ from kagent.core.a2a import (
 
 logger = logging.getLogger(__name__)
 
-# Track tool call names by call_id to correlate with tool outputs
-# OpenAI Agents SDK does not send the tool name with the tool output 
-_tool_call_registry: dict[str, str] = {}
-
 
 def convert_openai_event_to_a2a_events(
     event: StreamEvent,
@@ -214,9 +210,6 @@ def _convert_tool_call(
             logger.warning(f"Failed to parse arguments: {raw_call.arguments}")
             tool_arguments = {"raw": str(raw_call.arguments)}
 
-    # Store tool name in registry for later output correlation
-    _tool_call_registry[call_id] = tool_name
-
     # Create a DataPart for the function call
     # Note: Frontend expects 'args' not 'arguments', and 'id' for the call ID
     function_data = {
@@ -275,20 +268,15 @@ def _convert_tool_output(
 
     # Extract tool output details from the raw item
     call_id = raw_output.call_id if hasattr(raw_output, "call_id") else str(uuid.uuid4())
-    
-    # Retrieve tool name from registry
-    tool_name = _tool_call_registry.pop(call_id, "unknown")
-    
+
     # item.output is the actual return value (Any)
-    actual_output = item.output
+    actual_output: str = item.output
 
     # Create a DataPart for the function response
     function_data = {
         "id": call_id,
-        "name": tool_name,
-        "response": {
-            "result": actual_output.get("raw_item", "No string output from the tool")
-        },
+        "name": call_id, # This is not returned by the tool
+        "response": {"result": actual_output},
     }
 
     data_part = DataPart(
@@ -332,7 +320,7 @@ def _convert_agent_updated_event(
     app_name: str,
 ) -> list[A2AEvent]:
     """Convert an agent updated event (handoff) to A2A event.
-    
+
     This is converted to a function_call event so the frontend renders it
     using the AgentCallDisplay component. This is ideal if there are multiple handoffs.
     """
