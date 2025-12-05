@@ -15,6 +15,7 @@ from .skill_tool import SkillsTool
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
+
 def add_skills_tool_to_agent(skills_directory: str | Path, agent: BaseAgent) -> None:
     """Utility function to add Skills and Bash tools to a given agent.
 

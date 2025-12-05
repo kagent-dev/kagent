@@ -83,9 +83,7 @@ class KAgentApp:
             plug.add_to_agent(self.root_agent)
             self.plugins.append(plug)
 
-        adk_app = App(
-            name=self.app_name, root_agent=self.root_agent, plugins=self.plugins
-        )
+        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
 
         def create_runner() -> Runner:
             return Runner(
@@ -100,9 +98,7 @@ class KAgentApp:
 
         kagent_task_store = KAgentTaskStore(http_client)
 
-        request_context_builder = KAgentRequestContextBuilder(
-            task_store=kagent_task_store
-        )
+        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=kagent_task_store,
