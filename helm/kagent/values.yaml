@@ -255,6 +255,15 @@ agents:
       limits:
         cpu: 1000m
         memory: 1Gi
+  linkerd-agent:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   promql-agent:
     enabled: true
     resources:
@@ -325,9 +334,9 @@ agents:
 
 tools:
   grafana-mcp:
-    enabled: true
+    enabled: false
   querydoc:
-    enabled: true
+    enabled: false
 
 grafana-mcp:
   grafana:
