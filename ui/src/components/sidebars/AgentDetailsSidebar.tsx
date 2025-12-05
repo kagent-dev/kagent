@@ -160,6 +160,8 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
       );
     }
 
+    const agentNamespace = currentAgent.agent.metadata.namespace || "";
+
     return (
       <SidebarMenu>
         {tools.flatMap((tool) => {
@@ -169,17 +171,19 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             const mcpProvider = tool.mcpServer.name || "mcp_server";
             const mcpProviderParts = mcpProvider.split(".");
             const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
+            const serverDisplayName = `${tool.mcpServer.namespace || agentNamespace}/${tool.mcpServer.name || ""}`;
 
             return tool.mcpServer.toolNames.map((mcpToolName) => {
               const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
               const description = toolDescriptions[subToolIdentifier] || "Description loading or unavailable";
               const isExpanded = expandedTools[subToolIdentifier] || false;
+              const displayName = `${mcpToolName} (${serverDisplayName})`;
 
               return (
                 <RenderToolCollapsibleItem
                   key={subToolIdentifier}
                   itemKey={subToolIdentifier}
-                  displayName={mcpToolName}
+                  displayName={displayName}
                   providerTooltip={mcpProviderNameTooltip}
                   description={description}
                   isExpanded={isExpanded}
@@ -190,7 +194,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
           } else {
             const toolIdentifier = baseToolIdentifier;
             const provider = isAgentTool(tool) ? (tool.agent?.name || "unknown") : (tool.mcpServer?.name || "unknown");
-            const displayName = getToolDisplayName(tool);
+            const displayName = getToolDisplayName(tool, agentNamespace);
             const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
             const isExpanded = expandedTools[toolIdentifier] || false;
 

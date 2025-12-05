@@ -21,9 +21,85 @@ import (
 	"fmt"
 
 	"github.com/kagent-dev/kagent/go/internal/utils"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// FromNamespaces specifies namespace from which references to this resource are allowed.
+// This follows the same pattern as Gateway API's cross-namespace route attachment.
+// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+// +kubebuilder:validation:Enum=All;Same;Selector
+type FromNamespaces string
+
+const (
+	// NamespacesFromAll allows references from all namespaces.
+	NamespacesFromAll FromNamespaces = "All"
+	// NamespacesFromSame only allows references from the same namespace as the target resource (default).
+	NamespacesFromSame FromNamespaces = "Same"
+	// NamespacesFromSelector allows references from namespaces matching the selector.
+	NamespacesFromSelector FromNamespaces = "Selector"
+)
+
+// AllowedNamespaces defines which namespaces are allowed to reference this resource.
+// This mechanism provides a bidirectional handshake for cross-namespace references,
+// following the pattern used by Gateway API for cross-namespace route attachments.
+//
+// By default (when not specified), only references from the same namespace are allowed.
+// +kubebuilder:validation:XValidation:rule="!(self.from == 'Selector' && !has(self.selector))",message="selector must be specified when from is Selector"
+type AllowedNamespaces struct {
+	// From indicates where references to this resource can originate.
+	// Possible values are:
+	// * All: References from all namespaces are allowed.
+	// * Same: Only references from the same namespace are allowed (default).
+	// * Selector: References from namespaces matching the selector are allowed.
+	// +kubebuilder:default=Same
+	// +optional
+	From FromNamespaces `json:"from,omitempty"`
+
+	// Selector is a label selector for namespaces that are allowed to reference this resource.
+	// Only used when From is set to "Selector".
+	// +optional
+	Selector *metav1.LabelSelector `json:"selector,omitempty"`
+}
+
+// AllowsNamespace checks if a reference from the given namespace is allowed.
+// The targetNamespace is the namespace where the resource being referenced lives.
+// The sourceNamespace is the namespace where the referencing resource lives.
+func (a *AllowedNamespaces) AllowsNamespace(ctx context.Context, c client.Client, sourceNamespace, targetNamespace string) (bool, error) {
+	// If AllowedNamespaces is nil, default to same namespace only
+	if a == nil {
+		return sourceNamespace == targetNamespace, nil
+	}
+
+	switch a.From {
+	case NamespacesFromAll:
+		return true, nil
+	case NamespacesFromSame, "":
+		return sourceNamespace == targetNamespace, nil
+	case NamespacesFromSelector:
+		if a.Selector == nil {
+			return false, fmt.Errorf("selector must be specified when from is Selector")
+		}
+
+		// Get the source namespace to check its labels
+		ns := &corev1.Namespace{}
+		if err := c.Get(ctx, types.NamespacedName{Name: sourceNamespace}, ns); err != nil {
+			return false, fmt.Errorf("failed to get namespace %s: %w", sourceNamespace, err)
+		}
+
+		selector, err := metav1.LabelSelectorAsSelector(a.Selector)
+		if err != nil {
+			return false, fmt.Errorf("invalid label selector: %w", err)
+		}
+
+		return selector.Matches(labels.Set(ns.Labels)), nil
+	default:
+		return false, fmt.Errorf("unknown from value: %s", a.From)
+	}
+}
 
 type ValueSourceType string
 
