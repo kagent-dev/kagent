@@ -15,6 +15,12 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from kagent.core.a2a import (
+    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+    A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+    A2A_DATA_PART_METADATA_TYPE_KEY,
+    get_kagent_metadata_key,
+)
 
 from crewai.events import (
     AgentExecutionCompletedEvent,
@@ -26,12 +32,6 @@ from crewai.events import (
     TaskStartedEvent,
     ToolUsageFinishedEvent,
     ToolUsageStartedEvent,
-)
-from kagent.core.a2a import (
-    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-    A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    get_kagent_metadata_key,
 )
 
 
