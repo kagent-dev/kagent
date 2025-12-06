@@ -980,7 +980,7 @@ kagent and the kagent logo are trademarks of the kagent project.
 
 #### kagent Ecosystem
 
-- **[kmcp](https://kagent.dev)** - MCP Kubernetes toolkit: The easiest way to create, deploy, and securely run MCP servers on Kubernetes. Part of the kagent project family, kmcp simplifies MCP server deployment and management in Kubernetes environments.
+- **[kmcp](https://github.com/kagent-dev/kmcp)** - MCP Kubernetes toolkit: The easiest way to create, deploy, and securely run MCP servers on Kubernetes. Part of the kagent project family, kmcp simplifies MCP server deployment and management in Kubernetes environments.
 
 #### Foundation Technologies
 
