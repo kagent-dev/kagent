@@ -423,7 +423,7 @@ kagent is designed to address a wide range of use cases across different industr
 
 ### 1. Automated Operations
 
-**Challenge**: Reduce manual intervention in complex DevOps workflows with intelligent automation and decision-making capabilities.
+**Challenge**: Complex DevOps workflows require significant manual intervention and lack intelligent automation and decision-making capabilities.
 
 **Solution**: Deploy specialized Kubernetes agents that can:
 - Automate routine operational tasks
