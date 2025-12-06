@@ -820,9 +820,9 @@ Comprehensive documentation, guides, and examples are available at **[kagent.dev
 - [Tools](https://kagent.dev/docs/kagent/tools/overview)
 - [Agents](https://kagent.dev/docs/kagent/examples/agents)
 - [A2A Agents](https://kagent.dev/docs/kagent/concepts/a2a)
-- [Documentation Agent](https://kagent.dev/examples)
-- [Slack and A2A](https://kagent.dev/examples)
-- [Discord and A2A](https://kagent.dev/examples)
+- [Documentation Agent](https://kagent.dev/examples/documentation-agent)
+- [Slack and A2A](https://kagent.dev/examples/slack-a2a)
+- [Discord and A2A](https://kagent.dev/examples/discord-a2a)
 
 ### Guides
 - [Building Custom Agents](https://kagent.dev/docs/kagent/guides/custom-agents)
