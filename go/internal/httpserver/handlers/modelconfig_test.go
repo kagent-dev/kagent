@@ -90,6 +90,54 @@ func TestModelConfigHandler(t *testing.T) {
 			assert.Equal(t, "OPENAI_API_KEY", config.APIKeySecretKey)
 		})
 
+		t.Run("Success_NestedAPIKey", func(t *testing.T) {
+			handler, kubeClient, responseRecorder := setupHandler()
+
+			// Create test model config with nested API key
+			modelConfig := &v1alpha2.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-config-nested",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:    "gpt-4",
+					Provider: v1alpha2.ModelProviderOpenAI,
+					APIKey: &v1alpha2.APIKeyConfig{
+						SecretRef: "nested-secret",
+						SecretKey: "NESTED_KEY",
+					},
+					OpenAI: &v1alpha2.OpenAIConfig{
+						BaseURL: "https://api.openai.com/v1",
+					},
+				},
+			}
+
+			err := kubeClient.Create(context.Background(), modelConfig)
+			require.NoError(t, err)
+
+			req := httptest.NewRequest("GET", "/api/modelconfigs/", nil)
+			req = setUser(req, "test-user")
+			handler.HandleListModelConfigs(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+
+			var configs api.StandardResponse[[]api.ModelConfigResponse]
+			err = json.Unmarshal(responseRecorder.Body.Bytes(), &configs)
+			require.NoError(t, err)
+			assert.Len(t, configs.Data, 1)
+
+			// Verify model config response
+			config := configs.Data[0]
+			assert.Equal(t, "default/test-config-nested", config.Ref)
+			// Verify new field is populated
+			require.NotNil(t, config.APIKey)
+			assert.Equal(t, "nested-secret", config.APIKey.SecretRef)
+			assert.Equal(t, "NESTED_KEY", config.APIKey.SecretKey)
+			// Verify backward compatibility fields are also populated
+			assert.Equal(t, "nested-secret", config.APIKeySecret)
+			assert.Equal(t, "NESTED_KEY", config.APIKeySecretKey)
+		})
+
 		t.Run("EmptyList", func(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
@@ -138,6 +186,10 @@ func TestModelConfigHandler(t *testing.T) {
 			assert.Equal(t, "default", config.Data.Namespace)
 			assert.Equal(t, v1alpha2.ModelProviderOpenAI, config.Data.Spec.Provider)
 			assert.Equal(t, "gpt-4", config.Data.Spec.Model)
+			// Verify API Key is set in the nested structure
+			require.NotNil(t, config.Data.Spec.APIKey)
+			assert.Equal(t, "test-config", config.Data.Spec.APIKey.SecretRef)
+			assert.Equal(t, "OPENAI_API_KEY", config.Data.Spec.APIKey.SecretKey)
 		})
 
 		t.Run("Success_Anthropic", func(t *testing.T) {

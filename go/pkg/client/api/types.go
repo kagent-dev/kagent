@@ -43,13 +43,15 @@ type VersionResponse struct {
 
 // ModelConfigResponse represents a model configuration response
 type ModelConfigResponse struct {
-	Ref             string              `json:"ref"`
-	ProviderName    string              `json:"providerName"`
-	Model           string              `json:"model"`
-	APIKeySecret    string              `json:"apiKeySecret"`
-	APIKeySecretKey string              `json:"apiKeySecretKey"`
-	ModelParams     map[string]any      `json:"modelParams"`
-	TLS             *v1alpha2.TLSConfig `json:"tls,omitempty"`
+	Ref          string                 `json:"ref"`
+	ProviderName string                 `json:"providerName"`
+	Model        string                 `json:"model"`
+	APIKey       *v1alpha2.APIKeyConfig `json:"apiKey,omitempty"`
+	ModelParams  map[string]any         `json:"modelParams"`
+	TLS          *v1alpha2.TLSConfig    `json:"tls,omitempty"`
+	// Deprecated: Use APIKey instead. These fields are kept for backwards compatibility.
+	APIKeySecret    string `json:"apiKeySecret,omitempty"`
+	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 }
 
 // CreateModelConfigRequest represents a request to create a model configuration
