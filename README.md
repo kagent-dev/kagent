@@ -318,7 +318,7 @@ The **CLI** (`kagent`) is a comprehensive command-line tool that provides full c
 
 **Installation:**
 ```bash
-curl -fsSL https://kagent.dev/install.sh | sh
+curl https://raw.githubusercontent.com/kagent-dev/kagent/refs/heads/main/scripts/get-kagent | bash
 ```
 
 **Use Cases:**
