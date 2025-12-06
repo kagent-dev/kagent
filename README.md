@@ -423,7 +423,7 @@ kagent is designed to address a wide range of use cases across different industr
 
 ### 1. Automated Operations
 
-**Challenge**: Reduce manual intervention in complex DevOps workflows with intelligent automation and decision-making capabilities.
+**Challenge**: Complex DevOps workflows require significant manual intervention and lack intelligent automation and decision-making capabilities.
 
 **Solution**: Deploy specialized Kubernetes agents that can:
 - Automate routine operational tasks
@@ -820,9 +820,9 @@ Comprehensive documentation, guides, and examples are available at **[kagent.dev
 - [Tools](https://kagent.dev/docs/kagent/tools/overview)
 - [Agents](https://kagent.dev/docs/kagent/examples/agents)
 - [A2A Agents](https://kagent.dev/docs/kagent/concepts/a2a)
-- [Documentation Agent](https://kagent.dev/examples)
-- [Slack and A2A](https://kagent.dev/examples)
-- [Discord and A2A](https://kagent.dev/examples)
+- [Documentation Agent](https://kagent.dev/examples/documentation-agent)
+- [Slack and A2A](https://kagent.dev/examples/slack-a2a)
+- [Discord and A2A](https://kagent.dev/examples/discord-a2a)
 
 ### Guides
 - [Building Custom Agents](https://kagent.dev/docs/kagent/guides/custom-agents)
@@ -871,7 +871,7 @@ Join our regular community meetings:
 
 ### Get Involved
 
-Whether you're a platform engineer, DevOps professional, or CNCF project maintainer, help us build and shape the future of AI-driven cloud-native operations. Visit [kagent.dev](https://kagent.dev) to learn more about contributing.
+Whether you're a platform engineer, DevOps professional, or CNCF project maintainer, we invite you to help us build and shape the future of AI-driven cloud-native operations. Visit [kagent.dev](https://kagent.dev) to learn more about contributing.
 
 ---
 
@@ -980,7 +980,7 @@ kagent and the kagent logo are trademarks of the kagent project.
 
 #### kagent Ecosystem
 
-- **[kmcp](https://kagent.dev)** - MCP Kubernetes toolkit: The easiest way to create, deploy, and securely run MCP servers on Kubernetes. Part of the kagent project family, kmcp simplifies MCP server deployment and management in Kubernetes environments.
+- **[kmcp](https://github.com/kagent-dev/kmcp)** - MCP Kubernetes toolkit: The easiest way to create, deploy, and securely run MCP servers on Kubernetes. Part of the kagent project family, kmcp simplifies MCP server deployment and management in Kubernetes environments.
 
 #### Foundation Technologies
 
