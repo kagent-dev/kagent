@@ -871,7 +871,7 @@ Join our regular community meetings:
 
 ### Get Involved
 
-Whether you're a platform engineer, DevOps professional, or CNCF project maintainer, help us build and shape the future of AI-driven cloud-native operations. Visit [kagent.dev](https://kagent.dev) to learn more about contributing.
+Whether you're a platform engineer, DevOps professional, or CNCF project maintainer, we invite you to help us build and shape the future of AI-driven cloud-native operations. Visit [kagent.dev](https://kagent.dev) to learn more about contributing.
 
 ---
 
