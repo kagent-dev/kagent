@@ -44,7 +44,12 @@ def static(
         plugins = [SkillsPlugin(skills_directory=skills_directory)]
 
     kagent_app = KAgentApp(
-        root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins if skills_directory else None
+        root_agent,
+        agent_card,
+        app_cfg.url,
+        app_cfg.app_name,
+        plugins=plugins if skills_directory else None,
+        stream=agent_config.stream,
     )
 
     server = kagent_app.build()

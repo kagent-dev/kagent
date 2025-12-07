@@ -2204,7 +2204,7 @@ spec:
               stream:
                 description: |-
                   Whether to stream the response from the model.
-                  If not specified, the default value is true.
+                  If not specified, the default value is false.
                 type: boolean
               systemMessage:
                 minLength: 1
@@ -8828,7 +8828,7 @@ spec:
                   stream:
                     description: |-
                       Whether to stream the response from the model.
-                      If not specified, the default value is true.
+                      If not specified, the default value is false.
                     type: boolean
                   systemMessage:
                     description: SystemMessage is a string specifying the system message

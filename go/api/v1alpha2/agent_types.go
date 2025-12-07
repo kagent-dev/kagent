@@ -86,7 +86,7 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	ModelConfig string `json:"modelConfig,omitempty"`
 	// Whether to stream the response from the model.
-	// If not specified, the default value is true.
+	// If not specified, the default value is false.
 	// +optional
 	Stream *bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20

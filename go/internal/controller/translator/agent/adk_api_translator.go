@@ -512,6 +512,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Instruction: systemMessage,
 		Model:       model,
 		ExecuteCode: ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false),
+		Stream:      ptr.Deref(agent.Spec.Declarative.Stream, false),
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
