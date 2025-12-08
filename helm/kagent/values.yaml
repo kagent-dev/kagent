@@ -64,6 +64,9 @@ database:
 controller:
   replicas: 1
   loglevel: "info"
+  # -- The base URL of the A2A Server endpoint, as advertised to clients.
+  # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
+  a2aBaseUrl: ""
   agentImage:
     registry: ""
     repository: kagent-dev/kagent/app
