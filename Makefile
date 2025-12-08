@@ -327,7 +327,7 @@ helm-install-provider: helm-version check-api-key
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
-
+		--history-max 2 \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
@@ -335,6 +335,7 @@ helm-install-provider: helm-version check-api-key
 	helm $(HELM_ACTION) kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
+		--history-max 2 \
 		--timeout 5m       \
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
