@@ -453,7 +453,6 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		}
 	}
 
-	//nolint:govet
 	if webhookCertWatcher != nil {
 		setupLog.Info("Adding webhook certificate watcher to manager")
 		if err := mgr.Add(webhookCertWatcher); err != nil {
