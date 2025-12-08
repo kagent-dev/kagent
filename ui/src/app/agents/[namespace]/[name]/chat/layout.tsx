@@ -40,7 +40,7 @@ async function getData(agentName: string, namespace: string) {
   }
 }
 
-export default async function ChatLayout({ children, params }: { children: React.ReactNode, params: { name: string, namespace: string } }) {
+export default async function ChatLayout({ children, params }: { children: React.ReactNode, params: Promise<{ name: string, namespace: string }> }) {
   const resolvedParams = await params;
   const { name, namespace } = resolvedParams;
   const { currentAgent, allAgents, allTools, error } = await getData(name, namespace);
