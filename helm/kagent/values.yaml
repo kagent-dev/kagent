@@ -334,9 +334,9 @@ agents:
 
 tools:
   grafana-mcp:
-    enabled: false
+    enabled: true
   querydoc:
-    enabled: false
+    enabled: true
 
 grafana-mcp:
   grafana:
