@@ -387,7 +387,6 @@ func buildK8sURL(baseURL string) string {
 	}
 
 	return fmt.Sprintf("http://%s:%s", localHost, port)
-
 }
 
 func TestE2EInvokeInlineAgent(t *testing.T) {

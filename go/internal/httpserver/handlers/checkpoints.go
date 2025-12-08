@@ -227,7 +227,6 @@ func (h *CheckpointsHandler) HandlePutWrites(w ErrorResponseWriter, r *http.Requ
 	// Prepare writes
 	writes := make([]*database.LangGraphCheckpointWrite, len(req.Writes))
 	for i, writeReq := range req.Writes {
-
 		writes[i] = &database.LangGraphCheckpointWrite{
 			UserID:       userID,
 			ThreadID:     req.ThreadID,

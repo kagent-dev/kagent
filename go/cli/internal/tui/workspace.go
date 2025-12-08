@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -222,8 +222,8 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Sort and store agents for later; do not auto-open chooser or auto-select.
-		sort.SliceStable(msg.agents, func(i, j int) bool {
-			return utils.GetObjectRef(msg.agents[i].Agent) < utils.GetObjectRef(msg.agents[j].Agent)
+		slices.SortStableFunc(msg.agents, func(a, b api.AgentResponse) int {
+			return strings.Compare(utils.GetObjectRef(a.Agent), utils.GetObjectRef(a.Agent))
 		})
 		m.agents = msg.agents
 		// Keep welcome screen visible until user presses Ctrl+A
@@ -439,19 +439,13 @@ func (m *workspaceModel) resize() tea.Cmd {
 	headerLines := lineCount(renderTitle(m.width))
 	helpView := m.help.View(m.keys)
 	footerLines := lineCount(helpView)
-	availableHeight := m.height - headerLines - footerLines
-	if availableHeight < 1 {
-		availableHeight = 1
-	}
+	availableHeight := max(m.height-headerLines-footerLines, 1)
 	sidebarWidth := 30
 	detailsWidth := 0
 	if m.showDetails {
 		detailsWidth = 32
 	}
-	centerWidth := m.width - sidebarWidth - detailsWidth
-	if centerWidth < 20 {
-		centerWidth = 20
-	}
+	centerWidth := max(m.width-sidebarWidth-detailsWidth, 20)
 
 	m.sessions.SetSize(sidebarWidth, availableHeight)
 	if m.chat != nil {
@@ -500,7 +494,7 @@ func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 		if err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
 		}
-		defer resp.Body.Close() //nolint:errcheck
+		defer resp.Body.Close()
 		var payload struct {
 			Data []*protocol.Task `json:"data"`
 		}
@@ -584,10 +578,7 @@ func (m *workspaceModel) View() string {
 	centerStyled := lipgloss.NewStyle().Width(centerWidth).Render(func() string {
 		if m.agent == nil {
 			// Start page: show instructions to select an agent
-			boxWidth := centerWidth - 4
-			if boxWidth > 72 {
-				boxWidth = 72
-			}
+			boxWidth := min(centerWidth-4, 72)
 			if boxWidth < 40 {
 				boxWidth = max(20, centerWidth-4)
 			}
@@ -621,10 +612,7 @@ func (m *workspaceModel) View() string {
 		}
 		if m.agent != nil && len(m.sessions.Items()) == 0 {
 			// Agent selected but no sessions yet
-			boxWidth := centerWidth - 4
-			if boxWidth > 72 {
-				boxWidth = 72
-			}
+			boxWidth := min(centerWidth-4, 72)
 			if boxWidth < 40 {
 				boxWidth = max(20, centerWidth-4)
 			}
@@ -673,10 +661,7 @@ func (m *workspaceModel) View() string {
 	// Force main area height so footer stays pinned at bottom
 	headerLines := lineCount(logo)
 	footerLines := lineCount(footer)
-	available := m.height - headerLines - footerLines
-	if available < 1 {
-		available = 1
-	}
+	available := max(m.height-headerLines-footerLines, 1)
 	mainRow = lipgloss.NewStyle().Height(available).Render(mainRow)
 	content := lipgloss.JoinVertical(lipgloss.Left, logo, mainRow, footer)
 
@@ -695,13 +680,7 @@ func (m *workspaceModel) View() string {
 		if h == 0 {
 			h = 24
 		}
-		modalWidth := w / 2
-		if modalWidth < 40 {
-			modalWidth = 40
-		}
-		if modalWidth > w-6 {
-			modalWidth = w - 6
-		}
+		modalWidth := min(max(w/2, 40), w-6)
 		// ensure input fits the modal
 		m.sessionInput.Width = max(10, modalWidth-4)
 		modal := lipgloss.NewStyle().Width(modalWidth).Border(lipgloss.RoundedBorder()).BorderForeground(theme.ColorBorder).Padding(1, 2).Render(
@@ -739,12 +718,19 @@ func lineCount(s string) int {
 
 // sortSessions sorts sessions by UpdatedAt then CreatedAt descending.
 func sortSessions(sessions []*api.Session) {
-	sort.Slice(sessions, func(i, j int) bool {
-		ui := sessions[i].UpdatedAt
-		uj := sessions[j].UpdatedAt
-		if !ui.Equal(uj) {
-			return ui.After(uj)
+	slices.SortStableFunc(sessions, func(i, j *api.Session) int {
+		if i.UpdatedAt.After(j.UpdatedAt) {
+			return 1
 		}
-		return sessions[i].CreatedAt.After(sessions[j].CreatedAt)
+		if j.UpdatedAt.After(i.UpdatedAt) {
+			return -1
+		}
+		if i.CreatedAt.After(j.CreatedAt) {
+			return 1
+		}
+		if j.CreatedAt.After(i.CreatedAt) {
+			return -1
+		}
+		return 0
 	})
 }

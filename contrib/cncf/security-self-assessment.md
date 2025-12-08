@@ -197,7 +197,6 @@ Optional tooling:
 - **Argo**: Integration with Argo Rollouts
 - **Cilium**: Integration through specialized agents for eBPF-based networking
 
-
 ## Security Issue Resolution
 
 ### Responsible Disclosure Process
@@ -226,9 +225,7 @@ As of the time of this assessment, no critical security vulnerabilities have bee
 
 ### Open SSF Best Practices
 
-kagent is working toward OpenSSF Best Practices certification. That work is tracked by [https://github.com/kagent-dev/community/issues/9](https://github.com/kagent-dev/community/issues/9).
-
-The badge is visible in the [project README](/README.md)
+kagent has successfully achieved OpenSSF Best Practices certification. The badge is visible in the [project README](/README.md) or at [https://www.bestpractices.dev/projects/10723/badge](https://www.bestpractices.dev/projects/10723/badge)
 
 ### Case Studies
 

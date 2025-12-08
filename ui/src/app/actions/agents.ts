@@ -87,6 +87,12 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       stream: agentFormData.stream ?? true,
       tools: convertTools(agentFormData.tools || []),
     };
+
+    if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
+      base.spec!.skills = {
+        refs: agentFormData.skillRefs,
+      };
+    }
   } else if (type === "BYO") {
     base.spec!.byo = {
       deployment: {

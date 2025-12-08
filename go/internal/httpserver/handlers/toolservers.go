@@ -13,7 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -58,7 +58,6 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 
 	toolServerWithTools := make([]api.ToolServerResponse, len(toolServers))
 	for i, toolServer := range toolServers {
-
 		tools, err := h.DatabaseService.ListToolsForServer(toolServer.Name, toolServer.GroupKind)
 		if err != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to list tools for ToolServer from database", err))
@@ -255,7 +254,7 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 			toolServer,
 		)
 		if err != nil {
-			if k8serrors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				log.Info("RemoteMCPServer not found")
 				w.RespondWithError(errors.NewNotFoundError("RemoteMCPServer not found", nil))
 				return
@@ -283,7 +282,7 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 			toolServer,
 		)
 		if err != nil {
-			if k8serrors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				log.Info("MCPServer not found")
 				w.RespondWithError(errors.NewNotFoundError("MCPServer not found", nil))
 				return
@@ -311,7 +310,7 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 			service,
 		)
 		if err != nil {
-			if k8serrors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				log.Info("Service not found")
 				w.RespondWithError(errors.NewNotFoundError("Service not found", nil))
 				return

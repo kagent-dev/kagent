@@ -11,7 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -60,7 +60,6 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 }
 
 func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, agent *v1alpha2.Agent) (api.AgentResponse, error) {
-
 	agentRef := utils.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 
@@ -100,7 +99,7 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 			objKey,
 			modelConfig,
 		); err != nil {
-			if k8serrors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				log.V(1).Info("ModelConfig not found", "modelConfigRef", objKey)
 			} else {
 				log.Error(err, "Failed to get ModelConfig", "modelConfigRef", objKey)
@@ -260,7 +259,7 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 		existingAgent,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("Agent not found")
 			w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
 			return
@@ -319,7 +318,7 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 		agent,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("Agent not found")
 			w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
 			return

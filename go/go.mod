@@ -1,6 +1,6 @@
 module github.com/kagent-dev/kagent/go
 
-go 1.25.1
+go 1.25.5
 
 require (
 	github.com/abiosoft/ishell/v2 v2.0.2
@@ -14,7 +14,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jedib0t/go-pretty/v6 v6.6.8
-	github.com/kagent-dev/kmcp v0.1.8
+	github.com/kagent-dev/kmcp v0.2.2
 	github.com/kagent-dev/mockllm v0.0.2
 	github.com/mark3labs/mcp-go v0.40.0
 	github.com/muesli/reflow v0.3.0
@@ -34,7 +34,7 @@ require (
 	k8s.io/utils v0.0.0-20250820121507-0af2bda4dd1d
 	sigs.k8s.io/controller-runtime v0.22.1
 	sigs.k8s.io/yaml v1.6.0
-	trpc.group/trpc-go/trpc-a2a-go v0.2.4
+	trpc.group/trpc-go/trpc-a2a-go v0.2.5
 )
 
 require (

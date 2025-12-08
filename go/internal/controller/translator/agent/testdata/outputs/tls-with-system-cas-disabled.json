@@ -1,0 +1,308 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "tls_agent_with_system_cas_disabled",
+    "skills": null,
+    "url": "http://tls-agent-with-system-cas-disabled.test:8080",
+    "version": ""
+  },
+  "config": {
+    "description": "",
+    "http_tools": null,
+    "instruction": "You are a helpful assistant in a corporate environment.",
+    "model": {
+      "base_url": "https://corp-llm-gateway.internal",
+      "max_tokens": 1024,
+      "model": "gpt-4o",
+      "temperature": 0.7,
+      "tls_ca_cert_path": "/etc/ssl/certs/custom/ca.crt",
+      "tls_disable_system_cas": true,
+      "tls_disable_verify": false,
+      "type": "openai"
+    },
+    "remote_agents": null,
+    "sse_tools": null
+  },
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "tls-agent-with-system-cas-disabled",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "tls-agent-with-system-cas-disabled"
+        },
+        "name": "tls-agent-with-system-cas-disabled",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "tls-agent-with-system-cas-disabled",
+            "uid": ""
+          }
+        ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"name\":\"tls_agent_with_system_cas_disabled\",\"description\":\"\",\"url\":\"http://tls-agent-with-system-cas-disabled.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_disable_verify\":false,\"tls_ca_cert_path\":\"/etc/ssl/certs/custom/ca.crt\",\"tls_disable_system_cas\":true,\"base_url\":\"https://corp-llm-gateway.internal\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant in a corporate environment.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "tls-agent-with-system-cas-disabled",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "tls-agent-with-system-cas-disabled"
+        },
+        "name": "tls-agent-with-system-cas-disabled",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "tls-agent-with-system-cas-disabled",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "tls-agent-with-system-cas-disabled",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "tls-agent-with-system-cas-disabled"
+        },
+        "name": "tls-agent-with-system-cas-disabled",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "tls-agent-with-system-cas-disabled",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "tls-agent-with-system-cas-disabled"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "13678673178632174650"
+            },
+            "labels": {
+              "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "tls-agent-with-system-cas-disabled",
+              "app.kubernetes.io/part-of": "kagent",
+              "kagent": "tls-agent-with-system-cas-disabled"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "args": [
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "3",
+                    "memory": "2Gi"
+                  },
+                  "requests": {
+                    "cpu": "200m",
+                    "memory": "684Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/etc/ssl/certs/custom",
+                    "name": "tls-ca-cert",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "tls-agent-with-system-cas-disabled",
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "tls-agent-with-system-cas-disabled"
+                }
+              },
+              {
+                "name": "tls-ca-cert",
+                "secret": {
+                  "defaultMode": 292,
+                  "secretName": "corporate-ca-cert"
+                }
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "tls-agent-with-system-cas-disabled",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "tls-agent-with-system-cas-disabled"
+        },
+        "name": "tls-agent-with-system-cas-disabled",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "tls-agent-with-system-cas-disabled",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "tls-agent-with-system-cas-disabled"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
+}

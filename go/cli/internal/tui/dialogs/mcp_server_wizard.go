@@ -382,10 +382,7 @@ func (w *McpServerWizard) View() string {
 	inner := lipgloss.JoinVertical(lipgloss.Left, header, bodyPadded)
 
 	// Calculate box width: aim for 80% of screen width with reasonable min/max bounds
-	boxWidth := maxInt(60, (w.width*8)/10)
-	if boxWidth > w.width-10 {
-		boxWidth = w.width - 10
-	}
+	boxWidth := min(maxInt(60, (w.width*8)/10), w.width-10)
 
 	box := lipgloss.NewStyle().
 		Width(boxWidth).

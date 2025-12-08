@@ -106,3 +106,19 @@ Engine labels
 {{ include "kagent.labels" . }}
 app.kubernetes.io/component: engine
 {{- end }}
+
+{{/*
+Check if leader election should be enabled (more than 1 replica)
+*/}}
+{{- define "kagent.leaderElectionEnabled" -}}
+{{- gt (.Values.controller.replicas | int) 1 -}}
+{{- end -}}
+
+{{/*
+Validate controller configuration
+*/}}
+{{- define "kagent.validateController" -}}
+{{- if and (gt (.Values.controller.replicas | int) 1) (eq .Values.database.type "sqlite") -}}
+{{- fail "ERROR: controller.replicas cannot be greater than 1 when database.type is 'sqlite' as the SQLite database is local to the pod. Please either set controller.replicas to 1 or change database.type to 'postgres'." }}
+{{- end -}}
+{{- end -}}

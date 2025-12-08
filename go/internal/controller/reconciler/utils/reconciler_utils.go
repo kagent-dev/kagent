@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 
 	protoV2 "google.golang.org/protobuf/proto"
@@ -109,7 +110,7 @@ func mapStringEqual(map1, map2 map[string]string) bool {
 // if i is addressable, return that.
 // if i is a struct passed in by value, make a new instance of the type and copy the contents to that and return
 // the pointer to that.
-func mkPointer(val reflect.Value) interface{} {
+func mkPointer(val reflect.Value) any {
 	if val.Kind() == reflect.Ptr {
 		return val.Interface()
 	}
@@ -126,7 +127,7 @@ func mkPointer(val reflect.Value) interface{} {
 
 // DeepEqual should be used in place of reflect.DeepEqual when the type of an object is unknown and may be a proto message.
 // see https://github.com/golang/protobuf/issues/1173 for details on why reflect.DeepEqual no longer works for proto messages
-func DeepEqual(val1, val2 interface{}) bool {
+func DeepEqual(val1, val2 any) bool {
 	protoVal1, isProto := val1.(protoV2.Message)
 	if isProto {
 		protoVal2, isProto := val2.(protoV2.Message)
@@ -178,9 +179,7 @@ func FindOwnedObjects(ctx context.Context, cl client.Client, uid types.UID, name
 		if err != nil {
 			return nil, err
 		}
-		for uid, object := range objs {
-			ownedObjects[uid] = object
-		}
+		maps.Copy(ownedObjects, objs)
 	}
 
 	return ownedObjects, nil

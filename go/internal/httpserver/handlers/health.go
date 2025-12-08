@@ -20,6 +20,6 @@ func (h *HealthHandler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("health-handler")
 	log.V(1).Info("Handling health check request")
 
-	data := api.NewResponse(map[string]interface{}{"status": "OK"}, "OK", false)
+	data := api.NewResponse(map[string]any{"status": "OK"}, "OK", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }

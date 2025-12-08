@@ -85,7 +85,7 @@ func A2ARequestHandler(authProvider auth.AuthProvider, agentNns types.Namespaced
 		var resp *http.Response
 		defer func() {
 			if err != nil && resp != nil {
-				resp.Body.Close() //nolint:errcheck
+				resp.Body.Close()
 			}
 		}()
 

@@ -108,7 +108,7 @@ func (m *MockSTSServer) handleWellKnown(w http.ResponseWriter) {
 		baseURL = m.k8sURL
 	}
 
-	wellKnownConfig := map[string]interface{}{
+	wellKnownConfig := map[string]any{
 		"issuer":         baseURL,
 		"token_endpoint": baseURL + "/token",
 	}
@@ -212,7 +212,7 @@ func (m *MockSTSServer) generateMockAccessToken(subjectToken string) (string, er
 		return "", fmt.Errorf("invalid access token subject claim not found")
 	}
 
-	tokenData := map[string]interface{}{
+	tokenData := map[string]any{
 		"sub":   subject,
 		"scope": "read write",
 		"iat":   time.Now().Unix(),
@@ -267,7 +267,7 @@ func extractClaimFromJWT(jwtToken string, claim string) (string, error) {
 	}
 
 	// Parse the JSON payload
-	var claims map[string]interface{}
+	var claims map[string]any
 	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
 		return "", fmt.Errorf("failed to parse JWT claims: %v", err)
 	}

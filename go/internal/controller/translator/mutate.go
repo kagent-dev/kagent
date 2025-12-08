@@ -65,7 +65,7 @@ func MutateFuncFor(existing, desired client.Object) controllerutil.MutateFn {
 	}
 }
 
-func mergeWithOverride(dst, src interface{}) error {
+func mergeWithOverride(dst, src any) error {
 	return mergo.Merge(dst, src, mergo.WithOverride)
 }
 

@@ -64,8 +64,8 @@ func TestGetModelProvider(t *testing.T) {
 			if tc.envVarValue == "" {
 				os.Unsetenv(KAGENT_DEFAULT_MODEL_PROVIDER) //nolint:errcheck
 			} else {
-				os.Setenv(KAGENT_DEFAULT_MODEL_PROVIDER, tc.expectedHelmKey) //nolint:errcheck
-				defer os.Unsetenv(KAGENT_DEFAULT_MODEL_PROVIDER)             //nolint:errcheck
+				os.Setenv(KAGENT_DEFAULT_MODEL_PROVIDER, tc.expectedHelmKey)
+				defer os.Unsetenv(KAGENT_DEFAULT_MODEL_PROVIDER) //nolint:errcheck
 			}
 
 			result := GetModelProvider()

@@ -66,7 +66,6 @@ func TestToolServerTypesHandler_NoKmcp(t *testing.T) {
 }
 
 func TestToolServerTypesHandler_WithKmcp(t *testing.T) {
-
 	scheme := runtime.NewScheme()
 
 	err := v1alpha2.AddToScheme(scheme)

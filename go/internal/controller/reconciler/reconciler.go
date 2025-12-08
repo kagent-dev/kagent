@@ -2,24 +2,26 @@ package reconciler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
-	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/retry"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/controller/a2a"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/internal/database"
@@ -50,7 +52,6 @@ type KagentReconciler interface {
 
 type kagentReconciler struct {
 	adkTranslator agent_translator.AdkApiTranslator
-	a2aReconciler a2a.A2AReconciler
 
 	kube     client.Client
 	dbClient database.Client
@@ -66,14 +67,12 @@ func NewKagentReconciler(
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
-	a2aReconciler a2a.A2AReconciler,
 ) KagentReconciler {
 	return &kagentReconciler{
 		adkTranslator:      translator,
 		kube:               kube,
 		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
-		a2aReconciler:      a2aReconciler,
 	}
 }
 
@@ -81,7 +80,7 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 	// TODO(sbx0r): missing finalizer logic
 	agent := &v1alpha2.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return a.handleAgentDeletion(req)
 		}
 
@@ -97,9 +96,6 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 }
 
 func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
-	// remove a2a handler if it exists
-	a.a2aReconciler.ReconcileAgentDeletion(req.String())
-
 	if err := a.dbClient.DeleteAgent(req.String()); err != nil {
 		return fmt.Errorf("failed to delete agent %s: %w",
 			req.String(), err)
@@ -176,7 +172,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error {
 	service := &corev1.Service{}
 	if err := a.kube.Get(ctx, req.NamespacedName, service); err != nil {
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			// Delete from DB if the service is deleted
 			dbService := &database.ToolServer{
 				Name:      req.String(),
@@ -211,10 +207,15 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 	return nil
 }
 
+type secretRef struct {
+	NamespacedName types.NamespacedName
+	Secret         *corev1.Secret
+}
+
 func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha2.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return nil
 		}
 
@@ -222,21 +223,79 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 	}
 
 	var err error
+	var secrets []secretRef
+
+	// check for api key secret
 	if modelConfig.Spec.APIKeySecret != "" {
 		secret := &corev1.Secret{}
-		if err = a.kube.Get(ctx, types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}, secret); err != nil {
-			err = fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, err)
+		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}
+
+		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, kubeErr))
+		} else {
+			secrets = append(secrets, secretRef{
+				NamespacedName: namespacedName,
+				Secret:         secret,
+			})
 		}
 	}
+
+	// check for tls cert secret
+	if modelConfig.Spec.TLS != nil && modelConfig.Spec.TLS.CACertSecretRef != "" {
+		secret := &corev1.Secret{}
+		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.TLS.CACertSecretRef}
+
+		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.TLS.CACertSecretRef, kubeErr))
+		} else {
+			secrets = append(secrets, secretRef{
+				NamespacedName: namespacedName,
+				Secret:         secret,
+			})
+		}
+	}
+
+	// compute the hash for the status
+	secretHash := computeStatusSecretHash(secrets)
 
 	return a.reconcileModelConfigStatus(
 		ctx,
 		modelConfig,
 		err,
+		secretHash,
 	)
 }
 
-func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha2.ModelConfig, err error) error {
+// computeStatusSecretHash computes a deterministic singular hash of the secrets the model config references for the status
+// this loses per-secret context (i.e. versioning/hash status per-secret), but simplifies the number of statuses tracked
+func computeStatusSecretHash(secrets []secretRef) string {
+	// sort secret references for deterministic output
+	slices.SortStableFunc(secrets, func(a, b secretRef) int {
+		return strings.Compare(a.NamespacedName.String(), b.NamespacedName.String())
+	})
+
+	// compute a singular hash of the secrets
+	// this loses per-secret context (i.e. versioning/hash status per-secret), but simplifies the number of statuses tracked
+	hash := sha256.New()
+	for _, s := range secrets {
+		hash.Write([]byte(s.NamespacedName.String()))
+
+		keys := make([]string, 0, len(s.Secret.Data))
+		for k := range s.Secret.Data {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+
+		for _, k := range keys {
+			hash.Write([]byte(k))
+			hash.Write(s.Secret.Data[k])
+		}
+	}
+
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha2.ModelConfig, err error, secretHash string) error {
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -260,8 +319,14 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 		Message:            message,
 	})
 
+	// check if the secret hash has changed
+	secretHashChanged := modelConfig.Status.SecretHash != secretHash
+	if secretHashChanged {
+		modelConfig.Status.SecretHash = secretHash
+	}
+
 	// update the status if it has changed or the generation has changed
-	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation {
+	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation || secretHashChanged {
 		modelConfig.Status.ObservedGeneration = modelConfig.Generation
 		if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
 			return fmt.Errorf("failed to update model config status: %v", err)
@@ -273,7 +338,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {
 	mcpServer := &v1alpha1.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			// Delete from DB if the mcp server is deleted
 			dbServer := &database.ToolServer{
 				Name:      req.String(),
@@ -316,7 +381,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	server := &v1alpha2.RemoteMCPServer{}
 	if err := a.kube.Get(ctx, nns, server); err != nil {
 		// if the remote MCP server is not found, we can ignore it
-		if k8s_errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			// Delete from DB if the remote mcp server is deleted
 			dbServer := &database.ToolServer{
 				Name:      serverRef,
@@ -427,10 +492,6 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 		return fmt.Errorf("failed to reconcile owned objects: %v", err)
 	}
 
-	if err := a.reconcileA2A(ctx, agent, agentOutputs.AgentCard); err != nil {
-		return fmt.Errorf("failed to reconcile A2A for agent %s/%s: %v", agent.Namespace, agent.Name, err)
-	}
-
 	if err := a.upsertAgent(ctx, agent, agentOutputs); err != nil {
 		return fmt.Errorf("failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
 	}
@@ -492,7 +553,7 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 func createOrUpdate(ctx context.Context, c client.Client, obj client.Object, f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
 	key := client.ObjectKeyFromObject(obj)
 	if err := c.Get(ctx, key, obj); err != nil {
-		if !k8s_errors.IsNotFound(err) {
+		if !apierrors.IsNotFound(err) {
 			return controllerutil.OperationResultNone, err
 		}
 		if f != nil {
@@ -623,7 +684,7 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interfac
 	if err != nil {
 		return nil, fmt.Errorf("failed to start client for toolServer %s: %v", toolServer.Name, err)
 	}
-	defer client.Close() //nolint:errcheck
+	defer client.Close()
 	_, err = client.Initialize(ctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
@@ -670,14 +731,6 @@ func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef 
 	}
 
 	return discoveredTools, nil
-}
-
-func (a *kagentReconciler) reconcileA2A(
-	ctx context.Context,
-	agent *v1alpha2.Agent,
-	card server.AgentCard,
-) error {
-	return a.a2aReconciler.ReconcileAgent(ctx, agent, card)
 }
 
 func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {

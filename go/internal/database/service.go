@@ -2,8 +2,10 @@ package database
 
 import (
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Model interface {
@@ -12,7 +14,7 @@ type Model interface {
 
 type Clause struct {
 	Key   string
-	Value interface{}
+	Value any
 }
 
 func list[T Model](db *gorm.DB, clauses ...Clause) ([]T, error) {
@@ -45,16 +47,15 @@ func get[T Model](db *gorm.DB, clauses ...Clause) (*T, error) {
 	return &model, nil
 }
 
-// TODO: Make this upsert actually idempotent
+// save performs an upsert operation (INSERT ON CONFLICT DO UPDATE)
 // args:
 // - db: the database connection
 // - model: the model to save
 func save[T Model](db *gorm.DB, model *T) error {
-	if err := db.Create(model).Error; err != nil {
-		if err == gorm.ErrDuplicatedKey {
-			return db.Save(model).Error
-		}
-		return fmt.Errorf("failed to create model: %w", err)
+	if err := db.Clauses(clause.OnConflict{
+		UpdateAll: true,
+	}).Create(model).Error; err != nil {
+		return fmt.Errorf("failed to upsert model: %w", err)
 	}
 	return nil
 }
@@ -76,12 +77,12 @@ func delete[T Model](db *gorm.DB, clauses ...Clause) error {
 
 // BuildWhereClause is deprecated, use individual Where clauses instead
 func BuildWhereClause(clauses ...Clause) string {
-	clausesStr := ""
+	var clausesStr strings.Builder
 	for idx, clause := range clauses {
 		if idx > 0 {
-			clausesStr += " AND "
+			clausesStr.WriteString(" AND ")
 		}
-		clausesStr += fmt.Sprintf("%s = %v", clause.Key, clause.Value)
+		clausesStr.WriteString(fmt.Sprintf("%s = %v", clause.Key, clause.Value))
 	}
-	return clausesStr
+	return clausesStr.String()
 }

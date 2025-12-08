@@ -145,6 +145,23 @@ class A2aAgentExecutor(AgentExecutor):
                 await self._handle_request(context, event_queue, runner, run_args)
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
+
+                # Check if this is a LiteLLM JSON parsing error (common with Ollama models that don't support function calling)
+                error_message = str(e)
+                if (
+                    "JSONDecodeError" in error_message
+                    or "Unterminated string" in error_message
+                    or "APIConnectionError" in error_message
+                ):
+                    # Check if it's related to function calling
+                    if "function_call" in error_message.lower() or "json.loads" in error_message:
+                        error_message = (
+                            "The model does not support function calling properly. "
+                            "This error typically occurs when using Ollama models with tools. "
+                            "Please either:\n"
+                            "1. Remove tools from the agent configuration, or\n"
+                            "2. Use a model that supports function calling (e.g., OpenAI, Anthropic, or Gemini models)."
+                        )
                 # Publish failure event
                 try:
                     await event_queue.enqueue_event(
@@ -156,7 +173,7 @@ class A2aAgentExecutor(AgentExecutor):
                                 message=Message(
                                     message_id=str(uuid.uuid4()),
                                     role=Role.agent,
-                                    parts=[Part(TextPart(text=str(e)))],
+                                    parts=[Part(TextPart(text=error_message))],
                                 ),
                             ),
                             context_id=context.context_id,

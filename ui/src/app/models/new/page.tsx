@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getModelConfig, createModelConfig, updateModelConfig } from "@/app/actions/modelConfigs";
+import { useAgents } from "@/components/AgentsProvider";
 import type {
     CreateModelConfigRequest,
     UpdateModelConfigPayload,
@@ -101,6 +102,7 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
 function ModelPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { refreshModels } = useAgents();
 
   const isEditMode = searchParams.get("edit") === "true";
   const modelConfigName = searchParams.get("name");
@@ -478,6 +480,7 @@ function ModelPageContent() {
 
       if (!response.error) {
         toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
+        await refreshModels();
         router.push("/models");
       } else {
         throw new Error(response.error || "Failed to save model configuration");

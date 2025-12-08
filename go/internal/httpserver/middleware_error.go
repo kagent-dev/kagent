@@ -2,10 +2,12 @@ package httpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
-	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
+	apierrors "github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
+	"gorm.io/gorm"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -40,28 +42,27 @@ func (w *errorResponseWriter) RespondWithError(err error) {
 
 	statusCode := http.StatusInternalServerError
 	message := "Internal server error"
-	detail := ""
 
-	if apiErr, ok := err.(*errors.APIError); ok {
-		statusCode = apiErr.Code
-		message = apiErr.Message
-		if apiErr.Err != nil {
-			detail = apiErr.Err.Error()
-			log.Error(apiErr.Err, message)
-		} else {
-			log.Info(message)
-		}
-	} else {
-		detail = err.Error()
-		log.Error(err, "Unhandled error")
+	if err == nil {
+		err = errors.New("unknown error")
 	}
 
-	responseMessage := message
-	if detail != "" {
-		responseMessage = message + ": " + detail
+	if apiErr, ok := err.(*apierrors.APIError); ok {
+		statusCode = apiErr.Code
+		message = apiErr.Message
+
+		if apiErr.Err != nil {
+			err = apiErr.Err
+		}
+	}
+
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Error(err, message)
+	} else {
+		log.Info(message)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{"error": responseMessage}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{"error": message + ": " + err.Error()}) //nolint:errcheck
 }

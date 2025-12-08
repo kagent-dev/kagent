@@ -24,10 +24,10 @@ import (
 
 // TestInput represents the structure of input test files
 type TestInput struct {
-	Objects      []map[string]interface{} `yaml:"objects"`
-	Operation    string                   `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
-	TargetObject string                   `yaml:"targetObject"` // name of the object to translate
-	Namespace    string                   `yaml:"namespace"`
+	Objects      []map[string]any `yaml:"objects"`
+	Operation    string           `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
+	TargetObject string           `yaml:"targetObject"` // name of the object to translate
+	Namespace    string           `yaml:"namespace"`
 }
 
 // TestGoldenAdkTranslator runs golden tests for the ADK API translator
@@ -99,7 +99,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 	// Try to find the first ModelConfig in the objects to use as default
 	for _, objMap := range testInput.Objects {
 		if kind, ok := objMap["kind"].(string); ok && kind == "ModelConfig" {
-			if metadata, ok := objMap["metadata"].(map[string]interface{}); ok {
+			if metadata, ok := objMap["metadata"].(map[string]any); ok {
 				if name, ok := metadata["name"].(string); ok {
 					defaultModel.Name = name
 					break
@@ -109,7 +109,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 	}
 
 	// Execute the specified operation
-	var result interface{}
+	var result any
 	switch testInput.Operation {
 	case "translateAgent":
 		agent := &v1alpha2.Agent{}
@@ -177,7 +177,7 @@ func convertUnstructuredToTyped(unstrObj *unstructured.Unstructured, scheme *run
 }
 
 func normalizeJSON(t *testing.T, jsonData []byte) []byte {
-	var obj interface{}
+	var obj any
 	err := json.Unmarshal(jsonData, &obj)
 	require.NoError(t, err)
 
@@ -190,10 +190,10 @@ func normalizeJSON(t *testing.T, jsonData []byte) []byte {
 	return result
 }
 
-func removeNonDeterministicFields(obj interface{}) interface{} {
+func removeNonDeterministicFields(obj any) any {
 	switch v := obj.(type) {
-	case map[string]interface{}:
-		result := make(map[string]interface{})
+	case map[string]any:
+		result := make(map[string]any)
 		for key, value := range v {
 			// Remove fields that are non-deterministic or generated
 			switch key {
@@ -205,8 +205,8 @@ func removeNonDeterministicFields(obj interface{}) interface{} {
 			}
 		}
 		return result
-	case []interface{}:
-		var result []interface{}
+	case []any:
+		var result []any
 		for _, item := range v {
 			result = append(result, removeNonDeterministicFields(item))
 		}
