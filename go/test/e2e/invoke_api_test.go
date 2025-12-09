@@ -342,7 +342,7 @@ func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 	}
 
 	if len(opts.Env) > 0 {
-		agent.Spec.Declarative.Deployment.SharedDeploymentSpec.Env = append(agent.Spec.Declarative.Deployment.SharedDeploymentSpec.Env, opts.Env...)
+		agent.Spec.Declarative.Deployment.Env = append(agent.Spec.Declarative.Deployment.Env, opts.Env...)
 	}
 
 	return agent

@@ -8,9 +8,9 @@ from typing import Annotated, Optional
 import typer
 import uvicorn
 from a2a.types import AgentCard
+from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
-from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
@@ -35,6 +35,7 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
         if sts_well_known_uri:
             sts_integration = ADKSTSIntegration(sts_well_known_uri)
         return ADKTokenPropagationPlugin(sts_integration)
+
 
 def maybe_add_skills(root_agent: BaseAgent) -> BaseAgent:
     skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
@@ -64,6 +65,7 @@ def static(
     if sts_integration:
         plugins = [sts_integration]
     root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
+    maybe_add_skills(root_agent)
 
     kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
 

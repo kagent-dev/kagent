@@ -43,7 +43,9 @@ def thread_dump(request: Request) -> PlainTextResponse:
     buf.seek(0)
     return PlainTextResponse(buf.read())
 
+
 kagent_url_override = os.getenv("KAGENT_URL")
+
 
 class KAgentApp:
     def __init__(

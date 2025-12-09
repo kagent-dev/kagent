@@ -2,6 +2,7 @@ import logging
 from typing import Any, Literal, Optional, Union
 
 import httpx
+from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.llm_agent import ToolUnion
@@ -13,7 +14,6 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import McpToolset, SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
-from agentsts.adk import ADKTokenPropagationPlugin
 
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 
