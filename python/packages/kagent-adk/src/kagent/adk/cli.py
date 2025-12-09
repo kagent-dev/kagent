@@ -37,7 +37,7 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
         return ADKTokenPropagationPlugin(sts_integration)
 
 
-def maybe_add_skills(root_agent: BaseAgent) -> BaseAgent:
+def maybe_add_skills(root_agent: BaseAgent):
     skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
     if skills_directory:
         logger.info(f"Adding skills from directory: {skills_directory}")
