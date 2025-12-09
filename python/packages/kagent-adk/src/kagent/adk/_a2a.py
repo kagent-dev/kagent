@@ -111,7 +111,7 @@ class KAgentApp:
         if token_service is None:
             lifespan_manager.add(token_service.lifespan())
 
-            app = FastAPI(lifespan=lifespan_manager)
+        app = FastAPI(lifespan=lifespan_manager)
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
