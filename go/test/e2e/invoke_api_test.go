@@ -173,10 +173,11 @@ func extractTextFromArtifacts(taskResult *protocol.Task) string {
 }
 
 var defaultRetry = wait.Backoff{
-	Steps:    3,
+	Steps:    5,
 	Duration: 1 * time.Second,
 	Factor:   2.0,
 	Jitter:   0.2,
+	Cap:      5 * time.Second,
 }
 
 // runSyncTest runs a synchronous message test
@@ -674,6 +675,10 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	})
 
 	defer func() {
+		if t.Failed() {
+			// don't cleanup on failure for investigation
+			return
+		}
 		cli.Delete(t.Context(), agent)             //nolint:errcheck
 		cli.Delete(t.Context(), mcpServerResource) //nolint:errcheck
 		cli.Delete(t.Context(), modelCfg)          //nolint:errcheck
