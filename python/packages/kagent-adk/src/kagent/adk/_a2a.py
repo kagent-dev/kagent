@@ -43,11 +43,7 @@ def thread_dump(request: Request) -> PlainTextResponse:
     buf.seek(0)
     return PlainTextResponse(buf.read())
 
-
 kagent_url_override = os.getenv("KAGENT_URL")
-sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
-propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN")
-
 
 class KAgentApp:
     def __init__(
@@ -74,14 +70,6 @@ class KAgentApp:
             event_hooks=token_service.event_hooks(),
         )
         session_service = KAgentSessionService(http_client)
-
-        if sts_well_known_uri or propagate_token:
-            sts_integration = None
-            if sts_well_known_uri:
-                sts_integration = ADKSTSIntegration(sts_well_known_uri)
-            plug = ADKTokenPropagationPlugin(sts_integration)
-            plug.add_to_agent(self.root_agent)
-            self.plugins.append(plug)
 
         adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
 

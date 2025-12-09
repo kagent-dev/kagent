@@ -3,13 +3,14 @@ import importlib
 import json
 import logging
 import os
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 import uvicorn
 from a2a.types import AgentCard
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
+from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
@@ -22,6 +23,18 @@ logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLeve
 
 app = typer.Typer()
 
+
+kagent_url_override = os.getenv("KAGENT_URL")
+sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
+propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN")
+
+
+def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
+    if sts_well_known_uri or propagate_token:
+        sts_integration = None
+        if sts_well_known_uri:
+            sts_integration = ADKSTSIntegration(sts_well_known_uri)
+        return ADKTokenPropagationPlugin(sts_integration)
 
 def maybe_add_skills(root_agent: BaseAgent) -> BaseAgent:
     skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
@@ -46,10 +59,13 @@ def static(
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
-    root_agent = agent_config.to_agent(app_cfg.name)
-    maybe_add_skills(root_agent)
+    plugins = None
+    sts_integration = create_sts_integration()
+    if sts_integration:
+        plugins = [sts_integration]
+    root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name)
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
 
     server = kagent_app.build()
     configure_tracing(server)
