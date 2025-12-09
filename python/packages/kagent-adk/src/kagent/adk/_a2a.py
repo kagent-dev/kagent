@@ -2,7 +2,7 @@
 import faulthandler
 import logging
 import os
-from typing import Callable, List, Any, Optional
+from typing import Any, Callable, List, Optional
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
@@ -23,6 +23,7 @@ from google.genai import types
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor
+from ._lifespan import LifespanManager
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
 
@@ -102,7 +103,12 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-        app = FastAPI(lifespan=self._compose_lifespan(token_service.lifespan()))
+
+        lifespan_manager = LifespanManager()
+        lifespan_manager.add(token_service.lifespan())
+        lifespan_manager.add(self._lifespan)
+
+        app = FastAPI(lifespan=lifespan_manager)
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
@@ -140,10 +146,11 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-        if self._lifespan is not None:
-            app = FastAPI(lifespan=self._lifespan)
-        else:
-            app = FastAPI()
+
+        lifespan_manager = LifespanManager()
+        lifespan_manager.add(self._lifespan)
+
+        app = FastAPI(lifespan=lifespan_manager)
 
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
@@ -190,18 +197,3 @@ class KAgentApp:
             # Key Concept: is_final_response() marks the concluding message for the turn.
             jsn = event.model_dump_json()
             logger.info(f"  [Event] {jsn}")
-
-    def _compose_lifespan(self, base_lifespan: Callable[[Any], Any]) -> Callable[[Any], Any]:
-        if self._lifespan is None:
-            return base_lifespan
-
-        # Compose base lifespan with optional user-provided lifespan
-        from contextlib import asynccontextmanager
-
-        @asynccontextmanager
-        async def composed(app):
-            async with base_lifespan(app):
-                async with self._lifespan(app):
-                    yield
-
-        return composed
