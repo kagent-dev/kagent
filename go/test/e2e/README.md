@@ -2,31 +2,46 @@
 
 How to debug an agent locally without kagent (so there's less noise):
 
+## Get agent config
 
+### Option 1
 Copy over agent config from the cluster
 
 ```bash
-TMP_DIR=$(mktemp -d)
-kubectl exec -n kagent -ti deploy/test-agent -c kagent -- tar c -C / config | tar -x -C $TMP_DIR
-```
-Start local mock LLM server
-
-```bash
-(cd go; go run hack/mockllm.go invoke_mcp_agent.json) &
+TEMP_DIR=$(mktemp -d)
+kubectl exec -n kagent -ti deploy/test-agent -c kagent -- tar c -C / config | tar -x -C ${TEMP_DIR}
+AGENT_CONFIG_DIR=${TEMP_DIR}/config
 ```
 
 Edit config to point to local mock server
 
 ```bash
-jq '.model.base_url="http://127.0.0.1:8090/v1"' $TMP_DIR/config/config.json > $TMP_DIR/config/config_tmp.json && mv $TMP_DIR/config/config_tmp.json $TMP_DIR/config/config.json
+jq '.model.base_url="http://127.0.0.1:8090/v1"' ${AGENT_CONFIG_DIR}/config/config.json > ${AGENT_CONFIG_DIR}/config/config_tmp.json && mv ${AGENT_CONFIG_DIR}/config/config_tmp.json ${AGENT_CONFIG_DIR}/config/config.json
 ```
+
+### Option 2
+
+Generate agent generic config. If using `@modelcontextprotocol/server-everything` start it first (`npx -y @modelcontextprotocol/server-everything streamableHttp`), so it is added to the tools.
+
+```bash
+(cd go; go run hack/makeagentconfig/main.go)
+AGENT_CONFIG_DIR=$PWD/go
+```
+
+## Start mock LLM server
+Start local mock LLM server
+
+```bash
+(cd go; go run hack/mockllm/main.go invoke_mcp_agent.json) &
+```
+
 
 Now this should work!
 
 ```bash
 export OPENAI_API_KEY=dummykey
 cd python
-uv run kagent-adk test --filepath $TMP_DIR/config --task "Tell me a joke"
+uv run kagent-adk test --filepath ${AGENT_CONFIG_DIR} --task "Tell me a joke"
 ```
 
 
@@ -36,6 +51,6 @@ uv run kagent-adk test --filepath $TMP_DIR/config --task "Tell me a joke"
 export KAGENT_SKILLS_FOLDER=$PWD/go/test/e2e/testdata/skills/
 export OPENAI_API_KEY=dummykey
 cd python
-uv run kagent-adk test --filepath $TMP_DIR/config --task "Tell me a joke"
+uv run kagent-adk test --filepath ${AGENT_CONFIG_DIR} --task "Tell me a joke"
 ```
 
