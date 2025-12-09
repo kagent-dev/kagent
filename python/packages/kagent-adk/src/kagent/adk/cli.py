@@ -94,6 +94,7 @@ def pull_skills(
     for skill in skills:
         fetch_skill(skill, skill_dir, insecure)
 
+
 def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
     """
     Add the plugin to an ADK LLM agent by updating its MCP toolset
@@ -101,6 +102,7 @@ def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
     """
     from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
     from google.adk.agents import LlmAgent
+
     if not isinstance(agent, LlmAgent):
         return
 
@@ -112,6 +114,7 @@ def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
             mcp_toolset = tool
             mcp_toolset._header_provider = sts_integration.header_provider
             logger.debug("Updated tool connection params to include access token from STS server")
+
 
 @app.command()
 def run(
@@ -134,7 +137,7 @@ def run(
     if sts_integration:
         plugins = [sts_integration]
         add_to_agent(sts_integration, root_agent)
-    
+
     maybe_add_skills(root_agent)
 
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
@@ -169,9 +172,14 @@ def run(
 
 
 async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str):
-    app_cfg = KAgentConfig()
-    agent = agent_config.to_agent(app_cfg.name)
-    app = KAgentApp(agent, agent_card, app_cfg.url, app_cfg.app_name)
+    app_cfg = KAgentConfig(url="http://fake-url.example.com", name="test-agent", namespace="kagent")
+    plugins = None
+    sts_integration = create_sts_integration()
+    if sts_integration:
+        plugins = [sts_integration]
+    root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
+    maybe_add_skills(root_agent)
+    app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
     await app.test(task)
 
 
@@ -180,7 +188,7 @@ def test(
     task: Annotated[str, typer.Option("--task", help="The task to test the agent with")],
     filepath: Annotated[str, typer.Option("--filepath", help="The path to the agent config file")],
 ):
-    with open(filepath, "r") as f:
+    with open(os.path.join(filepath, "config.json"), "r") as f:
         content = f.read()
         config = json.loads(content)
 

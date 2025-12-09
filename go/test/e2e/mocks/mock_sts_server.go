@@ -43,7 +43,7 @@ type STSTokenResponse struct {
 }
 
 // NewMockSTSServer creates a new mock STS server
-func NewMockSTSServer(agentServiceAccount string) *MockSTSServer {
+func NewMockSTSServer(agentServiceAccount string, port uint16) *MockSTSServer {
 	mock := &MockSTSServer{
 		requests:            make([]STSTokenRequest, 0),
 		agentServiceAccount: agentServiceAccount,
@@ -53,7 +53,7 @@ func NewMockSTSServer(agentServiceAccount string) *MockSTSServer {
 	mock.server = httptest.NewUnstartedServer(http.HandlerFunc(mock.handleRequest))
 
 	// Configure the server to listen on all interfaces
-	mock.server.Listener, _ = net.Listen("tcp", "0.0.0.0:0")
+	mock.server.Listener, _ = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 
 	// Start the server
 	mock.server.Start()

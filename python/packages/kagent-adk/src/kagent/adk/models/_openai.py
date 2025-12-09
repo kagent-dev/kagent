@@ -123,6 +123,8 @@ def _convert_content_to_openai_messages(
                         content_list = func_response.response["content"]
                         if len(content_list) > 0:
                             content = content_list[0]["text"]
+                    elif func_response.response and "result" in func_response.response:
+                        content = func_response.response["result"]
 
                     tool_message = ChatCompletionToolMessageParam(
                         role="tool",

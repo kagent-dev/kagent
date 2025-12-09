@@ -630,7 +630,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	// Setup mock STS server
 	agentName := "test-sts"
 	agentServiceAccount := fmt.Sprintf("system:serviceaccount:kagent:%s", agentName)
-	stsServer := e2emocks.NewMockSTSServer(agentServiceAccount)
+	stsServer := e2emocks.NewMockSTSServer(agentServiceAccount, 0)
 	defer stsServer.Close()
 
 	// convert STS server URL to be accessible from within Kubernetes pods
@@ -706,7 +706,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 
 		// verify our mock STS server received the token exchange request
 		stsRequests := stsServer.GetRequests()
-		require.Len(t, stsRequests, 2, "Expected 2 STS token exchange requests")
+		require.Len(t, stsRequests, 1, "Expected 1 STS token exchange request")
 
 		// ensure the subject token is the same as the one we sent
 		// which contains the may act claim
