@@ -94,6 +94,24 @@ def pull_skills(
     for skill in skills:
         fetch_skill(skill, skill_dir, insecure)
 
+def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
+    """
+    Add the plugin to an ADK LLM agent by updating its MCP toolset
+    Call this once when setting up the agent; do not call it at runtime.
+    """
+    from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+    from google.adk.agents import LlmAgent
+    if not isinstance(agent, LlmAgent):
+        return
+
+    if not agent.tools:
+        return
+
+    for tool in agent.tools:
+        if isinstance(tool, McpToolset):
+            mcp_toolset = tool
+            mcp_toolset._header_provider = sts_integration.header_provider
+            logger.debug("Updated tool connection params to include access token from STS server")
 
 @app.command()
 def run(
@@ -110,6 +128,13 @@ def run(
 
     agent_loader = AgentLoader(agents_dir=working_dir)
     root_agent = agent_loader.load_agent(name)
+
+    plugins = None
+    sts_integration = create_sts_integration()
+    if sts_integration:
+        plugins = [sts_integration]
+        add_to_agent(sts_integration, root_agent)
+    
     maybe_add_skills(root_agent)
 
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
@@ -125,11 +150,11 @@ def run(
     except Exception:
         logger.exception(f"Failed to load agent module '{name}' for lifespan")
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, lifespan=lifespan)
+    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, lifespan=lifespan, plugins=plugins)
 
     if local:
         logger.info("Running in local mode with InMemorySessionService")
-        server = kagent_app.build_local()
+        server = kagent_app.build(local=True)
     else:
         server = kagent_app.build()
 
