@@ -173,7 +173,7 @@ func extractTextFromArtifacts(taskResult *protocol.Task) string {
 }
 
 var defaultRetry = wait.Backoff{
-	Steps:    5,
+	Steps:    10,
 	Duration: 1 * time.Second,
 	Factor:   2.0,
 	Jitter:   0.2,
