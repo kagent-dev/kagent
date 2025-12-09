@@ -100,8 +100,8 @@ def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
     Add the plugin to an ADK LLM agent by updating its MCP toolset
     Call this once when setting up the agent; do not call it at runtime.
     """
-    from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
     from google.adk.agents import LlmAgent
+    from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
     if not isinstance(agent, LlmAgent):
         return

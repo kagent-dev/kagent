@@ -2,7 +2,7 @@
 import faulthandler
 import logging
 import os
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
