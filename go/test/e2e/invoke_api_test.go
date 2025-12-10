@@ -81,6 +81,8 @@ func setupK8sClient(t *testing.T, includeV1Alpha1 bool) client.Client {
 		err = v1alpha1.AddToScheme(scheme)
 		require.NoError(t, err)
 	}
+	err = corev1.AddToScheme(scheme)
+	require.NoError(t, err)
 
 	cli, err := client.New(cfg, client.Options{
 		Scheme: scheme,
@@ -413,10 +415,7 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgent(t, cli, tools)
 
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
+	defer cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t)
@@ -483,12 +482,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 	mcpServer := setupMCPServer(t, cli, generateMCPServer())
 	agent := setupAgent(t, cli, tools)
 
-	// Cleanup
-	defer func() {
-		cli.Delete(t.Context(), agent)     //nolint:errcheck
-		cli.Delete(t.Context(), mcpServer) //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg)  //nolint:errcheck
-	}()
+	defer cleanup(t, cli, agent, mcpServer, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t)
@@ -582,9 +576,7 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
 
-	defer func() {
-		cli.Delete(t.Context(), agent) //nolint:errcheck
-	}()
+	defer cleanup(t, cli, agent)
 
 	// Wait for the agent to become Ready
 	args := []string{
@@ -674,15 +666,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		},
 	})
 
-	defer func() {
-		if t.Failed() {
-			// don't cleanup on failure for investigation
-			return
-		}
-		cli.Delete(t.Context(), agent)             //nolint:errcheck
-		cli.Delete(t.Context(), mcpServerResource) //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg)          //nolint:errcheck
-	}()
+	defer cleanup(t, cli, agent, mcpServerResource, modelCfg)
 
 	// access token for test user with the may act claim allowing system:serviceaccount:kagent:test-sts to
 	// perform operations on behalf of the test user
@@ -737,10 +721,7 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 		},
 	})
 
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
+	defer cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t)
@@ -763,14 +744,51 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 		ExecuteCode: ptr.To(true),
 	})
 
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
+	defer cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t)
 
 	// Run tests
 	runSyncTest(t, a2aClient, "write some code", "hello, world!", nil)
+}
+
+func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
+	ctx := t.Context()
+	for _, o := range obj {
+		if t.Failed() {
+			// get logs of agent
+			if agent, ok := o.(*v1alpha2.Agent); ok {
+				printLogs(t, cli, agent)
+			}
+		}
+		cli.Delete(ctx, o) //nolint:errcheck
+	}
+}
+
+func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	podList := &corev1.PodList{}
+	err := cli.List(t.Context(), podList, client.InNamespace(agent.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/name":       agent.Name,
+		"app.kubernetes.io/managed-by": "kagent",
+	})
+	if err != nil {
+		t.Logf("failed to list pods for agent %s: %v", agent.Name, err)
+		return
+	}
+	for _, pod := range podList.Items {
+		kubectlLogsArgs := []string{
+			"logs",
+			pod.Name,
+			"-n",
+			agent.Namespace,
+		}
+		cmd := exec.CommandContext(t.Context(), "kubectl", kubectlLogsArgs...)
+		cmdOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("failed to get logs for pod %s using kubectl: %v", pod.Name, err)
+		} else {
+			t.Logf("logs for pod %s using kubectl:\n%s", pod.Name, string(cmdOutput))
+		}
+	}
 }
