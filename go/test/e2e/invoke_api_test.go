@@ -109,8 +109,8 @@ func setupMCPServer(t *testing.T, cli client.Client, mcpServer *v1alpha1.MCPServ
 }
 
 // setupAgent creates and returns an agent resource, then waits for it to be ready
-func setupAgent(t *testing.T, cli client.Client, tools []*v1alpha2.Tool) *v1alpha2.Agent {
-	return setupAgentWithOptions(t, cli, tools, AgentOptions{})
+func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool) *v1alpha2.Agent {
+	return setupAgentWithOptions(t, cli, modelConfigName, tools, AgentOptions{})
 }
 
 // AgentOptions provides optional configuration for agent setup
@@ -124,23 +124,18 @@ type AgentOptions struct {
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
-func setupAgentWithOptions(t *testing.T, cli client.Client, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
-	agent := generateAgent(tools, opts)
+func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
+	agent := generateAgent(modelConfigName, tools, opts)
 	cli.Create(t.Context(), agent) //nolint:errcheck
 
 	// Wait for agent to be ready
-	agentName := "test-agent"
-	if opts.Name != "" {
-		agentName = opts.Name
-	}
-
 	args := []string{
 		"wait",
 		"--for",
 		"condition=Ready",
 		"--timeout=1m",
 		"agents.kagent.dev",
-		agentName,
+		agent.Name,
 		"-n",
 		"kagent",
 	}
@@ -154,8 +149,8 @@ func setupAgentWithOptions(t *testing.T, cli client.Client, tools []*v1alpha2.To
 }
 
 // setupA2AClient creates an A2A client for the test agent
-func setupA2AClient(t *testing.T) *a2aclient.A2AClient {
-	a2aURL := a2aUrl("kagent", "test-agent")
+func setupA2AClient(t *testing.T, agent *v1alpha2.Agent) *a2aclient.A2AClient {
+	a2aURL := a2aUrl(agent.Namespace, agent.Name)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
 	require.NoError(t, err)
 	return a2aClient
@@ -175,11 +170,10 @@ func extractTextFromArtifacts(taskResult *protocol.Task) string {
 }
 
 var defaultRetry = wait.Backoff{
-	Steps:    10,
+	Steps:    3,
 	Duration: 1 * time.Second,
 	Factor:   2.0,
 	Jitter:   0.2,
-	Cap:      5 * time.Second,
 }
 
 // runSyncTest runs a synchronous message test
@@ -287,8 +281,8 @@ func a2aUrl(namespace, name string) string {
 func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {
 	return &v1alpha2.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-model-config",
-			Namespace: "kagent",
+			GenerateName: "test-model-config-",
+			Namespace:    "kagent",
 		},
 		Spec: v1alpha2.ModelConfigSpec{
 			Model:           "gpt-4.1-mini",
@@ -302,7 +296,7 @@ func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {
 	}
 }
 
-func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
+func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 	name := "test-agent"
 	if opts.Name != "" {
 		name = opts.Name
@@ -315,13 +309,13 @@ func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 
 	agent := &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: "kagent",
+			GenerateName: name + "-", // use different name for each test run
+			Namespace:    "kagent",
 		},
 		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
-				ModelConfig:       "test-model-config",
+				ModelConfig:       modelConfigName,
 				SystemMessage:     systemMessage,
 				Tools:             tools,
 				ExecuteCodeBlocks: opts.ExecuteCode,
@@ -413,12 +407,12 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	agent := setupAgent(t, cli, tools)
+	agent := setupAgent(t, cli, modelCfg.Name, tools)
 
 	cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
-	a2aClient := setupA2AClient(t)
+	a2aClient := setupA2AClient(t, agent)
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
@@ -480,12 +474,12 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	mcpServer := setupMCPServer(t, cli, generateMCPServer())
-	agent := setupAgent(t, cli, tools)
+	agent := setupAgent(t, cli, modelCfg.Name, tools)
 
 	cleanup(t, cli, agent, mcpServer, modelCfg)
 
 	// Setup A2A client
-	a2aClient := setupA2AClient(t)
+	a2aClient := setupA2AClient(t, agent)
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
@@ -654,7 +648,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	mcpServerResource := setupMCPServer(t, cli, generateMCPServer())
-	agent := setupAgentWithOptions(t, cli, tools, AgentOptions{
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{
 		Name:          "test-sts-agent",
 		SystemMessage: "You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.",
 		Stream:        &[]bool{true}[0],
@@ -684,7 +678,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		},
 	}
 
-	a2aURL := a2aUrl("kagent", "test-sts-agent")
+	a2aURL := a2aUrl(agent.Namespace, agent.Name)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL,
 		a2aclient.WithTimeout(60*time.Second),
 		a2aclient.WithHTTPClient(httpClient))
@@ -714,7 +708,7 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	agent := setupAgentWithOptions(t, cli, nil, AgentOptions{
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
 		Skills: &v1alpha2.SkillForAgent{
 			InsecureSkipVerify: true,
 			Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
@@ -724,7 +718,7 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 	cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
-	a2aClient := setupA2AClient(t)
+	a2aClient := setupA2AClient(t, agent)
 
 	// Run tests
 	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
@@ -740,14 +734,14 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	agent := setupAgentWithOptions(t, cli, nil, AgentOptions{
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
 		ExecuteCode: ptr.To(true),
 	})
 
 	cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
-	a2aClient := setupA2AClient(t)
+	a2aClient := setupA2AClient(t, agent)
 
 	// Run tests
 	runSyncTest(t, a2aClient, "write some code", "hello, world!", nil)
@@ -774,8 +768,10 @@ func printAgentInfo(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 	printService(t, cli, agent)
 }
 func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	podList := &corev1.PodList{}
-	err := cli.List(t.Context(), podList, client.InNamespace(agent.Namespace), client.MatchingLabels{
+	err := cli.List(ctx, podList, client.InNamespace(agent.Namespace), client.MatchingLabels{
 		"app.kubernetes.io/name":       agent.Name,
 		"app.kubernetes.io/managed-by": "kagent",
 	})
@@ -783,8 +779,7 @@ func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 		t.Logf("failed to list pods for agent %s: %v", agent.Name, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+
 	for _, pod := range podList.Items {
 		kubectlLogsArgs := []string{
 			"logs",
@@ -818,7 +813,7 @@ func printDeployment(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 	if err != nil {
 		t.Logf("failed to get logs for deployment %s using kubectl: %v", agent.Name, err)
 	} else {
-		t.Logf("logs for deployment %s using kubectl:\n%s", agent.Name, string(cmdOutput))
+		t.Logf("description for deployment %s using kubectl:\n%s", agent.Name, string(cmdOutput))
 	}
 }
 
@@ -838,6 +833,6 @@ func printService(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 	if err != nil {
 		t.Logf("failed to get logs for service %s using kubectl: %v", agent.Name, err)
 	} else {
-		t.Logf("logs for service %s using kubectl:\n%s", agent.Name, string(cmdOutput))
+		t.Logf("description for service %s using kubectl:\n%s", agent.Name, string(cmdOutput))
 	}
 }

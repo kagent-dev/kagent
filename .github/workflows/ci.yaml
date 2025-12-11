@@ -99,7 +99,7 @@ jobs:
           echo "KAGENT_URL: $KAGENT_URL"
           echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
 
-          go test -race -v github.com/kagent-dev/kagent/go/test/e2e
+          go test -race -v github.com/kagent-dev/kagent/go/test/e2e -test.failfast
       - name: fail print info
         if: failure()
         run: |
