@@ -10,9 +10,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	schemev1 "k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -31,20 +31,20 @@ func TestSecurityContext_AppliedToPodSpec(t *testing.T) {
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
-				ModelConfig:    "test-model",
+				ModelConfig:   "test-model",
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						PodSecurityContext: &corev1.PodSecurityContext{
-							RunAsUser:    ptr.To(int64(1000)),
-							RunAsGroup:   ptr.To(int64(1000)),
-							FSGroup:      ptr.To(int64(1000)),
-							RunAsNonRoot: ptr.To(true),
+							RunAsUser:          ptr.To(int64(1000)),
+							RunAsGroup:         ptr.To(int64(1000)),
+							FSGroup:            ptr.To(int64(1000)),
+							RunAsNonRoot:       ptr.To(true),
 							SupplementalGroups: []int64{1000},
 						},
 						SecurityContext: &corev1.SecurityContext{
-							RunAsUser:    ptr.To(int64(1000)),
-							RunAsGroup:   ptr.To(int64(1000)),
-							RunAsNonRoot: ptr.To(true),
+							RunAsUser:                ptr.To(int64(1000)),
+							RunAsGroup:               ptr.To(int64(1000)),
+							RunAsNonRoot:             ptr.To(true),
 							AllowPrivilegeEscalation: ptr.To(false),
 							Capabilities: &corev1.Capabilities{
 								Drop: []corev1.Capability{"ALL"},
@@ -119,7 +119,7 @@ func TestSecurityContext_AppliedToPodSpec(t *testing.T) {
 	assert.Equal(t, int64(1000), *containerSecurityContext.RunAsGroup, "Container runAsGroup should be 1000")
 	assert.True(t, *containerSecurityContext.RunAsNonRoot, "Container runAsNonRoot should be true")
 	assert.False(t, *containerSecurityContext.AllowPrivilegeEscalation, "Container allowPrivilegeEscalation should be false")
-	
+
 	// Verify capabilities
 	require.NotNil(t, containerSecurityContext.Capabilities, "Container capabilities should be set")
 	assert.Contains(t, containerSecurityContext.Capabilities.Drop, corev1.Capability("ALL"), "Should drop ALL capabilities")
@@ -138,7 +138,7 @@ func TestSecurityContext_OnlyPodSecurityContext(t *testing.T) {
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
-				ModelConfig:    "test-model",
+				ModelConfig:   "test-model",
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						PodSecurityContext: &corev1.PodSecurityContext{
@@ -213,7 +213,7 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
-				ModelConfig:    "test-model",
+				ModelConfig:   "test-model",
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						SecurityContext: &corev1.SecurityContext{
@@ -291,7 +291,7 @@ func TestSecurityContext_WithSandbox(t *testing.T) {
 			},
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
-				ModelConfig:    "test-model",
+				ModelConfig:   "test-model",
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						SecurityContext: &corev1.SecurityContext{
@@ -349,4 +349,3 @@ func TestSecurityContext_WithSandbox(t *testing.T) {
 	assert.True(t, *containerSecurityContext.Privileged, "Privileged should be true when sandbox is needed")
 	assert.Equal(t, int64(1000), *containerSecurityContext.RunAsUser, "User-provided runAsUser should still be set")
 }
-

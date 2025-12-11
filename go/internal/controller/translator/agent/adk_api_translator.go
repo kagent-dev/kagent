@@ -1177,18 +1177,18 @@ type resolvedDeployment struct {
 	ImagePullPolicy corev1.PullPolicy
 
 	// SharedDeploymentSpec merged
-	Replicas          *int32
-	ImagePullSecrets  []corev1.LocalObjectReference
-	Volumes           []corev1.Volume
-	VolumeMounts     []corev1.VolumeMount
-	Labels            map[string]string
-	Annotations       map[string]string
-	Env               []corev1.EnvVar
-	Resources         corev1.ResourceRequirements
-	Tolerations       []corev1.Toleration
-	Affinity          *corev1.Affinity
-	NodeSelector      map[string]string
-	SecurityContext   *corev1.SecurityContext
+	Replicas           *int32
+	ImagePullSecrets   []corev1.LocalObjectReference
+	Volumes            []corev1.Volume
+	VolumeMounts       []corev1.VolumeMount
+	Labels             map[string]string
+	Annotations        map[string]string
+	Env                []corev1.EnvVar
+	Resources          corev1.ResourceRequirements
+	Tolerations        []corev1.Toleration
+	Affinity           *corev1.Affinity
+	NodeSelector       map[string]string
+	SecurityContext    *corev1.SecurityContext
 	PodSecurityContext *corev1.PodSecurityContext
 }
 
@@ -1257,22 +1257,22 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	}
 
 	dep := &resolvedDeployment{
-		Image:             image,
-		Args:              args,
-		Port:              port,
-		ImagePullPolicy:   imagePullPolicy,
-		Replicas:          spec.Replicas,
-		ImagePullSecrets:  slices.Clone(spec.ImagePullSecrets),
-		Volumes:           append(slices.Clone(spec.Volumes), mdd.Volumes...),
-		VolumeMounts:     append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
-		Labels:            getDefaultLabels(agent.Name, spec.Labels),
-		Annotations:       maps.Clone(spec.Annotations),
-		Env:               append(slices.Clone(spec.Env), mdd.EnvVars...),
-		Resources:         getDefaultResources(spec.Resources), // Set default resources if not specified
-		Tolerations:       slices.Clone(spec.Tolerations),
-		Affinity:          spec.Affinity,
-		NodeSelector:      maps.Clone(spec.NodeSelector),
-		SecurityContext:   spec.SecurityContext,
+		Image:              image,
+		Args:               args,
+		Port:               port,
+		ImagePullPolicy:    imagePullPolicy,
+		Replicas:           spec.Replicas,
+		ImagePullSecrets:   slices.Clone(spec.ImagePullSecrets),
+		Volumes:            append(slices.Clone(spec.Volumes), mdd.Volumes...),
+		VolumeMounts:       append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
+		Labels:             getDefaultLabels(agent.Name, spec.Labels),
+		Annotations:        maps.Clone(spec.Annotations),
+		Env:                append(slices.Clone(spec.Env), mdd.EnvVars...),
+		Resources:          getDefaultResources(spec.Resources), // Set default resources if not specified
+		Tolerations:        slices.Clone(spec.Tolerations),
+		Affinity:           spec.Affinity,
+		NodeSelector:       maps.Clone(spec.NodeSelector),
+		SecurityContext:    spec.SecurityContext,
 		PodSecurityContext: spec.PodSecurityContext,
 	}
 
@@ -1326,23 +1326,23 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 	}
 
 	dep := &resolvedDeployment{
-		Image:             image,
-		Cmd:               cmd,
-		Args:              args,
-		Port:              port,
-		ImagePullPolicy:   imagePullPolicy,
-		Replicas:          replicas,
-		ImagePullSecrets:  slices.Clone(spec.ImagePullSecrets),
-		Volumes:           slices.Clone(spec.Volumes),
-		VolumeMounts:      slices.Clone(spec.VolumeMounts),
-		Labels:            getDefaultLabels(agent.Name, spec.Labels),
-		Annotations:       maps.Clone(spec.Annotations),
-		Env:               slices.Clone(spec.Env),
-		Resources:         getDefaultResources(spec.Resources), // Set default resources if not specified
-		Tolerations:       slices.Clone(spec.Tolerations),
-		Affinity:          spec.Affinity,
-		NodeSelector:      maps.Clone(spec.NodeSelector),
-		SecurityContext:   spec.SecurityContext,
+		Image:              image,
+		Cmd:                cmd,
+		Args:               args,
+		Port:               port,
+		ImagePullPolicy:    imagePullPolicy,
+		Replicas:           replicas,
+		ImagePullSecrets:   slices.Clone(spec.ImagePullSecrets),
+		Volumes:            slices.Clone(spec.Volumes),
+		VolumeMounts:       slices.Clone(spec.VolumeMounts),
+		Labels:             getDefaultLabels(agent.Name, spec.Labels),
+		Annotations:        maps.Clone(spec.Annotations),
+		Env:                slices.Clone(spec.Env),
+		Resources:          getDefaultResources(spec.Resources), // Set default resources if not specified
+		Tolerations:        slices.Clone(spec.Tolerations),
+		Affinity:           spec.Affinity,
+		NodeSelector:       maps.Clone(spec.NodeSelector),
+		SecurityContext:    spec.SecurityContext,
 		PodSecurityContext: spec.PodSecurityContext,
 	}
 
