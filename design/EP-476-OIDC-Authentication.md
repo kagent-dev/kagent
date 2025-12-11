@@ -315,19 +315,13 @@ First, configure Keycloak (deployed separately):
 
 Then, configure KAgent:
 
-`kagent-cm` ConfigMap:
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kagent-cm
-  namespace: kagent
-data:
-  oidc.issuer-url: https://keycloak.example.com/realms/kagent
-  oidc.client-id: kagent-client
-  oidc.scopes: "openid,profile,email,groups"
-  oidc.group-claim: groups
-  oidc.enable-pkce: "true"
+`kagent` Feature Flags/Env Variables:
+```
+  - `--oidc-issuer-url` - OIDC provider URL\
+  - `--oidc-client-id` - OAuth2 client ID
+  - `--oidc-client-secret` - OAuth2 client secret (direct value or k8s secret reference)
+  - `--oidc-scopes` - Comma-separated scopes (default: `openid,profile,email,groups`)
+  - `--oidc-group-claim` - JWT claim path for groups (default: `groups`)
 ```
 
 `kagent-secret` Secret:
@@ -388,22 +382,20 @@ staticClients:
 ```
 
 Then configure KAgent:
-```yaml
-data:
-  oidc.issuer-url: https://dex.example.com
-  oidc.client-id: kagent
-  oidc.scopes: "openid,profile,email,groups"
-  oidc.group-claim: groups
+```
+  - --oidc-issuer-url https://dex.example.com
+  - --oidc-client-id kagent
+  - --oidc-scopes "openid,profile,email,groups"
+  - --oidc-group-claim groups
 ```
 
 **Example 3: Okta**
 
 ```yaml
-data:
-  oidc.issuer-url: https://dev-123456.okta.com/oauth2/default
-  oidc.client-id: <okta-application-client-id>
-  oidc.scopes: "openid,profile,email,groups"
-  oidc.group-claim: groups
+  - --oidc-issuer-url https://dev-123456.okta.com/oauth2/default
+  - --oidc-client-id <okta-application-client-id>
+  - --oidc-scopes "openid,profile,email,groups"
+  - --oidc-group-claim groups
 ```
 
 **Example 4: Command-line Flags**
