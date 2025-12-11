@@ -56,6 +56,7 @@ class KAgentApp:
         app_name: str,
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
+        stream: bool = False,
     ):
         self.root_agent = root_agent
         self.kagent_url = kagent_url
@@ -63,6 +64,7 @@ class KAgentApp:
         self.agent_card = agent_card
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
+        self.stream = stream
 
     def build(self) -> FastAPI:
         token_service = KAgentTokenService(self.app_name)
@@ -86,6 +88,7 @@ class KAgentApp:
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
+            stream=self.stream,
         )
 
         kagent_task_store = KAgentTaskStore(http_client)
@@ -130,6 +133,7 @@ class KAgentApp:
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
+            stream=self.stream,
         )
 
         task_store = InMemoryTaskStore()

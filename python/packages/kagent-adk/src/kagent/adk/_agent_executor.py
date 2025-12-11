@@ -59,10 +59,12 @@ class A2aAgentExecutor(AgentExecutor):
         *,
         runner: Callable[..., Runner | Awaitable[Runner]],
         config: Optional[A2aAgentExecutorConfig] = None,
+        stream: bool = False,
     ):
         super().__init__()
         self._runner = runner
         self._config = config
+        self._stream = stream
 
     async def _resolve_runner(self) -> Runner:
         """Resolve the runner, handling cases where it's a callable that returns a Runner."""
@@ -110,7 +112,7 @@ class A2aAgentExecutor(AgentExecutor):
             raise ValueError("A2A request must have a message")
 
         # Convert the a2a request to ADK run args
-        run_args = convert_a2a_request_to_adk_run_args(context)
+        run_args = convert_a2a_request_to_adk_run_args(context, stream=self._stream)
 
         # Prepare span attributes.
         span_attributes = {}
