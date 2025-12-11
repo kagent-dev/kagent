@@ -749,7 +749,6 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 
 func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
 	t.Cleanup(func() {
-		ctx := t.Context()
 		for _, o := range obj {
 			if t.Failed() {
 				// get logs of agent
@@ -757,7 +756,7 @@ func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
 					printAgentInfo(t, cli, agent)
 				}
 			}
-			cli.Delete(ctx, o) //nolint:errcheck
+			cli.Delete(context.Background(), o) //nolint:errcheck
 		}
 	})
 }
