@@ -783,6 +783,8 @@ func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 		t.Logf("failed to list pods for agent %s: %v", agent.Name, err)
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	for _, pod := range podList.Items {
 		kubectlLogsArgs := []string{
 			"logs",
@@ -790,7 +792,7 @@ func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 			"-n",
 			agent.Namespace,
 		}
-		cmd := exec.CommandContext(t.Context(), "kubectl", kubectlLogsArgs...)
+		cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
 		cmdOutput, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Logf("failed to get logs for pod %s using kubectl: %v", pod.Name, err)
@@ -809,7 +811,9 @@ func printDeployment(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 		"-n",
 		agent.Namespace,
 	}
-	cmd := exec.CommandContext(t.Context(), "kubectl", kubectlLogsArgs...)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
 	cmdOutput, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Logf("failed to get logs for deployment %s using kubectl: %v", agent.Name, err)
@@ -827,11 +831,13 @@ func printService(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 		"-n",
 		agent.Namespace,
 	}
-	cmd := exec.CommandContext(t.Context(), "kubectl", kubectlLogsArgs...)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
 	cmdOutput, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Logf("failed to get logs for deployment %s using kubectl: %v", agent.Name, err)
+		t.Logf("failed to get logs for service %s using kubectl: %v", agent.Name, err)
 	} else {
-		t.Logf("logs for deployment %s using kubectl:\n%s", agent.Name, string(cmdOutput))
+		t.Logf("logs for service %s using kubectl:\n%s", agent.Name, string(cmdOutput))
 	}
 }
