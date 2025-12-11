@@ -108,7 +108,7 @@ class KAgentApp:
 
         lifespan_manager = LifespanManager()
         lifespan_manager.add(self._lifespan)
-        if token_service is None:
+        if not local:
             lifespan_manager.add(token_service.lifespan())
 
         app = FastAPI(lifespan=lifespan_manager)

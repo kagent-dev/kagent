@@ -415,7 +415,7 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgent(t, cli, tools)
 
-	defer cleanup(t, cli, agent, modelCfg)
+	cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t)
@@ -482,7 +482,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 	mcpServer := setupMCPServer(t, cli, generateMCPServer())
 	agent := setupAgent(t, cli, tools)
 
-	defer cleanup(t, cli, agent, mcpServer, modelCfg)
+	cleanup(t, cli, agent, mcpServer, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t)
@@ -576,7 +576,7 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
 
-	defer cleanup(t, cli, agent)
+	cleanup(t, cli, agent)
 
 	// Wait for the agent to become Ready
 	args := []string{
@@ -666,7 +666,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		},
 	})
 
-	defer cleanup(t, cli, agent, mcpServerResource, modelCfg)
+	cleanup(t, cli, agent, mcpServerResource, modelCfg)
 
 	// access token for test user with the may act claim allowing system:serviceaccount:kagent:test-sts to
 	// perform operations on behalf of the test user
@@ -721,7 +721,7 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 		},
 	})
 
-	defer cleanup(t, cli, agent, modelCfg)
+	cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t)
@@ -744,7 +744,7 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 		ExecuteCode: ptr.To(true),
 	})
 
-	defer cleanup(t, cli, agent, modelCfg)
+	cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t)
@@ -754,18 +754,25 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 }
 
 func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
-	ctx := t.Context()
-	for _, o := range obj {
-		if t.Failed() {
-			// get logs of agent
-			if agent, ok := o.(*v1alpha2.Agent); ok {
-				printLogs(t, cli, agent)
+	t.Cleanup(func() {
+		ctx := t.Context()
+		for _, o := range obj {
+			if t.Failed() {
+				// get logs of agent
+				if agent, ok := o.(*v1alpha2.Agent); ok {
+					printAgentInfo(t, cli, agent)
+				}
 			}
+			cli.Delete(ctx, o) //nolint:errcheck
 		}
-		cli.Delete(ctx, o) //nolint:errcheck
-	}
+	})
 }
 
+func printAgentInfo(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	printLogs(t, cli, agent)
+	printDeployment(t, cli, agent)
+	printService(t, cli, agent)
+}
 func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 	podList := &corev1.PodList{}
 	err := cli.List(t.Context(), podList, client.InNamespace(agent.Namespace), client.MatchingLabels{
@@ -790,5 +797,41 @@ func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 		} else {
 			t.Logf("logs for pod %s using kubectl:\n%s", pod.Name, string(cmdOutput))
 		}
+	}
+}
+
+func printDeployment(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	// describe deployment and service
+	kubectlLogsArgs := []string{
+		"describe",
+		"deployment",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+	cmd := exec.CommandContext(t.Context(), "kubectl", kubectlLogsArgs...)
+	cmdOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("failed to get logs for deployment %s using kubectl: %v", agent.Name, err)
+	} else {
+		t.Logf("logs for deployment %s using kubectl:\n%s", agent.Name, string(cmdOutput))
+	}
+}
+
+func printService(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	// describe deployment and service
+	kubectlLogsArgs := []string{
+		"describe",
+		"service",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+	cmd := exec.CommandContext(t.Context(), "kubectl", kubectlLogsArgs...)
+	cmdOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("failed to get logs for deployment %s using kubectl: %v", agent.Name, err)
+	} else {
+		t.Logf("logs for deployment %s using kubectl:\n%s", agent.Name, string(cmdOutput))
 	}
 }
