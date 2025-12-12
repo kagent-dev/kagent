@@ -16,9 +16,10 @@ interface ToolsSectionProps {
   isSubmitting: boolean;
   onBlur?: () => void;
   currentAgentName: string;
+  currentAgentNamespace: string;
 }
 
-export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
+export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName, currentAgentNamespace }: ToolsSectionProps) => {
   const [showToolSelector, setShowToolSelector] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
@@ -99,7 +100,12 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
           const mcpTool = agentTool as Tool;
           return mcpTool.mcpServer?.toolNames.map((mcpToolName: string) => {
             const toolIdentifierForDisplay = `${parentToolIdentifier}::${mcpToolName}`;
-            const displayName = mcpToolName;
+            
+            // Show server name with namespace for consistency
+            const serverName = mcpTool.mcpServer?.name || "";
+            const serverNamespace = mcpTool.mcpServer?.namespace || currentAgentNamespace;
+            const serverDisplayName = `${serverNamespace}/${serverName}`;
+            const displayName = `${mcpToolName} (${serverDisplayName})`;
 
             // The tools on agent resource don't have descriptions, so we need to 
             // get the descriptions from the db
@@ -143,7 +149,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
             );
           });
         } else {
-          const displayName = getToolDisplayName(agentTool);
+          const displayName = getToolDisplayName(agentTool, currentAgentNamespace);
           const displayDescription = getToolDescription(agentTool, availableTools);
 
           let CurrentIcon: React.ElementType;
@@ -236,6 +242,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
         selectedTools={selectedTools}
         onToolsSelected={handleToolSelect}
         loadingAgents={loadingAgents}
+        currentAgentNamespace={currentAgentNamespace}
       />
     </div>
   );

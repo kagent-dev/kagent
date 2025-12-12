@@ -52,6 +52,13 @@ type RemoteMCPServerSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	TerminateOnClose *bool `json:"terminateOnClose,omitempty"`
+
+	// AllowedNamespaces defines which namespaces are allowed to reference this RemoteMCPServer.
+	// This follows the Gateway API pattern for cross-namespace route attachments.
+	// If not specified, only Agents in the same namespace can reference this RemoteMCPServer.
+	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
 var _ sql.Scanner = (*RemoteMCPServerSpec)(nil)
@@ -62,21 +69,6 @@ func (t *RemoteMCPServerSpec) Scan(src any) error {
 		return json.Unmarshal(v, t)
 	}
 	return nil
-}
-
-func (s *RemoteMCPServerSpec) ResolveHeaders(ctx context.Context, client client.Client, namespace string) (map[string]string, error) {
-	result := map[string]string{}
-
-	for _, h := range s.HeadersFrom {
-		k, v, err := h.Resolve(ctx, client, namespace)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve header: %v", err)
-		}
-
-		result[k] = v
-	}
-
-	return result, nil
 }
 
 var _ driver.Valuer = (*RemoteMCPServerSpec)(nil)
@@ -114,6 +106,22 @@ type RemoteMCPServer struct {
 
 	Spec   RemoteMCPServerSpec   `json:"spec,omitempty"`
 	Status RemoteMCPServerStatus `json:"status,omitempty"`
+}
+
+// ResolveHeaders resolves all HeadersFrom entries using the object's namespace.
+func (r *RemoteMCPServer) ResolveHeaders(ctx context.Context, client client.Client) (map[string]string, error) {
+	result := map[string]string{}
+
+	for _, h := range r.Spec.HeadersFrom {
+		k, v, err := h.Resolve(ctx, client, r.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve header: %v", err)
+		}
+
+		result[k] = v
+	}
+
+	return result, nil
 }
 
 // +kubebuilder:object:root=true
