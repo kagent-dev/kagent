@@ -2,7 +2,7 @@
 import faulthandler
 import logging
 import os
-from typing import Callable, List
+from typing import Any, Callable, List, Optional
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
@@ -23,6 +23,7 @@ from google.genai import types
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor
+from ._lifespan import LifespanManager
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
 
@@ -53,12 +54,14 @@ class KAgentApp:
         agent_card: AgentCard,
         kagent_url: str,
         app_name: str,
+        lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
     ):
         self.root_agent = root_agent
         self.kagent_url = kagent_url
         self.app_name = app_name
         self.agent_card = agent_card
+        self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
 
     def build(self) -> FastAPI:
@@ -100,7 +103,12 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-        app = FastAPI(lifespan=token_service.lifespan())
+
+        lifespan_manager = LifespanManager()
+        lifespan_manager.add(token_service.lifespan())
+        lifespan_manager.add(self._lifespan)
+
+        app = FastAPI(lifespan=lifespan_manager)
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
@@ -138,7 +146,11 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-        app = FastAPI()
+
+        lifespan_manager = LifespanManager()
+        lifespan_manager.add(self._lifespan)
+
+        app = FastAPI(lifespan=lifespan_manager)
 
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)

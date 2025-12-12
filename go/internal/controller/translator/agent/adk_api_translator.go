@@ -348,6 +348,10 @@ func (a *adkApiTranslator) buildManifest(
 		if insecure {
 			command = append(command, "--insecure")
 		}
+		initContainerSecurityContext := dep.SecurityContext
+		if initContainerSecurityContext != nil {
+			initContainerSecurityContext = initContainerSecurityContext.DeepCopy()
+		}
 		initContainers = append(initContainers, corev1.Container{
 			Name:    "skills-init",
 			Image:   dep.Image,
@@ -356,9 +360,8 @@ func (a *adkApiTranslator) buildManifest(
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "kagent-skills", MountPath: "/skills"},
 			},
-			Env: []corev1.EnvVar{
-				skillsEnv,
-			},
+			Env:             []corev1.EnvVar{skillsEnv},
+			SecurityContext: initContainerSecurityContext,
 		})
 		volumes = append(volumes, corev1.Volume{
 			Name: "kagent-skills",
@@ -409,12 +412,22 @@ func (a *adkApiTranslator) buildManifest(
 	// Add hash annotations to pod template to force rollout on agent config or model config secret changes
 	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", cfgHash)
 
+	// Merge container security context: start with user-provided, then apply sandbox requirements
 	var securityContext *corev1.SecurityContext
-	if needSandbox {
+	if dep.SecurityContext != nil {
+		// Deep copy the user-provided security context
+		securityContext = dep.SecurityContext.DeepCopy()
+		// If sandbox is needed, ensure Privileged is set (may override user setting)
+		if needSandbox {
+			securityContext.Privileged = ptr.To(true)
+		}
+	} else if needSandbox {
+		// Only create security context if sandbox is needed
 		securityContext = &corev1.SecurityContext{
 			Privileged: ptr.To(true),
 		}
 	}
+	// If neither user-provided securityContext nor sandbox is needed, securityContext remains nil
 
 	deployment := &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
@@ -434,6 +447,7 @@ func (a *adkApiTranslator) buildManifest(
 				Spec: corev1.PodSpec{
 					ServiceAccountName: agent.Name,
 					ImagePullSecrets:   dep.ImagePullSecrets,
+					SecurityContext:    dep.PodSecurityContext,
 					InitContainers:     initContainers,
 					Containers: []corev1.Container{{
 						Name:            "kagent",
@@ -1163,17 +1177,19 @@ type resolvedDeployment struct {
 	ImagePullPolicy corev1.PullPolicy
 
 	// SharedDeploymentSpec merged
-	Replicas         *int32
-	ImagePullSecrets []corev1.LocalObjectReference
-	Volumes          []corev1.Volume
-	VolumeMounts     []corev1.VolumeMount
-	Labels           map[string]string
-	Annotations      map[string]string
-	Env              []corev1.EnvVar
-	Resources        corev1.ResourceRequirements
-	Tolerations      []corev1.Toleration
-	Affinity         *corev1.Affinity
-	NodeSelector     map[string]string
+	Replicas           *int32
+	ImagePullSecrets   []corev1.LocalObjectReference
+	Volumes            []corev1.Volume
+	VolumeMounts       []corev1.VolumeMount
+	Labels             map[string]string
+	Annotations        map[string]string
+	Env                []corev1.EnvVar
+	Resources          corev1.ResourceRequirements
+	Tolerations        []corev1.Toleration
+	Affinity           *corev1.Affinity
+	NodeSelector       map[string]string
+	SecurityContext    *corev1.SecurityContext
+	PodSecurityContext *corev1.PodSecurityContext
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -1241,21 +1257,23 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	}
 
 	dep := &resolvedDeployment{
-		Image:            image,
-		Args:             args,
-		Port:             port,
-		ImagePullPolicy:  imagePullPolicy,
-		Replicas:         spec.Replicas,
-		ImagePullSecrets: slices.Clone(spec.ImagePullSecrets),
-		Volumes:          append(slices.Clone(spec.Volumes), mdd.Volumes...),
-		VolumeMounts:     append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
-		Labels:           getDefaultLabels(agent.Name, spec.Labels),
-		Annotations:      maps.Clone(spec.Annotations),
-		Env:              append(slices.Clone(spec.Env), mdd.EnvVars...),
-		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
-		Tolerations:      slices.Clone(spec.Tolerations),
-		Affinity:         spec.Affinity,
-		NodeSelector:     maps.Clone(spec.NodeSelector),
+		Image:              image,
+		Args:               args,
+		Port:               port,
+		ImagePullPolicy:    imagePullPolicy,
+		Replicas:           spec.Replicas,
+		ImagePullSecrets:   slices.Clone(spec.ImagePullSecrets),
+		Volumes:            append(slices.Clone(spec.Volumes), mdd.Volumes...),
+		VolumeMounts:       append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
+		Labels:             getDefaultLabels(agent.Name, spec.Labels),
+		Annotations:        maps.Clone(spec.Annotations),
+		Env:                append(slices.Clone(spec.Env), mdd.EnvVars...),
+		Resources:          getDefaultResources(spec.Resources), // Set default resources if not specified
+		Tolerations:        slices.Clone(spec.Tolerations),
+		Affinity:           spec.Affinity,
+		NodeSelector:       maps.Clone(spec.NodeSelector),
+		SecurityContext:    spec.SecurityContext,
+		PodSecurityContext: spec.PodSecurityContext,
 	}
 
 	return dep, nil
@@ -1308,22 +1326,24 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 	}
 
 	dep := &resolvedDeployment{
-		Image:            image,
-		Cmd:              cmd,
-		Args:             args,
-		Port:             port,
-		ImagePullPolicy:  imagePullPolicy,
-		Replicas:         replicas,
-		ImagePullSecrets: slices.Clone(spec.ImagePullSecrets),
-		Volumes:          slices.Clone(spec.Volumes),
-		VolumeMounts:     slices.Clone(spec.VolumeMounts),
-		Labels:           getDefaultLabels(agent.Name, spec.Labels),
-		Annotations:      maps.Clone(spec.Annotations),
-		Env:              slices.Clone(spec.Env),
-		Resources:        getDefaultResources(spec.Resources), // Set default resources if not specified
-		Tolerations:      slices.Clone(spec.Tolerations),
-		Affinity:         spec.Affinity,
-		NodeSelector:     maps.Clone(spec.NodeSelector),
+		Image:              image,
+		Cmd:                cmd,
+		Args:               args,
+		Port:               port,
+		ImagePullPolicy:    imagePullPolicy,
+		Replicas:           replicas,
+		ImagePullSecrets:   slices.Clone(spec.ImagePullSecrets),
+		Volumes:            slices.Clone(spec.Volumes),
+		VolumeMounts:       slices.Clone(spec.VolumeMounts),
+		Labels:             getDefaultLabels(agent.Name, spec.Labels),
+		Annotations:        maps.Clone(spec.Annotations),
+		Env:                slices.Clone(spec.Env),
+		Resources:          getDefaultResources(spec.Resources), // Set default resources if not specified
+		Tolerations:        slices.Clone(spec.Tolerations),
+		Affinity:           spec.Affinity,
+		NodeSelector:       maps.Clone(spec.NodeSelector),
+		SecurityContext:    spec.SecurityContext,
+		PodSecurityContext: spec.PodSecurityContext,
 	}
 
 	return dep, nil

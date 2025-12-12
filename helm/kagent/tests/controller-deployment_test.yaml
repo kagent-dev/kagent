@@ -89,6 +89,23 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
 
+  - it: should set A2A_BASE_URL with computed default value
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.A2A_BASE_URL
+          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083"
+
+  - it: should set A2A_BASE_URL with custom value when explicitly set
+    template: controller-configmap.yaml
+    set:
+      controller:
+        a2aBaseUrl: "https://kagent.example.com"
+    asserts:
+      - equal:
+          path: data.A2A_BASE_URL
+          value: "https://kagent.example.com"
+
   - it: should use custom loglevel when set
     template: controller-configmap.yaml
     set:
