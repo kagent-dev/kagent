@@ -24,6 +24,31 @@
           }
         ]
       }
+    },
+    {
+      "name": "code_execution_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "hello, world!",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "executioncmpl-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "the result is hello, world!"
+            }
+          }
+        ]
+      }
     }
   ]
 }

@@ -1,6 +1,7 @@
 # debugging
 
-How to debug an agent locally without kagent (so there's less noise):
+How to debug an agent locally without kagent (so there's less noise). This allows reproducing the 
+same scenario as in the e2e test with just the agent and a mock LLM server.
 
 ## Get agent config
 
@@ -28,15 +29,17 @@ Generate agent generic config. If using `@modelcontextprotocol/server-everything
 AGENT_CONFIG_DIR=$PWD/go
 ```
 
+tweak it as needed to match the e2e test (e.g., add tools, set the model, etc)
+
 ## Start mock LLM server
-Start local mock LLM server
+Start local mock LLM server (use json from e2e test):
 
 ```bash
 (cd go; go run hack/mockllm/main.go invoke_mcp_agent.json) &
 ```
 
 
-Now this should work!
+Now this should work (in task, use prompt from e2e test)!
 
 ```bash
 export OPENAI_API_KEY=dummykey

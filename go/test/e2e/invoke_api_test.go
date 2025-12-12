@@ -95,16 +95,22 @@ func setupK8sClient(t *testing.T, includeV1Alpha1 bool) client.Client {
 // setupModelConfig creates and returns a model config resource
 func setupModelConfig(t *testing.T, cli client.Client, baseURL string) *v1alpha2.ModelConfig {
 	modelCfg := generateModelCfg(baseURL + "/v1")
-	cli.Create(t.Context(), modelCfg) //nolint:errcheck
+	err := cli.Create(t.Context(), modelCfg)
+	if err != nil {
+		t.Fatalf("failed to create model config: %v", err)
+	}
+	cleanup(t, cli, modelCfg)
 	return modelCfg
 }
 
 // setupMCPServer creates and returns an MCP server resource
-func setupMCPServer(t *testing.T, cli client.Client, mcpServer *v1alpha1.MCPServer) *v1alpha1.MCPServer {
-	if mcpServer == nil {
-		return nil
+func setupMCPServer(t *testing.T, cli client.Client) *v1alpha1.MCPServer {
+	mcpServer := generateMCPServer()
+	err := cli.Create(t.Context(), mcpServer)
+	if err != nil {
+		t.Fatalf("failed to create mcp server: %v", err)
 	}
-	cli.Create(t.Context(), mcpServer) //nolint:errcheck
+	cleanup(t, cli, mcpServer)
 	return mcpServer
 }
 
@@ -126,8 +132,11 @@ type AgentOptions struct {
 // setupAgentWithOptions creates and returns an agent resource with custom options
 func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 	agent := generateAgent(modelConfigName, tools, opts)
-	cli.Create(t.Context(), agent) //nolint:errcheck
-
+	err := cli.Create(t.Context(), agent)
+	if err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+	cleanup(t, cli, agent)
 	// Wait for agent to be ready
 	args := []string{
 		"wait",
@@ -348,8 +357,8 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 func generateMCPServer() *v1alpha1.MCPServer {
 	return &v1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "everything-mcp-server",
-			Namespace: "kagent",
+			GenerateName: "everything-mcp-server-",
+			Namespace:    "kagent",
 		},
 		Spec: v1alpha1.MCPServerSpec{
 			Deployment: v1alpha1.MCPServerDeployment{
@@ -409,8 +418,6 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgent(t, cli, modelCfg.Name, tools)
 
-	cleanup(t, cli, agent, modelCfg)
-
 	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
 
@@ -455,7 +462,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 
 	// Setup Kubernetes client (include v1alpha1 for MCPServer)
 	cli := setupK8sClient(t, true)
-
+	mcpServer := setupMCPServer(t, cli)
 	// Define tools
 	tools := []*v1alpha2.Tool{
 		{
@@ -464,7 +471,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 				TypedLocalReference: v1alpha2.TypedLocalReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "MCPServer",
-					Name:     "everything-mcp-server",
+					Name:     mcpServer.Name,
 				},
 				ToolNames: []string{"add"},
 			},
@@ -473,10 +480,8 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	mcpServer := setupMCPServer(t, cli, generateMCPServer())
-	agent := setupAgent(t, cli, modelCfg.Name, tools)
 
-	cleanup(t, cli, agent, mcpServer, modelCfg)
+	agent := setupAgent(t, cli, modelCfg.Name, tools)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
@@ -570,8 +575,6 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
 
-	cleanup(t, cli, agent)
-
 	// Wait for the agent to become Ready
 	args := []string{
 		"wait",
@@ -631,6 +634,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	// Setup Kubernetes client (include v1alpha1 for MCPServer)
 	cli := setupK8sClient(t, true)
 
+	mcpServer := setupMCPServer(t, cli)
 	// Define tools with MCP server
 	tools := []*v1alpha2.Tool{
 		{
@@ -639,7 +643,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 				TypedLocalReference: v1alpha2.TypedLocalReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "MCPServer",
-					Name:     "everything-mcp-server",
+					Name:     mcpServer.Name,
 				},
 				ToolNames: []string{"add"},
 			},
@@ -647,7 +651,6 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	}
 
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	mcpServerResource := setupMCPServer(t, cli, generateMCPServer())
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{
 		Name:          "test-sts-agent",
 		SystemMessage: "You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.",
@@ -659,8 +662,6 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 			},
 		},
 	})
-
-	cleanup(t, cli, agent, mcpServerResource, modelCfg)
 
 	// access token for test user with the may act claim allowing system:serviceaccount:kagent:test-sts to
 	// perform operations on behalf of the test user
@@ -715,8 +716,6 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 		},
 	})
 
-	cleanup(t, cli, agent, modelCfg)
-
 	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
 
@@ -737,8 +736,6 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
 		ExecuteCode: ptr.To(true),
 	})
-
-	cleanup(t, cli, agent, modelCfg)
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
