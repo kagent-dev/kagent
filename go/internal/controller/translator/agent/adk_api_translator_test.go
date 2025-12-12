@@ -16,6 +16,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+// Test_AdkApiTranslator_CrossNamespaceAgentTool tests that the translator can
+// handle cross-namespace agent references. Note that cross-namespace validation
+// (e.g. AllowedNamespaces checks) is a concern of the reconciler, not the
+// translator; the translator just performs the translation.
 func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
@@ -32,11 +36,6 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 	targetNs := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "target-ns",
-		},
-	}
-	unlabeledNs := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "unlabeled-ns",
 		},
 	}
 
@@ -60,7 +59,7 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 		errContains string
 	}{
 		{
-			name: "Same namespace reference - allowed by default",
+			name: "Same namespace reference - works",
 			toolAgent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "tool-agent",
@@ -73,7 +72,6 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 						SystemMessage: "You are a tool agent",
 						ModelConfig:   "test-model",
 					},
-					// No AllowedNamespaces = same namespace only
 				},
 			},
 			sourceAgent: &v1alpha2.Agent{
@@ -102,7 +100,7 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Cross-namespace reference - denied by default (no AllowedNamespaces)",
+			name: "Cross-namespace reference - translates successfully (validation is in reconciler)",
 			toolAgent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "tool-agent",
@@ -115,7 +113,6 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 						SystemMessage: "You are a tool agent",
 						ModelConfig:   "test-model",
 					},
-					// No AllowedNamespaces = same namespace only
 				},
 			},
 			sourceAgent: &v1alpha2.Agent{
@@ -141,151 +138,7 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 					},
 				},
 			},
-			wantErr:     true,
-			errContains: "cross-namespace reference to agent",
-		},
-		{
-			name: "Cross-namespace reference - allowed with From=All",
-			toolAgent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "tool-agent",
-					Namespace: "target-ns",
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
-					Description: "Tool agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						SystemMessage: "You are a tool agent",
-						ModelConfig:   "test-model",
-					},
-					AllowedNamespaces: &v1alpha2.AllowedNamespaces{
-						From: v1alpha2.NamespacesFromAll,
-					},
-				},
-			},
-			sourceAgent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "source-agent",
-					Namespace: "source-ns", // Different namespace as tool agent
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
-					Description: "Source agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						SystemMessage: "You are a source agent",
-						ModelConfig:   "test-model",
-						Tools: []*v1alpha2.Tool{
-							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
-									Name:      "tool-agent",
-									Namespace: "target-ns",
-								},
-							},
-						},
-					},
-				},
-			},
 			wantErr: false,
-		},
-		{
-			name: "Cross-namespace reference - allowed with matching selector",
-			toolAgent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "tool-agent",
-					Namespace: "target-ns",
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
-					Description: "Tool agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						SystemMessage: "You are a tool agent",
-						ModelConfig:   "test-model",
-					},
-					AllowedNamespaces: &v1alpha2.AllowedNamespaces{
-						From: v1alpha2.NamespacesFromSelector,
-						Selector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{
-								"shared-agent-access": "true",
-							},
-						},
-					},
-				},
-			},
-			sourceAgent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "source-agent",
-					Namespace: "source-ns", // Has label "shared-agent-access": "true"
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
-					Description: "Source agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						SystemMessage: "You are a source agent",
-						ModelConfig:   "test-model",
-						Tools: []*v1alpha2.Tool{
-							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
-									Name:      "tool-agent",
-									Namespace: "target-ns",
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "Cross-namespace reference - denied with non-matching selector",
-			toolAgent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "tool-agent",
-					Namespace: "target-ns",
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
-					Description: "Tool agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						SystemMessage: "You are a tool agent",
-						ModelConfig:   "test-model",
-					},
-					AllowedNamespaces: &v1alpha2.AllowedNamespaces{
-						From: v1alpha2.NamespacesFromSelector,
-						Selector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{
-								"shared-agent-access": "true",
-							},
-						},
-					},
-				},
-			},
-			sourceAgent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "source-agent",
-					Namespace: "unlabeled-ns", // Does NOT have the required label `shared-agent-access`
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
-					Description: "Source agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						SystemMessage: "You are a source agent",
-						ModelConfig:   "test-model",
-						Tools: []*v1alpha2.Tool{
-							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
-									Name:      "tool-agent",
-									Namespace: "target-ns",
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr:     true,
-			errContains: "cross-namespace reference to agent",
 		},
 	}
 
@@ -296,7 +149,6 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 				WithObjects(
 					sourceNs,
 					targetNs,
-					unlabeledNs,
 					tt.toolAgent,
 					tt.sourceAgent,
 				)
@@ -337,6 +189,10 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 	}
 }
 
+// Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer tests that the translator
+// can handle cross-namespace RemoteMCPServer references. Note that cross-namespace
+// validation (AllowedNamespaces checks) is now done in the reconciler,
+// not the translator. The translator just performs the translation.
 func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
@@ -376,7 +232,7 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 		errContains     string
 	}{
 		{
-			name: "Same namespace reference - allowed by default",
+			name: "Same namespace reference - works",
 			remoteMCPServer: &v1alpha2.RemoteMCPServer{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "tools-server",
@@ -385,7 +241,6 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 				Spec: v1alpha2.RemoteMCPServerSpec{
 					Description: "Tools server",
 					URL:         "http://tools.example.com/mcp",
-					// No AllowedNamespaces = same namespace only
 				},
 			},
 			agent: &v1alpha2.Agent{
@@ -419,7 +274,7 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Cross-namespace reference - denied by default",
+			name: "Cross-namespace reference - translates successfully (validation is in reconciler)",
 			remoteMCPServer: &v1alpha2.RemoteMCPServer{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "tools-server",
@@ -428,109 +283,12 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 				Spec: v1alpha2.RemoteMCPServerSpec{
 					Description: "Tools server",
 					URL:         "http://tools.example.com/mcp",
-					// No AllowedNamespaces = same namespace only
 				},
 			},
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "agent",
 					Namespace: "source-ns",
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
-					Description: "Agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						SystemMessage: "You are an agent",
-						ModelConfig:   "test-model",
-						Tools: []*v1alpha2.Tool{
-							{
-								Type: v1alpha2.ToolProviderType_McpServer,
-								McpServer: &v1alpha2.McpServerTool{
-									TypedLocalReference: v1alpha2.TypedLocalReference{
-										Kind:      "RemoteMCPServer",
-										ApiGroup:  "kagent.dev",
-										Name:      "tools-server",
-										Namespace: "target-ns",
-									},
-									ToolNames: []string{"tool1"},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr:     true,
-			errContains: "cross-namespace reference to RemoteMCPServer",
-		},
-		{
-			name: "Cross-namespace reference - allowed with From=All",
-			remoteMCPServer: &v1alpha2.RemoteMCPServer{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "tools-server",
-					Namespace: "target-ns",
-				},
-				Spec: v1alpha2.RemoteMCPServerSpec{
-					Description: "Tools server",
-					URL:         "http://tools.example.com/mcp",
-					AllowedNamespaces: &v1alpha2.AllowedNamespaces{
-						From: v1alpha2.NamespacesFromAll,
-					},
-				},
-			},
-			agent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "agent",
-					Namespace: "source-ns",
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
-					Description: "Agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						SystemMessage: "You are an agent",
-						ModelConfig:   "test-model",
-						Tools: []*v1alpha2.Tool{
-							{
-								Type: v1alpha2.ToolProviderType_McpServer,
-								McpServer: &v1alpha2.McpServerTool{
-									TypedLocalReference: v1alpha2.TypedLocalReference{
-										Kind:      "RemoteMCPServer",
-										ApiGroup:  "kagent.dev",
-										Name:      "tools-server",
-										Namespace: "target-ns",
-									},
-									ToolNames: []string{"tool1"},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "Cross-namespace reference - allowed with matching selector",
-			remoteMCPServer: &v1alpha2.RemoteMCPServer{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "tools-server",
-					Namespace: "target-ns",
-				},
-				Spec: v1alpha2.RemoteMCPServerSpec{
-					Description: "Tools server",
-					URL:         "http://tools.example.com/mcp",
-					AllowedNamespaces: &v1alpha2.AllowedNamespaces{
-						From: v1alpha2.NamespacesFromSelector,
-						Selector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{
-								"shared-tools-access": "true",
-							},
-						},
-					},
-				},
-			},
-			agent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "agent",
-					Namespace: "source-ns", // Has label "shared-tools-access": "true"
 				},
 				Spec: v1alpha2.AgentSpec{
 					Type:        v1alpha2.AgentType_Declarative,
