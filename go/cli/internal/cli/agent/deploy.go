@@ -68,6 +68,11 @@ type DeployCfg struct {
 	DryRun bool
 }
 
+// sanitizeResourceName converts underscores to hyphens for Kubernetes resource names
+func sanitizeResourceName(name string) string {
+	return strings.ReplaceAll(name, "_", "-")
+}
+
 // DeployCmd deploys an agent to Kubernetes
 func DeployCmd(ctx context.Context, cfg *DeployCfg) error {
 	// Step 1: Validate and load project
@@ -211,14 +216,6 @@ func extractEnvVarsFromManifest(manifest *common.AgentManifest) []string {
 
 	// Extract from MCP servers
 	for _, mcpServer := range manifest.McpServers {
-		if mcpServer.URL != "" {
-			matches := envVarRegex.FindAllStringSubmatch(mcpServer.URL, -1)
-			for _, match := range matches {
-				varName := extractEnvVarName(match)
-				envVarSet[varName] = true
-			}
-		}
-
 		// Check headers
 		for _, headerValue := range mcpServer.Headers {
 			matches := envVarRegex.FindAllStringSubmatch(headerValue, -1)
@@ -340,7 +337,7 @@ func handleEnvFileSecret(ctx context.Context, k8sClient client.Client, cfg *Depl
 	}, nil
 }
 
-// parseEnvFile reads and parses a .env file, returning a map of environment variables
+// parseEnvFile reads and parses a .env file, returning a map of environment variable
 func parseEnvFile(filePath string) (map[string]string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -693,7 +690,7 @@ func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName s
 
 	agent := &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      manifest.Name,
+			Name:      sanitizeResourceName(manifest.Name),
 			Namespace: namespace,
 		},
 		Spec: v1alpha2.AgentSpec{

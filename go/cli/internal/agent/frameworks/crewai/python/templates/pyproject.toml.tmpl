@@ -1,0 +1,20 @@
+[project]
+name = "{{.Name}}"
+version = "0.1.0"
+description = "{{.Name}} agent using CrewAI"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "kagent-crewai",
+    "crewai[tools]>=0.193.2,<1.0.0",
+    "anthropic>=0.18.0",
+    "openai>=1.0.0",
+    "google-genai>=0.6.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+{{.Name}} = "{{.Name | ToModuleName}}.cli:main"

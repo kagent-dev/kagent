@@ -45,13 +45,6 @@ type BaseGenerator struct {
 	*generator.BaseGenerator
 }
 
-// NewBaseGenerator creates a new base generator that uses the shared generator
-func NewBaseGenerator(templateFiles fs.FS) *BaseGenerator {
-	return &BaseGenerator{
-		BaseGenerator: generator.NewBaseGenerator(templateFiles, "templates"),
-	}
-}
-
 // GenerateProject generates a new project using the provided templates.
 // This delegates to the shared generator implementation.
 func (g *BaseGenerator) GenerateProject(config AgentConfig) error {
@@ -62,4 +55,11 @@ func (g *BaseGenerator) GenerateProject(config AgentConfig) error {
 // This delegates to the shared generator implementation.
 func (g *BaseGenerator) RenderTemplate(tmplContent string, data any) (string, error) {
 	return g.BaseGenerator.RenderTemplate(tmplContent, data)
+}
+
+// NewBaseGenerator creates a new BaseGenerator with the given template files
+func NewBaseGenerator(templateFiles fs.FS) *BaseGenerator {
+	return &BaseGenerator{
+		BaseGenerator: generator.NewBaseGenerator(templateFiles, "templates"),
+	}
 }

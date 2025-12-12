@@ -1,0 +1,83 @@
+"""
+MCP Tools integration for LangGraph agents.
+Any changes to this file will be overwritten.
+"""
+import os
+import re
+from typing import List, Optional
+from langchain_core.tools import tool
+
+# MCP server configuration generated from kagent.yaml
+MCP_SERVERS = [
+    {{- range .McpServers }}
+    {
+        "name": "{{.Name}}",
+        "type": "{{.Type}}",
+        {{- if eq .Type "remote" }}
+        "url": "{{.URL}}",
+        {{- if .Headers }}
+        "headers": {
+            {{- range $key, $value := .Headers }}
+            "{{$key}}": "{{$value}}",
+            {{- end }}
+        },
+        {{- end }}
+        {{- end }}
+    },
+    {{- end }}
+]
+
+def resolve_env_vars(value: str) -> str:
+    """Resolve environment variables in a string value."""
+    def replace_var(match):
+        var_name = match.group(1)
+        return os.environ.get(var_name, match.group(0))
+    
+    return re.sub(r'\$\{([^}]+)\}', replace_var, value)
+
+def get_mcp_tools(server_names: Optional[List[str]] = None) -> List:
+    """
+    Get MCP tools from configured servers as LangChain tools.
+    
+    Args:
+        server_names: Optional list of server names to include.
+        
+    Returns:
+        List of LangChain tool instances from MCP servers.
+    """
+    from langchain_mcp import MCPToolkit
+    
+    servers = MCP_SERVERS
+    
+    if server_names is not None:
+        servers = [s for s in servers if s.get("name") in server_names]
+    
+    tools = []
+    for server in servers:
+        server_name = server["name"]
+        server_type = server["type"]
+        
+        # Build URL based on server type
+        if server_type == "command":
+            url = f"http://{server_name}:3000/mcp"
+        else:
+            url = server["url"]
+        
+        # Process headers with environment variable resolution
+        headers = {}
+        if "headers" in server and server["headers"]:
+            for key, value in server["headers"].items():
+                headers[key] = resolve_env_vars(value)
+        
+        try:
+            # Create MCPToolkit and get tools
+            if headers:
+                toolkit = MCPToolkit(url=url, headers=headers)
+            else:
+                toolkit = MCPToolkit(url=url)
+            
+            tools.extend(toolkit.get_tools())
+        except Exception as e:
+            print(f"Warning: Failed to load tools from {server_name}: {e}")
+    
+    return tools

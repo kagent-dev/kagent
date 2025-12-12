@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	pygen "github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/adk/python"
+	adkgen "github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/adk/python"
 	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/pkg/client"
@@ -163,13 +163,13 @@ func IsVerbose(cfg *config.Config) bool {
 
 // ReadTemplateFile reads a template file from the embedded filesystem
 func ReadTemplateFile(templatePath string) ([]byte, error) {
-	gen := pygen.NewPythonGenerator()
+	gen := adkgen.NewADKGenerator()
 	return fs.ReadFile(gen.TemplateFiles, templatePath)
 }
 
 // RenderTemplate reads and renders a template file with the given data
 func RenderTemplate(templatePath string, data any) (string, error) {
-	gen := pygen.NewPythonGenerator()
+	gen := adkgen.NewADKGenerator()
 	tmplBytes, err := fs.ReadFile(gen.TemplateFiles, templatePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template: %w", err)

@@ -1,0 +1,33 @@
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY .python-version .python-version
+COPY pyproject.toml pyproject.toml
+COPY README.md README.md
+COPY {{.Name | ToModuleName}}/ {{.Name | ToModuleName}}/
+
+# Install dependencies
+RUN uv sync
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PORT=8080
+ENV KAGENT_URL=http://localhost:8083
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Run the application
+CMD ["uv", "run", "{{.Name}}"]
