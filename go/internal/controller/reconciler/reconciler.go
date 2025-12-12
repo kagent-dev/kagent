@@ -55,6 +55,10 @@ type kagentReconciler struct {
 	dbClient database.Client
 
 	defaultModelConfig types.NamespacedName
+
+	// watchedNamespaces is the list of namespaces the controller watches.
+	// An empty list means watching all namespaces.
+	watchedNamespaces []string
 }
 
 func NewKagentReconciler(
@@ -62,12 +66,14 @@ func NewKagentReconciler(
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
+	watchedNamespaces []string,
 ) KagentReconciler {
 	return &kagentReconciler{
 		adkTranslator:      translator,
 		kube:               kube,
 		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
+		watchedNamespaces:  watchedNamespaces,
 	}
 }
 
@@ -473,7 +479,57 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	return nil
 }
 
+// validateCrossNamespaceReferences validates that all cross-namespace references
+// in the agent's tools target namespaces that are watched by the controller.
+// This prevents agents from referencing tools or agents in namespaces that the
+// controller cannot access.
+func (a *kagentReconciler) validateCrossNamespaceReferences(agent *v1alpha2.Agent) error {
+	if agent.Spec.Type != v1alpha2.AgentType_Declarative || agent.Spec.Declarative == nil {
+		return nil
+	}
+
+	for _, tool := range agent.Spec.Declarative.Tools {
+		var targetNamespace string
+		var refKind string
+		var refName string
+
+		switch {
+		case tool.McpServer != nil:
+			targetNamespace = tool.McpServer.Namespace
+			if targetNamespace == "" {
+				targetNamespace = agent.Namespace
+			}
+			refKind = tool.McpServer.Kind
+			if refKind == "" {
+				refKind = "MCPServer"
+			}
+			refName = tool.McpServer.Name
+		case tool.Agent != nil:
+			targetNamespace = tool.Agent.Namespace
+			if targetNamespace == "" {
+				targetNamespace = agent.Namespace
+			}
+			refKind = "Agent"
+			refName = tool.Agent.Name
+		default:
+			continue
+		}
+
+		if !a.isNamespaceWatched(targetNamespace) {
+			return fmt.Errorf("cannot reference %s %s/%s: namespace %q is not watched by the controller",
+				refKind, targetNamespace, refName, targetNamespace)
+		}
+	}
+
+	return nil
+}
+
 func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) error {
+	// Validate that all cross-namespace references target watched namespaces
+	if err := a.validateCrossNamespaceReferences(agent); err != nil {
+		return err
+	}
+
 	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
 	if err != nil {
 		return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
@@ -651,6 +707,13 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 	}
 
 	return tools, nil
+}
+
+func (a *kagentReconciler) isNamespaceWatched(namespace string) bool {
+	if len(a.watchedNamespaces) == 0 {
+		return true
+	}
+	return slices.Contains(a.watchedNamespaces, namespace)
 }
 
 func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.RemoteMCPServer) (mcp.Transport, error) {
