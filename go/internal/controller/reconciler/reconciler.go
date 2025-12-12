@@ -479,54 +479,129 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	return nil
 }
 
-// validateCrossNamespaceReferences validates that all cross-namespace references
-// in the agent's tools target namespaces that are watched by the controller.
-// This prevents agents from referencing tools or agents in namespaces that the
-// controller cannot access.
-func (a *kagentReconciler) validateCrossNamespaceReferences(agent *v1alpha2.Agent) error {
+// validateCrossNamespaceReferences validates that any cross-namespace
+// references in the agent's tools target namespaces that are watched by the
+// controller. This prevents agents from referencing tools or agents in
+// namespaces that the controller cannot access.
+func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context, agent *v1alpha2.Agent) error {
 	if agent.Spec.Type != v1alpha2.AgentType_Declarative || agent.Spec.Declarative == nil {
 		return nil
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
-		var targetNamespace string
-		var refKind string
-		var refName string
-
 		switch {
 		case tool.McpServer != nil:
-			targetNamespace = tool.McpServer.Namespace
-			if targetNamespace == "" {
-				targetNamespace = agent.Namespace
+			if err := a.validateMcpServerReference(ctx, agent.Namespace, tool.McpServer); err != nil {
+				return err
 			}
-			refKind = tool.McpServer.Kind
-			if refKind == "" {
-				refKind = "MCPServer"
-			}
-			refName = tool.McpServer.Name
 		case tool.Agent != nil:
-			targetNamespace = tool.Agent.Namespace
-			if targetNamespace == "" {
-				targetNamespace = agent.Namespace
+			if err := a.validateAgentToolReference(ctx, agent.Namespace, tool.Agent); err != nil {
+				return err
 			}
-			refKind = "Agent"
-			refName = tool.Agent.Name
-		default:
-			continue
-		}
-
-		if !a.isNamespaceWatched(targetNamespace) {
-			return fmt.Errorf("cannot reference %s %s/%s: namespace %q is not watched by the controller",
-				refKind, targetNamespace, refName, targetNamespace)
 		}
 	}
 
 	return nil
 }
 
+// validateAgentToolReference validates a reference to an Agent as a tool.
+// This includes:
+//  1. Checking that target namespaces are watched by the controller
+//  2. Checking that the target Agent allows references from the agent's namespace
+func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.TypedLocalReference) error {
+	agentRef := ref.NamespacedName(sourceNamespace)
+
+	// Same namespace references are always allowed
+	if agentRef.Namespace == sourceNamespace {
+		return nil
+	}
+
+	// Check if the target namespace is watched by the controller
+	if !a.isNamespaceWatched(agentRef.Namespace) {
+		return fmt.Errorf("cannot reference Agent %s: namespace %q is not watched by the controller",
+			agentRef, agentRef.Namespace)
+	}
+
+	// For cross-namespace references, check AllowedNamespaces on the target agent
+	targetAgent := &v1alpha2.Agent{}
+	if err := a.kube.Get(ctx, agentRef, targetAgent); err != nil {
+		return fmt.Errorf("failed to get agent %s: %w", agentRef, err)
+	}
+
+	allowed, err := targetAgent.Spec.AllowedNamespaces.AllowsNamespace(ctx, a.kube, sourceNamespace, targetAgent.Namespace)
+	if err != nil {
+		return fmt.Errorf("failed to check cross-namespace reference for agent %s: %w", agentRef, err)
+	}
+	if !allowed {
+		return fmt.Errorf("cross-namespace reference to agent %s is not allowed from namespace %s", agentRef, sourceNamespace)
+	}
+
+	return nil
+}
+
+// validateMcpServerReference validates a reference to an MCP server tool. This
+// includes:
+//  1. Enforcing same-namespace-only for MCPServer and Service (external types)
+//  2. Checking that target namespaces are watched by the controller
+//  3. Checking that the target resource allows references from the agent's namespace
+func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.McpServerTool) error {
+	gk := ref.GroupKind()
+	targetRef := ref.NamespacedName(sourceNamespace)
+
+	// Same namespace references are always allowed
+	if targetRef.Namespace == sourceNamespace {
+		return nil
+	}
+
+	// Handle based on the type of MCP server
+	switch gk {
+	case schema.GroupKind{Group: "", Kind: ""}, // TODO: This matches the translator's current fallthrough logic which defaults to MCPServer. That logic is likely a legacy of the inline KMCP support and should probably be adjusted to default to the first-class RemoteMCPServer CRD instead.
+		schema.GroupKind{Group: "", Kind: "MCPServer"},
+		schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}:
+		// MCPServer type doesn't support cross-namespace references (external type)
+		return fmt.Errorf("cross-namespace reference to MCPServer %s is not allowed from namespace %s: MCPServer does not support cross-namespace references",
+			targetRef, sourceNamespace)
+
+	case schema.GroupKind{Group: "", Kind: "RemoteMCPServer"},
+		schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}:
+
+		// Check if the target namespace is watched by the controller
+		if !a.isNamespaceWatched(targetRef.Namespace) {
+			kind := ref.Kind
+			if kind == "" {
+				kind = "MCPServer"
+			}
+			return fmt.Errorf("cannot reference %s %s: namespace %q is not watched by the controller",
+				kind, targetRef, targetRef.Namespace)
+		}
+
+		// For RemoteMCPServer, check AllowedNamespaces
+		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
+		if err := a.kube.Get(ctx, targetRef, remoteMcpServer); err != nil {
+			return fmt.Errorf("failed to get RemoteMCPServer %s: %w", targetRef, err)
+		}
+
+		allowed, err := remoteMcpServer.Spec.AllowedNamespaces.AllowsNamespace(ctx, a.kube, sourceNamespace, remoteMcpServer.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to check cross-namespace reference for RemoteMCPServer %s: %w", targetRef, err)
+		}
+		if !allowed {
+			return fmt.Errorf("cross-namespace reference to RemoteMCPServer %s is not allowed from namespace %s", targetRef, sourceNamespace)
+		}
+
+	case schema.GroupKind{Group: "", Kind: "Service"},
+		schema.GroupKind{Group: "core", Kind: "Service"}:
+		// Service type doesn't support cross-namespace references (external type)
+		return fmt.Errorf("cross-namespace reference to Service %s is not allowed from namespace %s: Service does not support cross-namespace references",
+			targetRef, sourceNamespace)
+	}
+
+	return nil
+}
+
 func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) error {
-	// Validate that all cross-namespace references target watched namespaces
-	if err := a.validateCrossNamespaceReferences(agent); err != nil {
+	// Validate that any cross-namespace references are allowed
+	if err := a.validateCrossNamespaceReferences(ctx, agent); err != nil {
 		return err
 	}
 
