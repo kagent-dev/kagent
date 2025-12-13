@@ -99,7 +99,9 @@ jobs:
           echo "KAGENT_URL: $KAGENT_URL"
           echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
 
-          go test -race -v github.com/kagent-dev/kagent/go/test/e2e
+          # no need to run e2e tests with race, as this will just apply to the test code.
+          # all objects created in e2e tests have a generated name, so they can run in parallel safely.
+          go test -v github.com/kagent-dev/kagent/go/test/e2e -failfast
       - name: fail print info
         if: failure()
         run: |

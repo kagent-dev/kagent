@@ -2,6 +2,7 @@ import logging
 from typing import Any, Literal, Optional, Union
 
 import httpx
+from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.llm_agent import ToolUnion
@@ -11,7 +12,7 @@ from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams, StreamableHTTPConnectionParams
+from google.adk.tools.mcp_tool import McpToolset, SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
 
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
@@ -102,16 +103,27 @@ class AgentConfig(BaseModel):
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
     execute_code: bool | None = None
 
-    def to_agent(self, name: str) -> Agent:
+    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
+        header_provider = None
+        if sts_integration:
+            header_provider = sts_integration.header_provider
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
-                tools.append(MCPToolset(connection_params=http_tool.params, tool_filter=http_tool.tools))
+                tools.append(
+                    McpToolset(
+                        connection_params=http_tool.params, tool_filter=http_tool.tools, header_provider=header_provider
+                    )
+                )
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
-                tools.append(MCPToolset(connection_params=sse_tool.params, tool_filter=sse_tool.tools))
+                tools.append(
+                    McpToolset(
+                        connection_params=sse_tool.params, tool_filter=sse_tool.tools, header_provider=header_provider
+                    )
+                )
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
                 client = None

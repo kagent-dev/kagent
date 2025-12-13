@@ -43,7 +43,7 @@ type STSTokenResponse struct {
 }
 
 // NewMockSTSServer creates a new mock STS server
-func NewMockSTSServer(agentServiceAccount string) *MockSTSServer {
+func NewMockSTSServer(agentServiceAccount string, port uint16) *MockSTSServer {
 	mock := &MockSTSServer{
 		requests:            make([]STSTokenRequest, 0),
 		agentServiceAccount: agentServiceAccount,
@@ -53,7 +53,7 @@ func NewMockSTSServer(agentServiceAccount string) *MockSTSServer {
 	mock.server = httptest.NewUnstartedServer(http.HandlerFunc(mock.handleRequest))
 
 	// Configure the server to listen on all interfaces
-	mock.server.Listener, _ = net.Listen("tcp", "0.0.0.0:0")
+	mock.server.Listener, _ = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 
 	// Start the server
 	mock.server.Start()
@@ -163,9 +163,6 @@ func (m *MockSTSServer) handleTokenExchange(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// store the request so we can verify the sts server received the request in our test
-	m.requests = append(m.requests, req)
-
 	if req.SubjectToken == "" {
 		http.Error(w, "Missing subject_token", http.StatusBadRequest)
 		return
@@ -199,6 +196,8 @@ func (m *MockSTSServer) handleTokenExchange(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	// store the request so we can verify the sts server received the request in our test
+	m.requests = append(m.requests, req)
 }
 
 func (m *MockSTSServer) generateMockAccessToken(subjectToken string) (string, error) {
@@ -226,7 +225,9 @@ func (m *MockSTSServer) generateMockAccessToken(subjectToken string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("error marshaling token data: %v", err)
 	}
-	return string(tokenBytes), nil
+	// base64 encode the token to simulate a real token
+	encodedToken := base64.StdEncoding.EncodeToString(tokenBytes)
+	return encodedToken, nil
 }
 
 // extractSubjectFromJWT extracts the subject claim from a JWT token
@@ -239,7 +240,7 @@ func extractSubjectFromJWT(jwtToken string) (string, error) {
 }
 
 func extractMayActFromJWT(jwtToken string) (string, error) {
-	claimValue, err := extractClaimFromJWT(jwtToken, "may_act")
+	claimValue, err := extractClaimFromJWT(jwtToken, "may_act.sub")
 	if err != nil {
 		return "", fmt.Errorf("failed to extract may_act from JWT: %v", err)
 	}
@@ -271,10 +272,18 @@ func extractClaimFromJWT(jwtToken string, claim string) (string, error) {
 	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
 		return "", fmt.Errorf("failed to parse JWT claims: %v", err)
 	}
-
-	if claimValue, ok := claims[claim].(string); ok {
+	separatedClaims := strings.Split(claim, ".")
+	for i, curClaim := range separatedClaims {
+		isLast := i == len(separatedClaims)-1
+		if !isLast {
+			if nextMap, ok := claims[curClaim].(map[string]any); ok {
+				claims = nextMap
+			}
+		}
+	}
+	lastClaim := separatedClaims[len(separatedClaims)-1]
+	if claimValue, ok := claims[lastClaim].(string); ok {
 		return claimValue, nil
 	}
-
-	return "", fmt.Errorf("claim %s not found in JWT", claim)
+	return "", fmt.Errorf("claim %s found in JWT or not a string", claim)
 }

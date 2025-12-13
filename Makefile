@@ -171,7 +171,7 @@ push-test-agent: buildx-create build-kagent-adk
 .PHONY: push-test-skill
 push-test-skill: buildx-create
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/test/e2e/testdata/skills/kebab/Dockerfile ./go/test/e2e/testdata/skills/kebab
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/test/e2e/testdata/skills/kebab-maker
 
 .PHONY: create-kind-cluster
 create-kind-cluster:

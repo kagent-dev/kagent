@@ -44,7 +44,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
 
 
 kagent_url_override = os.getenv("KAGENT_URL")
-sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 
 
 class KAgentApp:
@@ -64,16 +63,17 @@ class KAgentApp:
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
 
-    def build(self) -> FastAPI:
-        token_service = KAgentTokenService(self.app_name)
-        http_client = httpx.AsyncClient(  # TODO: add user  and agent headers
-            base_url=kagent_url_override or self.kagent_url, event_hooks=token_service.event_hooks()
-        )
-        session_service = KAgentSessionService(http_client)
-
-        if sts_well_known_uri:
-            sts_integration = ADKSTSIntegration(sts_well_known_uri)
-            self.plugins.append(ADKTokenPropagationPlugin(sts_integration))
+    def build(self, local=False) -> FastAPI:
+        session_service = InMemorySessionService()
+        token_service = None
+        if not local:
+            token_service = KAgentTokenService(self.app_name)
+            http_client = httpx.AsyncClient(
+                # TODO: add user  and agent headers
+                base_url=kagent_url_override or self.kagent_url,
+                event_hooks=token_service.event_hooks(),
+            )
+            session_service = KAgentSessionService(http_client)
 
         adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
 
@@ -88,51 +88,10 @@ class KAgentApp:
             runner=create_runner,
         )
 
-        kagent_task_store = KAgentTaskStore(http_client)
-
-        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
-        request_handler = DefaultRequestHandler(
-            agent_executor=agent_executor,
-            task_store=kagent_task_store,
-            request_context_builder=request_context_builder,
-        )
-
-        a2a_app = A2AFastAPIApplication(
-            agent_card=self.agent_card,
-            http_handler=request_handler,
-        )
-
-        faulthandler.enable()
-
-        lifespan_manager = LifespanManager()
-        lifespan_manager.add(token_service.lifespan())
-        lifespan_manager.add(self._lifespan)
-
-        app = FastAPI(lifespan=lifespan_manager)
-
-        # Health check/readiness probe
-        app.add_route("/health", methods=["GET"], route=health_check)
-        app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-        a2a_app.add_routes_to_app(app)
-
-        return app
-
-    def build_local(self) -> FastAPI:
-        session_service = InMemorySessionService()
-
-        def create_runner() -> Runner:
-            return Runner(
-                agent=self.root_agent,
-                app_name=self.app_name,
-                session_service=session_service,
-                artifact_service=InMemoryArtifactService(),
-            )
-
-        agent_executor = A2aAgentExecutor(
-            runner=create_runner,
-        )
-
         task_store = InMemoryTaskStore()
+        if not local:
+            task_store = KAgentTaskStore(http_client)
+
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
@@ -149,9 +108,12 @@ class KAgentApp:
 
         lifespan_manager = LifespanManager()
         lifespan_manager.add(self._lifespan)
+        if not local:
+            lifespan_manager.add(token_service.lifespan())
 
         app = FastAPI(lifespan=lifespan_manager)
 
+        # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
         a2a_app.add_routes_to_app(app)

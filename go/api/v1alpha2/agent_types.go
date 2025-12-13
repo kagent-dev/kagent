@@ -107,6 +107,7 @@ type DeclarativeAgentSpec struct {
 	// If true, the agent will automatically execute python code blocks in the LLM responses.
 	// Code will be executed in a sandboxed environment.
 	// +optional
+	// due to a bug in adk, this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 }
 

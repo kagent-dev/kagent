@@ -116,10 +116,20 @@ def _convert_content_to_openai_messages(
                 # Check if we have a response for this tool call
                 if tool_call_id in all_function_responses:
                     func_response = all_function_responses[tool_call_id]
+                    content = ""
+                    if isinstance(func_response.response, str):
+                        content = func_response.response
+                    elif func_response.response and "content" in func_response.response:
+                        content_list = func_response.response["content"]
+                        if len(content_list) > 0:
+                            content = content_list[0]["text"]
+                    elif func_response.response and "result" in func_response.response:
+                        content = func_response.response["result"]
+
                     tool_message = ChatCompletionToolMessageParam(
                         role="tool",
                         tool_call_id=tool_call_id,
-                        content=str(func_response.response.get("result", "")) if func_response.response else "",
+                        content=content,
                     )
                     tool_response_messages.append(tool_message)
                 else:

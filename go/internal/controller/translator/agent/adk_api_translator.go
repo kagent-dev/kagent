@@ -525,7 +525,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Description: agent.Spec.Description,
 		Instruction: systemMessage,
 		Model:       model,
-		ExecuteCode: ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false),
+		ExecuteCode: false, //ignored due to issue. // ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false),
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
