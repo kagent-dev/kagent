@@ -253,6 +253,7 @@ type AgentConfig struct {
 	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
 	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
 	ExecuteCode  bool                  `json:"execute_code,omitempty"`
+	Stream       bool                  `json:"stream,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
@@ -263,6 +264,8 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
 		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
 		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+		ExecuteCode  bool                  `json:"execute_code"`
+		Stream       bool                  `json:"stream"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -277,6 +280,8 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
+	a.ExecuteCode = tmp.ExecuteCode
+	a.Stream = tmp.Stream
 	return nil
 }
 

@@ -101,6 +101,7 @@ class AgentConfig(BaseModel):
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
     execute_code: bool | None = None
+    stream: bool = False  # Enable streaming responses from the model
 
     def to_agent(self, name: str) -> Agent:
         if name is None or not str(name).strip():
