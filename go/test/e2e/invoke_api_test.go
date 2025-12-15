@@ -792,6 +792,23 @@ func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 		} else {
 			t.Logf("logs for pod %s using kubectl:\n%s", pod.Name, string(cmdOutput))
 		}
+
+		// also describe the pod
+		kubectlLogsArgs = []string{
+			"describe",
+			"pod",
+			pod.Name,
+			"-n",
+			agent.Namespace,
+		}
+		cmd = exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
+		cmdOutput, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("failed to describe pod %s using kubectl: %v", pod.Name, err)
+		} else {
+			t.Logf("description for pod %s using kubectl:\n%s", pod.Name, string(cmdOutput))
+		}
+
 	}
 }
 
