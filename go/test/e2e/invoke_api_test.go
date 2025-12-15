@@ -392,7 +392,6 @@ func buildK8sURL(baseURL string) string {
 }
 
 func TestE2EInvokeInlineAgent(t *testing.T) {
-	t.Parallel()
 	// Setup mock server
 	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
 	defer stopServer()
@@ -433,7 +432,6 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 }
 
 func TestE2EInvokeExternalAgent(t *testing.T) {
-	t.Parallel()
 	// Setup A2A client for external agent
 	a2aURL := a2aUrl("kagent", "kebab-agent")
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
@@ -458,7 +456,6 @@ func TestE2EInvokeExternalAgent(t *testing.T) {
 }
 
 func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
-	t.Parallel()
 	// Setup mock server
 	baseURL, stopServer := setupMockServer(t, "mocks/invoke_mcp_agent.json")
 	defer stopServer()
@@ -540,7 +537,6 @@ func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 }
 
 func TestE2EInvokeCrewAIAgent(t *testing.T) {
-	t.Parallel()
 	mockllmCfg, err := mockllm.LoadConfigFromFile("mocks/invoke_crewai_agent.json", mocks)
 	require.NoError(t, err)
 
@@ -621,7 +617,6 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {
-	t.Parallel()
 	// Setup mock STS server
 	agentName := "test-sts"
 	agentServiceAccount := fmt.Sprintf("system:serviceaccount:kagent:%s", agentName)
@@ -705,7 +700,6 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 }
 
 func TestE2EInvokeSkillInAgent(t *testing.T) {
-	t.Parallel()
 	// Setup mock server
 	baseURL, stopServer := setupMockServer(t, "mocks/invoke_skill.json")
 	defer stopServer()
@@ -731,7 +725,6 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 
 func TestE2EIAgentRunsCode(t *testing.T) {
 	t.Skip("see issue.. TODO add issue here")
-	t.Parallel()
 	// Setup mock server
 	baseURL, stopServer := setupMockServer(t, "mocks/run_code.json")
 	defer stopServer()
@@ -761,6 +754,7 @@ func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
 					printAgentInfo(t, cli, agent)
 				}
 			}
+			t.Logf("Deleting %T %s", o, o.GetName())
 			cli.Delete(context.Background(), o) //nolint:errcheck
 		}
 	})
