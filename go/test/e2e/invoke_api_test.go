@@ -208,7 +208,12 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		return err != nil
 	}, func() error {
 		var retryErr error
+		// to make sure we actually retry, setup a short timeout contex. this should be fine as LLM is mocked
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		t.Logf("%s trying to send message", time.Now().Format(time.RFC3339))
 		result, retryErr = a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
+		t.Logf("%s finished trying sending message. success = %v", time.Now().Format(time.RFC3339), retryErr == nil)
 		return retryErr
 	})
 	require.NoError(t, err)
@@ -754,17 +759,54 @@ func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
 					printAgentInfo(t, cli, agent)
 				}
 			}
-			t.Logf("Deleting %T %s", o, o.GetName())
-			cli.Delete(context.Background(), o) //nolint:errcheck
+			if os.Getenv("SKIP_CLEANUP") != "" && t.Failed() {
+				t.Logf("Skipping cleanup for %T %s", o, o.GetName())
+			} else {
+				t.Logf("Deleting %T %s", o, o.GetName())
+				cli.Delete(context.Background(), o) //nolint:errcheck
+			}
 		}
 	})
 }
 
 func printAgentInfo(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	// get the latest agent info
+	err := cli.Get(context.Background(), client.ObjectKey{
+		Namespace: agent.Namespace,
+		Name:      agent.Name,
+	}, agent)
+	if err != nil {
+		t.Logf("failed to get agent %s: %v", agent.Name, err)
+		return
+	}
+	printAgent(t, cli, agent)
 	printLogs(t, cli, agent)
 	printDeployment(t, cli, agent)
 	printService(t, cli, agent)
 }
+
+func printAgent(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	// describe deployment and service
+	kubectlLogsArgs := []string{
+		"get",
+		"agent",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+		"-o",
+		"yaml",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
+	cmdOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("failed to describe for agent %s using kubectl: %v", agent.Name, err)
+	} else {
+		t.Logf("description for agent %s using kubectl:\n%s", agent.Name, string(cmdOutput))
+	}
+}
+
 func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -779,13 +821,13 @@ func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 	}
 
 	for _, pod := range podList.Items {
-		kubectlLogsArgs := []string{
+		kubectlArgs := []string{
 			"logs",
 			pod.Name,
 			"-n",
 			agent.Namespace,
 		}
-		cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
+		cmd := exec.CommandContext(ctx, "kubectl", kubectlArgs...)
 		cmdOutput, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Logf("failed to get logs for pod %s using kubectl: %v", pod.Name, err)
@@ -794,21 +836,20 @@ func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 		}
 
 		// also describe the pod
-		kubectlLogsArgs = []string{
+		kubectlArgs = []string{
 			"describe",
 			"pod",
 			pod.Name,
 			"-n",
 			agent.Namespace,
 		}
-		cmd = exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
+		cmd = exec.CommandContext(ctx, "kubectl", kubectlArgs...)
 		cmdOutput, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Logf("failed to describe pod %s using kubectl: %v", pod.Name, err)
 		} else {
 			t.Logf("description for pod %s using kubectl:\n%s", pod.Name, string(cmdOutput))
 		}
-
 	}
 }
 
@@ -826,7 +867,7 @@ func printDeployment(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
 	cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
 	cmdOutput, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Logf("failed to get logs for deployment %s using kubectl: %v", agent.Name, err)
+		t.Logf("failed to describe for deployment %s using kubectl: %v", agent.Name, err)
 	} else {
 		t.Logf("description for deployment %s using kubectl:\n%s", agent.Name, string(cmdOutput))
 	}

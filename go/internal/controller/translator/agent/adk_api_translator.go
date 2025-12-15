@@ -511,7 +511,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Description: agent.Spec.Description,
 		Instruction: systemMessage,
 		Model:       model,
-		ExecuteCode: false, //ignored due to issue. // ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false),
+		ExecuteCode: false && ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false), //ignored due to this issue https://github.com/google/adk-python/issues/3921.
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
