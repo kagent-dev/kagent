@@ -37,6 +37,15 @@ securityContext: {}
   # runAsUser: 1000
 
 # ==============================================================================
+# RBAC CONFIGURATION
+# ==============================================================================
+
+rbac:
+  # -- Whether to create ClusterRole and ClusterRoleBinding resources.
+  # Set to false if you want to manage RBAC externally or use pre-existing roles.
+  clusterRoleEnabled: true
+
+# ==============================================================================
 # CORE KAGENT COMPONENTS
 # ==============================================================================
 
