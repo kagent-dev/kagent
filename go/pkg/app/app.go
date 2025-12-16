@@ -379,6 +379,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
+		watchNamespacesList,
 	)
 
 	if err := (&controller.ServiceController{
