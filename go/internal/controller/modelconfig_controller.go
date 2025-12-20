@@ -118,8 +118,8 @@ func modelReferencesSecret(model *v1alpha2.ModelConfig, secretObj types.Namespac
 		return false
 	}
 
-	// check if secret is referenced as an APIKey
-	if model.Spec.APIKeySecret != "" && model.Spec.APIKeySecret == secretObj.Name {
+	apiKeySecretName, _ := model.Spec.GetAPIKeySecretRef()
+	if apiKeySecretName != "" && apiKeySecretName == secretObj.Name {
 		return true
 	}
 

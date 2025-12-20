@@ -61,14 +61,16 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 			FlattenStructToMap(config.Spec.Ollama, modelParams)
 		}
 
+		apiKeySecretName, apiKeySecretKey := config.Spec.GetAPIKeySecretRef()
 		responseItem := api.ModelConfigResponse{
 			Ref:             common.GetObjectRef(&config),
 			ProviderName:    string(config.Spec.Provider),
 			Model:           config.Spec.Model,
-			APIKeySecret:    config.Spec.APIKeySecret,
-			APIKeySecretKey: config.Spec.APIKeySecretKey,
 			ModelParams:     modelParams,
 			TLS:             config.Spec.TLS,
+			APIKey:          config.Spec.APIKey,
+			APIKeySecret:    apiKeySecretName,
+			APIKeySecretKey: apiKeySecretKey,
 		}
 		configs = append(configs, responseItem)
 	}
@@ -144,14 +146,16 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		FlattenStructToMap(modelConfig.Spec.Ollama, modelParams)
 	}
 
+	apiKeySecretName, apiKeySecretKey := modelConfig.Spec.GetAPIKeySecretRef()
 	responseItem := api.ModelConfigResponse{
 		Ref:             common.GetObjectRef(modelConfig),
 		ProviderName:    string(modelConfig.Spec.Provider),
 		Model:           modelConfig.Spec.Model,
-		APIKeySecret:    modelConfig.Spec.APIKeySecret,
-		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		ModelParams:     modelParams,
 		TLS:             modelConfig.Spec.TLS,
+		APIKey:          modelConfig.Spec.APIKey,
+		APIKeySecret:    apiKeySecretName,
+		APIKeySecretKey: apiKeySecretKey,
 	}
 
 	log.Info("Successfully retrieved and formatted ModelConfig")
@@ -239,12 +243,13 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		Provider: providerTypeEnum,
 	}
 
-	// Set secret references if needed, but don't create secret yet
 	if providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-		modelConfigSpec.APIKeySecret = secretName
-		modelConfigSpec.APIKeySecretKey = secretKey
+		modelConfigSpec.APIKey = &v1alpha2.APIKeyConfig{
+			SecretRef: secretName,
+			SecretKey: secretKey,
+		}
 	}
 
 	modelConfig := &v1alpha2.ModelConfig{
@@ -423,6 +428,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	modelConfig.Spec = v1alpha2.ModelConfigSpec{
 		Model:             req.Model,
 		Provider:          v1alpha2.ModelProvider(req.Provider.Type),
+		APIKey:            modelConfig.Spec.APIKey,
 		APIKeySecret:      modelConfig.Spec.APIKeySecret,
 		APIKeySecretKey:   modelConfig.Spec.APIKeySecretKey,
 		OpenAI:            nil,
@@ -434,15 +440,15 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		AnthropicVertexAI: nil,
 	}
 
-	// --- Update Secret if API Key is provided (and not Ollama) ---
 	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha2.ModelProviderOllama
 	if shouldUpdateSecret {
 		log.V(1).Info("Updating API key secret")
 
+		_, apiKeySecretKey := modelConfig.Spec.GetAPIKeySecretRef()
 		err := createOrUpdateSecretWithOwnerReference(
 			r.Context(),
 			h.KubeClient,
-			map[string]string{modelConfig.Spec.APIKeySecretKey: *req.APIKey},
+			map[string]string{apiKeySecretKey: *req.APIKey},
 			modelConfig,
 		)
 		if err != nil {
@@ -538,14 +544,16 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		FlattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
 	}
 
+	apiKeySecretName, apiKeySecretKey := modelConfig.Spec.GetAPIKeySecretRef()
 	responseItem := api.ModelConfigResponse{
 		Ref:             common.GetObjectRef(modelConfig),
 		ProviderName:    string(modelConfig.Spec.Provider),
-		APIKeySecret:    modelConfig.Spec.APIKeySecret,
-		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		Model:           modelConfig.Spec.Model,
 		ModelParams:     updatedParams,
 		TLS:             modelConfig.Spec.TLS,
+		APIKey:          modelConfig.Spec.APIKey,
+		APIKeySecret:    apiKeySecretName,
+		APIKeySecretKey: apiKeySecretKey,
 	}
 
 	log.V(1).Info("Successfully updated ModelConfig")
