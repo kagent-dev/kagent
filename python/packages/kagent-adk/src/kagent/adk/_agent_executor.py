@@ -252,8 +252,7 @@ class A2aAgentExecutor(AgentExecutor):
                         await event_queue.enqueue_event(a2a_event)
         finally:
             # Clear user_id from context to avoid leaking between requests
-            if user_id:
-                clear_user_id()
+            clear_user_id()
 
         # publish the task result event - this is final
         if (
