@@ -291,6 +291,8 @@ helm-agents:
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/istio
 	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/promql
+	VERSION=$(VERSION) envsubst < helm/agents/kueue/Chart-template.yaml > helm/agents/kueue/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/kueue
 	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/observability
 	VERSION=$(VERSION) envsubst < helm/agents/helm/Chart-template.yaml > helm/agents/helm/Chart.yaml
@@ -376,6 +378,7 @@ helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
 	helm push ./$(HELM_DIST_FOLDER)/helm-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+    helm push ./$(HELM_DIST_FOLDER)/kueue-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/observability-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/argo-rollouts-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
