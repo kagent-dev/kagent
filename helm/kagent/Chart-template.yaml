@@ -40,6 +40,10 @@ dependencies:
     version: ${VERSION}
     repository: file://../agents/observability
     condition: agents.observability-agent.enabled
+  - name: kueue-agent
+    version: ${VERSION}
+    repository: file://../agents/kueue
+    condition: agents.kueue-agent.enabled
   - name: argo-rollouts-agent
     version: ${VERSION}
     repository: file://../agents/argo-rollouts
