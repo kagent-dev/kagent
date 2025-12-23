@@ -32,6 +32,7 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
 
+from .._context import get_user_id
 from ._ssl import create_ssl_context
 
 if TYPE_CHECKING:
@@ -393,6 +394,11 @@ class BaseOpenAI(BaseLlm):
             "model": llm_request.model or self.model,
             "messages": messages,
         }
+
+        # Add user parameter for usage tracking if user_id is available in context
+        user_id = get_user_id()
+        if user_id and user_id.strip():  # Only add if non-empty and non-whitespace
+            kwargs["user"] = user_id
 
         if self.frequency_penalty is not None:
             kwargs["frequency_penalty"] = self.frequency_penalty
