@@ -33,6 +33,7 @@ from kagent.core.tracing._span_processor import (
     set_kagent_span_attributes,
 )
 
+from ._context import clear_user_id, get_user_id, set_user_id
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
@@ -235,14 +236,24 @@ class A2aAgentExecutor(AgentExecutor):
             )
         )
 
-        task_result_aggregator = TaskResultAggregator()
-        async with Aclosing(runner.run_async(**run_args)) as agen:
-            async for adk_event in agen:
-                for a2a_event in convert_event_to_a2a_events(
-                    adk_event, invocation_context, context.task_id, context.context_id
-                ):
-                    task_result_aggregator.process_event(a2a_event)
-                    await event_queue.enqueue_event(a2a_event)
+        # Set user_id in context for passthrough to LLM providers
+        user_id = run_args.get("user_id")
+        if user_id:
+            set_user_id(user_id)
+
+        try:
+            task_result_aggregator = TaskResultAggregator()
+            async with Aclosing(runner.run_async(**run_args)) as agen:
+                async for adk_event in agen:
+                    for a2a_event in convert_event_to_a2a_events(
+                        adk_event, invocation_context, context.task_id, context.context_id
+                    ):
+                        task_result_aggregator.process_event(a2a_event)
+                        await event_queue.enqueue_event(a2a_event)
+        finally:
+            # Clear user_id from context to avoid leaking between requests
+            if user_id:
+                clear_user_id()
 
         # publish the task result event - this is final
         if (
