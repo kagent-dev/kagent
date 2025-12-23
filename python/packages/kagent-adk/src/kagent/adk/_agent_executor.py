@@ -33,7 +33,7 @@ from kagent.core.tracing._span_processor import (
     set_kagent_span_attributes,
 )
 
-from ._context import clear_user_id, get_user_id, set_user_id
+from ._context import clear_user_id, set_user_id
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
