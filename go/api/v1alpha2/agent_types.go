@@ -107,6 +107,7 @@ type DeclarativeAgentSpec struct {
 	// If true, the agent will automatically execute python code blocks in the LLM responses.
 	// Code will be executed in a sandboxed environment.
 	// +optional
+	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 }
 
@@ -159,6 +160,10 @@ type SharedDeploymentSpec struct {
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type

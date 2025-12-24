@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { getAgents } from "@/app/actions/agents";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 
 interface AgentDetailsSidebarProps {
   selectedAgentName: string;
@@ -244,6 +246,37 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               <SidebarGroup className="group-data-[collapsible=icon]:hidden">
                 <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
                 {selectedTeam && renderAgentTools(selectedTeam.tools)}
+              </SidebarGroup>
+            )}
+
+            {isDeclarativeAgent && selectedTeam?.agent.spec?.skills?.refs && selectedTeam.agent.spec.skills.refs.length > 0 && (
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <div className="flex items-center justify-between px-2 mb-2">
+                  <SidebarGroupLabel className="mb-0">Skills</SidebarGroupLabel>
+                  <Badge variant="secondary" className="h-5">
+                    {selectedTeam.agent.spec.skills.refs.length}
+                  </Badge>
+                </div>
+                <SidebarMenu>
+                  <TooltipProvider>
+                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => (
+                      <SidebarMenuItem key={index}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <SidebarMenuButton className="w-full">
+                              <div className="flex items-center justify-between w-full">
+                                <span className="truncate max-w-[200px] text-sm">{skillRef}</span>
+                              </div>
+                            </SidebarMenuButton>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">
+                            <p className="max-w-xs break-all">{skillRef}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </SidebarMenuItem>
+                    ))}
+                  </TooltipProvider>
+                </SidebarMenu>
               </SidebarGroup>
             )}
 

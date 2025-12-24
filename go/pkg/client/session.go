@@ -14,7 +14,7 @@ type Session interface {
 	GetSession(ctx context.Context, sessionName string) (*api.StandardResponse[*api.Session], error)
 	UpdateSession(ctx context.Context, request *api.SessionRequest) (*api.StandardResponse[*api.Session], error)
 	DeleteSession(ctx context.Context, sessionName string) error
-	ListSessionRuns(ctx context.Context, sessionName string) (*api.StandardResponse[interface{}], error)
+	ListSessionRuns(ctx context.Context, sessionName string) (*api.StandardResponse[any], error)
 }
 
 // sessionClient handles session-related requests
@@ -123,7 +123,7 @@ func (c *sessionClient) DeleteSession(ctx context.Context, sessionName string) e
 }
 
 // ListSessionRuns lists all runs for a specific session
-func (c *sessionClient) ListSessionRuns(ctx context.Context, sessionName string) (*api.StandardResponse[interface{}], error) {
+func (c *sessionClient) ListSessionRuns(ctx context.Context, sessionName string) (*api.StandardResponse[any], error) {
 	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
@@ -135,7 +135,7 @@ func (c *sessionClient) ListSessionRuns(ctx context.Context, sessionName string)
 		return nil, err
 	}
 
-	var response api.StandardResponse[interface{}]
+	var response api.StandardResponse[any]
 	if err := DecodeResponse(resp, &response); err != nil {
 		return nil, err
 	}

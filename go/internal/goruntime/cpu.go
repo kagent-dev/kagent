@@ -9,7 +9,7 @@ import (
 )
 
 func SetMaxProcs(logger logr.Logger) {
-	l := func(format string, a ...interface{}) {
+	l := func(format string, a ...any) {
 		logger.Info(fmt.Sprintf(strings.TrimPrefix(format, "maxprocs: "), a...))
 	}
 

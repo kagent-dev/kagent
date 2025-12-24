@@ -25,7 +25,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
-// nolint:gocyclo
+//nolint:gocyclo
 func main() {
 	authorizer := &auth.NoopAuthorizer{}
 	authenticator := &auth.UnsecureAuthenticator{}

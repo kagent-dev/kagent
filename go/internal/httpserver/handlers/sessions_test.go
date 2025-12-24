@@ -479,5 +479,4 @@ func TestSessionsHandler(t *testing.T) {
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 	})
-
 }

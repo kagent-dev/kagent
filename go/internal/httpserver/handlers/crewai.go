@@ -25,9 +25,9 @@ func NewCrewAIHandler(base *Base) *CrewAIHandler {
 
 // KagentMemoryPayload represents memory payload data from Python
 type KagentMemoryPayload struct {
-	ThreadID   string                 `json:"thread_id"`
-	UserID     string                 `json:"user_id"`
-	MemoryData map[string]interface{} `json:"memory_data"`
+	ThreadID   string         `json:"thread_id"`
+	UserID     string         `json:"user_id"`
+	MemoryData map[string]any `json:"memory_data"`
 }
 
 // KagentMemoryResponse represents memory response data
@@ -37,9 +37,9 @@ type KagentMemoryResponse struct {
 
 // KagentFlowStatePayload represents flow state payload data
 type KagentFlowStatePayload struct {
-	ThreadID   string                 `json:"thread_id"`
-	MethodName string                 `json:"method_name"`
-	StateData  map[string]interface{} `json:"state_data"`
+	ThreadID   string         `json:"thread_id"`
+	MethodName string         `json:"method_name"`
+	StateData  map[string]any `json:"state_data"`
 }
 
 // KagentFlowStateResponse represents flow state response data
@@ -145,7 +145,7 @@ func (h *CrewAIHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 	// Convert to response format
 	memoryPayloads := make([]KagentMemoryPayload, len(memories))
 	for i, memory := range memories {
-		var memoryData map[string]interface{}
+		var memoryData map[string]any
 		if err := json.Unmarshal([]byte(memory.MemoryData), &memoryData); err != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to parse memory data", err))
 			return
@@ -282,7 +282,7 @@ func (h *CrewAIHandler) HandleGetFlowState(w ErrorResponseWriter, r *http.Reques
 	}
 
 	// Convert to response format
-	var stateData map[string]interface{}
+	var stateData map[string]any
 	if err := json.Unmarshal([]byte(state.StateData), &stateData); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to parse state data", err))
 		return

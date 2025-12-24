@@ -22,22 +22,48 @@ interface ChatItemProps {
   agentNamespace?: string;
   sessionName?: string;
   onDownload?: (sessionId: string) => Promise<void>;
+  createdAt?: string;
 }
 
-const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload }: ChatItemProps) => {
+const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, createdAt }: ChatItemProps) => {
   const title = sessionName || "Untitled";
+  
+  // Format timestamp based on how recent it is
+  const formatTime = (dateString?: string) => {
+    if (!dateString) return "";
+
+    const date = new Date(dateString);
+
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    // For today: just show time (e.g., "2:30 PM" or "14:30" based on locale)
+    if (isToday) {
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+    
+    // For older: show full date and time (e.g., "Nov 28, 2:30 PM" based on locale)
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + 
+           date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  };
+  
   return (
     <>
       <SidebarMenu>
         <SidebarMenuItem key={sessionId}>
-          <SidebarMenuButton asChild>
-            <Link href={`/agents/${agentNamespace}/${agentName}/chat/${sessionId}`}>
-              <span className="text-ellipsis truncate max-w-[300px] text-sm" title={title}>{title}</span>
+          <SidebarMenuButton asChild className="overflow-hidden relative group/chatitem">
+            <Link href={`/agents/${agentNamespace}/${agentName}/chat/${sessionId}`} className="flex items-center w-full">
+              <span className="text-sm whitespace-nowrap" title={title}>{title}</span>
+              <span className="absolute right-8 top-1/2 -translate-y-1/2 text-xs text-muted-foreground whitespace-nowrap pl-6"
+                style={{
+                  background: 'linear-gradient(to right, transparent, hsl(var(--sidebar-background)) 30%)',
+                }}
+              >{formatTime(createdAt)}</span>
             </Link>
           </SidebarMenuButton>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
-              <SidebarMenuAction>
+              <SidebarMenuAction className="!right-2">
                 <MoreHorizontal />
                 <span className="sr-only">More</span>
               </SidebarMenuAction>

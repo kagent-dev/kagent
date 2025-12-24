@@ -96,7 +96,7 @@ func (g *Generator) regenerateToolsClass(toolsDir string) error {
 	}
 
 	// Create template data
-	templateData := map[string]interface{}{
+	templateData := map[string]any{
 		"Tools": tools,
 	}
 
@@ -139,7 +139,7 @@ func (g *Generator) scanToolsDirectory(toolsDir string) ([]string, error) {
 }
 
 // renderTemplate renders a template string with the provided data
-func renderTemplate(tmplContent string, data interface{}) (string, error) {
+func renderTemplate(tmplContent string, data any) (string, error) {
 	tmpl, err := texttemplate.New("template").Parse(tmplContent)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template: %w", err)

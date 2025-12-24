@@ -9,8 +9,8 @@ description = "kagent-adk is an sdk for integrating adk agents with kagent"
 readme = "README.md"
 requires-python = ">=3.11.0"
 dependencies = [
-  "agentsts-adk >= 0.0.6",
-  "agentsts-core >= 0.0.6",
+  "agentsts-adk >= 0.0.8",
+  "agentsts-core >= 0.0.8",
   "kagent-core",
   "aiofiles>=24.1.0",
   "anyio>=4.9.0",
@@ -22,7 +22,7 @@ dependencies = [
   "anthropic[vertex]>=0.49.0",
   "fastapi>=0.115.1",
   "litellm>=1.74.3",
-  "google-adk>=1.16.0",
+  "google-adk>=1.21.0",
   "google-genai>=1.21.1",
   "google-auth>=2.40.2",
   "httpx>=0.25.0",

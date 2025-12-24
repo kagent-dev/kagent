@@ -64,6 +64,9 @@ database:
 controller:
   replicas: 1
   loglevel: "info"
+  # -- The base URL of the A2A Server endpoint, as advertised to clients.
+  # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
+  a2aBaseUrl: ""
   agentImage:
     registry: ""
     repository: kagent-dev/kagent/app
@@ -104,19 +107,20 @@ controller:
       port: 8083
       targetPort: 8083
   env: []
+  envFrom: []
 
-# Additional volumes on the output Deployment definition.
+  # Additional volumes on the output Deployment definition.
   volumes: []
-#   - name: foo
-#     secret:
-#       secretName: mysecret
-#       optional: false
+  # - name: foo
+  #   secret:
+  #     secretName: mysecret
+  #     optional: false
 
-# Additional volumeMounts on the output Deployment definition.
+  # Additional volumeMounts on the output Deployment definition.
   volumeMounts: []
-#   - name: foo
-#     mountPath: "/etc/foo"
-#     readOnly: true
+  # - name: foo
+  #   mountPath: "/etc/foo"
+  #   readOnly: true
 
 # ==============================================================================
 # UI CONFIGURATION
@@ -201,7 +205,7 @@ kmcp:
   fullnameOverride: "" # Override if desired
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
   image:
-    tag: "0.1.9" # Required until https://github.com/kagent-dev/kmcp/issues/74 is resolved
+    tag: "0.2.2" # Required until https://github.com/kagent-dev/kmcp/issues/74 is resolved
   # See https://github.com/kagent-dev/kmcp/blob/main/helm/kmcp/values.yaml for chart values
 
 # ==============================================================================
@@ -345,7 +349,7 @@ querydoc:
   image:
     registry: ghcr.io
     repository: kagent-dev/doc2vec/mcp
-    tag: 1.1.13
+    tag: 1.1.14
     pullPolicy: IfNotPresent
   resources:
     requests:
