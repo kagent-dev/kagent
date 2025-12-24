@@ -96,7 +96,8 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 }
 
 func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
-	if err := a.dbClient.DeleteAgent(req.String()); err != nil {
+	id := utils.ConvertToPythonIdentifier(req.String())
+	if err := a.dbClient.DeleteAgent(id); err != nil {
 		return fmt.Errorf("failed to delete agent %s: %w",
 			req.String(), err)
 	}
