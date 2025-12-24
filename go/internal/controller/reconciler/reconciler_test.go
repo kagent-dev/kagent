@@ -3,9 +3,11 @@ package reconciler
 import (
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // TestComputeStatusSecretHash_Output verifies the output of the hash function
@@ -190,4 +192,18 @@ func TestComputeStatusSecretHash_Deterministic(t *testing.T) {
 			assert.Equal(t, tt.expectedEqual, got1 == got2)
 		})
 	}
+}
+
+func TestAgentIDConsistency(t *testing.T) {
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: "test-namespace",
+			Name:      "my-agent",
+		},
+	}
+
+	storeID := utils.ConvertToPythonIdentifier(utils.ResourceRefString(req.Namespace, req.Name))
+	deleteID := utils.ConvertToPythonIdentifier(req.String())
+
+	assert.Equal(t, storeID, deleteID)
 }
