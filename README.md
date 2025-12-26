@@ -64,6 +64,27 @@
 - [Quick Start](https://kagent.dev/docs/kagent/getting-started/quickstart)
 - [Installation guide](https://kagent.dev/docs/kagent/introduction/installation)
 
+### Prerequisites
+
+To get started with kagent, you'll need:
+
+**Required Tools:**
+- **[kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)** - For creating a local Kubernetes cluster
+- **[kubectl](https://kubernetes.io/docs/tasks/tools/)** - For interacting with your cluster  
+- **[Helm](https://helm.sh/docs/intro/install/)** - For installing the kagent chart
+- **[OpenAI API key](https://platform.openai.com/api-keys)** - For running AI agents (or use [Anthropic](https://console.anthropic.com/), [Ollama](https://ollama.ai/), etc.)
+
+**Quick verification:**
+```bash
+kind version
+kubectl version --client
+helm version
+```
+
+> **💡 Tip:** If you're planning to contribute code, see [DEVELOPMENT.md](DEVELOPMENT.md) for additional development tools.
+
+**Ready to start?** Follow our [Quick Start guide](https://kagent.dev/docs/kagent/getting-started/quickstart) to deploy your first agent in minutes!  
+
 ## Technical Details
 
 ### Core Concepts
