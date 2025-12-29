@@ -528,6 +528,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		ExecuteCode: false && ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false), //ignored due to this issue https://github.com/google/adk-python/issues/3921.
 	}
 
+	// Extract maxPayloadSize from A2AConfig if present
+	if agent.Spec.Declarative.A2AConfig != nil && agent.Spec.Declarative.A2AConfig.MaxPayloadSize != nil {
+		maxPayloadSizeBytes := agent.Spec.Declarative.A2AConfig.MaxPayloadSize.Value()
+		cfg.MaxPayloadSize = &maxPayloadSizeBytes
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		// Skip tools that are not applicable to the model provider
 		switch {

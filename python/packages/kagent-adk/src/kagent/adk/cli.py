@@ -67,7 +67,14 @@ def static(
     root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
     maybe_add_skills(root_agent)
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
+    kagent_app = KAgentApp(
+        root_agent,
+        agent_card,
+        app_cfg.url,
+        app_cfg.app_name,
+        plugins=plugins,
+        max_payload_size=agent_config.max_payload_size,
+    )
 
     server = kagent_app.build()
     configure_tracing(server)
@@ -179,7 +186,14 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         plugins = [sts_integration]
     root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
     maybe_add_skills(root_agent)
-    app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
+    app = KAgentApp(
+        root_agent,
+        agent_card,
+        app_cfg.url,
+        app_cfg.app_name,
+        plugins=plugins,
+        max_payload_size=agent_config.max_payload_size,
+    )
     await app.test(task)
 
 

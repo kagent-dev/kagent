@@ -1,0 +1,39 @@
+operation: translateAgent
+targetObject: test-agent
+namespace: test
+
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: default-model-config
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      defaultHeaders:
+        User-Agent: "kagent/1.0"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: test-agent
+      namespace: test
+    spec:
+      type: Declarative
+      description: Agent with max payload size configuration
+      declarative:
+        modelConfig: default-model-config
+        systemMessage: You are a helpful assistant.
+        a2aConfig:
+          maxPayloadSize: "50Mi"
+        tools: []
+

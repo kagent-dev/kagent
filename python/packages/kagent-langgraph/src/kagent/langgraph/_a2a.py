@@ -39,6 +39,41 @@ def thread_dump(request: Request) -> PlainTextResponse:
     return PlainTextResponse(buf.read())
 
 
+def _patch_a2a_payload_limit(max_body_size: int):
+    """Attempt to patch a2a-python library's hardcoded payload size limit."""
+    try:
+        # Try different import paths for jsonrpc_app module
+        jsonrpc_app = None
+        import_paths = [
+            "a2a.server.apps.jsonrpc.jsonrpc_app",
+            "a2a.server.apps.jsonrpc_app",
+        ]
+        for path in import_paths:
+            try:
+                jsonrpc_app = __import__(path, fromlist=[""])
+                break
+            except ImportError:
+                continue
+
+        if jsonrpc_app is None:
+            logger.debug("Could not find a2a-python jsonrpc_app module to patch")
+            return
+
+        # Check if MAX_PAYLOAD_SIZE or similar constant exists
+        if hasattr(jsonrpc_app, "MAX_PAYLOAD_SIZE"):
+            jsonrpc_app.MAX_PAYLOAD_SIZE = max_body_size
+            logger.info(f"Patched a2a-python MAX_PAYLOAD_SIZE to {max_body_size} bytes")
+        # Also check for _MAX_PAYLOAD_SIZE or other variants
+        elif hasattr(jsonrpc_app, "_MAX_PAYLOAD_SIZE"):
+            jsonrpc_app._MAX_PAYLOAD_SIZE = max_body_size
+            logger.info(f"Patched a2a-python _MAX_PAYLOAD_SIZE to {max_body_size} bytes")
+        else:
+            logger.debug("Could not find MAX_PAYLOAD_SIZE constant in a2a-python jsonrpc_app")
+    except (ImportError, AttributeError) as e:
+        # If patching fails, log a debug message but continue
+        logger.debug(f"Could not patch a2a-python payload limit: {e}")
+
+
 class KAgentApp:
     """Main application class for LangGraph + KAgent integration.
 
@@ -54,6 +89,7 @@ class KAgentApp:
         config: KAgentConfig,
         executor_config: LangGraphAgentExecutorConfig | None = None,
         tracing: bool = True,
+        max_payload_size: int | None = None,
     ):
         """Initialize the KAgent application.
 
@@ -63,6 +99,7 @@ class KAgentApp:
             config: KAgent configuration
             executor_config: Optional executor configuration
             tracing: Enable OpenTelemetry tracing/logging via kagent.core.tracing
+            max_payload_size: Maximum payload size in bytes for A2A requests
 
         """
         self._graph = graph
@@ -71,6 +108,7 @@ class KAgentApp:
 
         self.executor_config = executor_config or LangGraphAgentExecutorConfig()
         self._enable_tracing = tracing
+        self.max_payload_size = max_payload_size
 
     def build(self) -> FastAPI:
         """Build the FastAPI application with A2A integration.
@@ -110,6 +148,10 @@ class KAgentApp:
 
         # Enable fault handler for debugging
         faulthandler.enable()
+
+        # Patch a2a-python's payload size limit if specified
+        if self.max_payload_size is not None:
+            _patch_a2a_payload_limit(self.max_payload_size)
 
         # Create FastAPI application
         app = FastAPI(

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"trpc.group/trpc-go/trpc-a2a-go/server"
@@ -119,6 +120,11 @@ type AnyType struct {
 type A2AConfig struct {
 	// +kubebuilder:validation:MinItems=1
 	Skills []AgentSkill `json:"skills,omitempty"`
+	// MaxPayloadSize is the maximum payload size for A2A requests.
+	// Supports Kubernetes quantity format (e.g., "50Mi", "100MB").
+	// If not specified, uses the default a2a-python limit (~7-8MB).
+	// +optional
+	MaxPayloadSize *resource.Quantity `json:"maxPayloadSize,omitempty"`
 }
 
 type AgentSkill server.AgentSkill

@@ -246,23 +246,25 @@ type RemoteAgentConfig struct {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model        Model                 `json:"model"`
-	Description  string                `json:"description"`
-	Instruction  string                `json:"instruction"`
-	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
-	ExecuteCode  bool                  `json:"execute_code,omitempty"`
+	Model          Model                 `json:"model"`
+	Description    string                `json:"description"`
+	Instruction    string                `json:"instruction"`
+	HttpTools      []HttpMcpServerConfig `json:"http_tools"`
+	SseTools       []SseMcpServerConfig  `json:"sse_tools"`
+	RemoteAgents   []RemoteAgentConfig   `json:"remote_agents"`
+	ExecuteCode    bool                  `json:"execute_code,omitempty"`
+	MaxPayloadSize *int64                `json:"max_payload_size,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model        json.RawMessage       `json:"model"`
-		Description  string                `json:"description"`
-		Instruction  string                `json:"instruction"`
-		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+		Model          json.RawMessage       `json:"model"`
+		Description    string                `json:"description"`
+		Instruction    string                `json:"instruction"`
+		HttpTools      []HttpMcpServerConfig `json:"http_tools"`
+		SseTools       []SseMcpServerConfig  `json:"sse_tools"`
+		RemoteAgents   []RemoteAgentConfig   `json:"remote_agents"`
+		MaxPayloadSize *int64                `json:"max_payload_size,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -277,6 +279,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
+	a.MaxPayloadSize = tmp.MaxPayloadSize
 	return nil
 }
 
