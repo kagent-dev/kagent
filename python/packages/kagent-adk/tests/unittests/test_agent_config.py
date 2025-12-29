@@ -93,4 +93,3 @@ class TestAgentConfigMaxPayloadSize:
 
         assert parsed["max_payload_size"] == 100 * 1024 * 1024
         assert parsed["description"] == "Test agent"
-

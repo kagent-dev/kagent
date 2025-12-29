@@ -52,6 +52,7 @@ class TestPatchA2APayloadLimit:
 
     def test_patch_module_not_found(self):
         """Test behavior when jsonrpc_app module cannot be imported."""
+
         def mock_import(name, fromlist=None):
             if "jsonrpc" in name:
                 raise ImportError("No module named 'a2a.server.apps.jsonrpc'")
@@ -94,4 +95,3 @@ class TestPatchA2APayloadLimit:
         # Should have tried both import paths
         assert "a2a.server.apps.jsonrpc.jsonrpc_app" in import_calls
         assert "a2a.server.apps.jsonrpc_app" in import_calls
-
