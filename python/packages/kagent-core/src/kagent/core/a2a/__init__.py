@@ -23,6 +23,7 @@ from ._hitl import (
     handle_tool_approval_interrupt,
     is_input_required_task,
 )
+from ._payload_limit import patch_a2a_payload_limit
 from ._requests import KAgentRequestContextBuilder
 from ._task_result_aggregator import TaskResultAggregator
 from ._task_store import KAgentTaskStore
@@ -56,4 +57,6 @@ __all__ = [
     "is_input_required_task",
     # HITL handlers
     "handle_tool_approval_interrupt",
+    # Payload limit utilities
+    "patch_a2a_payload_limit",
 ]

@@ -16,18 +16,18 @@
 
 NOTE: These tests verify that the configuration value can be set and patched,
 but do NOT verify end-to-end behavior (i.e., that payloads of the configured
-size can actually be sent/received). For that, see test_a2a_payload_size_integration.py
+size can actually be sent/received).
 """
 
 from unittest import mock
 
 import pytest
 
-from kagent.adk._a2a import _patch_a2a_payload_limit
+from kagent.core.a2a import patch_a2a_payload_limit
 
 
 class TestPatchA2APayloadLimit:
-    """Tests for _patch_a2a_payload_limit function."""
+    """Tests for patch_a2a_payload_limit function."""
 
     def test_patch_max_payload_size_exists(self):
         """Test patching when MAX_PAYLOAD_SIZE constant exists."""
@@ -35,7 +35,7 @@ class TestPatchA2APayloadLimit:
         mock_jsonrpc_app.MAX_PAYLOAD_SIZE = 7 * 1024 * 1024  # 7MB default
 
         with mock.patch("builtins.__import__", return_value=mock_jsonrpc_app):
-            _patch_a2a_payload_limit(50 * 1024 * 1024)  # 50MB
+            patch_a2a_payload_limit(50 * 1024 * 1024)  # 50MB
 
         assert mock_jsonrpc_app.MAX_PAYLOAD_SIZE == 50 * 1024 * 1024
 
@@ -46,7 +46,7 @@ class TestPatchA2APayloadLimit:
         del mock_jsonrpc_app.MAX_PAYLOAD_SIZE  # Ensure MAX_PAYLOAD_SIZE doesn't exist
 
         with mock.patch("builtins.__import__", return_value=mock_jsonrpc_app):
-            _patch_a2a_payload_limit(100 * 1024 * 1024)  # 100MB
+            patch_a2a_payload_limit(100 * 1024 * 1024)  # 100MB
 
         assert mock_jsonrpc_app._MAX_PAYLOAD_SIZE == 100 * 1024 * 1024
 
@@ -60,7 +60,7 @@ class TestPatchA2APayloadLimit:
 
         with mock.patch("builtins.__import__", side_effect=mock_import):
             # Should not raise an exception, just log debug message
-            _patch_a2a_payload_limit(50 * 1024 * 1024)
+            patch_a2a_payload_limit(50 * 1024 * 1024)
 
     def test_patch_no_payload_size_constant(self):
         """Test behavior when payload size constant doesn't exist."""
@@ -73,7 +73,7 @@ class TestPatchA2APayloadLimit:
 
         with mock.patch("builtins.__import__", return_value=mock_jsonrpc_app):
             # Should not raise an exception, just log debug message
-            _patch_a2a_payload_limit(50 * 1024 * 1024)
+            patch_a2a_payload_limit(50 * 1024 * 1024)
 
     def test_patch_with_different_import_paths(self):
         """Test that function tries multiple import paths."""
@@ -90,8 +90,55 @@ class TestPatchA2APayloadLimit:
             return mock.MagicMock()
 
         with mock.patch("builtins.__import__", side_effect=mock_import):
-            _patch_a2a_payload_limit(50 * 1024 * 1024)
+            patch_a2a_payload_limit(50 * 1024 * 1024)
 
         # Should have tried both import paths
         assert "a2a.server.apps.jsonrpc.jsonrpc_app" in import_calls
         assert "a2a.server.apps.jsonrpc_app" in import_calls
+
+    def test_patch_raises_error_for_zero(self):
+        """Test that patch_a2a_payload_limit raises ValueError for zero."""
+        with pytest.raises(ValueError, match="must be positive"):
+            patch_a2a_payload_limit(0)
+
+    def test_patch_raises_error_for_negative(self):
+        """Test that patch_a2a_payload_limit raises ValueError for negative values."""
+        with pytest.raises(ValueError, match="must be positive"):
+            patch_a2a_payload_limit(-1)
+        with pytest.raises(ValueError, match="must be positive"):
+            patch_a2a_payload_limit(-100 * 1024 * 1024)
+
+    def test_patch_warns_on_override(self, caplog):
+        """Test that patching with a different value logs a warning."""
+        mock_jsonrpc_app = mock.MagicMock()
+        mock_jsonrpc_app.MAX_PAYLOAD_SIZE = 7 * 1024 * 1024  # 7MB default
+
+        with mock.patch("builtins.__import__", return_value=mock_jsonrpc_app):
+            # First patch
+            patch_a2a_payload_limit(50 * 1024 * 1024)  # 50MB
+            assert mock_jsonrpc_app.MAX_PAYLOAD_SIZE == 50 * 1024 * 1024
+
+            # Second patch with different value - should warn
+            patch_a2a_payload_limit(100 * 1024 * 1024)  # 100MB
+            assert mock_jsonrpc_app.MAX_PAYLOAD_SIZE == 100 * 1024 * 1024
+
+        # Check that warning was logged
+        assert any(
+            "Overriding previously patched" in record.message and "process-level setting" in record.message
+            for record in caplog.records
+        )
+
+    def test_patch_no_warning_on_same_value(self, caplog):
+        """Test that patching with the same value doesn't log a warning."""
+        mock_jsonrpc_app = mock.MagicMock()
+        mock_jsonrpc_app.MAX_PAYLOAD_SIZE = 7 * 1024 * 1024  # 7MB default
+
+        with mock.patch("builtins.__import__", return_value=mock_jsonrpc_app):
+            # First patch
+            patch_a2a_payload_limit(50 * 1024 * 1024)  # 50MB
+
+            # Second patch with same value - should not warn
+            patch_a2a_payload_limit(50 * 1024 * 1024)  # 50MB again
+
+        # Check that no warning was logged
+        assert not any("Overriding previously patched" in record.message for record in caplog.records)
