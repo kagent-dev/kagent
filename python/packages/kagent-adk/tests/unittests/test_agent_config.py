@@ -93,3 +93,35 @@ class TestAgentConfigMaxPayloadSize:
 
         assert parsed["max_payload_size"] == 100 * 1024 * 1024
         assert parsed["description"] == "Test agent"
+
+    def test_agent_config_max_payload_size_zero_raises_error(self):
+        """Test that AgentConfig validation rejects zero max_payload_size."""
+        config_dict = {
+            "model": {
+                "type": "openai",
+                "model": "gpt-4o",
+                "base_url": "",
+            },
+            "description": "Test agent",
+            "instruction": "You are a helpful assistant.",
+            "max_payload_size": 0,
+        }
+
+        with pytest.raises(Exception):  # Pydantic validation error
+            AgentConfig.model_validate(config_dict)
+
+    def test_agent_config_max_payload_size_negative_raises_error(self):
+        """Test that AgentConfig validation rejects negative max_payload_size."""
+        config_dict = {
+            "model": {
+                "type": "openai",
+                "model": "gpt-4o",
+                "base_url": "",
+            },
+            "description": "Test agent",
+            "instruction": "You are a helpful assistant.",
+            "max_payload_size": -100,
+        }
+
+        with pytest.raises(Exception):  # Pydantic validation error
+            AgentConfig.model_validate(config_dict)

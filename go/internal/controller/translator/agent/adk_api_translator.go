@@ -531,6 +531,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 	// Extract maxPayloadSize from A2AConfig if present
 	if agent.Spec.Declarative.A2AConfig != nil && agent.Spec.Declarative.A2AConfig.MaxPayloadSize != nil {
 		maxPayloadSizeBytes := agent.Spec.Declarative.A2AConfig.MaxPayloadSize.Value()
+		// Validate that maxPayloadSize is positive (Kubernetes quantities can be negative)
+		if maxPayloadSizeBytes <= 0 {
+			return nil, nil, nil, fmt.Errorf(
+				"maxPayloadSize must be positive, got %d bytes (quantity: %s)",
+				maxPayloadSizeBytes,
+				agent.Spec.Declarative.A2AConfig.MaxPayloadSize.String(),
+			)
+		}
 		cfg.MaxPayloadSize = &maxPayloadSizeBytes
 	}
 

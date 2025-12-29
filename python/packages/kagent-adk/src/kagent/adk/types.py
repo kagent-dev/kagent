@@ -102,7 +102,11 @@ class AgentConfig(BaseModel):
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
     execute_code: bool | None = None
-    max_payload_size: int | None = None  # Maximum payload size in bytes for A2A requests
+    max_payload_size: int | None = Field(
+        default=None,
+        gt=0,
+        description="Maximum payload size in bytes for A2A requests. Must be positive (> 0).",
+    )
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

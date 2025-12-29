@@ -20,7 +20,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore, patch_a2a_payload_limit
 
 from ._agent_executor import A2aAgentExecutor
 from ._lifespan import LifespanManager
@@ -44,41 +44,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
 
 
 kagent_url_override = os.getenv("KAGENT_URL")
-
-
-def _patch_a2a_payload_limit(max_body_size: int):
-    """Attempt to patch a2a-python library's hardcoded payload size limit."""
-    try:
-        # Try different import paths for jsonrpc_app module
-        jsonrpc_app = None
-        import_paths = [
-            "a2a.server.apps.jsonrpc.jsonrpc_app",
-            "a2a.server.apps.jsonrpc_app",
-        ]
-        for path in import_paths:
-            try:
-                jsonrpc_app = __import__(path, fromlist=[""])
-                break
-            except ImportError:
-                continue
-
-        if jsonrpc_app is None:
-            logger.debug("Could not find a2a-python jsonrpc_app module to patch")
-            return
-
-        # Check if MAX_PAYLOAD_SIZE or similar constant exists
-        if hasattr(jsonrpc_app, "MAX_PAYLOAD_SIZE"):
-            jsonrpc_app.MAX_PAYLOAD_SIZE = max_body_size
-            logger.info(f"Patched a2a-python MAX_PAYLOAD_SIZE to {max_body_size} bytes")
-        # Also check for _MAX_PAYLOAD_SIZE or other variants
-        elif hasattr(jsonrpc_app, "_MAX_PAYLOAD_SIZE"):
-            jsonrpc_app._MAX_PAYLOAD_SIZE = max_body_size
-            logger.info(f"Patched a2a-python _MAX_PAYLOAD_SIZE to {max_body_size} bytes")
-        else:
-            logger.debug("Could not find MAX_PAYLOAD_SIZE constant in a2a-python jsonrpc_app")
-    except (ImportError, AttributeError) as e:
-        # If patching fails, log a debug message but continue
-        logger.debug(f"Could not patch a2a-python payload limit: {e}")
 
 
 class KAgentApp:
@@ -150,7 +115,7 @@ class KAgentApp:
 
         # Patch a2a-python's payload size limit if specified
         if self.max_payload_size is not None:
-            _patch_a2a_payload_limit(self.max_payload_size)
+            patch_a2a_payload_limit(self.max_payload_size)
 
         app = FastAPI(lifespan=lifespan_manager)
 

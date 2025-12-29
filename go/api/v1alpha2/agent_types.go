@@ -239,12 +239,13 @@ func (t *TypedLocalReference) GroupKind() schema.GroupKind {
 	}
 }
 
+// +kubebuilder:validation:XValidation:message="maxPayloadSize must be positive",rule="!has(self.maxPayloadSize) || self.maxPayloadSize.Value() > 0"
 type A2AConfig struct {
 	// +kubebuilder:validation:MinItems=1
 	Skills []AgentSkill `json:"skills,omitempty"`
 	// MaxPayloadSize is the maximum payload size for A2A requests.
 	// Supports Kubernetes quantity format (e.g., "50Mi", "100MB").
-	// If not specified, uses the default a2a-python limit (~7-8MB).
+	// Must be positive (> 0). If not specified, uses the default a2a-python limit (~7-8MB).
 	// +optional
 	MaxPayloadSize *resource.Quantity `json:"maxPayloadSize,omitempty"`
 }
