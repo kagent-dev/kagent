@@ -109,6 +109,10 @@ type Config struct {
 		InitialBufSize resource.QuantityValue `default:"4Ki"`
 		Timeout        time.Duration          `default:"60s"`
 	}
+	Proxy struct {
+		AgentURL  string // Agent proxy URL for agent -> agent traffic
+		EgressURL string // Egress proxy URL for agent -> MCP server traffic
+	}
 	LeaderElection     bool
 	ProbeAddr          string
 	SecureMetrics      bool
@@ -157,6 +161,9 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
 	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
 	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
+
+	commandLine.StringVar(&cfg.Proxy.AgentURL, "proxy-agent-url", "", "Agent proxy URL for agent -> agent traffic (e.g., http://agent-a2a-proxy.kagent.svc.cluster.local:8081)")
+	commandLine.StringVar(&cfg.Proxy.EgressURL, "proxy-egress-url", "", "Egress proxy URL for agent -> MCP server traffic (e.g., http://agent-egress-proxy.kagent.svc.cluster.local:8082)")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
@@ -372,6 +379,8 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		mgr.GetClient(),
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,
+		cfg.Proxy.AgentURL,
+		cfg.Proxy.EgressURL,
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
@@ -484,6 +493,8 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		DbClient:          dbClient,
 		Authorizer:        extensionCfg.Authorizer,
 		Authenticator:     extensionCfg.Authenticator,
+		AgentProxyURL:     cfg.Proxy.AgentURL,
+		EgressProxyURL:    cfg.Proxy.EgressURL,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

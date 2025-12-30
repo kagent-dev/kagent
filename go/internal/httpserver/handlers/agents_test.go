@@ -78,6 +78,8 @@ func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string
 		},
 		DatabaseService: dbClient,
 		Authorizer:      &auth.NoopAuthorizer{},
+		AgentProxyURL:   "",
+		EgressProxyURL:  "",
 	}
 
 	return handlers.NewAgentsHandler(base), userID

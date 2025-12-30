@@ -230,6 +230,19 @@ kagent-tools:
 # AGENTS
 # ==============================================================================
 
+# Global proxy configuration for the controller
+# These proxies handle the following traffic paths:
+# - agent: Agent -> Agent traffic (applied to all agent pods)
+# - egress: Agent -> MCP Server/tool traffic (applied to all agent pods)
+# Set these once and the controller will apply them to all agents automatically
+proxy:
+  # Agent proxy URL for agent -> agent traffic
+  # Example: "http://agent-a2a-proxy:8081"
+  agentUrl: ""
+  # Egress proxy URL for agent to MCP server/tool traffic
+  # Example: "http://agent-egress-proxy:8082"
+  egressUrl: ""
+
 agents:
   k8s-agent:
     enabled: true

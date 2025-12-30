@@ -33,15 +33,19 @@ type Base struct {
 	DefaultModelConfig types.NamespacedName
 	DatabaseService    database.Client
 	Authorizer         auth.Authorizer // Interface for authorization checks
+	AgentProxyURL      string          // Agent proxy URL for agent-to-agent traffic
+	EgressProxyURL     string          // Egress proxy URL for agent-to-MCP/tool traffic
 }
 
 // NewHandlers creates a new Handlers instance with all handler components
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, agentProxyURL, egressProxyURL string) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
 		DatabaseService:    dbService,
 		Authorizer:         authorizer,
+		AgentProxyURL:      agentProxyURL,
+		EgressProxyURL:     egressProxyURL,
 	}
 
 	return &Handlers{

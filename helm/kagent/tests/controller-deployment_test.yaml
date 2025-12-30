@@ -106,6 +106,39 @@ tests:
           path: data.A2A_BASE_URL
           value: "https://kagent.example.com"
 
+  - it: should set PROXY_AGENT_URL when set
+    template: controller-configmap.yaml
+    set:
+      proxy:
+        agentUrl: "http://agent-a2a-proxy:8081"
+    asserts:
+      - equal:
+          path: data.PROXY_AGENT_URL
+          value: "http://agent-a2a-proxy:8081"
+
+  - it: should set PROXY_EGRESS_URL when set
+
+    template: controller-configmap.yaml
+    set:
+      proxy:
+        egressUrl: "http://agent-egress-proxy:8082"
+    asserts:
+      - equal:
+          path: data.PROXY_EGRESS_URL
+          value: "http://agent-egress-proxy:8082"
+
+  - it: should not set PROXY_AGENT_URL when not set
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.PROXY_AGENT_URL
+
+  - it: should not set PROXY_EGRESS_URL when not set
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.PROXY_EGRESS_URL
+
   - it: should use custom loglevel when set
     template: controller-configmap.yaml
     set:

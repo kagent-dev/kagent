@@ -24,10 +24,12 @@ import (
 
 // TestInput represents the structure of input test files
 type TestInput struct {
-	Objects      []map[string]any `yaml:"objects"`
-	Operation    string           `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
-	TargetObject string           `yaml:"targetObject"` // name of the object to translate
-	Namespace    string           `yaml:"namespace"`
+	Objects        []map[string]any `yaml:"objects"`
+	Operation      string           `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
+	TargetObject   string           `yaml:"targetObject"` // name of the object to translate
+	Namespace      string           `yaml:"namespace"`
+	ProxyAgentURL  string           `yaml:"proxyAgentURL,omitempty"`  // Optional proxy URL for A2A
+	ProxyEgressURL string           `yaml:"proxyEgressURL,omitempty"` // Optional proxy URL for egress
 }
 
 // TestGoldenAdkTranslator runs golden tests for the ADK API translator
@@ -119,7 +121,10 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 		}, agent)
 		require.NoError(t, err)
 
-		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil).TranslateAgent(ctx, agent)
+		// Use proxy URLs from test input if provided
+		proxyAgentURL := testInput.ProxyAgentURL
+		proxyEgressURL := testInput.ProxyEgressURL
+		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, proxyAgentURL, proxyEgressURL).TranslateAgent(ctx, agent)
 		require.NoError(t, err)
 
 	default:
