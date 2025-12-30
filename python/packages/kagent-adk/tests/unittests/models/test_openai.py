@@ -21,6 +21,7 @@ from google.genai import types
 from google.genai.types import Content, Part
 from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 
+from kagent.adk._context import clear_user_id, set_user_id
 from kagent.adk.models import OpenAI
 from kagent.adk.models._openai import _convert_tools_to_openai
 
@@ -336,6 +337,178 @@ async def test_generate_content_async_with_max_tokens(llm_request, generate_cont
         mock_client.chat.completions.create.assert_called_once()
         _, kwargs = mock_client.chat.completions.create.call_args
         assert kwargs["max_tokens"] == 4096
+
+
+@pytest.mark.asyncio
+async def test_generate_content_async_with_user_passthrough(llm_request, generate_content_response):
+    """Test that user_id from context is passed as 'user' parameter to OpenAI API."""
+    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
+
+    # Set user_id in context
+    test_user_id = "user@example.com"
+    set_user_id(test_user_id)
+
+    try:
+        with mock.patch.object(openai_llm, "_client") as mock_client:
+            # Create a mock coroutine that returns the generate_content_response.
+            async def mock_coro(*args, **kwargs):
+                return generate_content_response
+
+            # Assign the coroutine to the mocked method
+            mock_client.chat.completions.create.return_value = mock_coro()
+
+            _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+            mock_client.chat.completions.create.assert_called_once()
+            _, kwargs = mock_client.chat.completions.create.call_args
+            assert kwargs["user"] == test_user_id
+    finally:
+        clear_user_id()
+
+
+@pytest.mark.asyncio
+async def test_generate_content_async_without_user_passthrough(llm_request, generate_content_response):
+    """Test that 'user' parameter is not included when user_id is not in context."""
+    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
+
+    # Ensure user_id is not in context
+    clear_user_id()
+
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+        # Create a mock coroutine that returns the generate_content_response.
+        async def mock_coro(*args, **kwargs):
+            return generate_content_response
+
+        # Assign the coroutine to the mocked method
+        mock_client.chat.completions.create.return_value = mock_coro()
+
+        _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+        mock_client.chat.completions.create.assert_called_once()
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert "user" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_generate_content_async_streaming_with_user_passthrough(llm_request):
+    """Test that user_id from context is passed as 'user' parameter in streaming mode."""
+    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
+
+    # Set user_id in context
+    test_user_id = "user@example.com"
+    set_user_id(test_user_id)
+
+    try:
+        with mock.patch.object(openai_llm, "_client") as mock_client:
+            # Create a mock async generator for streaming
+            async def mock_stream(*args, **kwargs):
+                class MockChunk:
+                    def __init__(self):
+                        class MockDelta:
+                            def __init__(self):
+                                self.content = "Hello"
+
+                        class MockChoice:
+                            def __init__(self):
+                                self.delta = MockDelta()
+                                self.finish_reason = "stop"
+
+                        self.choices = [MockChoice()]
+
+                yield MockChunk()
+
+            # Assign the async generator to the mocked method
+            mock_client.chat.completions.create.return_value = mock_stream()
+
+            _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=True)]
+            mock_client.chat.completions.create.assert_called_once()
+            _, kwargs = mock_client.chat.completions.create.call_args
+            assert kwargs["user"] == test_user_id
+            assert kwargs["stream"] is True
+    finally:
+        clear_user_id()
+
+
+@pytest.mark.asyncio
+async def test_azure_openai_with_user_passthrough(llm_request, generate_content_response):
+    """Test that user_id from context is passed as 'user' parameter to Azure OpenAI API."""
+    from kagent.adk.models import AzureOpenAI
+
+    azure_llm = AzureOpenAI(
+        model="gpt-35-turbo",
+        type="azure_openai",
+        api_key="fake",
+        azure_endpoint="https://test.openai.azure.com",
+        api_version="2024-02-15-preview",
+    )
+
+    # Set user_id in context
+    test_user_id = "user@example.com"
+    set_user_id(test_user_id)
+
+    try:
+        with mock.patch.object(azure_llm, "_client") as mock_client:
+            # Create a mock coroutine that returns the generate_content_response.
+            async def mock_coro(*args, **kwargs):
+                return generate_content_response
+
+            # Assign the coroutine to the mocked method
+            mock_client.chat.completions.create.return_value = mock_coro()
+
+            _ = [resp async for resp in azure_llm.generate_content_async(llm_request, stream=False)]
+            mock_client.chat.completions.create.assert_called_once()
+            _, kwargs = mock_client.chat.completions.create.call_args
+            assert kwargs["user"] == test_user_id
+    finally:
+        clear_user_id()
+
+
+@pytest.mark.asyncio
+async def test_generate_content_async_with_empty_user_id(llm_request, generate_content_response):
+    """Test that empty string user_id is not passed to OpenAI API."""
+    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
+
+    # Set empty user_id in context
+    set_user_id("")
+
+    try:
+        with mock.patch.object(openai_llm, "_client") as mock_client:
+
+            async def mock_coro(*args, **kwargs):
+                return generate_content_response
+
+            mock_client.chat.completions.create.return_value = mock_coro()
+
+            _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+            mock_client.chat.completions.create.assert_called_once()
+            _, kwargs = mock_client.chat.completions.create.call_args
+            # Empty string should not be included (checked with .strip())
+            assert "user" not in kwargs
+    finally:
+        clear_user_id()
+
+
+@pytest.mark.asyncio
+async def test_generate_content_async_with_whitespace_only_user_id(llm_request, generate_content_response):
+    """Test that whitespace-only user_id is not passed to OpenAI API."""
+    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
+
+    # Set whitespace-only user_id in context
+    set_user_id("   ")
+
+    try:
+        with mock.patch.object(openai_llm, "_client") as mock_client:
+
+            async def mock_coro(*args, **kwargs):
+                return generate_content_response
+
+            mock_client.chat.completions.create.return_value = mock_coro()
+
+            _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+            mock_client.chat.completions.create.assert_called_once()
+            _, kwargs = mock_client.chat.completions.create.call_args
+            # Whitespace-only string should not be included
+            assert "user" not in kwargs
+    finally:
+        clear_user_id()
 
 
 # ============================================================================
