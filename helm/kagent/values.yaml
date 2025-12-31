@@ -227,9 +227,8 @@ kagent-tools:
     loglevel: "debug"
 
 # ==============================================================================
-# AGENTS
+# PROXY CONFIGURATION
 # ==============================================================================
-
 # Global proxy configuration for the controller
 # This proxy applies to all internally-built k8s URLs:
 # - Agents as tools (agent -> agent traffic)
@@ -242,6 +241,9 @@ proxy:
   # Example: "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
 
+# ==============================================================================
+# AGENTS
+# ==============================================================================
 agents:
   k8s-agent:
     enabled: true
