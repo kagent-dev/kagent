@@ -222,6 +222,23 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 	return nil
 }
 
+kind delete cluster --name kagent \
+make create-kind-cluster \
+make use-kind-cluster \
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml || true \
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/experimental-install.yaml || true \
+kubectl wait --for=condition=Established --timeout=90s crd/gateways.gateway.networking.k8s.io || true \
+kubectl wait --for=condition=Established --timeout=90s crd/httproutes.gateway.networking.k8s.io || true \
+helm upgrade -i --create-namespace --namespace agentgateway-system --version v2.2.0-main agentgateway-crds oci://ghcr.io/kgateway-dev/charts/agentgateway-crds \
+helm upgrade -i -n agentgateway-system agentgateway oci://ghcr.io/kgateway-dev/charts/agentgateway --version v2.2.0-main \
+kubectl apply -f examples/proxy-test-kgateway.yaml \
+make helm-install KAGENT_HELM_EXTRA_ARGS="-f examples/proxy-values.yaml" \
+kubectl port-forward svc/kagent-ui 8001:8080
+
+
+
+
+
 func (a *adkApiTranslator) buildManifest(
 	ctx context.Context,
 	agent *v1alpha2.Agent,

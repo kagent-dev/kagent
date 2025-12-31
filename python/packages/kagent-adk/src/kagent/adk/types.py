@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Literal, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
@@ -148,17 +148,24 @@ class AgentConfig(BaseModel):
                     target_host = remote_agent.headers["Host"]
 
                     # Event hook to rewrite request URLs to use proxy while preserving Host header
-                    async def rewrite_url_to_proxy(request: httpx.Request) -> None:
-                        parsed = parse_url(str(request.url))
-                        new_url = f"{proxy_base}{parsed.path}"
+                    def make_rewrite_url_to_proxy(
+                        proxy_base: str, target_host: str
+                    ) -> Callable[[httpx.Request], None]:
+                        async def rewrite_url_to_proxy(request: httpx.Request) -> None:
+                            parsed = parse_url(str(request.url))
+                            new_url = f"{proxy_base}{parsed.path}"
 
-                        if parsed.query:
-                            new_url += f"?{parsed.query}"
+                            if parsed.query:
+                                new_url += f"?{parsed.query}"
 
-                        request.url = httpx.URL(new_url)
-                        request.headers["Host"] = target_host
+                            request.url = httpx.URL(new_url)
+                            request.headers["Host"] = target_host
 
-                    client_kwargs["event_hooks"] = {"request": [rewrite_url_to_proxy]}
+                        return rewrite_url_to_proxy
+
+                    client_kwargs["event_hooks"] = {
+                        "request": [make_rewrite_url_to_proxy(proxy_base, target_host)]
+                    }
 
                 client = httpx.AsyncClient(**client_kwargs)
 

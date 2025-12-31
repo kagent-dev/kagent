@@ -26,8 +26,6 @@ from a2a.types import (
     TextPart,
 )
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import Command
 from pydantic import BaseModel
 
 from kagent.core.a2a import (
@@ -43,6 +41,8 @@ from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
 )
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from ._converters import _convert_langgraph_event_to_a2a
 from ._error_mappings import get_error_metadata, get_user_friendly_error_message

@@ -326,6 +326,7 @@ def test_mcp_tool_with_proxy_url():
     is correctly applied.
     """
     from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
+
     from kagent.adk.types import HttpMcpServerConfig
 
     # Configuration with proxy URL and Host header
@@ -373,6 +374,7 @@ def test_mcp_tool_without_proxy():
     internally to create its HTTP client.
     """
     from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
+
     from kagent.adk.types import HttpMcpServerConfig
 
     config = AgentConfig(
@@ -419,6 +421,7 @@ def test_sse_mcp_tool_with_proxy_url():
     is correctly applied.
     """
     from google.adk.tools.mcp_tool import SseConnectionParams
+
     from kagent.adk.types import SseMcpServerConfig
 
     # Configuration with proxy URL and Host header
@@ -464,6 +467,7 @@ def test_sse_mcp_tool_without_proxy():
     internally to create its HTTP client.
     """
     from google.adk.tools.mcp_tool import SseConnectionParams
+
     from kagent.adk.types import SseMcpServerConfig
 
     config = AgentConfig(
