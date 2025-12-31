@@ -74,22 +74,20 @@ type AdkApiTranslator interface {
 
 type TranslatorPlugin = translator.TranslatorPlugin
 
-func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalAgentProxyURL, globalEgressProxyURL string) AdkApiTranslator {
+func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string) AdkApiTranslator {
 	return &adkApiTranslator{
-		kube:                 kube,
-		defaultModelConfig:   defaultModelConfig,
-		plugins:              plugins,
-		globalAgentProxyURL:  globalAgentProxyURL,
-		globalEgressProxyURL: globalEgressProxyURL,
+		kube:               kube,
+		defaultModelConfig: defaultModelConfig,
+		plugins:            plugins,
+		globalProxyURL:     globalProxyURL,
 	}
 }
 
 type adkApiTranslator struct {
-	kube                 client.Client
-	defaultModelConfig   types.NamespacedName
-	plugins              []TranslatorPlugin
-	globalAgentProxyURL  string // Global agent proxy URL for agent -> agent traffic
-	globalEgressProxyURL string // Global egress proxy URL for agent -> MCP server traffic
+	kube               client.Client
+	defaultModelConfig types.NamespacedName
+	plugins            []TranslatorPlugin
+	globalProxyURL     string
 }
 
 const MAX_DEPTH = 10
@@ -537,8 +535,8 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.McpServer != nil:
-			// Use egress proxy for MCP server/tool communication
-			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom, a.globalEgressProxyURL)
+			// Use proxy for MCP server/tool communication
+			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom, a.globalProxyURL)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -569,15 +567,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 
 				// If proxy is configured, use proxy URL and set Host header for Gateway API routing
 				targetURL := originalURL
-				if a.globalAgentProxyURL != "" {
+				if a.globalProxyURL != "" {
 					// Parse original URL to extract path and hostname
 					originalURLParsed, err := url.Parse(originalURL)
 					if err != nil {
 						return nil, nil, nil, fmt.Errorf("failed to parse agent URL %q: %w", originalURL, err)
 					}
-					proxyURLParsed, err := url.Parse(a.globalAgentProxyURL)
+					proxyURLParsed, err := url.Parse(a.globalProxyURL)
 					if err != nil {
-						return nil, nil, nil, fmt.Errorf("failed to parse proxy URL %q: %w", a.globalAgentProxyURL, err)
+						return nil, nil, nil, fmt.Errorf("failed to parse proxy URL %q: %w", a.globalProxyURL, err)
 					}
 					// Use proxy URL with original path
 					targetURL = fmt.Sprintf("%s://%s%s", proxyURLParsed.Scheme, proxyURLParsed.Host, originalURLParsed.Path)
@@ -1082,6 +1080,12 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 
 		remoteMcpServer.Spec.HeadersFrom = append(remoteMcpServer.Spec.HeadersFrom, toolHeaders...)
 
+		// RemoteMCPServer uses user-supplied URLs, but if the URL points to an internal k8s service,
+		// apply proxy to route through the gateway
+		proxyURL := ""
+		if a.globalProxyURL != "" && a.isInternalK8sURL(ctx, remoteMcpServer.Spec.URL, agentNamespace) {
+			proxyURL = a.globalProxyURL
+		}
 		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer.ToolNames, proxyURL)
 	case schema.GroupKind{
 		Group: "",
@@ -1195,6 +1199,45 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 }
 
 // Helper functions
+
+// isInternalK8sURL checks if a URL points to an internal Kubernetes service.
+// Internal k8s URLs follow the pattern: http://{name}.{namespace}:{port} or
+// http://{name}.{namespace}.svc.cluster.local:{port}
+// This method checks if the namespace exists in the cluster to determine if it's internal.
+func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespace string) bool {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+
+	hostname := parsedURL.Hostname()
+	if hostname == "" {
+		return false
+	}
+
+	// Check if it ends with .svc.cluster.local (definitely internal)
+	if strings.HasSuffix(hostname, ".svc.cluster.local") {
+		return true
+	}
+
+	// Extract namespace from hostname pattern: {name}.{namespace}
+	// Examples: test-mcp-server.kagent -> namespace is "kagent"
+	parts := strings.Split(hostname, ".")
+	if len(parts) == 2 {
+		potentialNamespace := parts[1]
+
+		// Check if this namespace exists in the cluster
+		ns := &corev1.Namespace{}
+		err := a.kube.Get(ctx, types.NamespacedName{Name: potentialNamespace}, ns)
+		if err == nil {
+			// Namespace exists, so this is an internal k8s URL
+			return true
+		}
+		// If namespace doesn't exist, it's likely a TLD or external domain
+	}
+
+	return false
+}
 
 func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
 	hasher := sha256.New()

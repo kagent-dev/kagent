@@ -200,8 +200,7 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 		kubeClientWrapper,
 		h.DefaultModelConfig,
 		nil,
-		h.AgentProxyURL,
-		h.EgressProxyURL,
+		h.ProxyURL,
 	)
 
 	log.V(1).Info("Translating Agent to ADK format")

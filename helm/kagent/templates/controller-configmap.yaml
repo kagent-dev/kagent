@@ -26,11 +26,8 @@ data:
   OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
   OTEL_TRACING_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
-  {{- if .Values.proxy.agentUrl }}
-  PROXY_AGENT_URL: {{ .Values.proxy.agentUrl | quote }}
-  {{- end }}
-  {{- if .Values.proxy.egressUrl }}
-  PROXY_EGRESS_URL: {{ .Values.proxy.egressUrl | quote }}
+  {{- if .Values.proxy.url }}
+  PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
   {{- if eq .Values.database.type "sqlite" }}
   SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}

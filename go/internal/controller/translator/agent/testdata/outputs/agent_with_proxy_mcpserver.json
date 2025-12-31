@@ -12,9 +12,9 @@
       "text"
     ],
     "description": "",
-    "name": "agent_with_proxy",
+    "name": "agent_with_proxy_mcpserver",
     "skills": null,
-    "url": "http://agent-with-proxy.test:8080",
+    "url": "http://agent-with-proxy-mcpserver.test:8080",
     "version": ""
   },
   "config": {
@@ -23,7 +23,7 @@
       {
         "params": {
           "headers": {
-            "Host": "test-mcp-server.kagent"
+            "Host": "test-mcp-server.test"
           },
           "url": "http://proxy.kagent.svc.cluster.local:8080/mcp"
         },
@@ -38,15 +38,7 @@
       "model": "gpt-4o",
       "type": "openai"
     },
-    "remote_agents": [
-      {
-        "headers": {
-          "Host": "nested-agent.test"
-        },
-        "name": "test__NS__nested_agent",
-        "url": "http://proxy.kagent.svc.cluster.local:8080"
-      }
-    ],
+    "remote_agents": null,
     "sse_tools": null
   },
   "manifest": [
@@ -57,11 +49,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy",
+          "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy"
+          "kagent": "agent-with-proxy-mcpserver"
         },
-        "name": "agent-with-proxy",
+        "name": "agent-with-proxy-mcpserver",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -69,14 +61,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy",
+            "name": "agent-with-proxy-mcpserver",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_proxy\",\"description\":\"\",\"url\":\"http://agent-with-proxy.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"Host\":\"test-mcp-server.kagent\"}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__nested_agent\",\"url\":\"http://proxy.kagent.svc.cluster.local:8080\",\"headers\":{\"Host\":\"nested-agent.test\"}}]}"
+        "agent-card.json": "{\"name\":\"agent_with_proxy_mcpserver\",\"description\":\"\",\"url\":\"http://agent-with-proxy-mcpserver.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"Host\":\"test-mcp-server.test\"}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":null}"
       }
     },
     {
@@ -86,11 +78,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy",
+          "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy"
+          "kagent": "agent-with-proxy-mcpserver"
         },
-        "name": "agent-with-proxy",
+        "name": "agent-with-proxy-mcpserver",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -98,7 +90,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy",
+            "name": "agent-with-proxy-mcpserver",
             "uid": ""
           }
         ]
@@ -111,11 +103,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy",
+          "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy"
+          "kagent": "agent-with-proxy-mcpserver"
         },
-        "name": "agent-with-proxy",
+        "name": "agent-with-proxy-mcpserver",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -123,7 +115,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy",
+            "name": "agent-with-proxy-mcpserver",
             "uid": ""
           }
         ]
@@ -132,7 +124,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "agent-with-proxy"
+            "kagent": "agent-with-proxy-mcpserver"
           }
         },
         "strategy": {
@@ -145,14 +137,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "7631898334138088108"
+              "kagent.dev/config-hash": "4010839200108182816"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "agent-with-proxy",
+              "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "agent-with-proxy"
+              "kagent": "agent-with-proxy-mcpserver"
             }
           },
           "spec": {
@@ -237,12 +229,12 @@
                 ]
               }
             ],
-            "serviceAccountName": "agent-with-proxy",
+            "serviceAccountName": "agent-with-proxy-mcpserver",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "agent-with-proxy"
+                  "secretName": "agent-with-proxy-mcpserver"
                 }
               },
               {
@@ -272,11 +264,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy",
+          "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy"
+          "kagent": "agent-with-proxy-mcpserver"
         },
-        "name": "agent-with-proxy",
+        "name": "agent-with-proxy-mcpserver",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -284,7 +276,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy",
+            "name": "agent-with-proxy-mcpserver",
             "uid": ""
           }
         ]
@@ -299,7 +291,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "agent-with-proxy"
+          "kagent": "agent-with-proxy-mcpserver"
         },
         "type": "ClusterIP"
       },

@@ -139,7 +139,10 @@ async def test_remote_agent_with_proxy_url():
         request = test_server.requests[0]
         assert request["path"] == AGENT_CARD_WELL_KNOWN_PATH
         # Verify Host header is set for proxy routing
-        assert request["headers"].get("Host") == "remote-agent.kagent" or request["headers"].get("host") == "remote-agent.kagent"
+        assert (
+            request["headers"].get("Host") == "remote-agent.kagent"
+            or request["headers"].get("host") == "remote-agent.kagent"
+        )
 
 
 def test_remote_agent_no_proxy_when_not_configured():
@@ -215,7 +218,10 @@ async def test_remote_agent_direct_url_no_proxy():
         assert test_server.requests[0]["path"] == AGENT_CARD_WELL_KNOWN_PATH
         # Verify Host header is set automatically by httpx based on URL
         headers = test_server.requests[0]["headers"]
-        assert headers.get("Host") == f"localhost:{test_server.port}" or headers.get("host") == f"localhost:{test_server.port}"
+        assert (
+            headers.get("Host") == f"localhost:{test_server.port}"
+            or headers.get("host") == f"localhost:{test_server.port}"
+        )
 
 
 @pytest.mark.asyncio

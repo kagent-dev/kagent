@@ -14,6 +14,9 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,12 +27,11 @@ import (
 
 // TestInput represents the structure of input test files
 type TestInput struct {
-	Objects        []map[string]any `yaml:"objects"`
-	Operation      string           `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
-	TargetObject   string           `yaml:"targetObject"` // name of the object to translate
-	Namespace      string           `yaml:"namespace"`
-	ProxyAgentURL  string           `yaml:"proxyAgentURL,omitempty"`  // Optional proxy URL for A2A
-	ProxyEgressURL string           `yaml:"proxyEgressURL,omitempty"` // Optional proxy URL for egress
+	Objects      []map[string]any `yaml:"objects"`
+	Operation    string           `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
+	TargetObject string           `yaml:"targetObject"` // name of the object to translate
+	Namespace    string           `yaml:"namespace"`
+	ProxyURL     string           `yaml:"proxyURL,omitempty"` // Optional proxy URL for internally-built k8s URLs
 }
 
 // TestGoldenAdkTranslator runs golden tests for the ADK API translator
@@ -76,18 +78,59 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 	scheme := schemev1.Scheme
 	err = v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
+	err = v1alpha1.AddToScheme(scheme)
+	require.NoError(t, err)
 
 	// Convert map objects to unstructured and then to typed objects
 	clientBuilder := fake.NewClientBuilder().WithScheme(scheme)
+
+	// Track namespaces we've seen to add them to the fake client
+	namespacesSeen := make(map[string]bool)
 
 	for _, objMap := range testInput.Objects {
 		// Convert map to unstructured
 		unstrObj := &unstructured.Unstructured{Object: objMap}
 
+		// Track namespace if present
+		if metadata, ok := objMap["metadata"].(map[string]any); ok {
+			if ns, ok := metadata["namespace"].(string); ok && ns != "" {
+				namespacesSeen[ns] = true
+			}
+		}
+
+		// Extract namespace from URLs in RemoteMCPServer specs
+		if kind, ok := objMap["kind"].(string); ok && kind == "RemoteMCPServer" {
+			if spec, ok := objMap["spec"].(map[string]any); ok {
+				if url, ok := spec["url"].(string); ok {
+					// Parse URL to extract namespace (e.g., http://service.namespace:port/path)
+					parts := strings.Split(url, "://")
+					if len(parts) == 2 {
+						hostPart := strings.Split(parts[1], "/")[0]
+						hostParts := strings.Split(hostPart, ":")
+						hostname := hostParts[0]
+						hostnameParts := strings.Split(hostname, ".")
+						if len(hostnameParts) == 2 {
+							namespacesSeen[hostnameParts[1]] = true
+						}
+					}
+				}
+			}
+		}
+
 		// Convert to typed object
 		typedObj, err := convertUnstructuredToTyped(unstrObj, scheme)
 		require.NoError(t, err)
 		clientBuilder = clientBuilder.WithObjects(typedObj)
+	}
+
+	// Add namespaces to fake client so namespace existence checks work
+	for nsName := range namespacesSeen {
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: nsName,
+			},
+		}
+		clientBuilder = clientBuilder.WithObjects(ns)
 	}
 
 	kubeClient := clientBuilder.Build()
@@ -121,10 +164,9 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 		}, agent)
 		require.NoError(t, err)
 
-		// Use proxy URLs from test input if provided
-		proxyAgentURL := testInput.ProxyAgentURL
-		proxyEgressURL := testInput.ProxyEgressURL
-		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, proxyAgentURL, proxyEgressURL).TranslateAgent(ctx, agent)
+		// Use proxy URL from test input if provided
+		proxyURL := testInput.ProxyURL
+		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, proxyURL).TranslateAgent(ctx, agent)
 		require.NoError(t, err)
 
 	default:

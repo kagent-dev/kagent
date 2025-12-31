@@ -1,5 +1,5 @@
 operation: translateAgent
-targetObject: agent-with-proxy
+targetObject: agent-with-proxy-external
 namespace: test
 proxyURL: http://proxy.kagent.svc.cluster.local:8080
 objects:
@@ -21,43 +21,29 @@ objects:
       apiKeySecret: openai-secret
       apiKeySecretKey: api-key
   - apiVersion: kagent.dev/v1alpha2
-    kind: Agent
-    metadata:
-      name: nested-agent
-      namespace: test
-    spec:
-      type: Declarative
-      declarative:
-        description: A nested agent for testing proxy
-        systemMessage: You are a nested agent.
-        modelConfig: default-model
-        tools: []
-  - apiVersion: kagent.dev/v1alpha2
     kind: RemoteMCPServer
     metadata:
-      name: test-mcp-server
+      name: external-mcp-server
       namespace: test
     spec:
-      url: http://test-mcp-server.kagent:8084/mcp
-      description: "Test MCP Server"
+      url: https://external-mcp.example.com/mcp
+      description: "External MCP Server"
+      protocol: STREAMABLE_HTTP
   - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
-      name: agent-with-proxy
+      name: agent-with-proxy-external
       namespace: test
     spec:
       type: Declarative
       declarative:
-        description: An agent with proxy configuration
+        description: An agent with proxy configuration and external RemoteMCPServer
         systemMessage: You are an agent that uses proxies.
         modelConfig: default-model
         tools:
-          - agent:
-              name: nested-agent
           - type: MCPServer
             mcpServer:
-              name: test-mcp-server
+              name: external-mcp-server
               kind: RemoteMCPServer
               toolNames:
                 - test-tool
-

@@ -1,5 +1,5 @@
 operation: translateAgent
-targetObject: agent-with-proxy
+targetObject: agent-with-proxy-service
 namespace: test
 proxyURL: http://proxy.kagent.svc.cluster.local:8080
 objects:
@@ -20,44 +20,37 @@ objects:
       model: gpt-4o
       apiKeySecret: openai-secret
       apiKeySecretKey: api-key
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: toolserver
+      namespace: test
+      annotations:
+        kagent.dev/mcp-service-port: "8084"
+        kagent.dev/mcp-service-path: "/mcp"
+        kagent.dev/mcp-service-protocol: "streamable-http"
+    spec:
+      ports:
+      - name: mcp
+        port: 8084
+        targetPort: 8084
+        protocol: TCP
+        appProtocol: mcp
   - apiVersion: kagent.dev/v1alpha2
     kind: Agent
     metadata:
-      name: nested-agent
+      name: agent-with-proxy-service
       namespace: test
     spec:
       type: Declarative
       declarative:
-        description: A nested agent for testing proxy
-        systemMessage: You are a nested agent.
-        modelConfig: default-model
-        tools: []
-  - apiVersion: kagent.dev/v1alpha2
-    kind: RemoteMCPServer
-    metadata:
-      name: test-mcp-server
-      namespace: test
-    spec:
-      url: http://test-mcp-server.kagent:8084/mcp
-      description: "Test MCP Server"
-  - apiVersion: kagent.dev/v1alpha2
-    kind: Agent
-    metadata:
-      name: agent-with-proxy
-      namespace: test
-    spec:
-      type: Declarative
-      declarative:
-        description: An agent with proxy configuration
+        description: An agent with proxy configuration and Service as MCP Tool
         systemMessage: You are an agent that uses proxies.
         modelConfig: default-model
         tools:
-          - agent:
-              name: nested-agent
           - type: MCPServer
             mcpServer:
-              name: test-mcp-server
-              kind: RemoteMCPServer
+              name: toolserver
+              kind: Service
               toolNames:
-                - test-tool
-
+                - k8s_get_resources

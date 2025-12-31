@@ -55,8 +55,7 @@ type ServerConfig struct {
 	DbClient          database.Client
 	Authenticator     auth.AuthProvider
 	Authorizer        auth.Authorizer
-	AgentProxyURL     string // Agent proxy URL for agent-to-agent traffic
-	EgressProxyURL    string // Egress proxy URL for agent-to-MCP/tool traffic
+	ProxyURL          string
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -76,7 +75,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.AgentProxyURL, config.EgressProxyURL),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL),
 		authenticator: config.Authenticator,
 	}, nil
 }

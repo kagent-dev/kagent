@@ -143,14 +143,13 @@ class AgentConfig(BaseModel):
                 if remote_agent.headers and "Host" in remote_agent.headers:
                     # Parse the proxy URL to extract base URL
                     from urllib.parse import urlparse as parse_url
+
                     parsed_proxy = parse_url(remote_agent.url)
                     proxy_base = f"{parsed_proxy.scheme}://{parsed_proxy.netloc}"
                     target_host = remote_agent.headers["Host"]
 
                     # Event hook to rewrite request URLs to use proxy while preserving Host header
-                    def make_rewrite_url_to_proxy(
-                        proxy_base: str, target_host: str
-                    ) -> Callable[[httpx.Request], None]:
+                    def make_rewrite_url_to_proxy(proxy_base: str, target_host: str) -> Callable[[httpx.Request], None]:
                         async def rewrite_url_to_proxy(request: httpx.Request) -> None:
                             parsed = parse_url(str(request.url))
                             new_url = f"{proxy_base}{parsed.path}"
@@ -163,9 +162,7 @@ class AgentConfig(BaseModel):
 
                         return rewrite_url_to_proxy
 
-                    client_kwargs["event_hooks"] = {
-                        "request": [make_rewrite_url_to_proxy(proxy_base, target_host)]
-                    }
+                    client_kwargs["event_hooks"] = {"request": [make_rewrite_url_to_proxy(proxy_base, target_host)]}
 
                 client = httpx.AsyncClient(**client_kwargs)
 

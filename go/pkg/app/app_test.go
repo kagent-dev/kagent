@@ -259,8 +259,7 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"DEFAULT_MODEL_CONFIG_NAMESPACE": "custom-ns",
 		"HTTP_SERVER_ADDRESS":            ":9000",
 		"A2A_BASE_URL":                   "http://example.com:9000",
-		"PROXY_AGENT_URL":                "http://agent-a2a-proxy:8081",
-		"PROXY_EGRESS_URL":               "http://agent-egress-proxy:8082",
+		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
 		"DATABASE_TYPE":                  "postgres",
 		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
 		"WATCH_NAMESPACES":               "ns1,ns2,ns3",
@@ -306,11 +305,8 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	if cfg.HttpServerAddr != ":9000" {
 		t.Errorf("HttpServerAddr = %v, want :9000", cfg.HttpServerAddr)
 	}
-	if cfg.Proxy.AgentURL != "http://agent-a2a-proxy:8081" {
-		t.Errorf("Proxy.AgentURL = %v, want http://agent-a2a-proxy:8081", cfg.Proxy.AgentURL)
-	}
-	if cfg.Proxy.EgressURL != "http://agent-egress-proxy:8082" {
-		t.Errorf("Proxy.EgressURL = %v, want http://agent-egress-proxy:8082", cfg.Proxy.EgressURL)
+	if cfg.Proxy.URL != "http://proxy.kagent.svc.cluster.local:8080" {
+		t.Errorf("Proxy.URL = %v, want http://proxy.kagent.svc.cluster.local:8080", cfg.Proxy.URL)
 	}
 	if cfg.A2ABaseUrl != "http://example.com:9000" {
 		t.Errorf("A2ABaseUrl = %v, want http://example.com:9000", cfg.A2ABaseUrl)
