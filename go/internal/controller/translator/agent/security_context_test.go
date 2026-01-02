@@ -84,7 +84,7 @@ func TestSecurityContext_AppliedToPodSpec(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil)
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
 
 	// Translate agent
 	result, err := translatorInstance.TranslateAgent(ctx, agent)
@@ -175,7 +175,7 @@ func TestSecurityContext_OnlyPodSecurityContext(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil)
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
 
 	result, err := translatorInstance.TranslateAgent(ctx, agent)
 	require.NoError(t, err)
@@ -250,7 +250,7 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil)
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
 
 	result, err := translatorInstance.TranslateAgent(ctx, agent)
 	require.NoError(t, err)
@@ -328,7 +328,7 @@ func TestSecurityContext_WithSandbox(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil)
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
 
 	result, err := translatorInstance.TranslateAgent(ctx, agent)
 	require.NoError(t, err)

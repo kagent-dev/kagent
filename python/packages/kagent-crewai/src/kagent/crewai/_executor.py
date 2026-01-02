@@ -23,7 +23,6 @@ from pydantic import BaseModel
 
 from crewai import Crew, Flow
 from crewai.memory import LongTermMemory
-
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,

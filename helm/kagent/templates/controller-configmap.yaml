@@ -26,6 +26,9 @@ data:
   OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
   OTEL_TRACING_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  {{- if .Values.proxy.url }}
+  PROXY_URL: {{ .Values.proxy.url | quote }}
+  {{- end }}
   {{- if eq .Values.database.type "sqlite" }}
   SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
   {{- else if and (eq .Values.database.type "postgres") (not (eq .Values.database.postgres.url "")) }}

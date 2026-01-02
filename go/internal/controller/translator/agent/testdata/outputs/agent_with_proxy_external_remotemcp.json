@@ -1,0 +1,301 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "agent_with_proxy_external",
+    "skills": null,
+    "url": "http://agent-with-proxy-external.test:8080",
+    "version": ""
+  },
+  "config": {
+    "description": "",
+    "http_tools": [
+      {
+        "params": {
+          "headers": {},
+          "url": "https://external-mcp.example.com/mcp"
+        },
+        "tools": [
+          "test-tool"
+        ]
+      }
+    ],
+    "instruction": "You are an agent that uses proxies.",
+    "model": {
+      "base_url": "",
+      "model": "gpt-4o",
+      "type": "openai"
+    },
+    "remote_agents": null,
+    "sse_tools": null
+  },
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-proxy-external",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-proxy-external"
+        },
+        "name": "agent-with-proxy-external",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-proxy-external",
+            "uid": ""
+          }
+        ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"name\":\"agent_with_proxy_external\",\"description\":\"\",\"url\":\"http://agent-with-proxy-external.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"https://external-mcp.example.com/mcp\",\"headers\":{}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":null}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-proxy-external",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-proxy-external"
+        },
+        "name": "agent-with-proxy-external",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-proxy-external",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-proxy-external",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-proxy-external"
+        },
+        "name": "agent-with-proxy-external",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-proxy-external",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "agent-with-proxy-external"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "12862703226447143214"
+            },
+            "labels": {
+              "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "agent-with-proxy-external",
+              "app.kubernetes.io/part-of": "kagent",
+              "kagent": "agent-with-proxy-external"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "args": [
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "384Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "agent-with-proxy-external",
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "agent-with-proxy-external"
+                }
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-proxy-external",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-proxy-external"
+        },
+        "name": "agent-with-proxy-external",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-proxy-external",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "agent-with-proxy-external"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
+}

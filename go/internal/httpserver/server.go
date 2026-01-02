@@ -55,6 +55,7 @@ type ServerConfig struct {
 	DbClient          database.Client
 	Authenticator     auth.AuthProvider
 	Authorizer        auth.Authorizer
+	ProxyURL          string
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -74,7 +75,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL),
 		authenticator: config.Authenticator,
 	}, nil
 }

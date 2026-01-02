@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Literal, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
@@ -112,6 +112,7 @@ class AgentConfig(BaseModel):
             header_provider = sts_integration.header_provider
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
+                # If the proxy is configured, the url and headers are set in the json configuration
                 tools.append(
                     McpToolset(
                         connection_params=http_tool.params, tool_filter=http_tool.tools, header_provider=header_provider
@@ -119,6 +120,7 @@ class AgentConfig(BaseModel):
                 )
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
+                # If the proxy is configured, the url and headers are set in the json configuration
                 tools.append(
                     McpToolset(
                         connection_params=sse_tool.params, tool_filter=sse_tool.tools, header_provider=header_provider
@@ -126,16 +128,48 @@ class AgentConfig(BaseModel):
                 )
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
-                client = None
+                # Always create httpx client
+                client_kwargs: dict[str, Any] = {
+                    "timeout": httpx.Timeout(timeout=remote_agent.timeout),
+                    "trust_env": False,
+                }
 
                 if remote_agent.headers:
-                    client = httpx.AsyncClient(
-                        headers=remote_agent.headers, timeout=httpx.Timeout(timeout=remote_agent.timeout)
-                    )
+                    client_kwargs["headers"] = remote_agent.headers
+
+                # If headers include X-Host header, it means we're using a proxy
+                # RemoteA2aAgent may use URLs from agent card response, so we need to
+                # rewrite all request URLs to use the proxy URL while preserving X-Host header
+                if remote_agent.headers and "X-Host" in remote_agent.headers:
+                    # Parse the proxy URL to extract base URL
+                    from urllib.parse import urlparse as parse_url
+
+                    parsed_proxy = parse_url(remote_agent.url)
+                    proxy_base = f"{parsed_proxy.scheme}://{parsed_proxy.netloc}"
+                    target_host = remote_agent.headers["X-Host"]
+
+                    # Event hook to rewrite request URLs to use proxy while preserving X-Host header
+                    def make_rewrite_url_to_proxy(proxy_base: str, target_host: str) -> Callable[[httpx.Request], None]:
+                        async def rewrite_url_to_proxy(request: httpx.Request) -> None:
+                            parsed = parse_url(str(request.url))
+                            new_url = f"{proxy_base}{parsed.path}"
+
+                            if parsed.query:
+                                new_url += f"?{parsed.query}"
+
+                            request.url = httpx.URL(new_url)
+                            # Preserve X-Host header for Gateway API routing
+                            request.headers["X-Host"] = target_host
+
+                        return rewrite_url_to_proxy
+
+                    client_kwargs["event_hooks"] = {"request": [make_rewrite_url_to_proxy(proxy_base, target_host)]}
+
+                client = httpx.AsyncClient(**client_kwargs)
 
                 remote_a2a_agent = RemoteA2aAgent(
                     name=remote_agent.name,
-                    agent_card=f"{remote_agent.url}/{AGENT_CARD_WELL_KNOWN_PATH}",
+                    agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
                     description=remote_agent.description,
                     httpx_client=client,
                 )

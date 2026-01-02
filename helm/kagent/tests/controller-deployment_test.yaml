@@ -106,6 +106,22 @@ tests:
           path: data.A2A_BASE_URL
           value: "https://kagent.example.com"
 
+  - it: should set PROXY_URL when set
+    template: controller-configmap.yaml
+    set:
+      proxy:
+        url: "http://proxy.kagent.svc.cluster.local:8080"
+    asserts:
+      - equal:
+          path: data.PROXY_URL
+          value: "http://proxy.kagent.svc.cluster.local:8080"
+
+  - it: should not set PROXY_URL when not set
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.PROXY_URL
+
   - it: should use custom loglevel when set
     template: controller-configmap.yaml
     set:

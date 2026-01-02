@@ -1,8 +1,8 @@
 """Custom span processor to add kagent attributes to all spans in a request context."""
 
 import logging
-from typing import Optional
 from contextvars import Token
+from typing import Optional
 
 from opentelemetry import context as otel_context
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor

@@ -259,6 +259,7 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"DEFAULT_MODEL_CONFIG_NAMESPACE": "custom-ns",
 		"HTTP_SERVER_ADDRESS":            ":9000",
 		"A2A_BASE_URL":                   "http://example.com:9000",
+		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
 		"DATABASE_TYPE":                  "postgres",
 		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
 		"WATCH_NAMESPACES":               "ns1,ns2,ns3",
@@ -303,6 +304,9 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	}
 	if cfg.HttpServerAddr != ":9000" {
 		t.Errorf("HttpServerAddr = %v, want :9000", cfg.HttpServerAddr)
+	}
+	if cfg.Proxy.URL != "http://proxy.kagent.svc.cluster.local:8080" {
+		t.Errorf("Proxy.URL = %v, want http://proxy.kagent.svc.cluster.local:8080", cfg.Proxy.URL)
 	}
 	if cfg.A2ABaseUrl != "http://example.com:9000" {
 		t.Errorf("A2ABaseUrl = %v, want http://example.com:9000", cfg.A2ABaseUrl)
