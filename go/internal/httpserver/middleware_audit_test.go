@@ -158,11 +158,11 @@ func TestAuditLoggingMiddleware_WithIncludeHeaders(t *testing.T) {
 
 func TestExtractNamespace(t *testing.T) {
 	tests := []struct {
-		name      string
-		path      string
-		query     string
-		header    string
-		expected  string
+		name     string
+		path     string
+		query    string
+		header   string
+		expected string
 	}{
 		{
 			name:     "extract from path - agents",
@@ -355,4 +355,3 @@ func TestAuditLoggingMiddleware_AllHTTPMethods(t *testing.T) {
 		})
 	}
 }
-
