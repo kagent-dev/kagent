@@ -1,0 +1,40 @@
+{{- if .Values.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.pdb.controller.minAvailable }}
+  minAvailable: {{ .Values.pdb.controller.minAvailable }}
+  {{- else if .Values.pdb.controller.maxUnavailable }}
+  maxUnavailable: {{ .Values.pdb.controller.maxUnavailable }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.ui.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.pdb.ui.minAvailable }}
+  minAvailable: {{ .Values.pdb.ui.minAvailable }}
+  {{- else if .Values.pdb.ui.maxUnavailable }}
+  maxUnavailable: {{ .Values.pdb.ui.maxUnavailable }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kagent.ui.selectorLabels" . | nindent 6 }}
+{{- end }}

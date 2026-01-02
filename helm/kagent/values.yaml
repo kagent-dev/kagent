@@ -47,6 +47,26 @@ tolerations: []
 nodeSelector: {}
 
 # ==============================================================================
+# HIGH AVAILABILITY CONFIGURATION
+# ==============================================================================
+
+pdb:
+  # -- Enable PodDisruptionBudgets for controller and UI deployments
+  enabled: false
+  controller:
+    # -- Minimum number of controller pods that must be available during disruption
+    # Only one of minAvailable or maxUnavailable can be set
+    minAvailable: 1
+    # -- Maximum number of controller pods that can be unavailable during disruption
+    # maxUnavailable: 1
+  ui:
+    # -- Minimum number of UI pods that must be available during disruption
+    # Only one of minAvailable or maxUnavailable can be set
+    minAvailable: 1
+    # -- Maximum number of UI pods that can be unavailable during disruption
+    # maxUnavailable: 1
+
+# ==============================================================================
 # DATABASE CONFIGURATION
 # ==============================================================================
 
@@ -76,8 +96,11 @@ controller:
     maxBufSize: 1Mi # 1024 * 1024
     initialBufSize: 4Ki # 4 * 1024
     timeout: 600s # 600 seconds
-  # -- Namespaces the controller should watch.
-  # If empty, the controller will watch ALL available namespaces.
+  # -- Namespaces the controller should watch (namespace-scoped mode).
+  # When set, the controller enforces namespace isolation and only reconciles
+  # resources within the specified namespaces. This enables multi-tenant
+  # deployments where different tenants' resources are isolated.
+  # If empty, the controller watches ALL namespaces (cluster-wide mode).
   # @default -- [] (watches all available namespaces)
   watchNamespaces: []
   #  - watch-ns-1
@@ -380,3 +403,64 @@ otel:
         endpoint: http://host.docker.internal:4317
         timeout: 15
         insecure: true
+
+# ==============================================================================
+# MONITORING CONFIGURATION (Prometheus Operator)
+# ==============================================================================
+
+metrics:
+  # -- Enable metrics (controller exposes metrics by default)
+  enabled: true
+
+  serviceMonitor:
+    # -- Enable ServiceMonitor for Prometheus Operator
+    enabled: false
+    # -- Additional labels for the ServiceMonitor
+    labels: {}
+    # -- Scrape interval (e.g., "30s")
+    # @default -- Prometheus default
+    interval: ""
+    # -- Scrape timeout (e.g., "10s")
+    # @default -- Prometheus default
+    scrapeTimeout: ""
+    # -- Metrics path
+    path: /metrics
+    # -- Scheme to use for scraping (http or https)
+    scheme: http
+    # -- TLS configuration for scraping
+    tlsConfig: {}
+    # -- RelabelConfigs to apply to samples before scraping
+    relabelings: []
+    # -- MetricRelabelConfigs to apply to samples before ingestion
+    metricRelabelings: []
+
+  prometheusRule:
+    # -- Enable PrometheusRule for alerting
+    enabled: false
+    # -- Additional labels for the PrometheusRule
+    labels: {}
+    # -- Additional labels to add to all alerts
+    alertLabels: {}
+    # -- Enable/disable default alerting rules
+    defaultRules:
+      # -- Alert when controller is down
+      controllerDown: true
+      # -- Alert on high error rate
+      highErrorRate: true
+      # -- Alert on high latency
+      highLatency: true
+    # -- Thresholds for default alerts
+    thresholds:
+      # -- Error rate threshold (0.05 = 5%)
+      errorRatePercent: 0.05
+      # -- Latency threshold in seconds (p99)
+      latencySeconds: 5
+    # -- Additional custom alerting rules
+    additionalRules: []
+    # - alert: CustomAlert
+    #   expr: some_metric > 100
+    #   for: 5m
+    #   labels:
+    #     severity: warning
+    #   annotations:
+    #     summary: Custom alert triggered

@@ -58,6 +58,11 @@ type kagentReconciler struct {
 
 	defaultModelConfig types.NamespacedName
 
+	// watchedNamespaces contains the list of namespaces the controller is allowed to operate on.
+	// If empty, all namespaces are allowed (cluster-wide mode).
+	// If non-empty, only operations within these namespaces are permitted (namespace-scoped mode).
+	watchedNamespaces []string
+
 	// TODO: Remove this lock since we have a DB which we can batch anyway
 	upsertLock sync.Mutex
 }
@@ -67,16 +72,50 @@ func NewKagentReconciler(
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
+	watchedNamespaces []string,
 ) KagentReconciler {
 	return &kagentReconciler{
 		adkTranslator:      translator,
 		kube:               kube,
 		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
+		watchedNamespaces:  watchedNamespaces,
 	}
 }
 
+// isNamespaceAllowed checks if the given namespace is allowed based on the watched namespaces configuration.
+// Returns true if:
+// - watchedNamespaces is empty (cluster-wide mode, all namespaces allowed)
+// - namespace is in the watchedNamespaces list (namespace-scoped mode)
+func (a *kagentReconciler) isNamespaceAllowed(namespace string) bool {
+	if len(a.watchedNamespaces) == 0 {
+		return true
+	}
+	return slices.Contains(a.watchedNamespaces, namespace)
+}
+
+// validateNamespaceIsolation checks if an operation in the given namespace is allowed.
+// Returns an error if namespace isolation is violated.
+func (a *kagentReconciler) validateNamespaceIsolation(namespace string) error {
+	if !a.isNamespaceAllowed(namespace) {
+		return fmt.Errorf("namespace %q is not in the list of watched namespaces; controller is in namespace-scoped mode watching: %v", namespace, a.watchedNamespaces)
+	}
+	return nil
+}
+
+// IsNamespaceScopedMode returns true if the controller is operating in namespace-scoped mode
+// (i.e., watching specific namespaces rather than all namespaces).
+func (a *kagentReconciler) IsNamespaceScopedMode() bool {
+	return len(a.watchedNamespaces) > 0
+}
+
 func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error {
+	// Enforce namespace isolation in namespace-scoped mode
+	if err := a.validateNamespaceIsolation(req.Namespace); err != nil {
+		reconcileLog.Info("Skipping agent reconciliation due to namespace isolation", "agent", req.NamespacedName, "error", err)
+		return nil
+	}
+
 	// TODO(sbx0r): missing finalizer logic
 	agent := &v1alpha2.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
@@ -171,6 +210,12 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 }
 
 func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error {
+	// Enforce namespace isolation in namespace-scoped mode
+	if err := a.validateNamespaceIsolation(req.Namespace); err != nil {
+		reconcileLog.Info("Skipping MCP service reconciliation due to namespace isolation", "service", req.NamespacedName, "error", err)
+		return nil
+	}
+
 	service := &corev1.Service{}
 	if err := a.kube.Get(ctx, req.NamespacedName, service); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -214,6 +259,12 @@ type secretRef struct {
 }
 
 func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
+	// Enforce namespace isolation in namespace-scoped mode
+	if err := a.validateNamespaceIsolation(req.Namespace); err != nil {
+		reconcileLog.Info("Skipping model config reconciliation due to namespace isolation", "modelConfig", req.NamespacedName, "error", err)
+		return nil
+	}
+
 	modelConfig := &v1alpha2.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -337,6 +388,12 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 }
 
 func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {
+	// Enforce namespace isolation in namespace-scoped mode
+	if err := a.validateNamespaceIsolation(req.Namespace); err != nil {
+		reconcileLog.Info("Skipping MCP server reconciliation due to namespace isolation", "mcpServer", req.NamespacedName, "error", err)
+		return nil
+	}
+
 	mcpServer := &v1alpha1.MCPServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -375,6 +432,12 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 }
 
 func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {
+	// Enforce namespace isolation in namespace-scoped mode
+	if err := a.validateNamespaceIsolation(req.Namespace); err != nil {
+		reconcileLog.Info("Skipping remote MCP server reconciliation due to namespace isolation", "remoteMCPServer", req.NamespacedName, "error", err)
+		return nil
+	}
+
 	nns := req.NamespacedName
 	serverRef := nns.String()
 	l := reconcileLog.WithValues("remoteMCPServer", serverRef)

@@ -207,3 +207,157 @@ func TestAgentIDConsistency(t *testing.T) {
 
 	assert.Equal(t, storeID, deleteID)
 }
+
+// TestIsNamespaceAllowed tests the namespace isolation logic
+func TestIsNamespaceAllowed(t *testing.T) {
+	tests := []struct {
+		name              string
+		watchedNamespaces []string
+		namespace         string
+		expected          bool
+	}{
+		{
+			name:              "cluster-wide mode (empty watchedNamespaces) allows all namespaces",
+			watchedNamespaces: []string{},
+			namespace:         "any-namespace",
+			expected:          true,
+		},
+		{
+			name:              "cluster-wide mode allows default namespace",
+			watchedNamespaces: []string{},
+			namespace:         "default",
+			expected:          true,
+		},
+		{
+			name:              "namespace-scoped mode allows watched namespace",
+			watchedNamespaces: []string{"ns1", "ns2", "ns3"},
+			namespace:         "ns1",
+			expected:          true,
+		},
+		{
+			name:              "namespace-scoped mode allows another watched namespace",
+			watchedNamespaces: []string{"ns1", "ns2", "ns3"},
+			namespace:         "ns3",
+			expected:          true,
+		},
+		{
+			name:              "namespace-scoped mode blocks non-watched namespace",
+			watchedNamespaces: []string{"ns1", "ns2"},
+			namespace:         "ns3",
+			expected:          false,
+		},
+		{
+			name:              "namespace-scoped mode blocks default namespace if not in list",
+			watchedNamespaces: []string{"ns1", "ns2"},
+			namespace:         "default",
+			expected:          false,
+		},
+		{
+			name:              "single namespace mode allows only that namespace",
+			watchedNamespaces: []string{"production"},
+			namespace:         "production",
+			expected:          true,
+		},
+		{
+			name:              "single namespace mode blocks other namespaces",
+			watchedNamespaces: []string{"production"},
+			namespace:         "staging",
+			expected:          false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &kagentReconciler{
+				watchedNamespaces: tt.watchedNamespaces,
+			}
+			result := r.isNamespaceAllowed(tt.namespace)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestValidateNamespaceIsolation tests the namespace isolation validation
+func TestValidateNamespaceIsolation(t *testing.T) {
+	tests := []struct {
+		name              string
+		watchedNamespaces []string
+		namespace         string
+		expectError       bool
+	}{
+		{
+			name:              "cluster-wide mode returns no error",
+			watchedNamespaces: []string{},
+			namespace:         "any-namespace",
+			expectError:       false,
+		},
+		{
+			name:              "namespace-scoped mode allows watched namespace",
+			watchedNamespaces: []string{"allowed-ns"},
+			namespace:         "allowed-ns",
+			expectError:       false,
+		},
+		{
+			name:              "namespace-scoped mode returns error for non-watched namespace",
+			watchedNamespaces: []string{"allowed-ns"},
+			namespace:         "blocked-ns",
+			expectError:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &kagentReconciler{
+				watchedNamespaces: tt.watchedNamespaces,
+			}
+			err := r.validateNamespaceIsolation(tt.namespace)
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "namespace-scoped mode")
+				assert.Contains(t, err.Error(), tt.namespace)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestIsNamespaceScopedMode tests the namespace scoped mode detection
+func TestIsNamespaceScopedMode(t *testing.T) {
+	tests := []struct {
+		name              string
+		watchedNamespaces []string
+		expected          bool
+	}{
+		{
+			name:              "empty watchedNamespaces is not namespace-scoped",
+			watchedNamespaces: []string{},
+			expected:          false,
+		},
+		{
+			name:              "nil watchedNamespaces is not namespace-scoped",
+			watchedNamespaces: nil,
+			expected:          false,
+		},
+		{
+			name:              "single namespace is namespace-scoped",
+			watchedNamespaces: []string{"ns1"},
+			expected:          true,
+		},
+		{
+			name:              "multiple namespaces is namespace-scoped",
+			watchedNamespaces: []string{"ns1", "ns2", "ns3"},
+			expected:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &kagentReconciler{
+				watchedNamespaces: tt.watchedNamespaces,
+			}
+			result := r.IsNamespaceScopedMode()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

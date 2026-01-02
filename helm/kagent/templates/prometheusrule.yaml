@@ -1,0 +1,65 @@
+{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: kagent-controller
+      rules:
+        {{- if .Values.metrics.prometheusRule.defaultRules.controllerDown }}
+        - alert: KagentControllerDown
+          expr: absent(up{job="{{ include "kagent.fullname" . }}-controller"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+            {{- with .Values.metrics.prometheusRule.alertLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: Kagent controller is down
+            description: "Kagent controller has been down for more than 5 minutes."
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.defaultRules.highErrorRate }}
+        - alert: KagentHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{job="{{ include "kagent.fullname" . }}-controller", status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total{job="{{ include "kagent.fullname" . }}-controller"}[5m]))
+            ) > {{ .Values.metrics.prometheusRule.thresholds.errorRatePercent | default 0.05 }}
+          for: 5m
+          labels:
+            severity: warning
+            {{- with .Values.metrics.prometheusRule.alertLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: Kagent controller high error rate
+            description: "Kagent controller error rate is above {{ mul (.Values.metrics.prometheusRule.thresholds.errorRatePercent | default 0.05) 100 }}% for more than 5 minutes."
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.defaultRules.highLatency }}
+        - alert: KagentHighLatency
+          expr: |
+            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="{{ include "kagent.fullname" . }}-controller"}[5m])) by (le))
+            > {{ .Values.metrics.prometheusRule.thresholds.latencySeconds | default 5 }}
+          for: 5m
+          labels:
+            severity: warning
+            {{- with .Values.metrics.prometheusRule.alertLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: Kagent controller high latency
+            description: "Kagent controller 99th percentile latency is above {{ .Values.metrics.prometheusRule.thresholds.latencySeconds | default 5 }}s for more than 5 minutes."
+        {{- end }}
+        {{- with .Values.metrics.prometheusRule.additionalRules }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

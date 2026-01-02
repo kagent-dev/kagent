@@ -226,6 +226,7 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Use middleware for common functionality
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
+	s.router.Use(auditLoggingMiddleware(DefaultAuditLogConfig()))
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)
