@@ -128,15 +128,15 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		remoteAgent := result.Config.RemoteAgents[0]
 		assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080", remoteAgent.Url)
 		assert.NotNil(t, remoteAgent.Headers)
-		assert.Equal(t, "nested-agent.test", remoteAgent.Headers["Host"])
+		assert.Equal(t, "nested-agent.test", remoteAgent.Headers["X-Host"])
 
 		// Verify RemoteMCPServer with internal k8s URL DOES use proxy
 		require.Len(t, result.Config.HttpTools, 1)
 		httpTool := result.Config.HttpTools[0]
 		assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
-		// Host header should be set for RemoteMCPServer with internal k8s URL (uses proxy)
+		// X-Host header should be set for RemoteMCPServer with internal k8s URL (uses proxy)
 		require.NotNil(t, httpTool.Params.Headers)
-		assert.Equal(t, "test-mcp-server.kagent", httpTool.Params.Headers["Host"])
+		assert.Equal(t, "test-mcp-server.kagent", httpTool.Params.Headers["X-Host"])
 	})
 
 	t.Run("without proxy URL", func(t *testing.T) {
@@ -156,20 +156,20 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		require.Len(t, result.Config.RemoteAgents, 1)
 		remoteAgent := result.Config.RemoteAgents[0]
 		assert.Equal(t, "http://nested-agent.test:8080", remoteAgent.Url)
-		// Host header should not be set when no proxy
+		// X-Host header should not be set when no proxy
 		if remoteAgent.Headers != nil {
-			_, hasHost := remoteAgent.Headers["Host"]
-			assert.False(t, hasHost, "Host header should not be set when no proxy")
+			_, hasHost := remoteAgent.Headers["X-Host"]
+			assert.False(t, hasHost, "X-Host header should not be set when no proxy")
 		}
 
 		// Verify RemoteMCPServer direct URL (no proxy)
 		require.Len(t, result.Config.HttpTools, 1)
 		httpTool := result.Config.HttpTools[0]
 		assert.Equal(t, "http://test-mcp-server.kagent:8084/mcp", httpTool.Params.Url)
-		// Host header should not be set when no proxy
+		// X-Host header should not be set when no proxy
 		if httpTool.Params.Headers != nil {
-			_, hasHost := httpTool.Params.Headers["Host"]
-			assert.False(t, hasHost, "Host header should not be set when no proxy")
+			_, hasHost := httpTool.Params.Headers["X-Host"]
+			assert.False(t, hasHost, "X-Host header should not be set when no proxy")
 		}
 	})
 }
@@ -257,10 +257,10 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 	require.Len(t, result.Config.HttpTools, 1)
 	httpTool := result.Config.HttpTools[0]
 	assert.Equal(t, "https://external-mcp.example.com/mcp", httpTool.Params.Url)
-	// Host header should not be set for external URLs (no proxy)
+	// X-Host header should not be set for external URLs (no proxy)
 	if httpTool.Params.Headers != nil {
-		_, hasHost := httpTool.Params.Headers["Host"]
-		assert.False(t, hasHost, "Host header should not be set for RemoteMCPServer with external URL (no proxy)")
+		_, hasHost := httpTool.Params.Headers["X-Host"]
+		assert.False(t, hasHost, "X-Host header should not be set for RemoteMCPServer with external URL (no proxy)")
 	}
 }
 
@@ -349,9 +349,9 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 	require.Len(t, result.Config.HttpTools, 1)
 	httpTool := result.Config.HttpTools[0]
 	assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
-	// Host header should be set for MCPServer (uses proxy)
+	// X-Host header should be set for MCPServer (uses proxy)
 	require.NotNil(t, httpTool.Params.Headers)
-	assert.Equal(t, "test-mcp-server.test", httpTool.Params.Headers["Host"])
+	assert.Equal(t, "test-mcp-server.test", httpTool.Params.Headers["X-Host"])
 }
 
 // TestProxyConfiguration_Service tests that Services as MCP Tools use proxy
@@ -446,7 +446,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 	require.Len(t, result.Config.HttpTools, 1)
 	httpTool := result.Config.HttpTools[0]
 	assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
-	// Host header should be set for Service (uses proxy)
+	// X-Host header should be set for Service (uses proxy)
 	require.NotNil(t, httpTool.Params.Headers)
-	assert.Equal(t, "test-service.test", httpTool.Params.Headers["Host"])
+	assert.Equal(t, "test-service.test", httpTool.Params.Headers["X-Host"])
 }

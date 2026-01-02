@@ -137,18 +137,18 @@ class AgentConfig(BaseModel):
                 if remote_agent.headers:
                     client_kwargs["headers"] = remote_agent.headers
 
-                # If headers include Host header, it means we're using a proxy
+                # If headers include X-Host header, it means we're using a proxy
                 # RemoteA2aAgent may use URLs from agent card response, so we need to
-                # rewrite all request URLs to use the proxy URL while preserving Host header
-                if remote_agent.headers and "Host" in remote_agent.headers:
+                # rewrite all request URLs to use the proxy URL while preserving X-Host header
+                if remote_agent.headers and "X-Host" in remote_agent.headers:
                     # Parse the proxy URL to extract base URL
                     from urllib.parse import urlparse as parse_url
 
                     parsed_proxy = parse_url(remote_agent.url)
                     proxy_base = f"{parsed_proxy.scheme}://{parsed_proxy.netloc}"
-                    target_host = remote_agent.headers["Host"]
+                    target_host = remote_agent.headers["X-Host"]
 
-                    # Event hook to rewrite request URLs to use proxy while preserving Host header
+                    # Event hook to rewrite request URLs to use proxy while preserving X-Host header
                     def make_rewrite_url_to_proxy(proxy_base: str, target_host: str) -> Callable[[httpx.Request], None]:
                         async def rewrite_url_to_proxy(request: httpx.Request) -> None:
                             parsed = parse_url(str(request.url))
@@ -158,7 +158,8 @@ class AgentConfig(BaseModel):
                                 new_url += f"?{parsed.query}"
 
                             request.url = httpx.URL(new_url)
-                            request.headers["Host"] = target_host
+                            # Preserve X-Host header for Gateway API routing
+                            request.headers["X-Host"] = target_host
 
                         return rewrite_url_to_proxy
 
