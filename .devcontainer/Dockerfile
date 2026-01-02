@@ -91,6 +91,7 @@ ARG TOOLS_GO_VERSION
 ARG TOOLS_K9S_VERSION
 ARG TOOLS_KIND_VERSION
 ARG TOOLS_ISTIO_VERSION
+ARG TOOLS_LINKERD_VERSION
 ARG TOOLS_ARGO_CD_VERSION
 ARG TOOLS_KUBECTL_VERSION
 ARG ARCH=${TARGETARCH:-amd64}
@@ -123,6 +124,11 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${TOOLS_ISTIO_VERSION} TARGET_ARCH=${ARCH} sh - \
     && mv istio-*/bin/istioctl /usr/local/bin/istioctl \
     && rm -rf istio-*
+
+# Install Linkerd Edge
+RUN curl -sL https://run.linkerd.io/install-edge | LINKERD2_VERSION=${TOOLS_LINKERD_VERSION} TARGET_ARCH=${ARCH} sh \
+    && mv ~/.linkerd2/bin/linkerd /usr/local/bin/linkerd \
+    && rm -rf ~/.linkerd2
 
 # Install kind
 RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${ARCH} \
