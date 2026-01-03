@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: xai-api-key
+  namespace: default
+type: Opaque
+stringData:
+  apiKey: your-xai-api-key-here
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: grok-4-1-fast-reasoning
+  namespace: default
+spec:
+  provider: XAI
+  model: grok-4-1-fast-reasoning
+  apiKeySecret: xai-api-key
+  apiKeySecretKey: apiKey
+  xAI:
+    temperature: "0.7"
+    maxTokens: 4096
+    topP: "0.9"
+    tools:
+      - web_search
+      - x_search
+      - code_execution
+    liveSearchMode: auto
