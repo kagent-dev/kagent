@@ -565,7 +565,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					return nil, nil, nil, err
 				}
 
-				// If proxy is configured, use proxy URL and set X-Host header for Gateway API routing
+				// If proxy is configured, use proxy URL and set X-Kagent-Host header for Gateway API routing
 				targetURL := originalURL
 				if a.globalProxyURL != "" {
 					// Parse original URL to extract path and hostname
@@ -579,11 +579,11 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					}
 					// Use proxy URL with original path
 					targetURL = fmt.Sprintf("%s://%s%s", proxyURLParsed.Scheme, proxyURLParsed.Host, originalURLParsed.Path)
-					// Set X-Host header to original hostname (without port) for Gateway API routing
+					// Set X-Kagent-Host header to original hostname (without port) for Gateway API routing
 					if headers == nil {
 						headers = make(map[string]string)
 					}
-					headers["X-Host"] = originalURLParsed.Hostname()
+					headers["X-Kagent-Host"] = originalURLParsed.Hostname()
 				}
 
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
@@ -952,7 +952,7 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 		return nil, err
 	}
 
-	// If proxy is configured, use proxy URL and set X-Host header for Gateway API routing
+	// If proxy is configured, use proxy URL and set X-Kagent-Host header for Gateway API routing
 	targetURL := tool.URL
 	if proxyURL != "" {
 		// Parse original URL to extract path and hostname
@@ -966,11 +966,11 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 		}
 		// Use proxy URL with original path
 		targetURL = fmt.Sprintf("%s://%s%s", proxyURLParsed.Scheme, proxyURLParsed.Host, originalURL.Path)
-		// Set X-Host header to original hostname (without port) for Gateway API routing
+		// Set X-Kagent-Host header to original hostname (without port) for Gateway API routing
 		if headers == nil {
 			headers = make(map[string]string)
 		}
-		headers["X-Host"] = originalURL.Hostname()
+		headers["X-Kagent-Host"] = originalURL.Hostname()
 	}
 
 	params := &adk.StreamableHTTPConnectionParams{
@@ -995,7 +995,7 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 		return nil, err
 	}
 
-	// If proxy is configured, use proxy URL and set X-Host header for Gateway API routing
+	// If proxy is configured, use proxy URL and set X-Kagent-Host header for Gateway API routing
 	targetURL := tool.URL
 	if proxyURL != "" {
 		// Parse original URL to extract path and hostname
@@ -1009,11 +1009,11 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 		}
 		// Use proxy URL with original path
 		targetURL = fmt.Sprintf("%s://%s%s", proxyURLParsed.Scheme, proxyURLParsed.Host, originalURL.Path)
-		// Set X-Host header to original hostname (without port) for Gateway API routing
+		// Set X-Kagent-Host header to original hostname (without port) for Gateway API routing
 		if headers == nil {
 			headers = make(map[string]string)
 		}
-		headers["X-Host"] = originalURL.Hostname()
+		headers["X-Kagent-Host"] = originalURL.Hostname()
 	}
 
 	params := &adk.SseConnectionParams{
