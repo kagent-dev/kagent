@@ -148,17 +148,27 @@ class AgentConfig(BaseModel):
                     proxy_base = f"{parsed_proxy.scheme}://{parsed_proxy.netloc}"
                     target_host = remote_agent.headers["X-Kagent-Host"]
 
+                    # Set base_url so relative paths work correctly with httpx
+                    # httpx requires either base_url or absolute URLs - relative paths will fail without base_url
+                    client_kwargs["base_url"] = proxy_base
+
                     # Event hook to rewrite request URLs to use proxy while preserving X-Kagent-Host header
+                    # This handles cases where RemoteA2aAgent uses absolute URLs from agent card response
+                    # Note: Relative paths are handled by base_url above, so they'll already point to proxy_base
                     def make_rewrite_url_to_proxy(proxy_base: str, target_host: str) -> Callable[[httpx.Request], None]:
                         async def rewrite_url_to_proxy(request: httpx.Request) -> None:
                             parsed = parse_url(str(request.url))
-                            new_url = f"{proxy_base}{parsed.path}"
+                            proxy_netloc = parse_url(proxy_base).netloc
 
-                            if parsed.query:
-                                new_url += f"?{parsed.query}"
+                            # If URL is absolute and points to a different host, rewrite to proxy
+                            if parsed.netloc and parsed.netloc != proxy_netloc:
+                                # This is an absolute URL pointing to the target service, rewrite it
+                                new_url = f"{proxy_base}{parsed.path}"
+                                if parsed.query:
+                                    new_url += f"?{parsed.query}"
+                                request.url = httpx.URL(new_url)
 
-                            request.url = httpx.URL(new_url)
-                            # Preserve X-Kagent-Host header for Gateway API routing
+                            # Always set X-Kagent-Host header for Gateway API routing
                             request.headers["X-Kagent-Host"] = target_host
 
                         return rewrite_url_to_proxy

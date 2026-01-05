@@ -131,8 +131,9 @@ async def test_remote_agent_with_proxy_url():
         assert remote_agent_tool is not None
 
         # Make a request - this should go through the proxy (test server)
+        # The client has base_url set to the proxy, so we can use a relative path
         async with remote_agent_tool._httpx_client as client:
-            await client.get(f"{AGENT_CARD_WELL_KNOWN_PATH}")
+            await client.get(AGENT_CARD_WELL_KNOWN_PATH)
 
         # Verify that requests were made to the proxy URL (test server)
         assert len(test_server.requests) > 0, "No requests were received by test server"
@@ -141,7 +142,7 @@ async def test_remote_agent_with_proxy_url():
         # Verify X-Kagent-Host header is set for proxy routing
         assert (
             request["headers"].get("X-Kagent-Host") == "remote-agent.kagent"
-            or request["headers"].get("X-Kagent-Host") == "remote-agent.kagent"
+            or request["headers"].get("x-kagent-host") == "remote-agent.kagent"
         )
 
 
@@ -228,7 +229,7 @@ async def test_remote_agent_direct_url_no_proxy():
 
 @pytest.mark.asyncio
 async def test_remote_agent_with_headers():
-    """Test that RemoteA2aAgent preserves headers including Host header for proxy routing."""
+    """Test that RemoteA2aAgent preserves headers including X-Kagent-Host header for proxy routing."""
     with TestHTTPServer() as test_server:
         config = AgentConfig(
             model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
@@ -241,7 +242,7 @@ async def test_remote_agent_with_headers():
                     description="Remote agent",
                     headers={
                         "Authorization": "Bearer token123",
-                        "Host": "remote-agent.kagent",  # Host header for proxy routing
+                        "X-Kagent-Host": "remote-agent.kagent",  # X-Kagent-Host header for proxy routing
                     },
                 )
             ],
@@ -260,7 +261,7 @@ async def test_remote_agent_with_headers():
 
         assert remote_agent_tool is not None
 
-        # Make a request using the client
+        # Make a request using the client - the client has base_url set to the proxy
         async with remote_agent_tool._httpx_client as client:
             await client.get("/test")
 
@@ -268,7 +269,10 @@ async def test_remote_agent_with_headers():
         assert len(test_server.requests) > 0
         headers = test_server.requests[0]["headers"]
         assert headers.get("Authorization") == "Bearer token123" or headers.get("authorization") == "Bearer token123"
-        assert headers.get("Host") == "remote-agent.kagent" or headers.get("host") == "remote-agent.kagent"
+        assert (
+            headers.get("X-Kagent-Host") == "remote-agent.kagent"
+            or headers.get("x-kagent-host") == "remote-agent.kagent"
+        )
 
 
 @pytest.mark.asyncio
@@ -319,7 +323,10 @@ async def test_remote_agent_url_rewrite_event_hook():
         # The path should be rewritten to /some/path (proxy base URL + path)
         assert test_server.requests[0]["path"] == "/some/path"
         headers = test_server.requests[0]["headers"]
-        assert headers.get("X-Kagent-Host") == "remote-agent.kagent" or headers.get("X-Kagent-Host") == "remote-agent.kagent"
+        assert (
+            headers.get("X-Kagent-Host") == "remote-agent.kagent"
+            or headers.get("x-kagent-host") == "remote-agent.kagent"
+        )
 
 
 def test_mcp_tool_with_proxy_url():
