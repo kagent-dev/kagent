@@ -9,7 +9,7 @@ import httpx
 import pytest
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH
 
-from kagent.adk.types import AgentConfig, OpenAI, RemoteAgentConfig
+from kagent.adk.types import PROXY_HOST_HEADER, AgentConfig, OpenAI, RemoteAgentConfig
 
 
 class RequestRecordingHandler(BaseHTTPRequestHandler):
@@ -96,10 +96,10 @@ class TestHTTPServer:
 
 @pytest.mark.asyncio
 async def test_remote_agent_with_proxy_url():
-    """Test that RemoteA2aAgent requests go through the proxy URL with correct X-Kagent-Host header.
+    """Test that RemoteA2aAgent requests go through the proxy URL with correct proxy host header.
 
     When proxy is configured, requests should be made to the proxy URL (our test server)
-    with the X-Kagent-Host header set for proxy routing. This test uses a real HTTP server
+    with the proxy host header set for proxy routing. This test uses a real HTTP server
     to verify actual request behavior.
     """
     with TestHTTPServer() as test_server:
@@ -112,7 +112,7 @@ async def test_remote_agent_with_proxy_url():
                     name="remote_agent",
                     url=test_server.url,  # Use test server as proxy URL
                     description="Remote agent",
-                    headers={"X-Kagent-Host": "remote-agent.kagent"},  # X-Kagent-Host header for proxy routing
+                    headers={PROXY_HOST_HEADER: "remote-agent.kagent"},  # Proxy host header for proxy routing
                 )
             ],
         )
@@ -139,10 +139,10 @@ async def test_remote_agent_with_proxy_url():
         assert len(test_server.requests) > 0, "No requests were received by test server"
         request = test_server.requests[0]
         assert request["path"] == AGENT_CARD_WELL_KNOWN_PATH
-        # Verify X-Kagent-Host header is set for proxy routing
+        # Verify proxy host header is set for proxy routing
         assert (
-            request["headers"].get("X-Kagent-Host") == "remote-agent.kagent"
-            or request["headers"].get("x-kagent-host") == "remote-agent.kagent"
+            request["headers"].get(PROXY_HOST_HEADER) == "remote-agent.kagent"
+            or request["headers"].get(PROXY_HOST_HEADER.lower()) == "remote-agent.kagent"
         )
 
 
@@ -218,18 +218,18 @@ async def test_remote_agent_direct_url_no_proxy():
         assert len(test_server.requests) > 0
         assert test_server.requests[0]["path"] == AGENT_CARD_WELL_KNOWN_PATH
         # Verify Host header is set automatically by httpx based on URL
-        # (X-Kagent-Host should not be present when no proxy is configured)
+        # (proxy host header should not be present when no proxy is configured)
         headers = test_server.requests[0]["headers"]
         assert (
             headers.get("Host") == f"localhost:{test_server.port}"
             or headers.get("host") == f"localhost:{test_server.port}"
         )
-        assert "X-Kagent-Host" not in headers and "X-Kagent-Host" not in headers
+        assert PROXY_HOST_HEADER not in headers and PROXY_HOST_HEADER.lower() not in headers
 
 
 @pytest.mark.asyncio
 async def test_remote_agent_with_headers():
-    """Test that RemoteA2aAgent preserves headers including X-Kagent-Host header for proxy routing."""
+    """Test that RemoteA2aAgent preserves headers including the proxy host header for proxy routing."""
     with TestHTTPServer() as test_server:
         config = AgentConfig(
             model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
@@ -242,7 +242,7 @@ async def test_remote_agent_with_headers():
                     description="Remote agent",
                     headers={
                         "Authorization": "Bearer token123",
-                        "X-Kagent-Host": "remote-agent.kagent",  # X-Kagent-Host header for proxy routing
+                        PROXY_HOST_HEADER: "remote-agent.kagent",  # Proxy host header for proxy routing
                     },
                 )
             ],
@@ -270,17 +270,17 @@ async def test_remote_agent_with_headers():
         headers = test_server.requests[0]["headers"]
         assert headers.get("Authorization") == "Bearer token123" or headers.get("authorization") == "Bearer token123"
         assert (
-            headers.get("X-Kagent-Host") == "remote-agent.kagent"
-            or headers.get("x-kagent-host") == "remote-agent.kagent"
+            headers.get(PROXY_HOST_HEADER) == "remote-agent.kagent"
+            or headers.get(PROXY_HOST_HEADER.lower()) == "remote-agent.kagent"
         )
 
 
 @pytest.mark.asyncio
 async def test_remote_agent_url_rewrite_event_hook():
-    """Test that URL rewrite event hook rewrites URLs to proxy when X-Kagent-Host header is present.
+    """Test that URL rewrite event hook rewrites URLs to proxy when the proxy host header is present.
 
-    When an X-Kagent-Host header is present, the event hook rewrites all request URLs to use the proxy
-    base URL while preserving the X-Kagent-Host header. This ensures that even if RemoteA2aAgent
+    When the proxy host header is present, the event hook rewrites all request URLs to use the proxy
+    base URL while preserving the proxy host header. This ensures that even if RemoteA2aAgent
     uses URLs from the agent card response, they still go through the proxy.
     """
     with TestHTTPServer() as test_server:
@@ -293,7 +293,7 @@ async def test_remote_agent_url_rewrite_event_hook():
                     name="remote_agent",
                     url=test_server.url,  # Use test server as proxy URL
                     description="Remote agent",
-                    headers={"X-Kagent-Host": "remote-agent.kagent"},  # X-Kagent-Host header indicates proxy usage
+                    headers={PROXY_HOST_HEADER: "remote-agent.kagent"},  # Proxy host header indicates proxy usage
                 )
             ],
         )
@@ -324,15 +324,15 @@ async def test_remote_agent_url_rewrite_event_hook():
         assert test_server.requests[0]["path"] == "/some/path"
         headers = test_server.requests[0]["headers"]
         assert (
-            headers.get("X-Kagent-Host") == "remote-agent.kagent"
-            or headers.get("x-kagent-host") == "remote-agent.kagent"
+            headers.get(PROXY_HOST_HEADER) == "remote-agent.kagent"
+            or headers.get(PROXY_HOST_HEADER.lower()) == "remote-agent.kagent"
         )
 
 
 def test_mcp_tool_with_proxy_url():
-    """Test that MCP tools are configured with proxy URL and X-Kagent-Host header.
+    """Test that MCP tools are configured with proxy URL and the proxy host header.
 
-    When proxy is configured, the URL is set to the proxy URL and the X-Kagent-Host header
+    When proxy is configured, the URL is set to the proxy URL and the proxy host header
     is included for proxy routing. These are passed through directly to McpToolset.
 
     Note: We verify connection_params configuration because McpToolset doesn't expose
@@ -344,7 +344,7 @@ def test_mcp_tool_with_proxy_url():
 
     from kagent.adk.types import HttpMcpServerConfig
 
-    # Configuration with proxy URL and X-Kagent-Host header
+    # Configuration with proxy URL and proxy host header
     config = AgentConfig(
         model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
         description="Test agent",
@@ -353,7 +353,7 @@ def test_mcp_tool_with_proxy_url():
             HttpMcpServerConfig(
                 params=StreamableHTTPConnectionParams(
                     url="http://proxy.kagent.svc.cluster.local:8080/mcp",  # Proxy URL
-                    headers={"X-Kagent-Host": "test-mcp-server.kagent"},  # X-Kagent-Host header for proxy routing
+                    headers={PROXY_HOST_HEADER: "test-mcp-server.kagent"},  # Proxy host header for proxy routing
                 ),
                 tools=["test-tool"],
             )
@@ -378,7 +378,7 @@ def test_mcp_tool_with_proxy_url():
     assert connection_params is not None
     assert connection_params.url == "http://proxy.kagent.svc.cluster.local:8080/mcp"
     assert connection_params.headers is not None
-    assert connection_params.headers["X-Kagent-Host"] == "test-mcp-server.kagent"
+    assert connection_params.headers[PROXY_HOST_HEADER] == "test-mcp-server.kagent"
 
 
 def test_mcp_tool_without_proxy():
@@ -425,9 +425,9 @@ def test_mcp_tool_without_proxy():
 
 
 def test_sse_mcp_tool_with_proxy_url():
-    """Test that SSE MCP tools are configured with proxy URL and X-Kagent-Host header.
+    """Test that SSE MCP tools are configured with proxy URL and proxy host header.
 
-    When proxy is configured, the URL is set to the proxy URL and the X-Kagent-Host header
+    When proxy is configured, the URL is set to the proxy URL and the proxy host header
     is included for proxy routing. These are passed through directly to McpToolset.
 
     Note: We verify connection_params configuration because McpToolset doesn't expose
@@ -439,7 +439,7 @@ def test_sse_mcp_tool_with_proxy_url():
 
     from kagent.adk.types import SseMcpServerConfig
 
-    # Configuration with proxy URL and X-Kagent-Host header
+    # Configuration with proxy URL and proxy host header
     config = AgentConfig(
         model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
         description="Test agent",
@@ -448,7 +448,7 @@ def test_sse_mcp_tool_with_proxy_url():
             SseMcpServerConfig(
                 params=SseConnectionParams(
                     url="http://proxy.kagent.svc.cluster.local:8080/mcp",  # Proxy URL
-                    headers={"X-Kagent-Host": "test-sse-mcp-server.kagent"},  # X-Kagent-Host header for proxy routing
+                    headers={PROXY_HOST_HEADER: "test-sse-mcp-server.kagent"},  # Proxy host header for proxy routing
                 ),
                 tools=["test-sse-tool"],
             )
@@ -471,7 +471,7 @@ def test_sse_mcp_tool_with_proxy_url():
     assert connection_params is not None
     assert connection_params.url == "http://proxy.kagent.svc.cluster.local:8080/mcp"
     assert connection_params.headers is not None
-    assert connection_params.headers["X-Kagent-Host"] == "test-sse-mcp-server.kagent"
+    assert connection_params.headers[PROXY_HOST_HEADER] == "test-sse-mcp-server.kagent"
 
 
 def test_sse_mcp_tool_without_proxy():

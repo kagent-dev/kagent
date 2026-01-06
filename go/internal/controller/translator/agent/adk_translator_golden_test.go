@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,7 +92,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 		// Convert map to unstructured
 		unstrObj := &unstructured.Unstructured{Object: objMap}
 
-		// Track namespace if present
+		// Track namespace from object metadata
 		if metadata, ok := objMap["metadata"].(map[string]any); ok {
 			if ns, ok := metadata["namespace"].(string); ok && ns != "" {
 				namespacesSeen[ns] = true
@@ -99,19 +100,12 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 		}
 
 		// Extract namespace from URLs in RemoteMCPServer specs
+		// This is needed because isInternalK8sURL checks if the namespace exists
 		if kind, ok := objMap["kind"].(string); ok && kind == "RemoteMCPServer" {
 			if spec, ok := objMap["spec"].(map[string]any); ok {
-				if url, ok := spec["url"].(string); ok {
-					// Parse URL to extract namespace (e.g., http://service.namespace:port/path)
-					parts := strings.Split(url, "://")
-					if len(parts) == 2 {
-						hostPart := strings.Split(parts[1], "/")[0]
-						hostParts := strings.Split(hostPart, ":")
-						hostname := hostParts[0]
-						hostnameParts := strings.Split(hostname, ".")
-						if len(hostnameParts) == 2 {
-							namespacesSeen[hostnameParts[1]] = true
-						}
+				if urlStr, ok := spec["url"].(string); ok {
+					if ns := extractNamespaceFromURL(urlStr); ns != "" {
+						namespacesSeen[ns] = true
 					}
 				}
 			}
@@ -261,4 +255,28 @@ func removeNonDeterministicFields(obj any) any {
 	default:
 		return v
 	}
+}
+
+// extractNamespaceFromURL extracts the namespace from a Kubernetes service URL.
+// For example, "http://service.namespace:port/path" returns "namespace".
+// Returns empty string if the URL is not a valid Kubernetes service URL.
+func extractNamespaceFromURL(urlStr string) string {
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+
+	// Split hostname by dots: service.namespace or service.namespace.svc.cluster.local
+	hostname := parsed.Hostname()
+	parts := strings.Split(hostname, ".")
+
+	// Valid patterns:
+	// - service.namespace (2 parts)
+	// - service.namespace.svc (3 parts)
+	// - service.namespace.svc.cluster.local (5 parts)
+	if len(parts) >= 2 {
+		return parts[1] // namespace is always the second part
+	}
+
+	return ""
 }

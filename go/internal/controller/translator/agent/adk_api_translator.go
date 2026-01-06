@@ -43,6 +43,8 @@ const (
 
 	MCPServicePathDefault     = "/mcp"
 	MCPServiceProtocolDefault = v1alpha2.RemoteMCPServerProtocolStreamableHttp
+
+	ProxyHostHeader = "x-kagent-host"
 )
 
 type ImageConfig struct {
@@ -565,25 +567,13 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					return nil, nil, nil, err
 				}
 
-				// If proxy is configured, use proxy URL and set X-Kagent-Host header for Gateway API routing
+				// If proxy is configured, use proxy URL and set header for Gateway API routing
 				targetURL := originalURL
 				if a.globalProxyURL != "" {
-					// Parse original URL to extract path and hostname
-					originalURLParsed, err := url.Parse(originalURL)
+					targetURL, headers, err = applyProxyURL(originalURL, a.globalProxyURL, headers)
 					if err != nil {
-						return nil, nil, nil, fmt.Errorf("failed to parse agent URL %q: %w", originalURL, err)
+						return nil, nil, nil, err
 					}
-					proxyURLParsed, err := url.Parse(a.globalProxyURL)
-					if err != nil {
-						return nil, nil, nil, fmt.Errorf("failed to parse proxy URL %q: %w", a.globalProxyURL, err)
-					}
-					// Use proxy URL with original path
-					targetURL = fmt.Sprintf("%s://%s%s", proxyURLParsed.Scheme, proxyURLParsed.Host, originalURLParsed.Path)
-					// Set X-Kagent-Host header to original hostname (without port) for Gateway API routing
-					if headers == nil {
-						headers = make(map[string]string)
-					}
-					headers["X-Kagent-Host"] = originalURLParsed.Hostname()
 				}
 
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
@@ -952,25 +942,13 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 		return nil, err
 	}
 
-	// If proxy is configured, use proxy URL and set X-Kagent-Host header for Gateway API routing
+	// If proxy is configured, use proxy URL and set header for Gateway API routing
 	targetURL := tool.URL
 	if proxyURL != "" {
-		// Parse original URL to extract path and hostname
-		originalURL, err := url.Parse(tool.URL)
+		targetURL, headers, err = applyProxyURL(tool.URL, proxyURL, headers)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse tool URL %q: %w", tool.URL, err)
+			return nil, err
 		}
-		proxyURLParsed, err := url.Parse(proxyURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse proxy URL %q: %w", proxyURL, err)
-		}
-		// Use proxy URL with original path
-		targetURL = fmt.Sprintf("%s://%s%s", proxyURLParsed.Scheme, proxyURLParsed.Host, originalURL.Path)
-		// Set X-Kagent-Host header to original hostname (without port) for Gateway API routing
-		if headers == nil {
-			headers = make(map[string]string)
-		}
-		headers["X-Kagent-Host"] = originalURL.Hostname()
 	}
 
 	params := &adk.StreamableHTTPConnectionParams{
@@ -986,6 +964,7 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 	if tool.TerminateOnClose != nil {
 		params.TerminateOnClose = tool.TerminateOnClose
 	}
+
 	return params, nil
 }
 
@@ -995,25 +974,13 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 		return nil, err
 	}
 
-	// If proxy is configured, use proxy URL and set X-Kagent-Host header for Gateway API routing
+	// If proxy is configured, use proxy URL and set header for Gateway API routing
 	targetURL := tool.URL
 	if proxyURL != "" {
-		// Parse original URL to extract path and hostname
-		originalURL, err := url.Parse(tool.URL)
+		targetURL, headers, err = applyProxyURL(tool.URL, proxyURL, headers)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse tool URL %q: %w", tool.URL, err)
+			return nil, err
 		}
-		proxyURLParsed, err := url.Parse(proxyURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse proxy URL %q: %w", proxyURL, err)
-		}
-		// Use proxy URL with original path
-		targetURL = fmt.Sprintf("%s://%s%s", proxyURLParsed.Scheme, proxyURLParsed.Host, originalURL.Path)
-		// Set X-Kagent-Host header to original hostname (without port) for Gateway API routing
-		if headers == nil {
-			headers = make(map[string]string)
-		}
-		headers["X-Kagent-Host"] = originalURL.Hostname()
 	}
 
 	params := &adk.SseConnectionParams{
@@ -1235,6 +1202,30 @@ func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespa
 	}
 
 	return false
+}
+
+func applyProxyURL(originalURL, proxyURL string, headers map[string]string) (targetURL string, updatedHeaders map[string]string, err error) {
+	// Parse original URL to extract path and hostname
+	originalURLParsed, err := url.Parse(originalURL)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to parse original URL %q: %w", originalURL, err)
+	}
+	proxyURLParsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to parse proxy URL %q: %w", proxyURL, err)
+	}
+
+	// Use proxy URL with original path
+	targetURL = fmt.Sprintf("%s://%s%s", proxyURLParsed.Scheme, proxyURLParsed.Host, originalURLParsed.Path)
+
+	// Set header to original hostname (without port) for Gateway API routing
+	updatedHeaders = headers
+	if updatedHeaders == nil {
+		updatedHeaders = make(map[string]string)
+	}
+	updatedHeaders[ProxyHostHeader] = originalURLParsed.Hostname()
+
+	return targetURL, updatedHeaders, nil
 }
 
 func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {

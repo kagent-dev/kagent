@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	agenttranslator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
@@ -111,7 +111,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		Build()
 
 	t.Run("with proxy URL - RemoteMCPServer with internal k8s URL uses proxy", func(t *testing.T) {
-		translator := translator.NewAdkApiTranslator(
+		translator := agenttranslator.NewAdkApiTranslator(
 			kubeClient,
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
@@ -128,19 +128,19 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		remoteAgent := result.Config.RemoteAgents[0]
 		assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080", remoteAgent.Url)
 		assert.NotNil(t, remoteAgent.Headers)
-		assert.Equal(t, "nested-agent.test", remoteAgent.Headers["X-Kagent-Host"])
+		assert.Equal(t, "nested-agent.test", remoteAgent.Headers[agenttranslator.ProxyHostHeader])
 
 		// Verify RemoteMCPServer with internal k8s URL DOES use proxy
 		require.Len(t, result.Config.HttpTools, 1)
 		httpTool := result.Config.HttpTools[0]
 		assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
-		// X-Kagent-Host header should be set for RemoteMCPServer with internal k8s URL (uses proxy)
+		// Proxy header should be set for RemoteMCPServer with internal k8s URL (uses proxy)
 		require.NotNil(t, httpTool.Params.Headers)
-		assert.Equal(t, "test-mcp-server.kagent", httpTool.Params.Headers["X-Kagent-Host"])
+		assert.Equal(t, "test-mcp-server.kagent", httpTool.Params.Headers[agenttranslator.ProxyHostHeader])
 	})
 
 	t.Run("without proxy URL", func(t *testing.T) {
-		translator := translator.NewAdkApiTranslator(
+		translator := agenttranslator.NewAdkApiTranslator(
 			kubeClient,
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
@@ -156,20 +156,20 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		require.Len(t, result.Config.RemoteAgents, 1)
 		remoteAgent := result.Config.RemoteAgents[0]
 		assert.Equal(t, "http://nested-agent.test:8080", remoteAgent.Url)
-		// X-Kagent-Host header should not be set when no proxy
+		// Proxy header should not be set when no proxy
 		if remoteAgent.Headers != nil {
-			_, hasHost := remoteAgent.Headers["X-Kagent-Host"]
-			assert.False(t, hasHost, "X-Kagent-Host header should not be set when no proxy")
+			_, hasHost := remoteAgent.Headers[agenttranslator.ProxyHostHeader]
+			assert.False(t, hasHost, "Proxy header should not be set when no proxy")
 		}
 
 		// Verify RemoteMCPServer direct URL (no proxy)
 		require.Len(t, result.Config.HttpTools, 1)
 		httpTool := result.Config.HttpTools[0]
 		assert.Equal(t, "http://test-mcp-server.kagent:8084/mcp", httpTool.Params.Url)
-		// X-Kagent-Host header should not be set when no proxy
+		// Proxy header should not be set when no proxy
 		if httpTool.Params.Headers != nil {
-			_, hasHost := httpTool.Params.Headers["X-Kagent-Host"]
-			assert.False(t, hasHost, "X-Kagent-Host header should not be set when no proxy")
+			_, hasHost := httpTool.Params.Headers[agenttranslator.ProxyHostHeader]
+			assert.False(t, hasHost, "Proxy header should not be set when no proxy")
 		}
 	})
 }
@@ -241,7 +241,7 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 		WithObjects(agent, remoteMcpServer, modelConfig, testNamespace).
 		Build()
 
-	translator := translator.NewAdkApiTranslator(
+	translator := agenttranslator.NewAdkApiTranslator(
 		kubeClient,
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
@@ -257,10 +257,10 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 	require.Len(t, result.Config.HttpTools, 1)
 	httpTool := result.Config.HttpTools[0]
 	assert.Equal(t, "https://external-mcp.example.com/mcp", httpTool.Params.Url)
-	// X-Kagent-Host header should not be set for external URLs (no proxy)
+	// Proxy header should not be set for external URLs (no proxy)
 	if httpTool.Params.Headers != nil {
-		_, hasHost := httpTool.Params.Headers["X-Kagent-Host"]
-		assert.False(t, hasHost, "X-Kagent-Host header should not be set for RemoteMCPServer with external URL (no proxy)")
+		_, hasHost := httpTool.Params.Headers[agenttranslator.ProxyHostHeader]
+		assert.False(t, hasHost, "Proxy header should not be set for RemoteMCPServer with external URL (no proxy)")
 	}
 }
 
@@ -333,7 +333,7 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		WithObjects(agent, mcpServer, modelConfig, testNamespace).
 		Build()
 
-	translator := translator.NewAdkApiTranslator(
+	translator := agenttranslator.NewAdkApiTranslator(
 		kubeClient,
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
@@ -349,9 +349,9 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 	require.Len(t, result.Config.HttpTools, 1)
 	httpTool := result.Config.HttpTools[0]
 	assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
-	// X-Kagent-Host header should be set for MCPServer (uses proxy)
+	// Proxy header should be set for MCPServer (uses proxy)
 	require.NotNil(t, httpTool.Params.Headers)
-	assert.Equal(t, "test-mcp-server.test", httpTool.Params.Headers["X-Kagent-Host"])
+	assert.Equal(t, "test-mcp-server.test", httpTool.Params.Headers[agenttranslator.ProxyHostHeader])
 }
 
 // TestProxyConfiguration_Service tests that Services as MCP Tools use proxy
@@ -430,7 +430,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		WithObjects(agent, service, modelConfig, testNamespace).
 		Build()
 
-	translator := translator.NewAdkApiTranslator(
+	translator := agenttranslator.NewAdkApiTranslator(
 		kubeClient,
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
@@ -446,7 +446,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 	require.Len(t, result.Config.HttpTools, 1)
 	httpTool := result.Config.HttpTools[0]
 	assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
-	// X-Kagent-Host header should be set for Service (uses proxy)
+	// Proxy header should be set for Service (uses proxy)
 	require.NotNil(t, httpTool.Params.Headers)
-	assert.Equal(t, "test-service.test", httpTool.Params.Headers["X-Kagent-Host"])
+	assert.Equal(t, "test-service.test", httpTool.Params.Headers[agenttranslator.ProxyHostHeader])
 }

@@ -23,7 +23,7 @@
       {
         "params": {
           "headers": {
-            "X-Kagent-Host": "test-mcp-server.kagent"
+            "x-kagent-host": "test-mcp-server.kagent"
           },
           "url": "http://proxy.kagent.svc.cluster.local:8080/mcp"
         },
@@ -41,7 +41,7 @@
     "remote_agents": [
       {
         "headers": {
-          "X-Kagent-Host": "nested-agent.test"
+          "x-kagent-host": "nested-agent.test"
         },
         "name": "test__NS__nested_agent",
         "url": "http://proxy.kagent.svc.cluster.local:8080"
@@ -76,7 +76,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_proxy\",\"description\":\"\",\"url\":\"http://agent-with-proxy.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"X-Kagent-Host\":\"test-mcp-server.kagent\"}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__nested_agent\",\"url\":\"http://proxy.kagent.svc.cluster.local:8080\",\"headers\":{\"X-Kagent-Host\":\"nested-agent.test\"}}]}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"test-mcp-server.kagent\"}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__nested_agent\",\"url\":\"http://proxy.kagent.svc.cluster.local:8080\",\"headers\":{\"x-kagent-host\":\"nested-agent.test\"}}]}"
       }
     },
     {
@@ -145,7 +145,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "9991414954376340796"
+              "kagent.dev/config-hash": "2171631320400289677"
             },
             "labels": {
               "app": "kagent",

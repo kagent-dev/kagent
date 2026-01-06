@@ -22,6 +22,9 @@ from .models import OpenAI as OpenAINative
 
 logger = logging.getLogger(__name__)
 
+# Proxy host header used for Gateway API routing when using a proxy
+PROXY_HOST_HEADER = "x-kagent-host"
+
 
 class HttpMcpServerConfig(BaseModel):
     params: StreamableHTTPConnectionParams
@@ -128,39 +131,31 @@ class AgentConfig(BaseModel):
                 )
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
-                # Always create httpx client
-                client_kwargs: dict[str, Any] = {
-                    "timeout": httpx.Timeout(timeout=remote_agent.timeout),
-                    "trust_env": False,
-                }
+                # Prepare httpx client parameters
+                timeout = httpx.Timeout(timeout=remote_agent.timeout)
+                headers: dict[str, str] | None = remote_agent.headers
+                base_url: str | None = None
+                event_hooks: dict[str, list[Callable[[httpx.Request], None]]] | None = None
 
-                if remote_agent.headers:
-                    client_kwargs["headers"] = remote_agent.headers
-
-                # If headers include X-Kagent-Host header, it means we're using a proxy
+                # If headers includes the proxy host header, it means we're using a proxy
                 # RemoteA2aAgent may use URLs from agent card response, so we need to
-                # rewrite all request URLs to use the proxy URL while preserving X-Kagent-Host header
-                if remote_agent.headers and "X-Kagent-Host" in remote_agent.headers:
+                # rewrite all request URLs to use the proxy URL while preserving the proxy host header
+                if remote_agent.headers and PROXY_HOST_HEADER in remote_agent.headers:
                     # Parse the proxy URL to extract base URL
                     from urllib.parse import urlparse as parse_url
 
                     parsed_proxy = parse_url(remote_agent.url)
                     proxy_base = f"{parsed_proxy.scheme}://{parsed_proxy.netloc}"
-                    target_host = remote_agent.headers["X-Kagent-Host"]
+                    target_host = remote_agent.headers[PROXY_HOST_HEADER]
 
-                    # Set base_url so relative paths work correctly with httpx
-                    # httpx requires either base_url or absolute URLs - relative paths will fail without base_url
-                    client_kwargs["base_url"] = proxy_base
-
-                    # Event hook to rewrite request URLs to use proxy while preserving X-Kagent-Host header
-                    # This handles cases where RemoteA2aAgent uses absolute URLs from agent card response
-                    # Note: Relative paths are handled by base_url above, so they'll already point to proxy_base
+                    # Event hook to rewrite request URLs to use proxy while preserving the proxy host header
+                    # Note: Relative paths are handled by base_url below, so they'll already point to proxy_base
                     def make_rewrite_url_to_proxy(proxy_base: str, target_host: str) -> Callable[[httpx.Request], None]:
                         async def rewrite_url_to_proxy(request: httpx.Request) -> None:
                             parsed = parse_url(str(request.url))
                             proxy_netloc = parse_url(proxy_base).netloc
 
-                            # If URL is absolute and points to a different host, rewrite to proxy
+                            # If URL is absolute and points to a different host, rewrite to the proxy base URL
                             if parsed.netloc and parsed.netloc != proxy_netloc:
                                 # This is an absolute URL pointing to the target service, rewrite it
                                 new_url = f"{proxy_base}{parsed.path}"
@@ -168,14 +163,36 @@ class AgentConfig(BaseModel):
                                     new_url += f"?{parsed.query}"
                                 request.url = httpx.URL(new_url)
 
-                            # Always set X-Kagent-Host header for Gateway API routing
-                            request.headers["X-Kagent-Host"] = target_host
+                            # Always set proxy host header for Gateway API routing
+                            request.headers[PROXY_HOST_HEADER] = target_host
 
                         return rewrite_url_to_proxy
 
-                    client_kwargs["event_hooks"] = {"request": [make_rewrite_url_to_proxy(proxy_base, target_host)]}
+                    # Set base_url so relative paths work correctly with httpx
+                    # httpx requires either base_url or absolute URLs - relative paths will fail without base_url
+                    base_url = proxy_base
+                    event_hooks = {"request": [make_rewrite_url_to_proxy(proxy_base, target_host)]}
 
-                client = httpx.AsyncClient(**client_kwargs)
+                # Note: httpx doesn't accept None for base_url/event_hooks, so we only pass the parameters if set
+                if base_url and event_hooks:
+                    client = httpx.AsyncClient(
+                        timeout=timeout,
+                        trust_env=False,
+                        headers=headers,
+                        base_url=base_url,
+                        event_hooks=event_hooks,
+                    )
+                elif headers:
+                    client = httpx.AsyncClient(
+                        timeout=timeout,
+                        trust_env=False,
+                        headers=headers,
+                    )
+                else:
+                    client = httpx.AsyncClient(
+                        timeout=timeout,
+                        trust_env=False,
+                    )
 
                 remote_a2a_agent = RemoteA2aAgent(
                     name=remote_agent.name,
