@@ -123,7 +123,6 @@ RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     && echo "Bash tool sandbox environment created."
 
 ENV PATH="/.kagent/.venv/bin:$PATH"
-ENV PYTHONPATH="/.kagent:/"
 ENV UV_PROJECT_ENVIRONMENT=/.kagent/.venv
 ENV BASH_VENV_PATH=/.kagent/sandbox-venv
 ENV VIRTUAL_ENV=/.kagent/.venv

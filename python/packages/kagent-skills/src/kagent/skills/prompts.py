@@ -111,7 +111,6 @@ For file operations:
 - Use read_file, write_file, and edit_file for interacting with the filesystem.
 
 Timeouts:
-- pip install: 120s
 - python scripts: 60s
 - other commands: 30s
 """

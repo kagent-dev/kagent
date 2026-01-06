@@ -104,9 +104,7 @@ def edit_file_content(
 
 def _get_command_timeout_seconds(command: str) -> float:
     """Determine appropriate timeout for a command."""
-    if "pip install" in command or "pip3 install" in command:
-        return 120.0  # 2 minutes for package installations
-    elif "python " in command or "python3 " in command:
+    if "python " in command or "python3 " in command:
         return 60.0  # 1 minute for python scripts
     else:
         return 30.0  # 30 seconds for other commands
@@ -148,7 +146,7 @@ async def execute_command(
 
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-        except TimeoutError:
+        except asyncio.TimeoutError:
             process.kill()
             await process.wait()
             return f"Error: Command timed out after {timeout}s"

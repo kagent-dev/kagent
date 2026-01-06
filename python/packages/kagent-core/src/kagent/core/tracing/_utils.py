@@ -28,6 +28,7 @@ def _instrument_anthropic(event_logger_provider=None):
         else:
             AnthropicInstrumentor().instrument()
     except ImportError:
+        # Anthropic SDK is not installed; skipping instrumentation.
         pass
 
 
@@ -38,6 +39,7 @@ def _instrument_google_generativeai():
 
         GoogleGenerativeAiInstrumentor().instrument()
     except ImportError:
+        # Google GenerativeAI SDK is not installed; skipping instrumentation.
         pass
 
 

@@ -156,7 +156,7 @@ def get_skill_tool(skills_directory: str | Path = "/skills") -> FunctionTool:
                 f"Base directory for this skill: {skills_dir.resolve()}/{skill_name}\n\n"
             )
             footer = (
-                "\n\n---"
+                "\n\n---\n"
                 "The skill has been loaded. Follow the instructions above and use the bash tool to execute commands."
             )
             return header + content + footer

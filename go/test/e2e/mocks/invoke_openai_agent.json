@@ -119,7 +119,7 @@
             "index": 0,
             "message": {
               "role": "assistant",
-              "content": "The weather in london is Rainy, 52°F"
+              "content": "The weather in London is Rainy, 52°F"
             },
             "finish_reason": "stop"
           }
