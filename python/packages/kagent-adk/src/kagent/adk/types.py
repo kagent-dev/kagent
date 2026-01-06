@@ -177,7 +177,6 @@ class AgentConfig(BaseModel):
                 if base_url and event_hooks:
                     client = httpx.AsyncClient(
                         timeout=timeout,
-                        trust_env=False,
                         headers=headers,
                         base_url=base_url,
                         event_hooks=event_hooks,
@@ -185,13 +184,11 @@ class AgentConfig(BaseModel):
                 elif headers:
                     client = httpx.AsyncClient(
                         timeout=timeout,
-                        trust_env=False,
                         headers=headers,
                     )
                 else:
                     client = httpx.AsyncClient(
                         timeout=timeout,
-                        trust_env=False,
                     )
 
                 remote_a2a_agent = RemoteA2aAgent(
