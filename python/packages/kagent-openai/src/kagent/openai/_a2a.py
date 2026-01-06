@@ -19,9 +19,10 @@ from a2a.types import AgentCard
 from agents import Agent, set_tracing_disabled
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
-from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
 from ._session_service import KAgentSessionFactory

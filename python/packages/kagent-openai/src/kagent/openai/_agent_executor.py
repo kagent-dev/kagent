@@ -30,8 +30,9 @@ from a2a.types import (
 )
 from agents.agent import Agent
 from agents.run import Runner
-from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
 from pydantic import BaseModel
+
+from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
 
 from ._event_converter import convert_openai_event_to_a2a_events
 from ._session_service import KAgentSession
