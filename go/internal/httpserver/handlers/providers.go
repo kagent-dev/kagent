@@ -26,7 +26,7 @@ func getRequiredKeysForModelProvider(providerType v1alpha2.ModelProvider) []stri
 	case v1alpha2.ModelProviderAzureOpenAI:
 		// Based on the +required comments in the AzureOpenAIConfig struct definition
 		return []string{"azureEndpoint", "apiVersion"}
-	case v1alpha2.ModelProviderOpenAI, v1alpha2.ModelProviderAnthropic, v1alpha2.ModelProviderOllama:
+	case v1alpha2.ModelProviderOpenAI, v1alpha2.ModelProviderAnthropic, v1alpha2.ModelProviderOllama, v1alpha2.ModelProviderXAI:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
 	default:
@@ -101,6 +101,7 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 		{v1alpha2.ModelProviderGemini, reflect.TypeFor[v1alpha2.GeminiConfig]()},
 		{v1alpha2.ModelProviderGeminiVertexAI, reflect.TypeFor[v1alpha2.GeminiVertexAIConfig]()},
 		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha2.AnthropicVertexAIConfig]()},
+		{v1alpha2.ModelProviderXAI, reflect.TypeFor[v1alpha2.XAIConfig]()},
 	}
 
 	providersResponse := []map[string]any{}
