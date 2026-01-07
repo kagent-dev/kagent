@@ -16,13 +16,14 @@ from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
-from agents import Agent, set_tracing_disabled
+from agents import Agent, set_default_openai_api, set_default_openai_client, set_tracing_disabled
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
+from openai import AsyncOpenAI
 
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
 from ._session_service import KAgentSessionFactory
@@ -60,6 +61,27 @@ def thread_dump(request: Request) -> PlainTextResponse:
 # Environment variables
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
+
+
+def _configure_openai_client() -> None:
+    """
+    Configure the default OpenAI client to use OPENAI_API_BASE.
+    """
+
+    openai_api_base = os.getenv("OPENAI_API_BASE")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if openai_api_base and api_key:
+        # Create a custom AsyncOpenAI client with the base URL
+        custom_client = AsyncOpenAI(
+            base_url=openai_api_base,
+            api_key=api_key,
+        )
+
+        # Set it as the default client for the OpenAI Agents SDK
+        set_default_openai_client(custom_client)
+        # By default it uses the OpenAI responses API but this is not supported for most other providers
+        set_default_openai_api("chat_completions")
+        logger.info(f"Configured OpenAI client with base URL: {openai_api_base}")
 
 
 class KAgentApp:
@@ -100,6 +122,8 @@ class KAgentApp:
         Returns:
             Configured FastAPI application
         """
+        _configure_openai_client()
+
         # Create HTTP client with KAgent backend
         http_client = httpx.AsyncClient(
             base_url=kagent_url_override or self.config.kagent_url,
@@ -179,6 +203,8 @@ class KAgentApp:
         Returns:
             Configured FastAPI application for local use
         """
+        _configure_openai_client()
+
         # Create agent executor without session factory (no persistence)
         agent_executor = OpenAIAgentExecutor(
             agent=self.agent,

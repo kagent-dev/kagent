@@ -532,18 +532,6 @@ func generateOpenAIAgent(baseURL string) *v1alpha2.Agent {
 								Name:  "OPENAI_API_BASE",
 								Value: baseURL + "/v1",
 							},
-							{
-								Name:  "KAGENT_NAME",
-								Value: "basic-openai-test-agent",
-							},
-							{
-								Name: "KAGENT_NAMESPACE",
-								ValueFrom: &corev1.EnvVarSource{
-									FieldRef: &corev1.ObjectFieldSelector{
-										FieldPath: "metadata.namespace",
-									},
-								},
-							},
 						},
 					},
 				},
@@ -633,9 +621,9 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
 	require.NoError(t, err)
 
-	// Run tests
+	useArtifacts := true
 	t.Run("sync_invocation_calculator", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "What is 2+2?", "4", nil)
+		runSyncTest(t, a2aClient, "What is 2+2?", "4", &useArtifacts)
 	})
 
 	t.Run("streaming_invocation_weather", func(t *testing.T) {
@@ -721,6 +709,8 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 	})
+
+	cli.Delete(t.Context(), agent) //nolint:errcheck
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {

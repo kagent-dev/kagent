@@ -136,13 +136,16 @@ def _convert_message_output(
 
     # Iterate through content parts
     if hasattr(raw_message, "content") and raw_message.content:
-        for part in raw_message.content:
-            # Check if this is a text part (ResponseOutputText has 'text' field)
-            if hasattr(part, "text"):
-                text_parts.append(part.text)
-            # Otherwise, it is ResponseOutputRefusal and the model will explain why
-            elif hasattr(part, "refusal"):
-                text_parts.append(f"[Refusal] {part.refusal}")
+        if isinstance(raw_message.content, str):
+            text_parts.append(raw_message.content)
+        else:
+            for part in raw_message.content:
+                # Check if this is a text part (ResponseOutputText has 'text' field)
+                if hasattr(part, "text"):
+                    text_parts.append(part.text)
+                # Otherwise, it is ResponseOutputRefusal and the model will explain why
+                elif hasattr(part, "refusal"):
+                    text_parts.append(f"[Refusal] {part.refusal}")
 
     if not text_parts:
         return []
