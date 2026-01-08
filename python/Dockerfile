@@ -101,6 +101,7 @@ COPY --chown=python:pythongroup .python-version .
 COPY --chown=python:pythongroup uv.lock .
 COPY --chown=python:pythongroup packages/kagent-adk packages/kagent-adk
 COPY --chown=python:pythongroup packages/kagent-core packages/kagent-core
+COPY --chown=python:pythongroup packages/kagent-skills packages/kagent-skills
 COPY --chown=python:pythongroup README.md .
 
 ARG VERSION
@@ -114,6 +115,7 @@ RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     && echo "Installation complete."
 
 # Create a separate venv for bash tool commands (sandbox environment)
+# This venv does not have pip installed
 RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     echo "Creating bash tool sandbox environment..."                          \
     && mkdir -p /.kagent/sandbox-venv                                         \
@@ -122,7 +124,8 @@ RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
 
 ENV PATH="/.kagent/.venv/bin:$PATH"
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
-ENV BASH_VENV_PATH="/.kagent/sandbox-venv"
+ENV BASH_VENV_PATH=/.kagent/sandbox-venv
+ENV VIRTUAL_ENV=/.kagent/.venv
 
 WORKDIR /app
 

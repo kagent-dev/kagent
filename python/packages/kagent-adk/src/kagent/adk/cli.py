@@ -16,7 +16,7 @@ from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
 from .skill_fetcher import fetch_skill
-from .skills.skills_plugin import add_skills_tool_to_agent
+from .tools import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)

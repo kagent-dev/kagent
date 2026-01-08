@@ -12,6 +12,7 @@ dependencies = [
   "agentsts-adk >= 0.0.8",
   "agentsts-core >= 0.0.8",
   "kagent-core",
+  "kagent-skills",
   "aiofiles>=24.1.0",
   "anyio>=4.9.0",
   "typer>=0.15.0",
@@ -34,6 +35,7 @@ dependencies = [
 
 [tool.uv.sources]
 kagent-core = {workspace = true}
+kagent-skills = {workspace = true}
 
 [project.scripts]
 kagent-adk = "kagent.adk.cli:run_cli"

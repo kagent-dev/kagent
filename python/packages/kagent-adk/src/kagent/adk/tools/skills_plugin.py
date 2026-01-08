@@ -5,11 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from google.adk.agents import BaseAgent, LlmAgent
-from google.adk.agents.callback_context import CallbackContext
-from google.adk.plugins import BasePlugin
-from google.genai import types
 
-from ..artifacts import initialize_session_path
 from ..tools import BashTool, EditFileTool, ReadFileTool, WriteFileTool
 from .skill_tool import SkillsTool
 

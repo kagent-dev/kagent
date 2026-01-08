@@ -501,8 +501,45 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 	})
 }
 
-// This function generates a CrewAI agent that uses a mock LLM server
-// Assumes that the image is built and pushed to registry, the agent can be found in python/samples/crewai/poem_flow
+// This function generates an OpenAI BYO agent that uses a mock LLM server
+// Assumes that the image is built and pushed to registry
+func generateOpenAIAgent(baseURL string) *v1alpha2.Agent {
+	return &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "basic-openai-test-agent",
+			Namespace: "kagent",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Description: "A basic OpenAI agent with calculator and weather tools",
+			Type:        v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "localhost:5001/basic-openai:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						Env: []corev1.EnvVar{
+							{
+								Name: "OPENAI_API_KEY",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "kagent-openai",
+										},
+										Key: "OPENAI_API_KEY",
+									},
+								},
+							},
+							{
+								Name:  "OPENAI_API_BASE",
+								Value: baseURL + "/v1",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 	return &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
@@ -539,6 +576,59 @@ func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 			},
 		},
 	}
+}
+
+func TestE2EInvokeOpenAIAgent(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_openai_agent.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := generateOpenAIAgent(baseURL)
+
+	// Create the agent on the cluster
+	err := cli.Create(t.Context(), agent)
+	require.NoError(t, err)
+
+	// Wait for agent to be ready
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=1m",
+		"agents.kagent.dev",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	defer func() {
+		cli.Delete(t.Context(), agent)    //nolint:errcheck
+		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
+	}()
+
+	// Setup A2A client - use the agent's actual name
+	a2aURL := a2aUrl("kagent", "basic-openai-test-agent")
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	require.NoError(t, err)
+
+	useArtifacts := true
+	t.Run("sync_invocation_calculator", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "What is 2+2?", "4", &useArtifacts)
+	})
+
+	t.Run("streaming_invocation_weather", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "What is the weather in London?", "Rainy, 52°F")
+	})
 }
 
 func TestE2EInvokeCrewAIAgent(t *testing.T) {
@@ -619,6 +709,8 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 	})
+
+	cli.Delete(t.Context(), agent) //nolint:errcheck
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {

@@ -5,9 +5,7 @@ from fastapi import FastAPI
 from opentelemetry import _logs, trace
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._events import EventLoggerProvider
@@ -18,6 +16,31 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from ._span_processor import KagentAttributesSpanProcessor
+
+
+def _instrument_anthropic(event_logger_provider=None):
+    """Instrument Anthropic SDK if available."""
+    try:
+        from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+
+        if event_logger_provider:
+            AnthropicInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
+        else:
+            AnthropicInstrumentor().instrument()
+    except ImportError:
+        # Anthropic SDK is not installed; skipping instrumentation.
+        pass
+
+
+def _instrument_google_generativeai():
+    """Instrument Google GenerativeAI SDK if available."""
+    try:
+        from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
+
+        GoogleGenerativeAiInstrumentor().instrument()
+    except ImportError:
+        # Google GenerativeAI SDK is not installed; skipping instrumentation.
+        pass
 
 
 def configure(fastapi_app: FastAPI | None = None):
@@ -76,10 +99,10 @@ def configure(fastapi_app: FastAPI | None = None):
         # Create event logger provider using the configured logger provider
         event_logger_provider = EventLoggerProvider(logger_provider)
         OpenAIInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
-        AnthropicInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
+        _instrument_anthropic(event_logger_provider)
     else:
         # Use legacy attributes (input/output as GenAI span attributes)
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
         OpenAIInstrumentor().instrument()
-        AnthropicInstrumentor().instrument()
-        GoogleGenerativeAiInstrumentor().instrument()
+        _instrument_anthropic()
+        _instrument_google_generativeai()
