@@ -683,15 +683,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
-		if model.Spec.APIKeySecret != "" {
+		apiKeySecretName, apiKeySecretKey := model.Spec.GetAPIKeySecretRef()
+		if apiKeySecretName != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: "OPENAI_API_KEY",
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
+							Name: apiKeySecretName,
 						},
-						Key: model.Spec.APIKeySecretKey,
+						Key: apiKeySecretKey,
 					},
 				},
 			})
@@ -738,15 +739,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		return openai, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropic:
-		if model.Spec.APIKeySecret != "" {
+		apiKeySecretName, apiKeySecretKey := model.Spec.GetAPIKeySecretRef()
+		if apiKeySecretName != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: "ANTHROPIC_API_KEY",
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
+							Name: apiKeySecretName,
 						},
-						Key: model.Spec.APIKeySecretKey,
+						Key: apiKeySecretKey,
 					},
 				},
 			})
@@ -768,14 +770,15 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
+		apiKeySecretName, apiKeySecretKey := model.Spec.GetAPIKeySecretRef()
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: "AZURE_OPENAI_API_KEY",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: model.Spec.APIKeySecret,
+						Name: apiKeySecretName,
 					},
-					Key: model.Spec.APIKeySecretKey,
+					Key: apiKeySecretKey,
 				},
 			},
 		})
@@ -823,16 +826,17 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			Name:  "GOOGLE_GENAI_USE_VERTEXAI",
 			Value: "true",
 		})
-		if model.Spec.APIKeySecret != "" {
+		apiKeySecretName, apiKeySecretKey := model.Spec.GetAPIKeySecretRef()
+		if apiKeySecretName != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
-				Value: "/creds/" + model.Spec.APIKeySecretKey,
+				Value: "/creds/" + apiKeySecretKey,
 			})
 			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
 				Name: googleCredsVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
-						SecretName: model.Spec.APIKeySecret,
+						SecretName: apiKeySecretName,
 					},
 				},
 			})
@@ -863,16 +867,17 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			Name:  "GOOGLE_CLOUD_LOCATION",
 			Value: model.Spec.AnthropicVertexAI.Location,
 		})
-		if model.Spec.APIKeySecret != "" {
+		apiKeySecretName, apiKeySecretKey := model.Spec.GetAPIKeySecretRef()
+		if apiKeySecretName != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
-				Value: "/creds/" + model.Spec.APIKeySecretKey,
+				Value: "/creds/" + apiKeySecretKey,
 			})
 			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
 				Name: googleCredsVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
-						SecretName: model.Spec.APIKeySecret,
+						SecretName: apiKeySecretName,
 					},
 				},
 			})
@@ -910,14 +915,15 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 		return ollama, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderGemini:
+		apiKeySecretName, apiKeySecretKey := model.Spec.GetAPIKeySecretRef()
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: "GOOGLE_API_KEY",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: model.Spec.APIKeySecret,
+						Name: apiKeySecretName,
 					},
-					Key: model.Spec.APIKeySecretKey,
+					Key: apiKeySecretKey,
 				},
 			},
 		})
