@@ -67,7 +67,14 @@ def static(
     root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
     maybe_add_skills(root_agent)
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
+    kagent_app = KAgentApp(
+        root_agent,
+        agent_card,
+        app_cfg.url,
+        app_cfg.app_name,
+        plugins=plugins,
+        stream=agent_config.stream if agent_config.stream is not None else True,
+    )
 
     server = kagent_app.build()
     configure_tracing(server)
@@ -140,6 +147,11 @@ def run(
 
     maybe_add_skills(root_agent)
 
+    # Load agent config to get stream setting
+    with open(os.path.join(working_dir, name, "config.json"), "r") as f:
+        config = json.load(f)
+    agent_config = AgentConfig.model_validate(config)
+
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
@@ -153,7 +165,15 @@ def run(
     except Exception:
         logger.exception(f"Failed to load agent module '{name}' for lifespan")
 
-    kagent_app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, lifespan=lifespan, plugins=plugins)
+    kagent_app = KAgentApp(
+        root_agent,
+        agent_card,
+        app_cfg.url,
+        app_cfg.app_name,
+        lifespan=lifespan,
+        plugins=plugins,
+        stream=agent_config.stream if agent_config.stream is not None else True,
+    )
 
     if local:
         logger.info("Running in local mode with InMemorySessionService")

@@ -22,7 +22,7 @@ from google.genai import types
 
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
-from ._agent_executor import A2aAgentExecutor
+from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
@@ -55,6 +55,7 @@ class KAgentApp:
         app_name: str,
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
+        stream: bool = True,
     ):
         self.root_agent = root_agent
         self.kagent_url = kagent_url
@@ -62,6 +63,7 @@ class KAgentApp:
         self.agent_card = agent_card
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
+        self.stream = stream
 
     def build(self, local=False) -> FastAPI:
         session_service = InMemorySessionService()
@@ -86,16 +88,15 @@ class KAgentApp:
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
+            config=A2aAgentExecutorConfig(stream=self.stream),
         )
 
-        task_store = InMemoryTaskStore()
-        if not local:
-            task_store = KAgentTaskStore(http_client)
+        kagent_task_store = KAgentTaskStore(http_client)
 
-        request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
+        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
-            task_store=task_store,
+            task_store=kagent_task_store,
             request_context_builder=request_context_builder,
         )
 
@@ -105,13 +106,7 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-
-        lifespan_manager = LifespanManager()
-        lifespan_manager.add(self._lifespan)
-        if not local:
-            lifespan_manager.add(token_service.lifespan())
-
-        app = FastAPI(lifespan=lifespan_manager)
+        app = FastAPI(lifespan=token_service.lifespan())
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)

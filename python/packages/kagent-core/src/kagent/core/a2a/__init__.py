@@ -23,12 +23,16 @@ from ._hitl import (
     handle_tool_approval_interrupt,
     is_input_required_task,
 )
+from ._request_handler import KAgentRequestHandler
 from ._requests import KAgentRequestContextBuilder
+from ._result_aggregator import KAgentResultAggregator
 from ._task_result_aggregator import TaskResultAggregator
 from ._task_store import KAgentTaskStore
 
 __all__ = [
     "KAgentRequestContextBuilder",
+    "KAgentRequestHandler",
+    "KAgentResultAggregator",
     "KAgentTaskStore",
     "get_kagent_metadata_key",
     "A2A_DATA_PART_METADATA_TYPE_KEY",
