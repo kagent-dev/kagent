@@ -14,8 +14,10 @@ serviceAccount:
   annotations: {}
   name: ""
 
-securityContext: {}
-  
+podSecurityContext: {}
+
+containerSecurityContext: {}
+
 tolerations: []
 
 nodeSelector: {}
