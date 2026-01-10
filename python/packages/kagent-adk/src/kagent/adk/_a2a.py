@@ -19,7 +19,6 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -91,12 +90,14 @@ class KAgentApp:
             config=A2aAgentExecutorConfig(stream=self.stream),
         )
 
-        kagent_task_store = KAgentTaskStore(http_client)
+        task_store = InMemoryTaskStore()
+        if not local:
+            task_store = KAgentTaskStore(http_client)
 
-        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
+        request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
-            task_store=kagent_task_store,
+            task_store=task_store,
             request_context_builder=request_context_builder,
         )
 
@@ -106,7 +107,13 @@ class KAgentApp:
         )
 
         faulthandler.enable()
-        app = FastAPI(lifespan=token_service.lifespan())
+
+        lifespan_manager = LifespanManager()
+        lifespan_manager.add(self._lifespan)
+        if not local:
+            lifespan_manager.add(token_service.lifespan())
+
+        app = FastAPI(lifespan=lifespan_manager)
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)

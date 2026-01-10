@@ -11,7 +11,6 @@ from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
-
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
