@@ -2,7 +2,7 @@ import asyncio
 
 import httpx
 from a2a.server.tasks import TaskStore
-from a2a.types import Task
+from a2a.types import Message, Task
 from pydantic import BaseModel
 from typing_extensions import override
 
@@ -35,9 +35,22 @@ class KAgentTaskStore(TaskStore):
         # Event-based sync: track pending save operations
         self._save_events: dict[str, asyncio.Event] = {}
 
+    def _is_partial_event(self, item: Message) -> bool:
+        """Check if a history item is a partial ADK streaming event."""
+        metadata = item.metadata or {}
+        return metadata.get("adk_partial") is True
+
+    def _clean_partial_events(self, history: list[Message]) -> list[Message]:
+        """Remove partial streaming events from history."""
+        return [item for item in history if not self._is_partial_event(item)]
+
     @override
     async def save(self, task: Task, context=None) -> None:
         """Save a task to KAgent.
+
+        Skips saving if the current event is a partial streaming chunk.
+        The adk_partial flag is set on event.metadata by AgentExecutor and
+        gets copied to task.metadata by TaskManager.
 
         Args:
             task: The task to save
@@ -46,6 +59,10 @@ class KAgentTaskStore(TaskStore):
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
+        # Clean any partial events from history before saving
+        history = task.history or []
+        task.history = self._clean_partial_events(history)
+
         response = await self.client.post("/api/tasks", json=task.model_dump(mode="json"))
         response.raise_for_status()
 

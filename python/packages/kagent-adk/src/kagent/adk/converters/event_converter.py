@@ -141,6 +141,7 @@ def convert_event_to_a2a_message(
     Args:
       event: The ADK event to convert.
       invocation_context: The invocation context.
+      role: The role attribute for the message (default: Role.agent).
 
     Returns:
       An A2A Message if the event has content, None otherwise.
@@ -165,7 +166,10 @@ def convert_event_to_a2a_message(
                 _process_long_running_tool(a2a_part, event)
 
         if a2a_parts:
-            return Message(message_id=str(uuid.uuid4()), role=role, parts=a2a_parts)
+            # Include adk_partial in message metadata so TaskStore can filter
+            # partial streaming messages from history before saving
+            message_metadata = {"adk_partial": event.partial}
+            return Message(message_id=str(uuid.uuid4()), role=role, parts=a2a_parts, metadata=message_metadata)
 
     except Exception as e:
         logger.error("Failed to convert event to status message: %s", e)
