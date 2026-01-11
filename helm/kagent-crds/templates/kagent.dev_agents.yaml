@@ -6060,6 +6060,55 @@ spec:
                         minItems: 1
                         type: array
                     type: object
+                  context:
+                    properties:
+                      cache:
+                        properties:
+                          cacheIntervals:
+                            type: integer
+                          enabled:
+                            type: boolean
+                          minTokens:
+                            type: integer
+                          ttlSeconds:
+                            type: integer
+                        required:
+                        - enabled
+                        type: object
+                      compression:
+                        properties:
+                          compactionInterval:
+                            type: integer
+                          enabled:
+                            type: boolean
+                          overlapSize:
+                            type: integer
+                          summarizer:
+                            properties:
+                              model:
+                                description: Model to use for summarization (required
+                                  if type is llm)
+                                type: string
+                              type:
+                                default: llm
+                                enum:
+                                - llm
+                                - text
+                                type: string
+                            type: object
+                        required:
+                        - enabled
+                        type: object
+                      windowCompression:
+                        properties:
+                          enabled:
+                            type: boolean
+                          maxLength:
+                            type: integer
+                        required:
+                        - enabled
+                        type: object
+                    type: object
                   deployment:
                     properties:
                       affinity:

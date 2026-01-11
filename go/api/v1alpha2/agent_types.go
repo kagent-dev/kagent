@@ -103,12 +103,66 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
 
+	// +optional
+	Context *ContextConfig `json:"context,omitempty"`
+
 	// Allow code execution for python code blocks with this agent.
 	// If true, the agent will automatically execute python code blocks in the LLM responses.
 	// Code will be executed in a sandboxed environment.
 	// +optional
 	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
+}
+
+type ContextConfig struct {
+	// +optional
+	Compression *ContextCompressionConfig `json:"compression,omitempty"`
+	// +optional
+	Cache *ContextCacheConfig `json:"cache,omitempty"`
+	// +optional
+	WindowCompression *ContextWindowCompressionConfig `json:"windowCompression,omitempty"`
+}
+
+type ContextCompressionConfig struct {
+	Enabled bool `json:"enabled"`
+	// +optional
+	CompactionInterval *int `json:"compactionInterval,omitempty"`
+	// +optional
+	OverlapSize *int `json:"overlapSize,omitempty"`
+	// +optional
+	Summarizer *ContextSummarizerConfig `json:"summarizer,omitempty"`
+}
+
+// +kubebuilder:validation:Enum=llm;text
+type ContextSummarizerType string
+
+const (
+	ContextSummarizerTypeLlm  ContextSummarizerType = "llm"
+	ContextSummarizerTypeText ContextSummarizerType = "text"
+)
+
+type ContextSummarizerConfig struct {
+	// +kubebuilder:default=llm
+	Type ContextSummarizerType `json:"type,omitempty"`
+	// Model to use for summarization (required if type is llm)
+	// +optional
+	Model string `json:"model,omitempty"`
+}
+
+type ContextCacheConfig struct {
+	Enabled bool `json:"enabled"`
+	// +optional
+	MinTokens *int `json:"minTokens,omitempty"`
+	// +optional
+	TTLSeconds *int `json:"ttlSeconds,omitempty"`
+	// +optional
+	CacheIntervals *int `json:"cacheIntervals,omitempty"`
+}
+
+type ContextWindowCompressionConfig struct {
+	Enabled bool `json:"enabled"`
+	// +optional
+	MaxLength *int `json:"maxLength,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
