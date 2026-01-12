@@ -156,14 +156,6 @@ class KAgentSessionService(BaseSessionService):
 
     @override
     async def append_event(self, session: Session, event: Event) -> Event:
-        # Skip persisting partial (streaming) events - they're temporary chunks
-        # that should only be displayed in real-time, not stored in history
-        if getattr(event, "partial", False):
-            # Still update in-memory session for context continuity
-            session.last_update_time = event.timestamp
-            await super().append_event(session=session, event=event)
-            return event
-
         # Convert ADK Event to JSON format
         event_data = {
             "id": event.id,

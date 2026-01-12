@@ -168,7 +168,7 @@ def convert_event_to_a2a_message(
         if a2a_parts:
             # Include adk_partial in message metadata so TaskStore can filter
             # partial streaming messages from history before saving
-            message_metadata = {"adk_partial": event.partial}
+            message_metadata = {get_kagent_metadata_key("adk_partial"): event.partial}
             return Message(message_id=str(uuid.uuid4()), role=role, parts=a2a_parts, metadata=message_metadata)
 
     except Exception as e:
