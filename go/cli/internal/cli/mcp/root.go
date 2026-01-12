@@ -18,6 +18,7 @@ Model Context Protocol servers with dynamic tool loading.`,
 	mcpCmd.AddCommand(DeployCmd)
 	mcpCmd.AddCommand(AddToolCmd)
 	mcpCmd.AddCommand(RunCmd)
+	mcpCmd.AddCommand(ServeAgentsCmd)
 	mcpCmd.AddCommand(SecretsCmd)
 
 	return mcpCmd
