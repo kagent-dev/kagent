@@ -76,6 +76,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullPolicy: string;
     imagePullSecrets: string[];
     envPairs: { name: string; value?: string; isSecret?: boolean; secretName?: string; secretKey?: string; optional?: boolean }[];
+    stream: boolean;
     isSubmitting: boolean;
     isLoading: boolean;
     errors: ValidationErrors;
@@ -97,6 +98,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullPolicy: "",
     imagePullSecrets: [""],
     envPairs: [{ name: "", value: "", isSecret: false }],
+    stream: false,
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
@@ -134,6 +136,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   selectedTools: (agent.spec?.declarative?.tools && agentResponse.tools) ? agentResponse.tools : [],
                   selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
+                  stream: agent.spec?.declarative?.stream ?? false,
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
@@ -274,7 +277,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         type: state.agentType,
         systemPrompt: state.systemPrompt,
         modelName: state.selectedModel?.ref || "",
-        stream: true,
+        stream: state.stream,
         tools: state.selectedTools,
         skillRefs: state.agentType === "Declarative" ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
         // BYO
@@ -446,6 +449,19 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       onChange={(modelRef) => validateField('model', modelRef)}
                       agentNamespace={state.namespace}
                     />
+
+                    <div className="flex items-center space-x-3 pt-2">
+                      <Checkbox
+                        id="stream-toggle"
+                        checked={state.stream}
+                        onCheckedChange={(checked) => setState(prev => ({ ...prev, stream: !!checked }))}
+                        disabled={state.isSubmitting || state.isLoading}
+                      />
+                      <div>
+                        <Label htmlFor="stream-toggle" className="text-sm font-medium">Enable LLM response streaming</Label>
+                        <p className="text-xs text-muted-foreground">Stream responses from the model in real-time (experimental)</p>
+                      </div>
+                    </div>
                   </>
                 )}
                 {state.agentType === "BYO" && (
