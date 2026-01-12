@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
@@ -9,6 +10,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
+	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 var ServeAgentsCmd = &cobra.Command{
@@ -31,10 +34,26 @@ var ServeAgentsCmd = &cobra.Command{
 						mcp.WithDescription("kagent agent "+agentNS+"/"+agentName),
 						mcp.WithString("task", mcp.Description("Task to run"), mcp.Required()),
 					), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-						if _, err := request.RequireString("task"); err != nil {
+						task, err := request.RequireString("task")
+						if err != nil {
 							return mcp.NewToolResultError(err.Error()), nil
 						}
-						return mcp.NewToolResultError("agent tool not wired yet: " + agentNS + "/" + agentName), nil
+						a2aURL := fmt.Sprintf("%s/api/a2a/%s/%s", cfg.KAgentURL, agentNS, agentName)
+						client, err := a2aclient.NewA2AClient(a2aURL, a2aclient.WithTimeout(cfg.Timeout))
+						if err != nil {
+							return mcp.NewToolResultErrorFromErr("a2a client", err), nil
+						}
+						result, err := client.SendMessage(ctx, protocol.SendMessageParams{Message: protocol.Message{
+							Kind: protocol.KindMessage, Role: protocol.MessageRoleUser, Parts: []protocol.Part{protocol.NewTextPart(task)},
+						}})
+						if err != nil {
+							return mcp.NewToolResultErrorFromErr("a2a send", err), nil
+						}
+						raw, err := result.MarshalJSON()
+						if err != nil {
+							return mcp.NewToolResultErrorFromErr("marshal result", err), nil
+						}
+						return mcp.NewToolResultText(string(raw)), nil
 					})
 				}
 			}
