@@ -31,6 +31,9 @@ dependencies = [
   "typing-extensions>=4.8.0",
   "jsonref>=1.1.0",
   "a2a-sdk>=0.3.22",
+  # Security: pin minimum versions for CVE fixes in transitive dependencies
+  "urllib3>=2.6.0",  # CVE-2025-66418, CVE-2025-66471: unbounded decompression DoS
+  "filelock>=3.20.1",  # CVE-2025-68146: TOCTOU symlink race condition
 ]
 
 [tool.uv.sources]
