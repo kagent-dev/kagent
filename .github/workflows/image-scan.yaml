@@ -63,6 +63,6 @@ jobs:
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: ghcr.io/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.version }}
+          image-ref: localhost:5001/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.version }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
