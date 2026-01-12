@@ -3,7 +3,7 @@
     {
       "name": "initial_request",
       "match": {
-        "match_type": "exact",
+        "match_type": "contains",
         "message": {
           "content": "write some code",
           "role": "user"
