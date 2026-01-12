@@ -57,10 +57,10 @@ jobs:
         env:
           DOCKER_BUILDER: "docker buildx"
           DOCKER_BUILD_ARGS: >-
-            --load
             --cache-from=type=gha
             --cache-to=type=gha,mode=max
             --build-arg=VERSION=${{ steps.vars.outputs.version }}
+            --push
         run: |
           export VERSION=${{ steps.vars.outputs.version }}
           make build-${{ matrix.image }}
