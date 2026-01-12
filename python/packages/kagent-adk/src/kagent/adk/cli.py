@@ -148,9 +148,14 @@ def run(
     maybe_add_skills(root_agent)
 
     # Load agent config to get stream setting
-    with open(os.path.join(working_dir, name, "config.json"), "r") as f:
-        config = json.load(f)
-    agent_config = AgentConfig.model_validate(config)
+    agent_config = None
+    config_path = os.path.join(working_dir, name, "config.json")
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        agent_config = AgentConfig.model_validate(config)
+    except FileNotFoundError:
+        logger.debug(f"No config.json found at {config_path}, using defaults")
 
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
@@ -172,7 +177,7 @@ def run(
         app_cfg.app_name,
         lifespan=lifespan,
         plugins=plugins,
-        stream=agent_config.stream if agent_config.stream is not None else True,
+        stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
     )
 
     if local:
