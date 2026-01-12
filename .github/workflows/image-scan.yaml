@@ -22,6 +22,11 @@ jobs:
           - ui
           - app
     runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5001:5000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
