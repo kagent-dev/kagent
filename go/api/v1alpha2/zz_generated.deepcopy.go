@@ -324,11 +324,6 @@ func (in *DeclarativeAgentSpec) DeepCopyInto(out *DeclarativeAgentSpec) {
 		*out = new(ValueSource)
 		**out = **in
 	}
-	if in.Stream != nil {
-		in, out := &in.Stream, &out.Stream
-		*out = new(bool)
-		**out = **in
-	}
 	if in.Tools != nil {
 		in, out := &in.Tools, &out.Tools
 		*out = make([]*Tool, len(*in))

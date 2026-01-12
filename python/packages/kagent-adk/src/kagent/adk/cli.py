@@ -11,6 +11,7 @@ from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
+
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
@@ -72,7 +73,7 @@ def static(
         app_cfg.url,
         app_cfg.app_name,
         plugins=plugins,
-        stream=agent_config.stream if agent_config.stream is not None else True,
+        stream=agent_config.stream if agent_config.stream is not None else False,
     )
 
     server = kagent_app.build()
@@ -187,6 +188,7 @@ def run(
         host=host,
         port=port,
         workers=workers,
+        loop=os.getenv("UVICORN_LOOP", "auto"),
     )
 
 

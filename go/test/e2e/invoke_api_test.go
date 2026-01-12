@@ -123,7 +123,7 @@ func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools [
 type AgentOptions struct {
 	Name          string
 	SystemMessage string
-	Stream        *bool
+	Stream        bool
 	Env           []corev1.EnvVar
 	Skills        *v1alpha2.SkillForAgent
 	ExecuteCode   *bool
@@ -348,9 +348,7 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 	}
 
 	// Apply optional configurations
-	if opts.Stream != nil {
-		agent.Spec.Declarative.Stream = opts.Stream
-	}
+	agent.Spec.Declarative.Stream = opts.Stream
 
 	if len(opts.Env) > 0 {
 		agent.Spec.Declarative.Deployment.Env = append(agent.Spec.Declarative.Deployment.Env, opts.Env...)
@@ -462,7 +460,7 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	// Enable streaming explicitly
-	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: ptr.To(true)})
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
 
 	defer func() {
 		cli.Delete(t.Context(), agent)    //nolint:errcheck
@@ -793,7 +791,6 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{
 		Name:          "test-sts-agent",
 		SystemMessage: "You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.",
-		Stream:        &[]bool{true}[0],
 		Env: []corev1.EnvVar{
 			{
 				Name:  "STS_WELL_KNOWN_URI",

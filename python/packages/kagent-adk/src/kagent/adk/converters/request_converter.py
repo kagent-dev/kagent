@@ -19,7 +19,7 @@ def _get_user_id(request: RequestContext) -> str:
 
 def convert_a2a_request_to_adk_run_args(
     request: RequestContext,
-    stream: bool = True,
+    stream: bool = False,
 ) -> dict[str, Any]:
     if not request.message:
         raise ValueError("Request message cannot be None")

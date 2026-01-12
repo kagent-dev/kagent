@@ -42,7 +42,7 @@ logger = logging.getLogger("kagent_adk." + __name__)
 class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the A2aAgentExecutor."""
 
-    stream: bool = True
+    stream: bool = False
 
 
 # This class is a copy of the A2aAgentExecutor class in the ADK sdk,
@@ -110,7 +110,7 @@ class A2aAgentExecutor(AgentExecutor):
             raise ValueError("A2A request must have a message")
 
         # Convert the a2a request to ADK run args
-        stream = self._config.stream if self._config is not None else True
+        stream = self._config.stream if self._config is not None else False
         run_args = convert_a2a_request_to_adk_run_args(context, stream=stream)
 
         # Prepare span attributes.
