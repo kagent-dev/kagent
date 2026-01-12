@@ -90,16 +90,6 @@ var ServeAgentsCmd = &cobra.Command{
 				}
 			}
 		}
-		s.AddTool(mcp.NewTool("echo",
-			mcp.WithDescription("Echo back the input message"),
-			mcp.WithString("message", mcp.Description("Message to echo"), mcp.Required()),
-		), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			message, err := request.RequireString("message")
-			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-			return mcp.NewToolResultText(message), nil
-		})
 		stdioServer := mcpserver.NewStdioServer(s)
 		return stdioServer.Listen(cmd.Context(), os.Stdin, os.Stdout)
 	},
