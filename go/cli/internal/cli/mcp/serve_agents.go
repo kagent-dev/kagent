@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -65,11 +66,26 @@ var ServeAgentsCmd = &cobra.Command{
 						if err != nil {
 							return mcp.NewToolResultErrorFromErr("a2a send", err), nil
 						}
-						raw, err := result.MarshalJSON()
-						if err != nil {
-							return mcp.NewToolResultErrorFromErr("marshal result", err), nil
+						var text string
+						switch a2aResult := result.Result.(type) {
+						case *protocol.Message:
+							text = a2a.ExtractText(*a2aResult)
+						case *protocol.Task:
+							if a2aResult.Status.Message != nil {
+								text = a2a.ExtractText(*a2aResult.Status.Message)
+							}
+							for _, artifact := range a2aResult.Artifacts {
+								text += a2a.ExtractText(protocol.Message{Parts: artifact.Parts})
+							}
 						}
-						return mcp.NewToolResultText(string(raw)), nil
+						if text == "" {
+							raw, err := result.MarshalJSON()
+							if err != nil {
+								return mcp.NewToolResultErrorFromErr("marshal result", err), nil
+							}
+							text = string(raw)
+						}
+						return mcp.NewToolResultText(text), nil
 					})
 				}
 			}
