@@ -36,7 +36,6 @@ var ServeAgentsCmd = &cobra.Command{
 						}
 						return mcp.NewToolResultError("agent tool not wired yet: " + agentNS + "/" + agentName), nil
 					})
-					break
 				}
 			}
 		}
