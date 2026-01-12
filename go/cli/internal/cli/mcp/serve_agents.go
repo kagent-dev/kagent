@@ -1,7 +1,10 @@
 package mcp
 
 import (
+	"context"
+
 	"github.com/kagent-dev/kagent/go/internal/version"
+	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 )
@@ -15,6 +18,16 @@ var ServeAgentsCmd = &cobra.Command{
 			version.Version,
 			mcpserver.WithToolCapabilities(false),
 		)
+		s.AddTool(mcp.NewTool("echo",
+			mcp.WithDescription("Echo back the input message"),
+			mcp.WithString("message", mcp.Description("Message to echo"), mcp.Required()),
+		), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			message, err := request.RequireString("message")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(message), nil
+		})
 		return mcpserver.ServeStdio(s)
 	},
 }
