@@ -21,7 +21,24 @@ var ServeAgentsCmd = &cobra.Command{
 			mcpserver.WithToolCapabilities(false),
 		)
 		if cfg, err := config.Get(); err == nil {
-			go func() { _, _ = cfg.Client().Agent.ListAgents(cmd.Context()) }()
+			if resp, err := cfg.Client().Agent.ListAgents(cmd.Context()); err == nil {
+				for _, agent := range resp.Data {
+					if !agent.Accepted || !agent.DeploymentReady || agent.Agent == nil {
+						continue
+					}
+					toolName, agentNS, agentName := agent.ID, agent.Agent.Namespace, agent.Agent.Name
+					s.AddTool(mcp.NewTool(toolName,
+						mcp.WithDescription("kagent agent "+agentNS+"/"+agentName),
+						mcp.WithString("task", mcp.Description("Task to run"), mcp.Required()),
+					), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+						if _, err := request.RequireString("task"); err != nil {
+							return mcp.NewToolResultError(err.Error()), nil
+						}
+						return mcp.NewToolResultError("agent tool not wired yet: " + agentNS + "/" + agentName), nil
+					})
+					break
+				}
+			}
 		}
 		s.AddTool(mcp.NewTool("echo",
 			mcp.WithDescription("Echo back the input message"),
