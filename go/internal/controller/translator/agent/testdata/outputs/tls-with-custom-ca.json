@@ -32,7 +32,8 @@
       "type": "openai"
     },
     "remote_agents": null,
-    "sse_tools": null
+    "sse_tools": null,
+    "stream": false
   },
   "manifest": [
     {
@@ -61,7 +62,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"tls_agent_with_custom_ca\",\"description\":\"\",\"url\":\"http://tls-agent-with-custom-ca.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_disable_verify\":false,\"tls_ca_cert_path\":\"/etc/ssl/certs/custom/ca.crt\",\"tls_disable_system_cas\":false,\"base_url\":\"https://internal-litellm.company.com\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with custom CA support.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_disable_verify\":false,\"tls_ca_cert_path\":\"/etc/ssl/certs/custom/ca.crt\",\"tls_disable_system_cas\":false,\"base_url\":\"https://internal-litellm.company.com\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with custom CA support.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -130,7 +131,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "16692844799113135924"
+              "kagent.dev/config-hash": "14050942063475986380"
             },
             "labels": {
               "app": "kagent",

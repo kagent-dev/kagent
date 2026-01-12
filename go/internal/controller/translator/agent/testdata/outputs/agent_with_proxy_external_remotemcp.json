@@ -37,7 +37,8 @@
       "type": "openai"
     },
     "remote_agents": null,
-    "sse_tools": null
+    "sse_tools": null,
+    "stream": false
   },
   "manifest": [
     {
@@ -66,7 +67,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_proxy_external\",\"description\":\"\",\"url\":\"http://agent-with-proxy-external.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"https://external-mcp.example.com/mcp\",\"headers\":{}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":null}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"https://external-mcp.example.com/mcp\",\"headers\":{}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -135,7 +136,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "12862703226447143214"
+              "kagent.dev/config-hash": "8178097805977326496"
             },
             "labels": {
               "app": "kagent",
