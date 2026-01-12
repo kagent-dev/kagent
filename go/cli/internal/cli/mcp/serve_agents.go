@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"os"
 
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -28,6 +29,7 @@ var ServeAgentsCmd = &cobra.Command{
 			}
 			return mcp.NewToolResultText(message), nil
 		})
-		return mcpserver.ServeStdio(s)
+		stdioServer := mcpserver.NewStdioServer(s)
+		return stdioServer.Listen(cmd.Context(), os.Stdin, os.Stdout)
 	},
 }
