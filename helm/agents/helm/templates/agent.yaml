@@ -1,4 +1,3 @@
-{{- if .Values.enabled }}
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
@@ -222,4 +221,3 @@ spec:
     deployment:
       resources:
         {{- toYaml .Values.resources | nindent 8 }}
-{{- end }}

@@ -1,4 +1,3 @@
-{{- if .Values.enabled }}
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
@@ -203,5 +202,4 @@ spec:
             - "How does vector matching work in PromQL, for example, with `on() `and `group_left()`?"
     deployment:
       resources:
-        {{- toYaml .Values.resources | nindent 8 }}
-{{- end }}      
+        {{- toYaml .Values.resources | nindent 8 }} 
