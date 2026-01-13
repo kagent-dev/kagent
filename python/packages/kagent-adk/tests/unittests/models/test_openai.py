@@ -58,6 +58,53 @@ def generate_content_response():
 
 
 @pytest.fixture
+def generate_streaming_content_response():
+    """Generates a mock OpenAI streaming response matching generate_content_response."""
+    content = "Hi! How can I help you today?"
+
+    class MockDelta:
+        role = "assistant"
+        tool_calls = None
+        function_call = None
+        content = ""
+
+        def __init__(self, text):
+            if text is not None:
+                self.content = text
+
+    class MockChunkChoice:
+        finish_reason = None
+        index = 0
+        delta = None
+
+        def __init__(self, text, reason=None):
+            self.delta = MockDelta(text)
+            if reason:
+                self.finish_reason = reason
+
+    class MockChunk:
+        id = "chatcmpl-testid"
+        created = 1234567890
+        model = "gpt-3.5-turbo"
+        object = "chat.completion.chunk"
+        usage = None
+
+        def __init__(self, text=None, finish_reason=None):
+            self.choices = [MockChunkChoice(text, finish_reason)]
+
+    # Split content into chunks
+    chunks = []
+    # Chunk 1: "Hi! How can "
+    chunks.append(MockChunk(text=content[:12]))
+    # Chunk 2: "I help you today?"
+    chunks.append(MockChunk(text=content[12:]))
+    # Chunk 3: finish
+    chunks.append(MockChunk(finish_reason="stop"))
+
+    return chunks
+
+
+@pytest.fixture
 def generate_llm_response():
     return LlmResponse.create(
         types.GenerateContentResponse(
@@ -336,6 +383,51 @@ async def test_generate_content_async_with_max_tokens(llm_request, generate_cont
         mock_client.chat.completions.create.assert_called_once()
         _, kwargs = mock_client.chat.completions.create.call_args
         assert kwargs["max_tokens"] == 4096
+
+
+@pytest.mark.asyncio
+async def test_streaming_vs_non_streaming_equivalence(
+    openai_llm, llm_request, generate_content_response, generate_streaming_content_response
+):
+    """Test that streaming and non-streaming responses produce equivalent content."""
+
+    expected_content = "Hi! How can I help you today?"
+
+    # 1. Non-streaming call
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_non_stream(*args, **kwargs):
+            return generate_content_response
+
+        mock_client.chat.completions.create.side_effect = None
+        mock_client.chat.completions.create.return_value = mock_non_stream()
+
+        non_stream_results = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+        assert len(non_stream_results) == 1
+        non_stream_text = non_stream_results[0].content.parts[0].text
+        assert non_stream_text == expected_content
+
+    # 2. Streaming call
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_stream_gen_func(*args, **kwargs):
+            async def gen():
+                for chunk in generate_streaming_content_response:
+                    yield chunk
+
+            return gen()
+
+        mock_client.chat.completions.create.return_value = None
+        mock_client.chat.completions.create.side_effect = mock_stream_gen_func
+
+        stream_results = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=True)]
+
+        # Get the final response (where partial=False)
+        final_stream_response = stream_results[-1]
+        assert final_stream_response.partial is False
+        stream_text = final_stream_response.content.parts[0].text
+
+        assert non_stream_text == stream_text
 
 
 # ============================================================================

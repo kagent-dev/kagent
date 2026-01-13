@@ -504,15 +504,15 @@ class BaseOpenAI(BaseLlm):
                 elif finish_reason == "tool_calls":
                     final_reason = types.FinishReason.STOP  # Tool calls is a normal completion
 
-                if final_parts:
-                    final_content = types.Content(role="model", parts=final_parts)
-                    yield LlmResponse(
-                        content=final_content,
-                        partial=False,
-                        finish_reason=final_reason,
-                        usage_metadata=usage_metadata,
-                        turn_complete=True,
-                    )
+                # Always yield final response to signal completion and valid metadata
+                final_content = types.Content(role="model", parts=final_parts)
+                yield LlmResponse(
+                    content=final_content,
+                    partial=False,
+                    finish_reason=final_reason,
+                    usage_metadata=usage_metadata,
+                    turn_complete=True,
+                )
             else:
                 # Handle non-streaming
                 response = await self._client.chat.completions.create(stream=False, **kwargs)

@@ -193,7 +193,6 @@ def run(
         host=host,
         port=port,
         workers=workers,
-        loop=os.getenv("UVICORN_LOOP", "auto"),
     )
 
 

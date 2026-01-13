@@ -19,6 +19,7 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -54,7 +55,7 @@ class KAgentApp:
         app_name: str,
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
-        stream: bool = True,
+        stream: bool = False,
     ):
         self.root_agent = root_agent
         self.kagent_url = kagent_url
