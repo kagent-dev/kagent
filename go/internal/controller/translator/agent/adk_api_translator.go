@@ -629,6 +629,47 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) 
 	}
 }
 
+// populateOpenAIFields populates OpenAI-compatible fields from OpenAIConfig
+// into an OpenAI struct. This is used by both OpenAI and XAI providers.
+func populateOpenAIFields(openai *adk.OpenAI, config *v1alpha2.OpenAIConfig, mdd *modelDeploymentData) {
+	if config == nil {
+		return
+	}
+
+	// Only overwrite BaseUrl if a non-empty value is provided (preserves defaults like XAI's https://api.x.ai/v1)
+	if config.BaseURL != "" {
+		openai.BaseUrl = config.BaseURL
+	}
+	openai.Temperature = utils.ParseStringToFloat64(config.Temperature)
+	openai.TopP = utils.ParseStringToFloat64(config.TopP)
+	openai.FrequencyPenalty = utils.ParseStringToFloat64(config.FrequencyPenalty)
+	openai.PresencePenalty = utils.ParseStringToFloat64(config.PresencePenalty)
+
+	if config.MaxTokens > 0 {
+		openai.MaxTokens = &config.MaxTokens
+	}
+	if config.Seed != nil {
+		openai.Seed = config.Seed
+	}
+	if config.N != nil {
+		openai.N = config.N
+	}
+	if config.Timeout != nil {
+		openai.Timeout = config.Timeout
+	}
+	if config.ReasoningEffort != nil {
+		effort := string(*config.ReasoningEffort)
+		openai.ReasoningEffort = &effort
+	}
+
+	if config.Organization != "" {
+		mdd.EnvVars = append(mdd.EnvVars, corev1.EnvVar{
+			Name:  "OPENAI_ORGANIZATION",
+			Value: config.Organization,
+		})
+	}
+}
+
 // addTLSConfiguration adds TLS certificate volume mounts to modelDeploymentData
 // when TLS configuration is present in the ModelConfig.
 // Note: TLS configuration fields are now included in agent config JSON via BaseModel,
@@ -706,37 +747,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
 
-		if model.Spec.OpenAI != nil {
-			openai.BaseUrl = model.Spec.OpenAI.BaseURL
-			openai.Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
-			openai.TopP = utils.ParseStringToFloat64(model.Spec.OpenAI.TopP)
-			openai.FrequencyPenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.FrequencyPenalty)
-			openai.PresencePenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.PresencePenalty)
-
-			if model.Spec.OpenAI.MaxTokens > 0 {
-				openai.MaxTokens = &model.Spec.OpenAI.MaxTokens
-			}
-			if model.Spec.OpenAI.Seed != nil {
-				openai.Seed = model.Spec.OpenAI.Seed
-			}
-			if model.Spec.OpenAI.N != nil {
-				openai.N = model.Spec.OpenAI.N
-			}
-			if model.Spec.OpenAI.Timeout != nil {
-				openai.Timeout = model.Spec.OpenAI.Timeout
-			}
-			if model.Spec.OpenAI.ReasoningEffort != nil {
-				effort := string(*model.Spec.OpenAI.ReasoningEffort)
-				openai.ReasoningEffort = &effort
-			}
-
-			if model.Spec.OpenAI.Organization != "" {
-				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name:  "OPENAI_ORGANIZATION",
-					Value: model.Spec.OpenAI.Organization,
-				})
-			}
-		}
+		populateOpenAIFields(openai, model.Spec.OpenAI, modelDeploymentData)
 		return openai, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropic:
 		if model.Spec.APIKeySecret != "" {
@@ -931,7 +942,59 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
 
-		return gemini, modelDeploymentData, secretHashBytes, nil
+return gemini, modelDeploymentData, secretHashBytes, nil
+	case v1alpha2.ModelProviderXAI:
+		if model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: "XAI_API_KEY",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+		xai := &adk.XAI{
+			OpenAI: adk.OpenAI{
+				BaseModel: adk.BaseModel{
+					Model:   model.Spec.Model,
+					Headers: model.Spec.DefaultHeaders,
+				},
+			},
+		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&xai.BaseModel, model.Spec.TLS)
+
+		if model.Spec.XAI != nil {
+			// Populate OpenAI fields
+			openaiConfig := &v1alpha2.OpenAIConfig{
+				BaseURL:          model.Spec.XAI.BaseURL,
+				Organization:     model.Spec.XAI.Organization,
+				Temperature:      model.Spec.XAI.Temperature,
+				MaxTokens:        model.Spec.XAI.MaxTokens,
+				TopP:             model.Spec.XAI.TopP,
+				FrequencyPenalty: model.Spec.XAI.FrequencyPenalty,
+				PresencePenalty:  model.Spec.XAI.PresencePenalty,
+				Seed:             model.Spec.XAI.Seed,
+				N:                model.Spec.XAI.N,
+				Timeout:          model.Spec.XAI.Timeout,
+				ReasoningEffort:  model.Spec.XAI.ReasoningEffort,
+			}
+			populateOpenAIFields(&xai.OpenAI, openaiConfig, modelDeploymentData)
+
+			if len(model.Spec.XAI.Tools) > 0 {
+				xai.Tools = slices.Clone(model.Spec.XAI.Tools)
+			}
+			if model.Spec.XAI.LiveSearchMode != "" {
+				xai.LiveSearchMode = model.Spec.XAI.LiveSearchMode
+			} else {
+				xai.LiveSearchMode = "off"
+			}
+		}
+		return xai, modelDeploymentData, secretHashBytes, nil
 	}
 
 	return nil, nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)

@@ -562,3 +562,38 @@ class AzureOpenAI(BaseOpenAI):
             default_headers=self.default_headers,
             http_client=http_client,
         )
+
+
+class XAI(BaseOpenAI):
+    """XAI (xAI Grok) model implementation."""
+
+    type: Literal["xai"]
+    # XAI-specific fields
+    tools: Optional[list[str]] = None
+    live_search_mode: Optional[str] = None
+
+    def __init__(self, **data):
+        """Initialize XAI model with default base URL if not provided."""
+        # Set default base URL if not provided or empty
+        if "base_url" not in data or not data["base_url"]:
+            data["base_url"] = "https://api.x.ai/v1"
+        super().__init__(**data)
+
+    @cached_property
+    def _client(self) -> AsyncOpenAI:
+        """Get the XAI client with optional custom SSL configuration."""
+        http_client = self._create_http_client()
+        api_key = self.api_key or os.environ.get("XAI_API_KEY")
+
+        return AsyncOpenAI(
+            api_key=api_key,
+            base_url=self.base_url or None,
+            default_headers=self.default_headers,
+            timeout=self.timeout,
+            http_client=http_client,
+        )
+
+    @classmethod
+    def supported_models(cls) -> list[str]:
+        """Returns a list of supported models in regex for LlmRegistry."""
+        return [r"grok-.*"]

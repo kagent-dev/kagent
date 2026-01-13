@@ -69,6 +69,7 @@ const (
 	ModelTypeGeminiAnthropic = "gemini_anthropic"
 	ModelTypeOllama          = "ollama"
 	ModelTypeGemini          = "gemini"
+	ModelTypeXAI             = "xai"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -185,6 +186,52 @@ func (g *Gemini) GetType() string {
 	return ModelTypeGemini
 }
 
+// XAI uses OpenAI-compatible API but with a different default baseURL and server-side tools support
+type XAI struct {
+	OpenAI
+	// Server-side tools (e.g., web_search, x_search, code_execution, collections_search)
+	Tools []string `json:"tools,omitempty"`
+	// Live search mode for real-time data retrieval ("off", "auto", "on")
+	LiveSearchMode string `json:"live_search_mode,omitempty"`
+}
+
+func (x *XAI) MarshalJSON() ([]byte, error) {
+	// Create a map to ensure we override the embedded BaseModel.Type
+	result := make(map[string]interface{})
+
+	// Marshal the embedded OpenAI to get all its fields
+	openaiBytes, err := json.Marshal(x.OpenAI)
+	if err != nil {
+		return nil, err
+	}
+	var openaiMap map[string]interface{}
+	if err := json.Unmarshal(openaiBytes, &openaiMap); err != nil {
+		return nil, err
+	}
+
+	// Copy OpenAI fields
+	for k, v := range openaiMap {
+		result[k] = v
+	}
+
+	// Override type to xai (this ensures BaseModel.Type is overridden)
+	result["type"] = ModelTypeXAI
+
+	// Add XAI-specific fields
+	if len(x.Tools) > 0 {
+		result["tools"] = x.Tools
+	}
+	if x.LiveSearchMode != "" {
+		result["live_search_mode"] = x.LiveSearchMode
+	}
+
+	return json.Marshal(result)
+}
+
+func (x *XAI) GetType() string {
+	return ModelTypeXAI
+}
+
 func ParseModel(bytes []byte) (Model, error) {
 	var model BaseModel
 	if err := json.Unmarshal(bytes, &model); err != nil {
@@ -197,6 +244,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &gemini, nil
+	case ModelTypeXAI:
+		var xai XAI
+		if err := json.Unmarshal(bytes, &xai); err != nil {
+			return nil, err
+		}
+		return &xai, nil
 	case ModelTypeAzureOpenAI:
 		var azureOpenAI AzureOpenAI
 		if err := json.Unmarshal(bytes, &azureOpenAI); err != nil {
@@ -291,4 +344,25 @@ var _ driver.Valuer = &AgentConfig{}
 
 func (a AgentConfig) Value() (driver.Value, error) {
 	return json.Marshal(a)
+}
+
+// MarshalJSON ensures the Model interface is properly marshaled using its concrete type's MarshalJSON
+func (a AgentConfig) MarshalJSON() ([]byte, error) {
+	type Alias AgentConfig
+	return json.Marshal(&struct {
+		Model json.RawMessage `json:"model"`
+		*Alias
+	}{
+		Model: func() json.RawMessage {
+			if a.Model == nil {
+				return nil
+			}
+			b, err := json.Marshal(a.Model)
+			if err != nil {
+				return nil
+			}
+			return b
+		}(),
+		Alias: (*Alias)(&a),
+	})
 }

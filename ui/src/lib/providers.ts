@@ -1,6 +1,6 @@
 
-export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI";
-export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI"] as const;
+export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "XAI";
+export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "XAI"] as const;
 export type ModelProviderKey = typeof modelProviders[number];
 
 
@@ -62,6 +62,13 @@ export const PROVIDERS_INFO: {
         modelDocsLink: "https://cloud.google.com/vertex-ai/docs",
         help: "Configure your Google Cloud project and credentials for Vertex AI."
     },
+    XAI: {
+        name: "xAI",
+        type: "XAI",
+        apiKeyLink: "https://console.x.ai",
+        modelDocsLink: "https://docs.x.ai/docs/models",
+        help: "Get your API key from xAI."
+    },
 };
 
 export const isValidProviderInfoKey = (key: string): key is ModelProviderKey => {
@@ -87,4 +94,4 @@ export const getProviderFormKey = (providerType: BackendModelProviderType): Mode
         }
     }
     return undefined;
-} 
+}
