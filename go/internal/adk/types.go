@@ -245,36 +245,6 @@ type RemoteAgentConfig struct {
 }
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
-type ContextConfig struct {
-	Compression       *ContextCompressionConfig       `json:"compression,omitempty"`
-	Cache             *ContextCacheConfig             `json:"cache,omitempty"`
-	WindowCompression *ContextWindowCompressionConfig `json:"window_compression,omitempty"`
-}
-
-type ContextCompressionConfig struct {
-	Enabled            bool                     `json:"enabled"`
-	CompactionInterval *int                     `json:"compaction_interval,omitempty"`
-	OverlapSize        *int                     `json:"overlap_size,omitempty"`
-	Summarizer         *ContextSummarizerConfig `json:"summarizer,omitempty"`
-}
-
-type ContextSummarizerConfig struct {
-	Type  string `json:"type,omitempty"`
-	Model string `json:"model,omitempty"`
-}
-
-type ContextCacheConfig struct {
-	Enabled        bool `json:"enabled"`
-	MinTokens      *int `json:"min_tokens,omitempty"`
-	TTLSeconds     *int `json:"ttl_seconds,omitempty"`
-	CacheIntervals *int `json:"cache_intervals,omitempty"`
-}
-
-type ContextWindowCompressionConfig struct {
-	Enabled   bool `json:"enabled"`
-	MaxLength *int `json:"max_length,omitempty"`
-}
-
 type AgentConfig struct {
 	Model        Model                 `json:"model"`
 	Description  string                `json:"description"`
@@ -283,7 +253,6 @@ type AgentConfig struct {
 	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
 	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
 	ExecuteCode  bool                  `json:"execute_code,omitempty"`
-	Context      *ContextConfig        `json:"context,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
@@ -294,7 +263,6 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
 		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
 		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
-		Context      *ContextConfig        `json:"context,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -309,7 +277,6 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
-	a.Context = tmp.Context
 	return nil
 }
 

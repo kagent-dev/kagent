@@ -5,6 +5,9 @@ import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.base_agent import BaseAgent
+from google.adk.apps.app import App, EventsCompactionConfig
+from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+from google.adk.agents.context_cache_config import ContextCacheConfig as AdkCacheConfig
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
 from google.adk.code_executors.base_code_executor import BaseCodeExecutor
@@ -95,6 +98,60 @@ class Gemini(BaseLLM):
     type: Literal["gemini"]
 
 
+class ContextSummarizerSettings(BaseModel):
+    model: Optional[str] = None
+    type: Literal["llm", "text"] = "llm"
+
+class ContextCompressionSettings(BaseModel):
+    enabled: bool
+    compaction_interval: Optional[int] = Field(None, alias="compactionInterval")
+    overlap_size: Optional[int] = Field(None, alias="overlapSize")
+    summarizer: Optional[ContextSummarizerSettings] = None
+
+class ContextCacheSettings(BaseModel):
+    enabled: bool
+    min_tokens: Optional[int] = Field(None, alias="minTokens")
+    ttl_seconds: Optional[int] = Field(None, alias="ttlSeconds")
+    cache_intervals: Optional[int] = Field(None, alias="cacheIntervals")
+
+class ContextConfig(BaseModel):
+    cache: Optional[ContextCacheSettings] = None
+    compression: Optional[ContextCompressionSettings] = None
+
+
+def build_adk_context_configs(ctx: Optional[ContextConfig], default_llm: Any) -> Dict[str, Any]:
+    configs = {
+        "events_compaction_config": None,
+        "context_cache_config": None
+    }
+    
+    if not ctx:
+        return configs
+
+    if ctx.compression and ctx.compression.enabled:
+        summarizer = None
+        if ctx.compression.summarizer and ctx.compression.summarizer.type == "llm":
+            # Use the provided model for summarization, or fall back to the main agent model
+            summerizer_model_name = ctx.compression.summarizer.model
+            summarizer_llm = GeminiLLM(model=summerizer_model_name) if summerizer_model_name else default_llm
+            summarizer = LlmEventSummarizer(llm=summarizer_llm)
+
+        configs["events_compaction_config"] = EventsCompactionConfig(
+            compaction_interval=ctx.compression.compaction_interval or 3,
+            overlap_size=ctx.compression.overlap_size or 1,
+            summarizer=summarizer,
+        )
+
+    if ctx.cache and ctx.cache.enabled:
+        configs["context_cache_config"] = AdkCacheConfig(
+            min_tokens=ctx.cache.min_tokens or 2048,
+            ttl_seconds=ctx.cache.ttl_seconds or 3600,
+            cache_intervals=ctx.cache.cache_intervals or 5,
+        )
+
+    return configs
+
+
 class AgentConfig(BaseModel):
     model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini] = Field(
         discriminator="type"
@@ -105,6 +162,8 @@ class AgentConfig(BaseModel):
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
     execute_code: bool | None = None
+    context: Optional[ContextConfig] = None
+
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

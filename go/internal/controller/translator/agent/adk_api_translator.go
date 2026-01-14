@@ -533,37 +533,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		ExecuteCode: false && ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false), //ignored due to this issue https://github.com/google/adk-python/issues/3921.
 	}
 
-	if agent.Spec.Declarative.Context != nil {
-		cfg.Context = &adk.ContextConfig{}
-		if agent.Spec.Declarative.Context.Compression != nil {
-			cfg.Context.Compression = &adk.ContextCompressionConfig{
-				Enabled:            agent.Spec.Declarative.Context.Compression.Enabled,
-				CompactionInterval: agent.Spec.Declarative.Context.Compression.CompactionInterval,
-				OverlapSize:        agent.Spec.Declarative.Context.Compression.OverlapSize,
-			}
-			if agent.Spec.Declarative.Context.Compression.Summarizer != nil {
-				cfg.Context.Compression.Summarizer = &adk.ContextSummarizerConfig{
-					Type:  string(agent.Spec.Declarative.Context.Compression.Summarizer.Type),
-					Model: agent.Spec.Declarative.Context.Compression.Summarizer.Model,
-				}
-			}
-		}
-		if agent.Spec.Declarative.Context.Cache != nil {
-			cfg.Context.Cache = &adk.ContextCacheConfig{
-				Enabled:        agent.Spec.Declarative.Context.Cache.Enabled,
-				MinTokens:      agent.Spec.Declarative.Context.Cache.MinTokens,
-				TTLSeconds:     agent.Spec.Declarative.Context.Cache.TTLSeconds,
-				CacheIntervals: agent.Spec.Declarative.Context.Cache.CacheIntervals,
-			}
-		}
-		if agent.Spec.Declarative.Context.WindowCompression != nil {
-			cfg.Context.WindowCompression = &adk.ContextWindowCompressionConfig{
-				Enabled:   agent.Spec.Declarative.Context.WindowCompression.Enabled,
-				MaxLength: agent.Spec.Declarative.Context.WindowCompression.MaxLength,
-			}
-		}
-	}
-
 	for _, tool := range agent.Spec.Declarative.Tools {
 		// Skip tools that are not applicable to the model provider
 		switch {

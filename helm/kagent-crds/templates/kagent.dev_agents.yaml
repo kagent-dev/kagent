@@ -6099,15 +6099,6 @@ spec:
                         required:
                         - enabled
                         type: object
-                      windowCompression:
-                        properties:
-                          enabled:
-                            type: boolean
-                          maxLength:
-                            type: integer
-                        required:
-                        - enabled
-                        type: object
                     type: object
                   deployment:
                     properties:
