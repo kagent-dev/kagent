@@ -157,6 +157,7 @@ var ServeAgentsCmd = &cobra.Command{
 			return stdioServer.Listen(cmd.Context(), os.Stdin, os.Stdout)
 		case "http":
 			addr := fmt.Sprintf("%s:%d", serveAgentsHost, serveAgentsPort)
+			cmd.PrintErrf("MCP server listening on http://%s/mcp\n", addr)
 			httpServer := mcpserver.NewStreamableHTTPServer(s)
 			go func() {
 				<-cmd.Context().Done()
