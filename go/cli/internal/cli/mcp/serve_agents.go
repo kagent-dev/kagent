@@ -78,11 +78,23 @@ var ServeAgentsCmd = &cobra.Command{
 				ref := agent.Agent.Namespace + "/" + agent.Agent.Name
 				agents = append(agents, agentSummary{Ref: ref, Description: agent.Agent.Spec.Description})
 			}
-			result, err := mcp.NewToolResultJSON(agents)
-			if err != nil {
-				return mcp.NewToolResultErrorFromErr("encode agents", err), nil
+			if len(agents) == 0 {
+				return mcp.NewToolResultStructured(agents, "No invokable agents found."), nil
 			}
-			return result, nil
+
+			var fallbackText strings.Builder
+			for i, agent := range agents {
+				if i > 0 {
+					fallbackText.WriteByte('\n')
+				}
+				fallbackText.WriteString(agent.Ref)
+				if agent.Description != "" {
+					fallbackText.WriteString(" - ")
+					fallbackText.WriteString(agent.Description)
+				}
+			}
+
+			return mcp.NewToolResultStructured(agents, fallbackText.String()), nil
 		})
 
 		s.AddTool(mcp.NewTool("invoke_agent",
