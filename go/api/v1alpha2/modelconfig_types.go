@@ -210,6 +210,19 @@ type OllamaConfig struct {
 
 type GeminiConfig struct{}
 
+// APIKeyConfig contains API key secret configuration for model provider authentication.
+type APIKeyConfig struct {
+	// SecretRef is the name of the Kubernetes Secret containing the API key.
+	// The Secret must be in the same namespace as the ModelConfig.
+	// +optional
+	SecretRef string `json:"secretRef,omitempty"`
+
+	// SecretKey is the key within the Secret that contains the API key data.
+	// Required when SecretRef is set.
+	// +optional
+	SecretKey string `json:"secretKey,omitempty"`
+}
+
 // TLSConfig contains TLS/SSL configuration options for model provider connections.
 // This enables agents to connect to internal LiteLLM gateways or other providers
 // that use self-signed certificates or custom certificate authorities.
@@ -255,6 +268,9 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.gemini must be nil if the provider is not Gemini",rule="!(has(self.gemini) && self.provider != 'Gemini')"
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
+// +kubebuilder:validation:XValidation:message="cannot use both apiKey and deprecated apiKeySecret/apiKeySecretKey fields",rule="!(has(self.apiKey) && (has(self.apiKeySecret) || has(self.apiKeySecretKey)))"
+// +kubebuilder:validation:XValidation:message="apiKey.secretRef must be set if apiKey.secretKey is set",rule="!(has(self.apiKey) && has(self.apiKey.secretKey) && size(self.apiKey.secretKey) > 0 && (!has(self.apiKey.secretRef) || size(self.apiKey.secretRef) == 0))"
+// +kubebuilder:validation:XValidation:message="apiKey.secretKey must be set if apiKey.secretRef is set",rule="!(has(self.apiKey) && has(self.apiKey.secretRef) && size(self.apiKey.secretRef) > 0 && (!has(self.apiKey.secretKey) || size(self.apiKey.secretKey) == 0))"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
@@ -263,13 +279,19 @@ type TLSConfig struct {
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
-	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig
+	// APIKey contains the API key secret configuration.
 	// +optional
-	APIKeySecret string `json:"apiKeySecret"`
+	APIKey *APIKeyConfig `json:"apiKey,omitempty"`
 
-	// The key in the secret that contains the API key
+	// Deprecated: Use APIKey.SecretRef instead.
+	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
 	// +optional
-	APIKeySecretKey string `json:"apiKeySecretKey"`
+	APIKeySecret string `json:"apiKeySecret,omitempty"`
+
+	// Deprecated: Use APIKey.SecretKey instead.
+	// The key in the secret that contains the API key.
+	// +optional
+	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
@@ -344,6 +366,23 @@ type ModelConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ModelConfig `json:"items"`
+}
+
+// GetAPIKeySecretRef returns the API key secret name and key, supporting both the new nested
+// structure (APIKey) and the deprecated flat fields (APIKeySecret/APIKeySecretKey).
+// The new nested structure takes precedence if set.
+func (s *ModelConfigSpec) GetAPIKeySecretRef() (secretName, secretKey string) {
+	if s.APIKey != nil && s.APIKey.SecretRef != "" {
+		return s.APIKey.SecretRef, s.APIKey.SecretKey
+	}
+	// Fall back to deprecated fields
+	return s.APIKeySecret, s.APIKeySecretKey
+}
+
+// IsUsingDeprecatedAPIKeyFields returns true if the deprecated APIKeySecret/APIKeySecretKey
+// fields are being used instead of the new nested APIKey structure.
+func (s *ModelConfigSpec) IsUsingDeprecatedAPIKeyFields() bool {
+	return (s.APIKeySecret != "" || s.APIKeySecretKey != "") && (s.APIKey == nil || s.APIKey.SecretRef == "")
 }
 
 func init() {

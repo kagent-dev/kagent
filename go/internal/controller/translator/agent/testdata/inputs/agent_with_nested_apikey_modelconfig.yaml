@@ -1,0 +1,28 @@
+operation: translateAgent
+targetObject: test-agent
+namespace: default
+objects:
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: nested-apikey-model
+      namespace: default
+    spec:
+      model: gpt-4
+      provider: OpenAI
+      apiKey:
+        secretRef: my-nested-secret
+        secretKey: my-nested-key
+      openAI:
+        baseUrl: https://api.openai.com/v1
+        temperature: "0.7"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: test-agent
+      namespace: default
+    spec:
+      type: Declarative
+      declarative:
+        modelConfig: nested-apikey-model
+        systemMessage: "You are a test agent."

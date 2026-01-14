@@ -226,13 +226,20 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 	var err error
 	var secrets []secretRef
 
-	// check for api key secret
-	if modelConfig.Spec.APIKeySecret != "" {
+	if modelConfig.Spec.IsUsingDeprecatedAPIKeyFields() {
+		reconcileLog.Info(
+			"DEPRECATION WARNING: apiKeySecret and apiKeySecretKey fields are deprecated, use apiKey.secretRef and apiKey.secretKey instead",
+			"modelConfig", utils.GetObjectRef(modelConfig),
+		)
+	}
+
+	apiKeySecretName, _ := modelConfig.Spec.GetAPIKeySecretRef()
+	if apiKeySecretName != "" {
 		secret := &corev1.Secret{}
-		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}
+		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: apiKeySecretName}
 
 		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
-			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, kubeErr))
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", apiKeySecretName, kubeErr))
 		} else {
 			secrets = append(secrets, secretRef{
 				NamespacedName: namespacedName,
