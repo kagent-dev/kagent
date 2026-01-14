@@ -42,7 +42,7 @@ logger = logging.getLogger("kagent_adk." + __name__)
 class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the A2aAgentExecutor."""
 
-    pass
+    stream: bool = False
 
 
 # This class is a copy of the A2aAgentExecutor class in the ADK sdk,
@@ -110,7 +110,8 @@ class A2aAgentExecutor(AgentExecutor):
             raise ValueError("A2A request must have a message")
 
         # Convert the a2a request to ADK run args
-        run_args = convert_a2a_request_to_adk_run_args(context)
+        stream = self._config.stream if self._config is not None else False
+        run_args = convert_a2a_request_to_adk_run_args(context, stream=stream)
 
         # Prepare span attributes.
         span_attributes = {}
@@ -241,7 +242,10 @@ class A2aAgentExecutor(AgentExecutor):
                 for a2a_event in convert_event_to_a2a_events(
                     adk_event, invocation_context, context.task_id, context.context_id
                 ):
-                    task_result_aggregator.process_event(a2a_event)
+                    # Only aggregate non-partial events to avoid duplicates from streaming chunks
+                    # Partial events are sent to frontend for display but not accumulated
+                    if not adk_event.partial:
+                        task_result_aggregator.process_event(a2a_event)
                     await event_queue.enqueue_event(a2a_event)
 
         # publish the task result event - this is final

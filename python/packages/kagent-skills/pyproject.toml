@@ -1,0 +1,35 @@
+[project]
+name = "kagent-skills"
+version = "0.1.0"
+description = "Core library for discovering and loading KAgent skills."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "pydantic>=2.0.0",
+  "pyyaml>=6.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kagent"]
+
+[tool.black]
+line-length = 120
+target-version = ['py313']
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+lint.select = ["E", "F", "I", "N", "W", "UP"]
+lint.ignore = ["E501", "N803", "N806"]

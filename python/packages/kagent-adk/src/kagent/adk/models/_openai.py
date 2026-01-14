@@ -428,14 +428,91 @@ class BaseOpenAI(BaseLlm):
         try:
             if stream:
                 # Handle streaming
+                aggregated_text = ""
+                finish_reason = None
+                usage_metadata = None
+                # Accumulate tool calls - keyed by index since they arrive in chunks
+                tool_calls_acc: dict[int, dict[str, Any]] = {}
+
                 async for chunk in await self._client.chat.completions.create(stream=True, **kwargs):
                     if chunk.choices and chunk.choices[0].delta:
                         delta = chunk.choices[0].delta
+
+                        # Handle text content streaming
                         if delta.content:
+                            aggregated_text += delta.content
                             content = types.Content(role="model", parts=[types.Part.from_text(text=delta.content)])
                             yield LlmResponse(
                                 content=content, partial=True, turn_complete=chunk.choices[0].finish_reason is not None
                             )
+
+                        # Handle tool call chunks - accumulate them
+                        if hasattr(delta, "tool_calls") and delta.tool_calls:
+                            for tool_call_chunk in delta.tool_calls:
+                                idx = tool_call_chunk.index
+                                if idx not in tool_calls_acc:
+                                    tool_calls_acc[idx] = {
+                                        "id": "",
+                                        "name": "",
+                                        "arguments": "",
+                                    }
+                                # Accumulate the chunks
+                                if tool_call_chunk.id:
+                                    tool_calls_acc[idx]["id"] = tool_call_chunk.id
+                                if tool_call_chunk.function:
+                                    if tool_call_chunk.function.name:
+                                        tool_calls_acc[idx]["name"] = tool_call_chunk.function.name
+                                    if tool_call_chunk.function.arguments:
+                                        tool_calls_acc[idx]["arguments"] += tool_call_chunk.function.arguments
+
+                        if chunk.choices[0].finish_reason:
+                            finish_reason = chunk.choices[0].finish_reason
+
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        usage_metadata = types.GenerateContentResponseUsageMetadata(
+                            prompt_token_count=chunk.usage.prompt_tokens,
+                            candidates_token_count=chunk.usage.completion_tokens,
+                            total_token_count=chunk.usage.total_tokens,
+                        )
+
+                # Yield final aggregated response with partial=False
+                final_parts = []
+
+                # Add aggregated text if any
+                if aggregated_text:
+                    final_parts.append(types.Part.from_text(text=aggregated_text))
+
+                # Add accumulated tool calls
+                for idx in sorted(tool_calls_acc.keys()):
+                    tc = tool_calls_acc[idx]
+                    try:
+                        args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+
+                    part = types.Part.from_function_call(name=tc["name"], args=args)
+                    if part.function_call:
+                        part.function_call.id = tc["id"]
+                    final_parts.append(part)
+
+                # Map finish reason
+                final_reason = types.FinishReason.STOP
+                if finish_reason == "length":
+                    final_reason = types.FinishReason.MAX_TOKENS
+                elif finish_reason == "content_filter":
+                    final_reason = types.FinishReason.SAFETY
+                elif finish_reason == "tool_calls":
+                    final_reason = types.FinishReason.STOP  # Tool calls is a normal completion
+
+                # Always yield final response to signal completion and valid metadata
+                final_content = types.Content(role="model", parts=final_parts)
+                yield LlmResponse(
+                    content=final_content,
+                    partial=False,
+                    finish_reason=final_reason,
+                    usage_metadata=usage_metadata,
+                    turn_complete=True,
+                )
             else:
                 # Handle non-streaming
                 response = await self._client.chat.completions.create(stream=False, **kwargs)

@@ -86,9 +86,9 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	ModelConfig string `json:"modelConfig,omitempty"`
 	// Whether to stream the response from the model.
-	// If not specified, the default value is true.
+	// If not specified, the default value is false.
 	// +optional
-	Stream *bool `json:"stream,omitempty"`
+	Stream bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,

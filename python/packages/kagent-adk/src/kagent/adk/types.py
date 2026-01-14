@@ -164,6 +164,8 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     context: Optional[ContextConfig] = None
 
+    # This stream option refers to LLM response streaming, not A2A streaming
+    stream: bool | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

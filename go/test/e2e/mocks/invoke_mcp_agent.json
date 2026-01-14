@@ -3,8 +3,8 @@
     {
       "name": "initial_request",
       "match": {
-        "match_type": "exact",
-        "message" : {
+        "match_type": "contains",
+        "message": {
           "content": "add 3 and 5",
           "role": "user"
         }
@@ -23,6 +23,7 @@
               "tool_calls": [
                 {
                   "id": "call_1",
+                  "type": "function",
                   "function": {
                     "name": "add",
                     "arguments": "{\"a\": 3, \"b\": 5}"
@@ -39,7 +40,7 @@
       "name": "add_response",
       "match": {
         "match_type": "contains",
-        "message" : {
+        "message": {
           "content": "8",
           "role": "tool",
           "tool_call_id": "call_1"

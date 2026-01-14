@@ -47,7 +47,8 @@
         "url": "http://proxy.kagent.svc.cluster.local:8080"
       }
     ],
-    "sse_tools": null
+    "sse_tools": null,
+    "stream": false
   },
   "manifest": [
     {
@@ -76,7 +77,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_proxy\",\"description\":\"\",\"url\":\"http://agent-with-proxy.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"test-mcp-server.kagent\"}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__nested_agent\",\"url\":\"http://proxy.kagent.svc.cluster.local:8080\",\"headers\":{\"x-kagent-host\":\"nested-agent.test\"}}]}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"test-mcp-server.kagent\"}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__nested_agent\",\"url\":\"http://proxy.kagent.svc.cluster.local:8080\",\"headers\":{\"x-kagent-host\":\"nested-agent.test\"}}],\"stream\":false}"
       }
     },
     {
@@ -145,7 +146,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "2171631320400289677"
+              "kagent.dev/config-hash": "17257565806405363696"
             },
             "labels": {
               "app": "kagent",
