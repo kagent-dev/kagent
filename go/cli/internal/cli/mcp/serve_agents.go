@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
@@ -26,6 +27,8 @@ var (
 )
 
 var a2aContextBySessionAndAgent sync.Map
+
+var fallbackInvocationCounter uint64
 
 var ServeAgentsCmd = &cobra.Command{
 	Use:   "serve-agents",
@@ -86,9 +89,14 @@ var ServeAgentsCmd = &cobra.Command{
 			}
 			agentRef = agentNS + "/" + agentName
 
-			sessionID := "unknown"
+			sessionID := ""
 			if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
 				sessionID = session.SessionID()
+			} else if headerSessionID := request.Header.Get(mcpserver.HeaderKeySessionID); headerSessionID != "" {
+				sessionID = headerSessionID
+			}
+			if sessionID == "" {
+				sessionID = fmt.Sprintf("invocation-%d", atomic.AddUint64(&fallbackInvocationCounter, 1))
 			}
 			contextKey := sessionID + "|" + agentRef
 			var contextIDPtr *string
