@@ -38,10 +38,25 @@ var ServeAgentsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
+		hooks := &mcpserver.Hooks{}
+		hooks.AddOnUnregisterSession(func(ctx context.Context, session mcpserver.ClientSession) {
+			sessionID := session.SessionID()
+			a2aContextBySessionAndAgent.Range(func(key, _ any) bool {
+				keyStr, ok := key.(string)
+				if !ok {
+					return true
+				}
+				if strings.HasPrefix(keyStr, sessionID+"|") {
+					a2aContextBySessionAndAgent.Delete(key)
+				}
+				return true
+			})
+		})
 		s := mcpserver.NewMCPServer(
 			"kagent-agents",
 			version.Version,
 			mcpserver.WithToolCapabilities(false),
+			mcpserver.WithHooks(hooks),
 		)
 
 		s.AddTool(mcp.NewTool("list_agents",
