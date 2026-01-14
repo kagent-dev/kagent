@@ -17,6 +17,17 @@ import (
 )
 
 func TestE2EInvokeAgentThroughMCPServeAgents(t *testing.T) {
+	// Setup mock server (so agent responses are deterministic and don't hit real LLMs)
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_mcp_serve_agents.json")
+	defer stopServer()
+
+	// Setup Kubernetes resources for a known-good agent
+	cli := setupK8sClient(t, false)
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+		Name: "kebab-agent",
+	})
+
 	kagentURL := os.Getenv("KAGENT_URL")
 	if kagentURL == "" {
 		kagentURL = "http://localhost:8083"
@@ -123,9 +134,9 @@ func TestE2EInvokeAgentThroughMCPServeAgents(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(agentsResult, &callResult), string(agentsResult))
 	require.NotEmpty(t, callResult.Content)
-	require.Contains(t, callResult.Content[0].Text, "kebab-agent")
+	require.Contains(t, callResult.Content[0].Text, agent.Namespace+"/"+agent.Name)
 
-	writeLine(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"invoke_agent","arguments":{"agent":"kebab-agent","task":"What can you do?"}}}`)
+	writeLine(fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"invoke_agent","arguments":{"agent":%q,"task":"What can you do?"}}}`, agent.Name))
 	invokeResult := readResponse(4)
 	require.NoError(t, json.Unmarshal(invokeResult, &callResult), string(invokeResult))
 	require.NotEmpty(t, callResult.Content)
