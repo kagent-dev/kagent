@@ -31,7 +31,10 @@ var ServeAgentsCmd = &cobra.Command{
 	Use:   "serve-agents",
 	Short: "Serve kagent agents via MCP",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, cfgErr := config.Get()
+		cfg, err := config.Get()
+		if err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
 		s := mcpserver.NewMCPServer(
 			"kagent-agents",
 			version.Version,
@@ -41,9 +44,6 @@ var ServeAgentsCmd = &cobra.Command{
 		s.AddTool(mcp.NewTool("list_agents",
 			mcp.WithDescription("List invokable kagent agents (accepted + deploymentReady)"),
 		), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if cfgErr != nil {
-				return mcp.NewToolResultErrorFromErr("config", cfgErr), nil
-			}
 			resp, err := cfg.Client().Agent.ListAgents(ctx)
 			if err != nil {
 				return mcp.NewToolResultErrorFromErr("list agents", err), nil
@@ -72,9 +72,6 @@ var ServeAgentsCmd = &cobra.Command{
 			mcp.WithString("agent", mcp.Description("Agent name (or namespace/name)"), mcp.Required()),
 			mcp.WithString("task", mcp.Description("Task to run"), mcp.Required()),
 		), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if cfgErr != nil {
-				return mcp.NewToolResultErrorFromErr("config", cfgErr), nil
-			}
 			agentRef, err := request.RequireString("agent")
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
