@@ -55,6 +55,7 @@ class KAgentApp:
         app_name: str,
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
+        context_configs: Optional[Dict[str, Any]] = None,
         stream: bool = False,
     ):
         self.root_agent = root_agent
@@ -63,6 +64,7 @@ class KAgentApp:
         self.agent_card = agent_card
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
+        self.context_configs = context_configs or {"compaction": None, "cache": None}
         self.stream = stream
 
     def build(self, local=False) -> FastAPI:
@@ -77,7 +79,13 @@ class KAgentApp:
             )
             session_service = KAgentSessionService(http_client)
 
-        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
+        adk_app = App(
+            name=self.app_name,
+            root_agent=self.root_agent,
+            plugins=self.plugins,
+            events_compaction_config=self.context_configs.get("compaction"),
+            context_cache_config=self.context_configs.get("cache")
+        )
 
         def create_runner() -> Runner:
             return Runner(
