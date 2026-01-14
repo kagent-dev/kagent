@@ -50,7 +50,6 @@ var ServeAgentsCmd = &cobra.Command{
 			}
 			type agentSummary struct {
 				Ref         string `json:"ref"`
-				ID          string `json:"id"`
 				Description string `json:"description,omitempty"`
 			}
 			agents := make([]agentSummary, 0)
@@ -59,7 +58,7 @@ var ServeAgentsCmd = &cobra.Command{
 					continue
 				}
 				ref := agent.Agent.Namespace + "/" + agent.Agent.Name
-				agents = append(agents, agentSummary{Ref: ref, ID: agent.ID, Description: agent.Agent.Spec.Description})
+				agents = append(agents, agentSummary{Ref: ref, Description: agent.Agent.Spec.Description})
 			}
 			result, err := mcp.NewToolResultJSON(agents)
 			if err != nil {
