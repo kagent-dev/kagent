@@ -38,6 +38,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/kagent-dev/kagent/go/internal/mcp"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
@@ -450,6 +451,17 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	// Create MCP handler that bridges to A2A
+	mcpHandler, err := mcp.NewMCPHandler(
+		mgr.GetClient(),
+		cfg.A2ABaseUrl+httpserver.APIPathA2A,
+		extensionCfg.Authenticator,
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to create MCP handler")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")
@@ -486,6 +498,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		BindAddr:          cfg.HttpServerAddr,
 		KubeClient:        mgr.GetClient(),
 		A2AHandler:        a2aHandler,
+		MCPHandler:        mcpHandler,
 		WatchedNamespaces: watchNamespacesList,
 		DbClient:          dbClient,
 		Authorizer:        extensionCfg.Authorizer,
