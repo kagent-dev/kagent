@@ -48,8 +48,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "grafana-mcp.fullname" . }}
+            {{- if or .Values.grafana.secretRef .Values.grafana.serviceAccountToken .Values.grafana.apiKey }}
             - secretRef:
-                name: {{ include "grafana-mcp.fullname" . }}
+                name: {{ .Values.grafana.secretRef | default (include "grafana-mcp.fullname" .) | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
