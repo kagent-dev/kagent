@@ -175,6 +175,10 @@ spec:
             - "How can I check if the Argo Rollouts controller is installed and running in my cluster before I start migrating?"
             - "My Deployment YAML is complex. Can you help me get its YAML so I can plan the conversion to a Rollout?"
     deployment:
+      {{- with coalesce .Values.imagePullSecrets .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         {{- toYaml .Values.resources | nindent 8 }}
       
