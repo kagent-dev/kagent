@@ -190,12 +190,6 @@ type Bedrock struct {
 	BaseModel
 	// Region is the AWS region where the model is available
 	Region string `json:"region,omitempty"`
-	// Temperature for sampling
-	Temperature *float64 `json:"temperature,omitempty"`
-	// MaxTokens is the maximum number of tokens to generate
-	MaxTokens *int `json:"max_tokens,omitempty"`
-	// TopP is the top-p sampling parameter
-	TopP *float64 `json:"top_p,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {
@@ -206,15 +200,6 @@ func (b *Bedrock) MarshalJSON() ([]byte, error) {
 	}
 	if b.Region != "" {
 		data["region"] = b.Region
-	}
-	if b.Temperature != nil {
-		data["temperature"] = *b.Temperature
-	}
-	if b.MaxTokens != nil {
-		data["max_tokens"] = *b.MaxTokens
-	}
-	if b.TopP != nil {
-		data["top_p"] = *b.TopP
 	}
 	return json.Marshal(data)
 }

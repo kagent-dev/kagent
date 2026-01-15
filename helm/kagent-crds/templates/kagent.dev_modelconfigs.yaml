@@ -469,18 +469,9 @@ spec:
               bedrock:
                 description: AWS Bedrock-specific configuration
                 properties:
-                  maxTokens:
-                    description: Maximum tokens to generate
-                    type: integer
                   region:
-                    description: AWS region where the Bedrock model is deployed (e.g.,
+                    description: AWS region where the Bedrock model is available (e.g.,
                       us-east-1, us-west-2)
-                    type: string
-                  temperature:
-                    description: Temperature for sampling
-                    type: string
-                  topP:
-                    description: Top-p sampling parameter
                     type: string
                 required:
                 - region
