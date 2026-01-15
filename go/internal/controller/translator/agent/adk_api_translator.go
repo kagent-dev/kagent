@@ -955,7 +955,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 							LocalObjectReference: corev1.LocalObjectReference{
 								Name: model.Spec.APIKeySecret,
 							},
-							Key: "AWS_BEARER_TOKEN_BEDROCK",
+							Key: model.Spec.APIKeySecretKey,
 						},
 					},
 				})
