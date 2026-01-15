@@ -69,6 +69,7 @@ const (
 	ModelTypeGeminiAnthropic = "gemini_anthropic"
 	ModelTypeOllama          = "ollama"
 	ModelTypeGemini          = "gemini"
+	ModelTypeBedrock         = "bedrock"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -185,6 +186,43 @@ func (g *Gemini) GetType() string {
 	return ModelTypeGemini
 }
 
+type Bedrock struct {
+	BaseModel
+	// Region is the AWS region where the model is available
+	Region string `json:"region,omitempty"`
+	// Temperature for sampling
+	Temperature *float64 `json:"temperature,omitempty"`
+	// MaxTokens is the maximum number of tokens to generate
+	MaxTokens *int `json:"max_tokens,omitempty"`
+	// TopP is the top-p sampling parameter
+	TopP *float64 `json:"top_p,omitempty"`
+}
+
+func (b *Bedrock) MarshalJSON() ([]byte, error) {
+	data := map[string]any{
+		"type":    ModelTypeBedrock,
+		"model":   b.Model,
+		"headers": b.Headers,
+	}
+	if b.Region != "" {
+		data["region"] = b.Region
+	}
+	if b.Temperature != nil {
+		data["temperature"] = *b.Temperature
+	}
+	if b.MaxTokens != nil {
+		data["max_tokens"] = *b.MaxTokens
+	}
+	if b.TopP != nil {
+		data["top_p"] = *b.TopP
+	}
+	return json.Marshal(data)
+}
+
+func (b *Bedrock) GetType() string {
+	return ModelTypeBedrock
+}
+
 func ParseModel(bytes []byte) (Model, error) {
 	var model BaseModel
 	if err := json.Unmarshal(bytes, &model); err != nil {
@@ -233,6 +271,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &ollama, nil
+	case ModelTypeBedrock:
+		var bedrock Bedrock
+		if err := json.Unmarshal(bytes, &bedrock); err != nil {
+			return nil, err
+		}
+		return &bedrock, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }

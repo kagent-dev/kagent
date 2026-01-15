@@ -83,6 +83,13 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "claude-sonnet-4@20250514", FunctionCalling: true},
 			{Name: "claude-3-5-haiku@20241022", FunctionCalling: true},
 		},
+		v1alpha2.ModelProviderBedrock: {
+			{Name: "anthropic.claude-3-sonnet-20240229-v1:0", FunctionCalling: true},
+			{Name: "us.anthropic.claude-3-5-haiku-20241022-v1:0", FunctionCalling: true},
+			{Name: "global.anthropic.claude-sonnet-4-5-20250929-v1:0", FunctionCalling: true},
+			{Name: "global.anthropic.claude-opus-4-5-20251101-v1:0", FunctionCalling: true},
+			{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false},
+		},
 	}
 
 	log.Info("Successfully listed supported models", "count", len(supportedModels))
