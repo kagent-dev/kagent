@@ -31,7 +31,7 @@ var a2aContextBySessionAndAgent sync.Map
 var fallbackInvocationCounter uint64
 
 var ServeAgentsCmd = &cobra.Command{
-	Use:   "serve-agents",
+	Use:   "serve-mcp",
 	Short: "Serve kagent agents via MCP",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Get()
