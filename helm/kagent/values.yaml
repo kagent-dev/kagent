@@ -349,7 +349,9 @@ tools:
 grafana-mcp:
   grafana:
     url: "grafana.kagent:3000/api"
-    apiKey: "-"
+    serviceAccountToken: ""
+    # apiKey: "" # Deprecated - use serviceAccountToken instead.
+    # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
   resources:
     requests:
       cpu: 100m
