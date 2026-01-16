@@ -3,7 +3,7 @@
   "build": {
     "dockerfile": "Dockerfile",
     "args": {
-      "TOOLS_GO_VERSION": "1.24.3",
+      "TOOLS_GO_VERSION": "1.25.5",
       "TOOLS_NODE_VERSION": "22.15.0",
       "TOOLS_UV_VERSION": "0.7.2",
       "TOOLS_K9S_VERSION": "0.50.4",
