@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
@@ -57,9 +56,6 @@ type kagentReconciler struct {
 	dbClient database.Client
 
 	defaultModelConfig types.NamespacedName
-
-	// TODO: Remove this lock since we have a DB which we can batch anyway
-	upsertLock sync.Mutex
 }
 
 func NewKagentReconciler(
@@ -621,10 +617,6 @@ func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.
 }
 
 func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *agent_translator.AgentOutputs) error {
-	// lock to prevent races
-	a.upsertLock.Lock()
-	defer a.upsertLock.Unlock()
-
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
 	dbAgent := &database.Agent{
 		ID:     id,
@@ -640,14 +632,12 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 }
 
 func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, namespace string) ([]*v1alpha2.MCPTool, error) {
-	// lock to prevent races
-	a.upsertLock.Lock()
-	defer a.upsertLock.Unlock()
-
+	// Store tool server - database handles concurrency via atomic upsert
 	if _, err := a.dbClient.StoreToolServer(toolServer); err != nil {
 		return nil, fmt.Errorf("failed to store toolServer %s: %v", toolServer.Name, err)
 	}
 
+	// Create transport and list tools from remote MCP server
 	tsp, err := a.createMcpTransport(ctx, remoteMcpServer, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client for toolServer %s: %v", toolServer.Name, err)
@@ -658,6 +648,7 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
 	}
 
+	// Refresh tools in database - uses transaction for atomicity
 	if err := a.dbClient.RefreshToolsForServer(toolServer.Name, toolServer.GroupKind, tools...); err != nil {
 		return nil, fmt.Errorf("failed to refresh tools for toolServer %s: %v", toolServer.Name, err)
 	}

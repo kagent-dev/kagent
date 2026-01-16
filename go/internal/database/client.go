@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -261,59 +260,36 @@ func (c *clientImpl) ListToolsForServer(serverName string, groupKind string) ([]
 		Clause{Key: "group_kind", Value: groupKind})
 }
 
-// RefreshToolsForServer refreshes a tool server
-// TODO: Use a transaction to ensure atomicity
+// RefreshToolsForServer atomically replaces all tools for a server.
+// Uses a database transaction to ensure consistency under concurrent access.
+//
+// IMPORTANT: This function should only contain fast database operations.
+// Network I/O (e.g., fetching tools from remote MCP servers) must happen
+// BEFORE calling this function, not inside it. Holding a database transaction
+// during slow operations can cause contention and degrade performance.
 func (c *clientImpl) RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error {
-	existingTools, err := c.ListToolsForServer(serverName, groupKind)
-	if err != nil {
-		return err
-	}
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		// Delete all existing tools for this server in the transaction
+		if err := delete[Tool](tx,
+			Clause{Key: "server_name", Value: serverName},
+			Clause{Key: "group_kind", Value: groupKind}); err != nil {
+			return fmt.Errorf("failed to delete existing tools: %w", err)
+		}
 
-	// Check if the tool exists in the existing tools
-	// If it does, update it
-	// If it doesn't, create it
-	// If it's in the existing tools but not in the new tools, delete it
-	for _, tool := range tools {
-		existingToolIndex := slices.IndexFunc(existingTools, func(t Tool) bool {
-			return t.ID == tool.Name
-		})
-		if existingToolIndex != -1 {
-			existingTool := existingTools[existingToolIndex]
-			existingTool.ServerName = serverName
-			existingTool.GroupKind = groupKind
-			existingTool.Description = tool.Description
-			err = save(c.db, &existingTool)
-			if err != nil {
-				return err
-			}
-		} else {
-			err = save(c.db, &Tool{
+		// Insert all new tools
+		for _, tool := range tools {
+			if err := save(tx, &Tool{
 				ID:          tool.Name,
 				ServerName:  serverName,
 				GroupKind:   groupKind,
 				Description: tool.Description,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create tool %s: %v", tool.Name, err)
+			}); err != nil {
+				return fmt.Errorf("failed to create tool %s: %w", tool.Name, err)
 			}
 		}
-	}
 
-	// Delete any tools that are in the existing tools but not in the new tools
-	for _, existingTool := range existingTools {
-		if !slices.ContainsFunc(tools, func(t *v1alpha2.MCPTool) bool {
-			return t.Name == existingTool.ID
-		}) {
-			err = delete[Tool](c.db,
-				Clause{Key: "id", Value: existingTool.ID},
-				Clause{Key: "server_name", Value: serverName},
-				Clause{Key: "group_kind", Value: groupKind})
-			if err != nil {
-				return fmt.Errorf("failed to delete tool %s: %v", existingTool.ID, err)
-			}
-		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // ListMessagesForRun retrieves messages for a specific run (helper method)
