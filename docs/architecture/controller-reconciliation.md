@@ -4,174 +4,87 @@ This document explains how kagent's Kubernetes controllers reconcile resources a
 
 ## Overview
 
-The kagent controller manager runs multiple controllers that share a common reconciler instance:
+The kagent controller manager runs multiple controllers that share a single `kagentReconciler` instance:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Controller Manager                            │
-│                                                                  │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐ │
-│  │ AgentController  │  │ RemoteMCPServer  │  │ MCPServer      │ │
-│  │                  │  │ Controller       │  │ Controller     │ │
-│  └────────┬─────────┘  └────────┬─────────┘  └───────┬────────┘ │
-│           │                     │                     │          │
-│           └─────────────────────┼─────────────────────┘          │
-│                                 │                                │
-│                                 ▼                                │
-│                    ┌────────────────────────┐                    │
-│                    │   kagentReconciler     │                    │
-│                    │   (shared instance)    │                    │
-│                    │                        │                    │
-│                    │  - adkTranslator       │                    │
-│                    │  - kube client         │                    │
-│                    │  - dbClient            │                    │
-│                    │  - upsertLock (mutex)  │◄── shared lock     │
-│                    └────────────────────────┘                    │
-│                                 │                                │
-│                                 ▼                                │
-│                    ┌────────────────────────┐                    │
-│                    │      SQLite DB         │                    │
-│                    │   (agents, tools)      │                    │
-│                    └────────────────────────┘                    │
+│                    Controller Manager                           │
+│                                                                 │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────┐ │
+│  │ AgentController  │  │ RemoteMCPServer  │  │ MCPServer     │ │
+│  │                  │  │ Controller       │  │ Controller    │ │
+│  └────────┬─────────┘  └────────┬─────────┘  └───────┬───────┘ │
+│           │                     │                    │         │
+│           └─────────────────────┼────────────────────┘         │
+│                                 │                              │
+│                                 ▼                              │
+│                    ┌────────────────────────┐                  │
+│                    │   kagentReconciler     │                  │
+│                    │   (shared instance)    │                  │
+│                    │                        │                  │
+│                    │  - adkTranslator       │                  │
+│                    │  - kube client         │                  │
+│                    │  - dbClient            │                  │
+│                    └────────────────────────┘                  │
+│                                 │                              │
+│                                 ▼                              │
+│                    ┌────────────────────────┐                  │
+│                    │      SQLite DB         │                  │
+│                    └────────────────────────┘                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Reconciliation Flow
+## Concurrency Model
+
+The reconciler uses database-level concurrency control instead of application-level locks:
+
+**Atomic Upserts**: Database operations for storing agents and tool servers use SQL `INSERT ... ON CONFLICT DO UPDATE` semantics. This makes the operations idempotent and safe for concurrent execution.
+
+**Transactions**: Tool refresh operations wrap multiple statements (delete all existing tools, insert new tools) in a database transaction to ensure atomicity.
+
+**No Application Locks**: The reconciler does not use mutexes or other Go synchronization primitives. SQLite handles write serialization internally.
+
+## Reconciliation Flows
 
 ### Agent Reconciliation
 
-```
-Agent CR Created/Updated
-         │
-         ▼
-┌─────────────────────────┐
-│  ReconcileKagentAgent   │
-│                         │
-│  1. Get Agent from API  │
-│  2. reconcileAgent()    │
-│  3. Update status       │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│    reconcileAgent()     │
-│                         │
-│  1. TranslateAgent      │  ◄── Convert CR to deployment manifests
-│  2. FindOwnedObjects    │
-│  3. reconcileDesired    │  ◄── Create/update k8s resources
-│  4. upsertAgent()       │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│     upsertAgent()       │
-│                         │
-│  LOCK ──────────────┐   │
-│  │ StoreAgent(db)   │   │  ◄── Fast DB operation
-│  UNLOCK ────────────┘   │
-└─────────────────────────┘
-```
+When an Agent CR is created or updated:
+
+1. The `AgentController` receives the event
+2. Delegates to the shared `kagentReconciler`
+3. The reconciler translates the Agent spec into Kubernetes manifests (Deployment, ConfigMap, etc.)
+4. Reconciles the desired state with the cluster (create/update/delete owned resources)
+5. Stores the agent configuration in the SQLite database (atomic upsert)
+6. Updates the Agent status
 
 ### RemoteMCPServer Reconciliation
 
-```
-RemoteMCPServer CR Created/Updated
-         │
-         ▼
-┌─────────────────────────────────┐
-│  ReconcileKagentRemoteMCPServer │
-│                                 │
-│  1. Get server from API         │
-│  2. upsertToolServerFor...()    │
-│  3. Update status               │
-└───────────┬─────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────┐
-│ upsertToolServerForRemoteMCP... │
-│                                 │
-│  LOCK ──────────────┐           │
-│  │ StoreToolServer  │           │  ◄── Fast DB write
-│  UNLOCK ────────────┘           │
-│                                 │
-│  createMcpTransport()           │  ◄── Network: connect to MCP server
-│  listTools()                    │  ◄── Network: fetch tool list (SLOW)
-│                                 │
-│  LOCK ──────────────┐           │
-│  │ RefreshTools     │           │  ◄── Fast DB write
-│  UNLOCK ────────────┘           │
-└─────────────────────────────────┘
-```
+When a RemoteMCPServer CR is created or updated:
 
-## The Mutex Problem (Before Fix)
+1. The RemoteMCPServer controller receives the event
+2. Stores the tool server metadata in the database (atomic upsert)
+3. Connects to the remote MCP server over the network
+4. Lists available tools from the server
+5. Replaces all tools for this server in the database (transaction)
+6. Updates the RemoteMCPServer status with discovered tools
 
-The original implementation held the lock during the entire `upsertToolServerForRemoteMCPServer` operation:
+### Key Design Point
 
-```
-                    Time ──────────────────────────────────────────►
+Network I/O (connecting to remote MCP servers, listing tools) happens **outside** of database transactions. This prevents long-running network operations from holding database locks and blocking other reconciliations.
 
-Goroutine A         ┌─────────────────────────────────────────────┐
-(RemoteMCPServer)   │ LOCK HELD                                   │
-                    │ StoreToolServer │ createTransport │ listTools│ RefreshTools │
-                    └─────────────────────────────────────────────┘
-                                      ▲
-                                      │ Network I/O (seconds)
-                                      │
-Goroutine B         ────────────BLOCKED────────────────────────────
-(Agent)                         waiting for lock...
-                                      │
-                                      ▼
-                              Agent not reconciled!
-```
+## Event Filtering
 
-**Impact**: If an MCP server was slow or unreachable, ALL agent reconciliations were blocked.
+The `AgentController` uses a custom event predicate to control which Kubernetes events trigger reconciliation:
 
-## The Fix
+- **Create events**: Always processed (ensures all agents reconcile on controller startup)
+- **Delete events**: Always processed
+- **Update events**: Only processed if the agent's generation or labels changed
 
-Split the lock into two fast critical sections, allowing network I/O to happen without holding the lock:
-
-```
-                    Time ──────────────────────────────────────────►
-
-Goroutine A         ┌────┐                              ┌─────────┐
-(RemoteMCPServer)   │LOCK│  Network I/O (no lock)       │  LOCK   │
-                    │ DB │  createTransport, listTools  │  DB     │
-                    └────┘                              └─────────┘
-                         │                              │
-                         │   Lock available here!       │
-                         ▼                              ▼
-Goroutine B              ┌────────────────────────┐
-(Agent)                  │ LOCK - upsertAgent     │
-                         │ (runs while A does I/O)│
-                         └────────────────────────┘
-```
-
-**Result**: Agent reconciliations can proceed while RemoteMCPServer is waiting on network I/O.
-
-## Key Design Decisions
-
-### Why a Shared Reconciler?
-
-All controllers need access to:
-- The same database client (SQLite, single-writer)
-- The same Kubernetes client
-- The same ADK translator
-
-Sharing a reconciler instance ensures consistent state and simplifies dependency injection.
-
-### Why a Mutex at All?
-
-The SQLite database client requires serialized writes. The mutex ensures:
-1. No concurrent writes corrupt the database
-2. Read-after-write consistency for related operations
-
-### Why Not Use Database Transactions Instead?
-
-The current `dbClient` abstraction doesn't expose transaction boundaries. The mutex is a pragmatic solution that works with the existing interface. A future refactor could move to explicit transactions.
+This filtering prevents unnecessary reconciliations when only the agent's status changes.
 
 ## Related Files
 
-- `go/internal/controller/agent_controller.go` - Agent controller setup
-- `go/internal/controller/remotemcpserver_controller.go` - RemoteMCPServer controller setup
-- `go/internal/controller/reconciler/reconciler.go` - Shared reconciler implementation
-- `go/internal/database/client.go` - Database client interface
+- [reconciler.go](../../go/internal/controller/reconciler/reconciler.go) - Shared reconciler implementation
+- [agent_controller.go](../../go/internal/controller/agent_controller.go) - Agent controller setup
+- [service.go](../../go/internal/database/service.go) - Database helpers with atomic upserts
+- [client.go](../../go/internal/database/client.go) - Database client implementation
