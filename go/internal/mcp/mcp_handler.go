@@ -44,7 +44,7 @@ type AgentSummary struct {
 }
 
 type InvokeAgentInput struct {
-	Agent     string `json:"agent" jsonschema:"Agent name (or namespace/name)"`
+	Agent     string `json:"agent" jsonschema:"Agent reference in format namespace/name"`
 	Task      string `json:"task" jsonschema:"Task to run"`
 	ContextID string `json:"context_id,omitempty" jsonschema:"Optional A2A context ID to continue a conversation"`
 }
