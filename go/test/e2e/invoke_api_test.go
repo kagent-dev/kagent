@@ -123,7 +123,7 @@ func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools [
 type AgentOptions struct {
 	Name          string
 	SystemMessage string
-	Stream        *bool
+	Stream        bool
 	Env           []corev1.EnvVar
 	Skills        *v1alpha2.SkillForAgent
 	ExecuteCode   *bool
@@ -348,9 +348,7 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 	}
 
 	// Apply optional configurations
-	if opts.Stream != nil {
-		agent.Spec.Declarative.Stream = opts.Stream
-	}
+	agent.Spec.Declarative.Stream = opts.Stream
 
 	if len(opts.Env) > 0 {
 		agent.Spec.Declarative.Deployment.Env = append(agent.Spec.Declarative.Deployment.Env, opts.Env...)
@@ -369,7 +367,7 @@ func generateMCPServer() *v1alpha1.MCPServer {
 			Deployment: v1alpha1.MCPServerDeployment{
 				Port: 3000,
 				Cmd:  "npx",
-				Args: []string{"-y", "@modelcontextprotocol/server-everything"},
+				Args: []string{"-y", "@modelcontextprotocol/server-everything@2026.1.14"},
 			},
 			TransportType: v1alpha1.TransportTypeStdio,
 		},
@@ -436,6 +434,48 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 	})
 }
 
+func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Define tools
+	tools := []*v1alpha2.Tool{
+		{
+			Type: v1alpha2.ToolProviderType_McpServer,
+			McpServer: &v1alpha2.McpServerTool{
+				TypedLocalReference: v1alpha2.TypedLocalReference{
+					ApiGroup: "kagent.dev",
+					Kind:     "RemoteMCPServer",
+					Name:     "kagent-tool-server",
+				},
+				ToolNames: []string{"k8s_get_resources"},
+			},
+		},
+	}
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	// Enable streaming explicitly
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
+
+	defer func() {
+		cli.Delete(t.Context(), agent)    //nolint:errcheck
+		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
+	}()
+
+	// Setup A2A client
+	a2aClient := setupA2AClient(t, agent)
+
+	// Run streaming test
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
+	})
+}
+
 func TestE2EInvokeExternalAgent(t *testing.T) {
 	// Setup A2A client for external agent
 	a2aURL := a2aUrl("kagent", "kebab-agent")
@@ -478,7 +518,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
 				},
-				ToolNames: []string{"add"},
+				ToolNames: []string{"get-sum"},
 			},
 		},
 	}
@@ -742,7 +782,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
 				},
-				ToolNames: []string{"add"},
+				ToolNames: []string{"get-sum"},
 			},
 		},
 	}
@@ -751,7 +791,6 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{
 		Name:          "test-sts-agent",
 		SystemMessage: "You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.",
-		Stream:        &[]bool{true}[0],
 		Env: []corev1.EnvVar{
 			{
 				Name:  "STS_WELL_KNOWN_URI",

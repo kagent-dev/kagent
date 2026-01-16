@@ -29,7 +29,8 @@
       "type": "ollama"
     },
     "remote_agents": null,
-    "sse_tools": null
+    "sse_tools": null,
+    "stream": false
   },
   "manifest": [
     {
@@ -58,7 +59,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null}"
+        "config.json": "{\"model\":{\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -127,7 +128,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "10441552730242844848"
+              "kagent.dev/config-hash": "15455346152631326813"
             },
             "labels": {
               "app": "kagent",

@@ -12,31 +12,30 @@
       "text"
     ],
     "description": "",
-    "name": "parent_agent",
+    "name": "basic_agent",
     "skills": null,
-    "url": "http://parent-agent.test:8080",
+    "url": "http://basic-agent.test:8080",
     "version": ""
   },
   "config": {
     "description": "",
     "http_tools": null,
-    "instruction": "You are a coordinating agent that can delegate tasks to specialists.",
+    "instruction": "You are a helpful assistant.",
     "model": {
       "base_url": "",
+      "headers": {
+        "User-Agent": "kagent/1.0"
+      },
+      "max_tokens": 1024,
       "model": "gpt-4o",
+      "reasoning_effort": "low",
+      "temperature": 0.7,
+      "top_p": 0.95,
       "type": "openai"
     },
-    "remote_agents": [
-      {
-        "headers": {
-          "FOO": "sup3rs3cr3t"
-        },
-        "name": "test__NS__specialist_agent",
-        "url": "http://specialist-agent.test:8080"
-      }
-    ],
+    "remote_agents": null,
     "sse_tools": null,
-    "stream": false
+    "stream": true
   },
   "manifest": [
     {
@@ -46,11 +45,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "parent-agent",
+          "app.kubernetes.io/name": "basic-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "parent-agent"
+          "kagent": "basic-agent"
         },
-        "name": "parent-agent",
+        "name": "basic-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -58,14 +57,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "parent-agent",
+            "name": "basic-agent",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"parent_agent\",\"description\":\"\",\"url\":\"http://parent-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":[{\"name\":\"test__NS__specialist_agent\",\"url\":\"http://specialist-agent.test:8080\",\"headers\":{\"FOO\":\"sup3rs3cr3t\"}}],\"stream\":false}"
+        "agent-card.json": "{\"name\":\"basic_agent\",\"description\":\"\",\"url\":\"http://basic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"reasoning_effort\":\"low\",\"temperature\":0.7,\"top_p\":0.95},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":true}"
       }
     },
     {
@@ -75,11 +74,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "parent-agent",
+          "app.kubernetes.io/name": "basic-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "parent-agent"
+          "kagent": "basic-agent"
         },
-        "name": "parent-agent",
+        "name": "basic-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -87,7 +86,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "parent-agent",
+            "name": "basic-agent",
             "uid": ""
           }
         ]
@@ -100,11 +99,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "parent-agent",
+          "app.kubernetes.io/name": "basic-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "parent-agent"
+          "kagent": "basic-agent"
         },
-        "name": "parent-agent",
+        "name": "basic-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -112,7 +111,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "parent-agent",
+            "name": "basic-agent",
             "uid": ""
           }
         ]
@@ -121,7 +120,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "parent-agent"
+            "kagent": "basic-agent"
           }
         },
         "strategy": {
@@ -134,14 +133,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "10891468836850404374"
+              "kagent.dev/config-hash": "16470920237694104813"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "parent-agent",
+              "app.kubernetes.io/name": "basic-agent",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "parent-agent"
+              "kagent": "basic-agent"
             }
           },
           "spec": {
@@ -206,12 +205,12 @@
                 },
                 "resources": {
                   "limits": {
-                    "cpu": "2",
-                    "memory": "1Gi"
+                    "cpu": "3",
+                    "memory": "2Gi"
                   },
                   "requests": {
-                    "cpu": "100m",
-                    "memory": "384Mi"
+                    "cpu": "200m",
+                    "memory": "684Mi"
                   }
                 },
                 "volumeMounts": [
@@ -226,12 +225,12 @@
                 ]
               }
             ],
-            "serviceAccountName": "parent-agent",
+            "serviceAccountName": "basic-agent",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "parent-agent"
+                  "secretName": "basic-agent"
                 }
               },
               {
@@ -261,11 +260,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "parent-agent",
+          "app.kubernetes.io/name": "basic-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "parent-agent"
+          "kagent": "basic-agent"
         },
-        "name": "parent-agent",
+        "name": "basic-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -273,7 +272,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "parent-agent",
+            "name": "basic-agent",
             "uid": ""
           }
         ]
@@ -288,7 +287,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "parent-agent"
+          "kagent": "basic-agent"
         },
         "type": "ClusterIP"
       },

@@ -22,7 +22,7 @@ from google.genai import types
 
 from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
 
-from ._agent_executor import A2aAgentExecutor
+from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
@@ -55,6 +55,7 @@ class KAgentApp:
         app_name: str,
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
+        stream: bool = False,
     ):
         self.root_agent = root_agent
         self.kagent_url = kagent_url
@@ -62,6 +63,7 @@ class KAgentApp:
         self.agent_card = agent_card
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
+        self.stream = stream
 
     def build(self, local=False) -> FastAPI:
         session_service = InMemorySessionService()
@@ -86,6 +88,7 @@ class KAgentApp:
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
+            config=A2aAgentExecutorConfig(stream=self.stream),
         )
 
         task_store = InMemoryTaskStore()

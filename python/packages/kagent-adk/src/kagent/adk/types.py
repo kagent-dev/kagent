@@ -95,8 +95,13 @@ class Gemini(BaseLLM):
     type: Literal["gemini"]
 
 
+class Bedrock(BaseLLM):
+    region: str | None = None
+    type: Literal["bedrock"]
+
+
 class AgentConfig(BaseModel):
-    model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini] = Field(
+    model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock] = Field(
         discriminator="type"
     )
     description: str
@@ -105,6 +110,8 @@ class AgentConfig(BaseModel):
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
     execute_code: bool | None = None
+    # This stream option refers to LLM response streaming, not A2A streaming
+    stream: bool | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -246,6 +253,9 @@ class AgentConfig(BaseModel):
             )
         elif self.model.type == "gemini":
             model = self.model.model
+        elif self.model.type == "bedrock":
+            # LiteLLM handles Bedrock via boto3 internally when model starts with "bedrock/"
+            model = LiteLlm(model=f"bedrock/{self.model.model}", extra_headers=extra_headers)
         else:
             raise ValueError(f"Invalid model type: {self.model.type}")
         return Agent(

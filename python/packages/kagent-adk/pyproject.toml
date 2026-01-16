@@ -34,6 +34,7 @@ dependencies = [
   # Security: pin minimum versions for CVE fixes in transitive dependencies
   "urllib3>=2.6.3",  # CVE-2025-66418, CVE-2025-66471: unbounded decompression DoS
   "filelock>=3.20.1",  # CVE-2025-68146: TOCTOU symlink race condition
+  "boto3>=1.28.57",
 ]
 
 [tool.uv.sources]
