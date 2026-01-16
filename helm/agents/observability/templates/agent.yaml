@@ -184,5 +184,9 @@ spec:
             - "Show me Kubernetes events related to the 'database' StatefulSet along with its key performance metrics."
             - "Help me identify potential performance bottlenecks in my microservices deployment."
     deployment:
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         {{- toYaml .Values.resources | nindent 8 }}

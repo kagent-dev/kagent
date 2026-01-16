@@ -201,6 +201,10 @@ spec:
             - "What are some best practices for choosing the time window in PromQL range vector selectors?"
             - "How does vector matching work in PromQL, for example, with `on() `and `group_left()`?"
     deployment:
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         {{- toYaml .Values.resources | nindent 8 }}
       

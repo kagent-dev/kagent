@@ -219,5 +219,9 @@ spec:
             - "How do I check the rendered Kubernetes manifests for the 'web-server' release without deploying them?"
             - "The pods managed by the 'message-broker' Helm release are frequently restarting. What should I investigate?"
     deployment:
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         {{- toYaml .Values.resources | nindent 8 }}
