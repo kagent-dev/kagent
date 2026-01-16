@@ -31,6 +31,7 @@ dependencies = [
   "typing-extensions>=4.8.0",
   "jsonref>=1.1.0",
   "a2a-sdk>=0.3.22",
+  "boto3>=1.28.57",
 ]
 
 [tool.uv.sources]

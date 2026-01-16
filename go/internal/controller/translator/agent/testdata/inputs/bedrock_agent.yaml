@@ -1,0 +1,35 @@
+operation: translateAgent
+targetObject: bedrock-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: bedrock-credentials
+      namespace: test
+    data:
+      AWS_ACCESS_KEY_ID: QUtJQVRFU1RLRVk=          # base64 encoded "AKIATESTKEY"
+      AWS_SECRET_ACCESS_KEY: dGVzdHNlY3JldGtleQ==   # base64 encoded "testsecretkey"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: bedrock-model
+      namespace: test
+    spec:
+      provider: Bedrock
+      model: us.anthropic.claude-sonnet-4-20250514-v1:0
+      apiKeySecret: bedrock-credentials
+      bedrock:
+        region: us-east-1
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: bedrock-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent using AWS Bedrock with Claude
+        systemMessage: You are a helpful AI assistant running on AWS Bedrock.
+        modelConfig: bedrock-model
+        tools: []

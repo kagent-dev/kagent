@@ -9,5 +9,5 @@ spec:
     cmd: npx
     args:
       - "-y"
-      - "@modelcontextprotocol/server-everything"
+      - "@modelcontextprotocol/server-everything@2026.1.14"
   transportType: stdio
