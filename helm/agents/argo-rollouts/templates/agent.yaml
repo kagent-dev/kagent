@@ -177,4 +177,3 @@ spec:
     deployment:
       resources:
         {{- toYaml .Values.resources | nindent 8 }}
-      
