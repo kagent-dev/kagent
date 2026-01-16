@@ -202,4 +202,5 @@ spec:
             - "How does vector matching work in PromQL, for example, with `on() `and `group_left()`?"
     deployment:
       resources:
-        {{- toYaml .Values.resources | nindent 8 }} 
+        {{- toYaml .Values.resources | nindent 8 }}
+      
