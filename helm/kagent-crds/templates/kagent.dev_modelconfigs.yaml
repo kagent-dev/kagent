@@ -651,8 +651,10 @@ spec:
               rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
-            - message: apiKeySecretKey must be set if apiKeySecret is set
-              rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))'
+            - message: apiKeySecretKey must be set if apiKeySecret is set (except
+                for Bedrock provider)
+              rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
+                != ''Bedrock'')'
             - message: caCertSecretKey requires caCertSecretRef
               rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
                 > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)
