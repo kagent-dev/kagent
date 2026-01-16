@@ -68,7 +68,7 @@ def static(
     maybe_add_skills(root_agent)
 
     kagent_app = KAgentApp(
-        root_agent,
+        lambda: root_agent,
         agent_card,
         app_cfg.url,
         app_cfg.app_name,
@@ -171,7 +171,7 @@ def run(
         logger.exception(f"Failed to load agent module '{name}' for lifespan")
 
     kagent_app = KAgentApp(
-        root_agent,
+        lambda: root_agent,
         agent_card,
         app_cfg.url,
         app_cfg.app_name,
@@ -202,7 +202,8 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
     sts_integration = create_sts_integration()
     if sts_integration:
         plugins = [sts_integration]
-    root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
+    def root_agent():
+        return agent_config.to_agent(app_cfg.name, sts_integration)
     maybe_add_skills(root_agent)
     app = KAgentApp(root_agent, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
     await app.test(task)

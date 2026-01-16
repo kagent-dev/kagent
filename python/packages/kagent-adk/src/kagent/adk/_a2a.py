@@ -49,7 +49,7 @@ kagent_url_override = os.getenv("KAGENT_URL")
 class KAgentApp:
     def __init__(
         self,
-        root_agent: BaseAgent,
+        root_agent: Callable[[], BaseAgent],
         agent_card: AgentCard,
         kagent_url: str,
         app_name: str,
@@ -77,9 +77,10 @@ class KAgentApp:
             )
             session_service = KAgentSessionService(http_client)
 
-        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
 
         def create_runner() -> Runner:
+            adk_app = App(name=self.app_name, root_agent=self.root_agent(), plugins=self.plugins)
+
             return Runner(
                 app=adk_app,
                 session_service=session_service,
