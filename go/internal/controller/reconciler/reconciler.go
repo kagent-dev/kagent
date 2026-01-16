@@ -690,7 +690,7 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 // so we need to create a custom HTTP client that adds headers to all requests.
 func newHTTPClient(headers map[string]string) *http.Client {
 	if len(headers) == 0 {
-		return nil
+		return http.DefaultClient
 	}
 	return &http.Client{
 		Transport: &headerTransport{
