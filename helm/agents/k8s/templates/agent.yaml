@@ -10,7 +10,7 @@ spec:
   type: Declarative
   declarative:
     deployment:
-      {{- with coalesce .Values.imagePullSecrets .Values.global.imagePullSecrets }}
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

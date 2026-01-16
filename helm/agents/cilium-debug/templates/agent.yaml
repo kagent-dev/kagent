@@ -193,7 +193,7 @@ spec:
             - "Check the health status of Cilium endpoints"
             - "Verify encryption status between pods"
     deployment:
-      {{- with coalesce .Values.imagePullSecrets .Values.global.imagePullSecrets }}
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

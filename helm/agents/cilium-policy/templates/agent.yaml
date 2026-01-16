@@ -512,7 +512,7 @@ spec:
             - "Can you create a Kubernetes NetworkPolicy for me?"
             - "What's the difference between CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy for securing my nodes?"
     deployment:
-      {{- with coalesce .Values.imagePullSecrets .Values.global.imagePullSecrets }}
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
