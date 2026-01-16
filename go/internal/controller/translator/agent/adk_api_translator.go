@@ -1134,10 +1134,23 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 		return nil, fmt.Errorf("cannot determine port for MCP server %s", mcpServer.Name)
 	}
 
-	return &v1alpha2.RemoteMCPServerSpec{
+	spec := &v1alpha2.RemoteMCPServerSpec{
 		URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
 		Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
-	}, nil
+	}
+
+	// Convert HTTPTransportTLS to MCPServerTLS if present
+	if mcpServer.Spec.TransportType == v1alpha1.TransportTypeHTTP &&
+		mcpServer.Spec.HTTPTransport != nil &&
+		mcpServer.Spec.HTTPTransport.TLS != nil {
+		httpTLS := mcpServer.Spec.HTTPTransport.TLS
+		spec.TLS = &v1alpha2.MCPServerTLS{
+			SecretRef:          httpTLS.SecretRef,
+			InsecureSkipVerify: httpTLS.InsecureSkipVerify,
+		}
+	}
+
+	return spec, nil
 }
 
 func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string, proxyURL string) error {
