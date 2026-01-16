@@ -8,9 +8,7 @@ import (
 	"testing"
 	"time"
 
-	mcp_client "github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,49 +19,43 @@ func mcpEndpointURL() string {
 		// if running locally on kind, do "kubectl port-forward -n kagent deployments/kagent-controller 8083"
 		kagentURL = "http://localhost:8083"
 	}
-	return kagentURL + "/api/mcp"
+	return kagentURL + "/mcp"
 }
 
 // setupMCPClient creates and initializes an MCP client for testing
-func setupMCPClient(t *testing.T) *mcp_client.Client {
+func setupMCPClient(t *testing.T) *mcp.ClientSession {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	url := mcpEndpointURL()
-	tsp, err := transport.NewStreamableHTTP(url)
-	require.NoError(t, err, "Failed to create transport")
-	client := mcp_client.NewClient(tsp)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: url,
+	}
 
-	err = client.Start(ctx)
-	require.NoError(t, err, "Failed to start MCP client")
+	impl := &mcp.Implementation{
+		Name:    "e2e-test",
+		Version: "0.0.0",
+	}
+	client := mcp.NewClient(impl, nil)
+
+	session, err := client.Connect(ctx, transport, nil)
+	require.NoError(t, err, "Failed to connect MCP client")
 
 	t.Cleanup(func() {
-		client.Close()
+		session.Close()
 	})
 
-	_, err = client.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			Capabilities:    mcp.ClientCapabilities{},
-			ClientInfo: mcp.Implementation{
-				Name:    "e2e-test",
-				Version: "0.0.0",
-			},
-		},
-	})
-	require.NoError(t, err, "Failed to initialize MCP client")
-
-	return client
+	return session
 }
 
 // TestE2EMCPEndpointListAgents tests the list_agents tool via the controller's MCP endpoint
 // These tests use the kebab-agent deployed via push-test-agent in CI.
 func TestE2EMCPEndpointListAgents(t *testing.T) {
 	ctx := context.Background()
-	client := setupMCPClient(t)
+	session := setupMCPClient(t)
 
 	// List tools
-	toolsResult, err := client.ListTools(ctx, mcp.ListToolsRequest{})
+	toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 	require.NoError(t, err, "Should list tools")
 
 	// Verify expected tools exist
@@ -75,10 +67,8 @@ func TestE2EMCPEndpointListAgents(t *testing.T) {
 	require.Contains(t, toolNames, "invoke_agent", "Should have invoke_agent tool")
 
 	// Call list_agents tool
-	listAgentsResult, err := client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "list_agents",
-		},
+	listAgentsResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_agents",
 	})
 	require.NoError(t, err, "Should call list_agents tool")
 	require.NotEmpty(t, listAgentsResult.Content, "Should have content in response")
@@ -125,17 +115,15 @@ func TestE2EMCPEndpointListAgents(t *testing.T) {
 // TestE2EMCPEndpointInvokeAgent tests the invoke_agent tool via the controller's MCP endpoint
 func TestE2EMCPEndpointInvokeAgent(t *testing.T) {
 	ctx := context.Background()
-	client := setupMCPClient(t)
+	session := setupMCPClient(t)
 
 	// Invoke kebab-agent
 	agentRef := "kagent/kebab-agent"
-	invokeResult, err := client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "invoke_agent",
-			Arguments: map[string]interface{}{
-				"agent": agentRef,
-				"task":  "What can you do?",
-			},
+	invokeResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "invoke_agent",
+		Arguments: map[string]interface{}{
+			"agent": agentRef,
+			"task":  "What can you do?",
 		},
 	})
 	require.NoError(t, err, "Should call invoke_agent tool")
@@ -175,27 +163,24 @@ func TestE2EMCPEndpointInvokeAgent(t *testing.T) {
 // TestE2EMCPEndpointErrorHandling tests error handling in the MCP endpoint
 func TestE2EMCPEndpointErrorHandling(t *testing.T) {
 	ctx := context.Background()
-	client := setupMCPClient(t)
+	session := setupMCPClient(t)
 
 	// Try to invoke a non-existent agent
-	result, err := client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "invoke_agent",
-			Arguments: map[string]interface{}{
-				"agent": "nonexistent/agent",
-				"task":  "test",
-			},
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "invoke_agent",
+		Arguments: map[string]interface{}{
+			"agent": "nonexistent/agent",
+			"task":  "test",
 		},
 	})
+	require.NoError(t, err, "CallTool should not return protocol error")
 	require.True(t, result.IsError, "Should return error")
 	// This content is the error text for the LLM to know what went wrong
 	require.NotEmpty(t, result.Content, "Should have error content")
 
 	// Try to call a non-existent tool
-	_, err = client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "nonexistent_tool",
-		},
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "nonexistent_tool",
 	})
 	// Should return an error
 	require.Error(t, err, "Should return error for non-existent tool")

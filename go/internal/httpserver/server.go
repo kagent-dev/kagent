@@ -36,7 +36,7 @@ const (
 	APIPathMemories        = "/api/memories"
 	APIPathNamespaces      = "/api/namespaces"
 	APIPathA2A             = "/api/a2a"
-	APIPathMCP             = "/api/mcp"
+	APIPathMCP             = "/mcp"
 	APIPathFeedback        = "/api/feedback"
 	APIPathLangGraph       = "/api/langgraph"
 	APIPathCrewAI          = "/api/crewai"
