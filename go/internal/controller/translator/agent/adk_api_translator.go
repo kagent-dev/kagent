@@ -943,11 +943,15 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			Value: model.Spec.Bedrock.Region,
 		})
 
-		// 1. Bearer Token: set apiKeySecretKey to "AWS_BEARER_TOKEN_BEDROCK"
-		// 2. IAM Credentials: set apiKeySecretKey to "AWS_ACCESS_KEY_ID" (will also inject AWS_SECRET_ACCESS_KEY)
+		// If AWS_BEARER_TOKEN_BEDROCK key exists: use bearer token auth
+		// Otherwise, use IAM credentials
 		if model.Spec.APIKeySecret != "" {
-			if model.Spec.APIKeySecretKey == "AWS_BEARER_TOKEN_BEDROCK" {
-				// Bearer token authentication
+			secret := &corev1.Secret{}
+			if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: model.Spec.APIKeySecret}, secret); err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to get Bedrock credentials secret: %w", err)
+			}
+
+			if _, hasBearerToken := secret.Data["AWS_BEARER_TOKEN_BEDROCK"]; hasBearerToken {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 					Name: "AWS_BEARER_TOKEN_BEDROCK",
 					ValueFrom: &corev1.EnvVarSource{
@@ -955,12 +959,11 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 							LocalObjectReference: corev1.LocalObjectReference{
 								Name: model.Spec.APIKeySecret,
 							},
-							Key: model.Spec.APIKeySecretKey,
+							Key: "AWS_BEARER_TOKEN_BEDROCK",
 						},
 					},
 				})
 			} else {
-				// IAM credentials authentication (default)
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 					Name: "AWS_ACCESS_KEY_ID",
 					ValueFrom: &corev1.EnvVarSource{
@@ -984,18 +987,19 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 					},
 				})
 				// AWS_SESSION_TOKEN is optional, only needed for temporary/SSO credentials
-				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name: "AWS_SESSION_TOKEN",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: model.Spec.APIKeySecret,
+				if _, hasSessionToken := secret.Data["AWS_SESSION_TOKEN"]; hasSessionToken {
+					modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+						Name: "AWS_SESSION_TOKEN",
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: model.Spec.APIKeySecret,
+								},
+								Key: "AWS_SESSION_TOKEN",
 							},
-							Key:      "AWS_SESSION_TOKEN",
-							Optional: ptr.To(true),
 						},
-					},
-				})
+					})
+				}
 			}
 		}
 		bedrock := &adk.Bedrock{

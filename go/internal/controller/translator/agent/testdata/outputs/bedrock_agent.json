@@ -172,16 +172,6 @@
                     }
                   },
                   {
-                    "name": "AWS_SESSION_TOKEN",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "key": "AWS_SESSION_TOKEN",
-                        "name": "bedrock-credentials",
-                        "optional": true
-                      }
-                    }
-                  },
-                  {
                     "name": "KAGENT_NAMESPACE",
                     "valueFrom": {
                       "fieldRef": {

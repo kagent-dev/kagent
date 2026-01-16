@@ -19,7 +19,6 @@ objects:
       provider: Bedrock
       model: us.anthropic.claude-sonnet-4-20250514-v1:0
       apiKeySecret: bedrock-credentials
-      apiKeySecretKey: AWS_ACCESS_KEY_ID
       bedrock:
         region: us-east-1
   - apiVersion: kagent.dev/v1alpha2
