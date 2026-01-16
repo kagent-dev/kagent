@@ -121,7 +121,7 @@ func TestE2EMCPEndpointInvokeAgent(t *testing.T) {
 	agentRef := "kagent/kebab-agent"
 	invokeResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "invoke_agent",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"agent": agentRef,
 			"task":  "What can you do?",
 		},
@@ -168,7 +168,7 @@ func TestE2EMCPEndpointErrorHandling(t *testing.T) {
 	// Try to invoke a non-existent agent
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "invoke_agent",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"agent": "nonexistent/agent",
 			"task":  "test",
 		},
