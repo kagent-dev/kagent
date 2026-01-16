@@ -9,6 +9,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
+	"github.com/kagent-dev/kagent/go/internal/mcp"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
@@ -35,6 +36,7 @@ const (
 	APIPathMemories        = "/api/memories"
 	APIPathNamespaces      = "/api/namespaces"
 	APIPathA2A             = "/api/a2a"
+	APIPathMCP             = "/mcp"
 	APIPathFeedback        = "/api/feedback"
 	APIPathLangGraph       = "/api/langgraph"
 	APIPathCrewAI          = "/api/crewai"
@@ -51,6 +53,7 @@ type ServerConfig struct {
 	BindAddr          string
 	KubeClient        ctrl_client.Client
 	A2AHandler        a2a.A2AHandlerMux
+	MCPHandler        *mcp.MCPHandler
 	WatchedNamespaces []string
 	DbClient          database.Client
 	Authenticator     auth.AuthProvider
@@ -224,6 +227,11 @@ func (s *HTTPServer) setupRoutes() {
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
+
+	// MCP
+	if s.config.MCPHandler != nil {
+		s.router.PathPrefix(APIPathMCP).Handler(s.config.MCPHandler)
+	}
 
 	// Use middleware for common functionality
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
