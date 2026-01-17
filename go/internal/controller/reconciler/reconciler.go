@@ -3,14 +3,11 @@ package reconciler
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"reflect"
-	"slices"
-	"strings"
-	"sync"
-
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
@@ -20,6 +17,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/retry"
+	"net/http"
+	"net/url"
+	"reflect"
+	"slices"
+	"strings"
+	"sync"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
@@ -671,12 +674,116 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 		return nil, err
 	}
 
+	// Handle TLS configuration
+	serverURL := s.URL
+	var httpClient *http.Client
+	if s.TLS != nil {
+		// Convert URL to https if TLS is configured and scheme is not explicitly set
+		parsedURL, err := url.Parse(serverURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid URL: %w", err)
+		}
+		if parsedURL.Scheme == "" || parsedURL.Scheme == "http" {
+			parsedURL.Scheme = "https"
+			serverURL = parsedURL.String()
+		}
+
+		// Create HTTP client with TLS configuration
+		httpClient, err = a.createTLSHTTPClient(ctx, s.TLS, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TLS HTTP client: %w", err)
+		}
+	}
+
 	switch s.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
-		return transport.NewSSE(s.URL, transport.WithHeaders(headers))
+		opts := []transport.ClientOption{transport.WithHeaders(headers)}
+		if httpClient != nil {
+			opts = append(opts, transport.WithHTTPClient(httpClient))
+		}
+		return transport.NewSSE(serverURL, opts...)
 	default:
-		return transport.NewStreamableHTTP(s.URL, transport.WithHTTPHeaders(headers))
+		opts := []transport.StreamableHTTPCOption{transport.WithHTTPHeaders(headers)}
+		if httpClient != nil {
+			opts = append(opts, transport.WithHTTPBasicClient(httpClient))
+		}
+		return transport.NewStreamableHTTP(serverURL, opts...)
 	}
+}
+
+// createTLSHTTPClient creates an HTTP client with TLS configuration including client certificates.
+// It reads certificates from the Kubernetes Secret specified in MCPServerTLS.
+func (a *kagentReconciler) createTLSHTTPClient(ctx context.Context, tlsConfig *v1alpha2.MCPServerTLS, namespace string) (*http.Client, error) {
+	tlsClientConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// Load certificates from Secret if specified
+	if tlsConfig.SecretRef != "" {
+		secret := &corev1.Secret{}
+		secretKey := types.NamespacedName{
+			Namespace: namespace,
+			Name:      tlsConfig.SecretRef,
+		}
+		if err := a.kube.Get(ctx, secretKey, secret); err != nil {
+			return nil, fmt.Errorf("failed to get TLS secret %s: %w", secretKey, err)
+		}
+
+		// Load client certificate and key
+		certData, ok := secret.Data[corev1.TLSCertKey]
+		if !ok {
+			return nil, fmt.Errorf("secret %s does not contain %s key", secretKey, corev1.TLSCertKey)
+		}
+		keyData, ok := secret.Data[corev1.TLSPrivateKeyKey]
+		if !ok {
+			return nil, fmt.Errorf("secret %s does not contain %s key", secretKey, corev1.TLSPrivateKeyKey)
+		}
+
+		cert, err := tls.X509KeyPair(certData, keyData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse client certificate: %w", err)
+		}
+		tlsClientConfig.Certificates = []tls.Certificate{cert}
+
+		// Load CA certificate if present in the Secret (using standard "ca.crt" key)
+		if caCertData, ok := secret.Data["ca.crt"]; ok {
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCertData) {
+				return nil, fmt.Errorf("failed to parse CA certificate from secret %s key ca.crt", secretKey)
+			}
+			tlsClientConfig.RootCAs = caCertPool
+		} else {
+			// Use system CA certificates if no custom CA is specified in Secret
+			caCertPool, err := x509.SystemCertPool()
+			if err != nil {
+				// Fallback to empty pool if system cert pool is not available
+				caCertPool = x509.NewCertPool()
+			}
+			tlsClientConfig.RootCAs = caCertPool
+		}
+	} else {
+		// Use system CA certificates if no Secret is specified
+		caCertPool, err := x509.SystemCertPool()
+		if err != nil {
+			// Fallback to empty pool if system cert pool is not available
+			caCertPool = x509.NewCertPool()
+		}
+		tlsClientConfig.RootCAs = caCertPool
+	}
+
+	// Configure insecure skip verify if specified
+	if tlsConfig.InsecureSkipVerify {
+		tlsClientConfig.InsecureSkipVerify = true
+	}
+
+	// Create HTTP client with TLS transport
+	transport := &http.Transport{
+		TLSClientConfig: tlsClientConfig,
+	}
+
+	return &http.Client{
+		Transport: transport,
+	}, nil
 }
 
 func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interface, toolServer *database.ToolServer) ([]*v1alpha2.MCPTool, error) {

@@ -52,6 +52,26 @@ type RemoteMCPServerSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	TerminateOnClose *bool `json:"terminateOnClose,omitempty"`
+	// +optional
+	TLS *MCPServerTLS `json:"tls,omitempty"`
+}
+
+// MCPServerTLS defines the TLS configuration for RemoteMCPServer.
+// This is used when converting from MCPServer's HTTPTransportTLS which uses Secret references.
+type MCPServerTLS struct {
+	// SecretRef is a reference to a Kubernetes Secret containing
+	// the client certificate (tls.crt), key (tls.key), and optionally
+	// the CA certificate (ca.crt) for mTLS authentication.
+	// The Secret must be in the same namespace as the RemoteMCPServer.
+	// +optional
+	SecretRef string `json:"secretRef,omitempty"`
+
+	// InsecureSkipVerify disables SSL certificate verification.
+	// WARNING: This should ONLY be used in development/testing environments.
+	// Production deployments MUST use proper certificates.
+	// +optional
+	// +kubebuilder:default=false
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 }
 
 var _ sql.Scanner = (*RemoteMCPServerSpec)(nil)
