@@ -20,7 +20,11 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.core.a2a import (
+    KAgentRequestContextBuilder,
+    KAgentTaskStore,
+    get_a2a_max_content_length,
+)
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
@@ -102,9 +106,11 @@ class KAgentApp:
             request_context_builder=request_context_builder,
         )
 
+        max_content_length = get_a2a_max_content_length()
         a2a_app = A2AFastAPIApplication(
             agent_card=self.agent_card,
             http_handler=request_handler,
+            max_content_length=max_content_length,
         )
 
         faulthandler.enable()
