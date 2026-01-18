@@ -53,18 +53,25 @@ def create_header_provider(
     def header_provider(readonly_context: Optional[ReadonlyContext]) -> dict[str, str]:
         headers: dict[str, str] = {}
 
-        # Add STS headers first (if configured)
-        if sts_header_provider:
-            sts_headers = sts_header_provider(readonly_context)
-            if sts_headers:
-                headers.update(sts_headers)
-
-        # Add allowed headers from session state
+        # Add allowed headers from session state first
         if normalized_allowed and readonly_context:
             request_headers = readonly_context.state.get(HEADERS_STATE_KEY, {})
             for header_name, header_value in request_headers.items():
                 if header_name.lower() in normalized_allowed:
                     headers[header_name] = header_value
+
+        # Add STS headers last so they take precedence (security: prevent
+        # allowed headers from overwriting authentication tokens)
+        # Use case-insensitive replacement to handle header name case variations
+        if sts_header_provider:
+            sts_headers = sts_header_provider(readonly_context)
+            if sts_headers:
+                for sts_key, sts_value in sts_headers.items():
+                    # Remove any existing header with same name (case-insensitive)
+                    keys_to_remove = [k for k in headers if k.lower() == sts_key.lower()]
+                    for k in keys_to_remove:
+                        del headers[k]
+                    headers[sts_key] = sts_value
 
         return headers
 
