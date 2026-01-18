@@ -518,7 +518,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
 				},
-				ToolNames: []string{"get-sum"},
+				ToolNames: []string{"add"},
 			},
 		},
 	}
