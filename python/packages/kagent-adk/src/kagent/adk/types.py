@@ -13,6 +13,7 @@ from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import McpToolset, SseConnectionParams, StreamableHTTPConnectionParams
+from google.adk.tools.mcp_tool.mcp_toolset import ReadonlyContext
 from pydantic import BaseModel, Field
 
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
@@ -25,15 +26,61 @@ logger = logging.getLogger(__name__)
 # Proxy host header used for Gateway API routing when using a proxy
 PROXY_HOST_HEADER = "x-kagent-host"
 
+# Key used to store headers in session state
+HEADERS_STATE_KEY = "headers"
+
+
+def create_header_provider(
+    allowed_headers: list[str] | None = None,
+    sts_header_provider: Callable[[Optional[ReadonlyContext]], dict[str, str]] | None = None,
+) -> Callable[[Optional[ReadonlyContext]], dict[str, str]] | None:
+    """Create a header provider that combines STS tokens and allowed headers.
+
+    Args:
+        allowed_headers: List of header names to propagate from A2A request.
+                        Header names are case-insensitive.
+        sts_header_provider: Optional STS header provider for token propagation.
+
+    Returns:
+        A header provider function, or None if no headers need to be propagated.
+    """
+    if not allowed_headers and not sts_header_provider:
+        return None
+
+    # Normalize header names to lowercase for case-insensitive matching
+    normalized_allowed = [h.lower() for h in allowed_headers] if allowed_headers else []
+
+    def header_provider(readonly_context: Optional[ReadonlyContext]) -> dict[str, str]:
+        headers: dict[str, str] = {}
+
+        # Add STS headers first (if configured)
+        if sts_header_provider:
+            sts_headers = sts_header_provider(readonly_context)
+            if sts_headers:
+                headers.update(sts_headers)
+
+        # Add allowed headers from session state
+        if normalized_allowed and readonly_context:
+            request_headers = readonly_context.state.get(HEADERS_STATE_KEY, {})
+            for header_name, header_value in request_headers.items():
+                if header_name.lower() in normalized_allowed:
+                    headers[header_name] = header_value
+
+        return headers
+
+    return header_provider
+
 
 class HttpMcpServerConfig(BaseModel):
     params: StreamableHTTPConnectionParams
     tools: list[str] = Field(default_factory=list)
+    propagate_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
 
 
 class SseMcpServerConfig(BaseModel):
     params: SseConnectionParams
     tools: list[str] = Field(default_factory=list)
+    propagate_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
 
 
 class RemoteAgentConfig(BaseModel):
@@ -117,23 +164,35 @@ class AgentConfig(BaseModel):
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
-        header_provider = None
+        sts_header_provider = None
         if sts_integration:
-            header_provider = sts_integration.header_provider
+            sts_header_provider = sts_integration.header_provider
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
-                # If the proxy is configured, the url and headers are set in the json configuration
+                # Create header provider combining STS and allowed headers for this tool
+                tool_header_provider = create_header_provider(
+                    allowed_headers=http_tool.propagate_headers,
+                    sts_header_provider=sts_header_provider,
+                )
                 tools.append(
                     McpToolset(
-                        connection_params=http_tool.params, tool_filter=http_tool.tools, header_provider=header_provider
+                        connection_params=http_tool.params,
+                        tool_filter=http_tool.tools,
+                        header_provider=tool_header_provider,
                     )
                 )
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
-                # If the proxy is configured, the url and headers are set in the json configuration
+                # Create header provider combining STS and allowed headers for this tool
+                tool_header_provider = create_header_provider(
+                    allowed_headers=sse_tool.propagate_headers,
+                    sts_header_provider=sts_header_provider,
+                )
                 tools.append(
                     McpToolset(
-                        connection_params=sse_tool.params, tool_filter=sse_tool.tools, header_provider=header_provider
+                        connection_params=sse_tool.params,
+                        tool_filter=sse_tool.tools,
+                        header_provider=tool_header_provider,
                     )
                 )
         if self.remote_agents:

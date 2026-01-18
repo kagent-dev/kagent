@@ -9775,6 +9775,14 @@ spec:
                           type: array
                         mcpServer:
                           properties:
+                            allowedHeaders:
+                              description: |-
+                                AllowedHeaders specifies which headers from the A2A request should be
+                                propagated to MCP tool calls. Header names are case-insensitive.
+                                Example: ["x-user-email", "x-tenant-id"]
+                              items:
+                                type: string
+                              type: array
                             apiGroup:
                               type: string
                             kind:
