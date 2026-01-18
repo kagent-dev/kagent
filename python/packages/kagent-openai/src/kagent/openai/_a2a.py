@@ -22,7 +22,11 @@ from fastapi.responses import PlainTextResponse
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 from kagent.core import KAgentConfig, configure_tracing
-from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.core.a2a import (
+    KAgentRequestContextBuilder,
+    KAgentTaskStore,
+    get_a2a_max_content_length,
+)
 from openai import AsyncOpenAI
 
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
@@ -155,9 +159,11 @@ class KAgentApp:
         )
 
         # Create A2A FastAPI application
+        max_content_length = get_a2a_max_content_length()
         a2a_app = A2AFastAPIApplication(
             agent_card=self.agent_card,
             http_handler=request_handler,
+            max_content_length=max_content_length,
         )
 
         # Enable fault handler
@@ -226,9 +232,11 @@ class KAgentApp:
         )
 
         # Create A2A FastAPI application
+        max_content_length = get_a2a_max_content_length()
         a2a_app = A2AFastAPIApplication(
             agent_card=self.agent_card,
             http_handler=request_handler,
+            max_content_length=max_content_length,
         )
 
         # Enable fault handler

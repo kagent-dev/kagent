@@ -13,7 +13,11 @@ from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
 
 from crewai import Crew, Flow
 from kagent.core import KAgentConfig, configure_tracing
-from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.core.a2a import (
+    KAgentRequestContextBuilder,
+    KAgentTaskStore,
+    get_a2a_max_content_length,
+)
 
 from ._executor import CrewAIAgentExecutor, CrewAIAgentExecutorConfig
 
@@ -67,9 +71,11 @@ class KAgentApp:
             request_context_builder=request_context_builder,
         )
 
+        max_content_length = get_a2a_max_content_length()
         a2a_app = A2AStarletteApplication(
             agent_card=self.agent_card,
             http_handler=request_handler,
+            max_content_length=max_content_length,
         )
 
         faulthandler.enable()
