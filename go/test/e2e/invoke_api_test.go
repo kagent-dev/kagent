@@ -518,7 +518,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
 				},
-				ToolNames: []string{"add"},
+				ToolNames: []string{"get-sum"},
 			},
 		},
 	}
@@ -533,7 +533,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "add 3 and 5", "8", nil)
+		runSyncTest(t, a2aClient, "add 3 and 5. To add two numbers, call the tool named get-sum", "8", nil)
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
