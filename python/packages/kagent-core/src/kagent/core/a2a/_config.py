@@ -35,6 +35,12 @@ def get_a2a_max_content_length() -> int | None:
 
     try:
         max_content_length = int(max_content_length_str)
+        if max_content_length < 0:
+            logger.warning(
+                f"Invalid A2A_MAX_CONTENT_LENGTH value: {max_content_length_str} "
+                f"(must be non-negative), using default {DEFAULT_A2A_MAX_CONTENT_LENGTH}"
+            )
+            return DEFAULT_A2A_MAX_CONTENT_LENGTH
         logger.info(f"Set a2a MAX_CONTENT_LENGTH to {max_content_length} bytes")
         return max_content_length
     except ValueError:

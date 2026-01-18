@@ -3,8 +3,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
-
 from kagent.core.a2a._config import (
     DEFAULT_A2A_MAX_CONTENT_LENGTH,
     get_a2a_max_content_length,
@@ -54,6 +52,17 @@ def test_get_a2a_max_content_length_with_invalid_value(caplog):
         result = get_a2a_max_content_length()
         assert result == DEFAULT_A2A_MAX_CONTENT_LENGTH
         assert "Invalid A2A_MAX_CONTENT_LENGTH value" in caplog.text
+        assert "not_a_number" in caplog.text
+
+
+def test_get_a2a_max_content_length_with_negative_value(caplog):
+    """Test that negative env var value logs a warning and returns default."""
+    with patch.dict(os.environ, {"A2A_MAX_CONTENT_LENGTH": "-1"}):
+        result = get_a2a_max_content_length()
+        assert result == DEFAULT_A2A_MAX_CONTENT_LENGTH
+        assert "Invalid A2A_MAX_CONTENT_LENGTH value" in caplog.text
+        assert "-1" in caplog.text
+        assert "must be non-negative" in caplog.text
 
 
 def test_get_a2a_max_content_length_exported():
