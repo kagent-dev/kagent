@@ -508,7 +508,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 	// Setup Kubernetes client (include v1alpha1 for MCPServer)
 	cli := setupK8sClient(t, true)
 	mcpServer := setupMCPServer(t, cli)
-	// Define tools
+	// Define tools 
 	tools := []*v1alpha2.Tool{
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
