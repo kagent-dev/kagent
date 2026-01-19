@@ -152,7 +152,6 @@ func installGatewayAPIPrerequisites(t *testing.T) error {
 			"--timeout=90s", "crd/httproutes.gateway.networking.k8s.io"); err != nil {
 			return fmt.Errorf("Gateway API CRDs not ready: %w", err)
 		}
-
 	}
 
 	// Check and install agentgateway
@@ -201,7 +200,6 @@ func installGatewayAPIPrerequisites(t *testing.T) error {
 			return utils.RunKubectl(ctx, "", "get", "gatewayclass", "agentgateway") == nil
 		}, 2*time.Second)
 		require.NoError(t, err, "Failed to wait for agentgateway GatewayClass")
-
 	}
 
 	return nil
@@ -426,10 +424,12 @@ func TestE2EProxyConfiguration(t *testing.T) {
 	err = utils.Poll(t.Context(), "target-agent-proxy-test", func() bool {
 		return utils.RunKubectl(t.Context(), "", "get", "agents.kagent.dev", "target-agent-proxy-test", "-n", "kagent") == nil
 	}, 2*time.Second)
+	require.NoError(t, err, "Failed to wait for target-agent-proxy-test")
 
-	utils.Poll(t.Context(), "proxy-test-agent", func() bool {
+	err = utils.Poll(t.Context(), "proxy-test-agent", func() bool {
 		return utils.RunKubectl(t.Context(), "", "get", "agents.kagent.dev", "proxy-test-agent", "-n", "kagent") == nil
 	}, 2*time.Second)
+	require.NoError(t, err, "Failed to wait for proxy-test-agent")
 	t.Log("Main agent is ready")
 
 	// Setup A2A client to communicate with agent through the controller
@@ -504,6 +504,5 @@ func TestE2EProxyConfiguration(t *testing.T) {
 			t.Log("Verifying service tool call is denied at proxy...")
 			runSyncTestExpectFailure(t, a2aClient, "use the service tool to add 5 and 7")
 		})
-
 	})
 }
