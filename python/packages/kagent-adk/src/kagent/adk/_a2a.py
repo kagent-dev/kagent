@@ -19,6 +19,8 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
@@ -53,7 +55,7 @@ kagent_url_override = os.getenv("KAGENT_URL")
 class KAgentApp:
     def __init__(
         self,
-        root_agent: BaseAgent,
+        root_agent: Callable[[], BaseAgent],
         agent_card: AgentCard,
         kagent_url: str,
         app_name: str,
@@ -81,9 +83,16 @@ class KAgentApp:
             )
             session_service = KAgentSessionService(http_client)
 
-        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
 
-        def create_runner() -> Runner:
+        async def create_runner() -> Runner:
+            # ensure that we get a fresh agent instance if root_agent is a callable
+            if isinstance(self.root_agent, Callable):
+                root_agent = self.root_agent()
+            else:
+                root_agent = self.root_agent
+
+            adk_app = App(name=self.app_name, root_agent=root_agent, plugins=self.plugins)
+
             return Runner(
                 app=adk_app,
                 session_service=session_service,
