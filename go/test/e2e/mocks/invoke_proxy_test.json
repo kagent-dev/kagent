@@ -1,0 +1,216 @@
+{
+  "_comment": "Mock LLM responses for proxy test. Flow: User -> Controller -> proxy-test-agent (uses these mocks) -> Proxy -> Backend. The proxy-test-agent receives user messages and makes tool calls through the proxy gateway.",
+  "openai": [
+    {
+      "name": "agent_to_agent_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "call the target agent",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-proxy-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_agent_1",
+                  "type": "function",
+                  "function": {
+                    "name": "kagent__NS__target_agent_proxy_test",
+                    "arguments": "{\"request\": \"hello from main agent\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "agent_to_agent_response",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "target agent response",
+          "role": "tool",
+          "tool_call_id": "call_agent_1"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-proxy-2",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "Successfully called target agent through proxy. Response: target agent response",
+              "role": "assistant"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "service_mcp_tool_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "use the service tool to add 5 and 7",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-proxy-3",
+        "object": "chat.completion",
+        "created": 1677652290,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_service_1",
+                  "type": "function",
+                  "function": {
+                    "name": "get-sum",
+                    "arguments": "{\"a\": 5, \"b\": 7}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "service_mcp_tool_response",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "12",
+          "role": "tool",
+          "tool_call_id": "call_service_1"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-proxy-4",
+        "object": "chat.completion",
+        "created": 1677652291,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "Successfully used service tool through proxy. Result: 12",
+              "role": "assistant"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "mcpserver_tool_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "use the mcp server",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-proxy-5",
+        "object": "chat.completion",
+        "created": 1677652292,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_mcp_1",
+                  "type": "function",
+                  "function": {
+                    "name": "get-sum",
+                    "arguments": "{\"a\": 10, \"b\": 20}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mcpserver_tool_response",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "30",
+          "role": "tool",
+          "tool_call_id": "call_mcp_1"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-proxy-6",
+        "object": "chat.completion",
+        "created": 1677652293,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "Successfully used MCP server through proxy. Result: 30",
+              "role": "assistant"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "target_agent_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "hello from main agent",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-target-1",
+        "object": "chat.completion",
+        "created": 1677652294,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "target agent response: I received your message through the proxy!",
+              "role": "assistant"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
