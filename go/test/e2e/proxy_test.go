@@ -309,7 +309,7 @@ func waitForPolicyEnforcement(t *testing.T, ctx context.Context, policyName stri
 	// We verify enforcement by making a direct HTTP request to the proxy from within the cluster
 	// This avoids port-forwarding and should return 403 immediately when policy is enforced
 	t.Log("Waiting for policy to be enforced by gateway data plane...")
-	enforcementCtx, enforcementCancel := context.WithTimeout(ctx, 3*time.Second)
+	enforcementCtx, enforcementCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer enforcementCancel()
 
 	// Get a pod we can use to exec curl from (use proxy-test-agent pod which we know exists)
@@ -335,6 +335,7 @@ func waitForPolicyEnforcement(t *testing.T, ctx context.Context, policyName stri
 	// Proxy service URL from within the cluster
 	proxyURL := "http://proxy.kagent.svc.cluster.local:8080"
 
+	// First, wait for initial 403 response
 	err = utils.Poll(enforcementCtx, "policy enforcement to be active (checking for 403 response)", func() bool {
 		// Make a direct HTTP request to the proxy with x-kagent-host header
 		// This simulates a tool call that should be denied by the policy
@@ -363,8 +364,44 @@ func waitForPolicyEnforcement(t *testing.T, ctx context.Context, policyName stri
 		}
 
 		return false
-	}, 2*time.Second)
+	}, 500*time.Millisecond)
 	require.NoError(t, err, "Policy enforcement did not become active within timeout (proxy did not return 403)")
+
+	// Verify enforcement is stable by checking multiple times
+	t.Log("Verifying policy enforcement is stable...")
+	consecutiveSuccesses := 0
+	requiredSuccesses := 3
+	stabilityCtx, stabilityCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer stabilityCancel()
+
+	err = utils.Poll(stabilityCtx, "policy enforcement to be stable (3 consecutive 403 responses)", func() bool {
+		curlCmd := exec.Command("kubectl", "exec", "-n", "kagent", agentPodName, "--",
+			"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+			"-H", "x-kagent-host: everything-mcp-server.kagent",
+			"-X", "POST",
+			proxyURL+"/mcp")
+
+		output, err := curlCmd.CombinedOutput()
+		if err == nil {
+			statusCode := strings.TrimSpace(string(output))
+			if statusCode == "403" {
+				consecutiveSuccesses++
+				if consecutiveSuccesses >= requiredSuccesses {
+					t.Logf("Policy enforcement verified stable after %d consecutive 403 responses", consecutiveSuccesses)
+					return true
+				}
+			} else {
+				t.Logf("Warning: Expected 403 but got %s during stability check, resetting counter", statusCode)
+				consecutiveSuccesses = 0
+			}
+		}
+		return false
+	}, 200*time.Millisecond)
+	require.NoError(t, err, "Policy enforcement is not stable - not getting consistent 403 responses")
+
+	// Add a small delay to ensure any existing agent connections are affected by the policy
+	t.Log("Allowing time for existing connections to be affected by policy...")
+	time.Sleep(1 * time.Second)
 }
 
 // TestE2EProxyConfiguration validates that all agent tool calls correctly route through
