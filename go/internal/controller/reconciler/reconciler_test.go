@@ -207,4 +207,3 @@ func TestAgentIDConsistency(t *testing.T) {
 
 	assert.Equal(t, storeID, deleteID)
 }
-

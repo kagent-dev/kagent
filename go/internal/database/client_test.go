@@ -25,10 +25,10 @@ func TestConcurrentAgentUpserts(t *testing.T) {
 	// All goroutines upsert to the same agent ID - this tests conflict handling
 	agentID := "test-agent"
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < numUpserts; j++ {
+			for j := range numUpserts {
 				agent := &Agent{
 					ID:   agentID,
 					Type: fmt.Sprintf("type-%d-%d", goroutineID, j),
@@ -63,10 +63,10 @@ func TestConcurrentToolServerUpserts(t *testing.T) {
 	serverName := "test-server"
 	groupKind := "RemoteMCPServer"
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < numUpserts; j++ {
+			for j := range numUpserts {
 				toolServer := &ToolServer{
 					Name:        serverName,
 					GroupKind:   groupKind,
@@ -110,7 +110,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(goroutineID int) {
 			defer wg.Done()
 			// Each goroutine refreshes with a different set of tools
