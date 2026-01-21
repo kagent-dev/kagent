@@ -3,7 +3,7 @@ import importlib
 import json
 import logging
 import os
-from typing import Annotated, Callable, Optional
+from typing import Annotated, Optional
 
 import typer
 import uvicorn
