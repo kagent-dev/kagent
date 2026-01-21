@@ -70,10 +70,7 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		// Use custom predicate that always processes Create/Delete events,
-		// but filters Update events to only process when generation or labels change.
-		// This fixes a bug where some agents were not reconciled on startup.
-		For(&v1alpha2.Agent{}, builder.WithPredicates(agentPredicate{}))
+		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})))
 
 	// Setup owns relationships for resources created by the Agent controller -
 	// for now ownership of agent resources is handled by the ADK translator
@@ -330,49 +327,4 @@ type typedOwnedObjectPredicate[object metav1.Object] struct {
 // re-reconcile.
 func (typedOwnedObjectPredicate[object]) Create(e event.TypedCreateEvent[object]) bool {
 	return false
-}
-
-// agentPredicate is a custom predicate for Agent resources that:
-// - Always processes Create events (ensures all agents are reconciled on startup)
-// - Always processes Delete events
-// - For Update events, only processes if generation or labels changed
-// This fixes a bug where GenerationChangedPredicate combined with LabelChangedPredicate
-// could inconsistently filter out Create events for some agents.
-type agentPredicate struct{}
-
-func (agentPredicate) Create(e event.CreateEvent) bool {
-	// Always process Create events - this ensures all agents are reconciled on startup
-	return true
-}
-
-func (agentPredicate) Delete(e event.DeleteEvent) bool {
-	// Always process Delete events
-	return true
-}
-
-func (agentPredicate) Update(e event.UpdateEvent) bool {
-	if e.ObjectOld == nil || e.ObjectNew == nil {
-		return false
-	}
-	// Process if generation changed (spec was modified)
-	if e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration() {
-		return true
-	}
-	// Process if labels changed
-	oldLabels := e.ObjectOld.GetLabels()
-	newLabels := e.ObjectNew.GetLabels()
-	if len(oldLabels) != len(newLabels) {
-		return true
-	}
-	for k, v := range oldLabels {
-		if newLabels[k] != v {
-			return true
-		}
-	}
-	return false
-}
-
-func (agentPredicate) Generic(e event.GenericEvent) bool {
-	// Always process Generic events
-	return true
 }
