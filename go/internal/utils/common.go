@@ -117,9 +117,7 @@ func ParseRefString(ref string, parentNamespace string) (types.NamespacedName, e
 	}
 
 	// ref is in namespace/name format
-	slashIndex := strings.Index(ref, "/")
-	namespace := ref[:slashIndex]
-	name := ref[slashIndex+1:]
+	namespace, name, _ := strings.Cut(ref, "/")
 
 	if namespace == "" && name == "" {
 		return types.NamespacedName{}, fmt.Errorf("namespace and name cannot be empty")

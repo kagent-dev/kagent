@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo, useRef, useLayoutEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -72,10 +72,16 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
+  
+  // Track previous open state to detect when dialog just opened
+  const wasOpenRef = useRef(open);
 
-  // Initialize the state when dialog opens
-  useEffect(() => {
-    if (open) {
+  // Initialize the state when dialog opens (only on transition from closed to open)
+  // This is a legitimate synchronization effect for dialog state reset
+  useLayoutEffect(() => {
+    if (open && !wasOpenRef.current) {
+      // Dialog just opened - reset state
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate sync on dialog open
       setLocalSelectedTools(selectedTools);
       setSearchTerm("");
 
@@ -86,7 +92,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           const category = getToolResponseCategory(tool);
           uniqueCategories.add(category);
           categoryCollapseState[category] = true;
-
       });
 
       if (availableAgents.length > 0) {
@@ -99,6 +104,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       setExpandedCategories(categoryCollapseState);
       setShowFilters(false);
     }
+    wasOpenRef.current = open;
   }, [open, selectedTools, availableTools, availableAgents]);
 
   const actualSelectedCount = useMemo(() => {

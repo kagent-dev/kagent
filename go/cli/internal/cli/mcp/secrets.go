@@ -214,9 +214,9 @@ func loadEnvFile(filename string) (map[string]string, error) {
 			continue // Skip empty lines and comments
 		}
 
-		if idx := strings.Index(line, "="); idx != -1 {
-			key := strings.TrimSpace(line[:idx])
-			value := strings.TrimSpace(line[idx+1:])
+		if key, value, found := strings.Cut(line, "="); found {
+			key = strings.TrimSpace(key)
+			value = strings.TrimSpace(value)
 			if key != "" {
 				envVars[key] = value
 			}
