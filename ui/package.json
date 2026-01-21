@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack -p 8001 -H 0.0.0.0",
+    "dev": "next dev -p 8001 -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -60,7 +60,6 @@
     "tar": ">=7.5.3"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.18",
     "@eslint/eslintrc": "^3.3.3",
     "@jest/globals": "^30.2.0",
     "@testing-library/jest-dom": "^6.9.1",
@@ -72,6 +71,7 @@
     "@types/react": "19.2.9",
     "@types/react-beautiful-dnd": "^13.1.8",
     "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.23",
     "cypress": "^15.9.0",
     "eslint": "^9.39.2",
     "eslint-config-next": "16.1.4",
