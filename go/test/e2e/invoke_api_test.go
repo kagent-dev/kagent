@@ -462,11 +462,6 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 	// Enable streaming explicitly
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
 
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
-
 	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
 
