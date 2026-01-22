@@ -245,6 +245,13 @@ type TLSConfig struct {
 	// +optional
 	CACertSecretKey string `json:"caCertSecretKey,omitempty"`
 
+	// ClientSecretRef is a reference to a Kubernetes Secret containing
+	// the client certificate (tls.crt), key (tls.key), and optionally
+	// the CA certificate (ca.crt) for mTLS authentication.
+	// The Secret must be in the same namespace as the MCPServer/RemoteMCPServer.
+	// +optional
+	ClientSecretRef string `json:"clientSecretRef,omitempty"`
+
 	// DisableSystemCAs disables the use of system CA certificates.
 	// When false (default), system CA certificates are used for verification (safe behavior).
 	// When true, only the custom CA from CACertSecretRef is trusted.

@@ -106,15 +106,6 @@ def validate_certificate(cert_path: str) -> None:
             cert_data = f.read()
         cert = x509.load_pem_x509_certificate(cert_data, default_backend())
 
-        # Log certificate metadata
-        logger.info("Certificate subject: %s", cert.subject.rfc4514_string())
-        logger.info("Certificate serial number: %s", hex(cert.serial_number))
-        logger.info(
-            "Certificate valid from %s to %s",
-            cert.not_valid_before_utc,
-            cert.not_valid_after_utc,
-        )
-
         # Warn about expiry (non-blocking)
         now = datetime.now(timezone.utc)
         if cert.not_valid_after_utc < now:
@@ -182,7 +173,6 @@ def create_ssl_context(
         ... )
         >>> assert isinstance(ctx, ssl.SSLContext)
     """
-    # Structured logging for TLS configuration at startup
     if disable_verify:
         logger.warning(
             "\n"
@@ -194,30 +184,17 @@ def create_ssl_context(
             "Production deployments MUST use proper certificates.\n"
             "=" * 60
         )
-        logger.info("TLS Mode: Disabled (disable_verify=True)")
         return False  # httpx accepts False to disable verification
-
-    # Determine TLS mode
-    if ca_cert_path and not disable_system_cas:
-        tls_mode = "Custom CA + System CAs (additive)"
-    elif ca_cert_path:
-        tls_mode = "Custom CA only (no system CAs)"
-    else:
-        tls_mode = "System CAs only (default)"
-
-    logger.info("TLS Mode: %s", tls_mode)
 
     # Start with system CAs or empty context
     if not disable_system_cas:
         # Create default context which includes system CAs
         ctx = ssl.create_default_context()
-        logger.info("Using system CA certificates")
     else:
         # Create empty context without system CAs
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = True
         ctx.verify_mode = ssl.CERT_REQUIRED
-        logger.info("System CA certificates disabled (disable_system_cas=True)")
 
     # Load custom CA certificate if provided
     if ca_cert_path:
@@ -234,7 +211,6 @@ def create_ssl_context(
 
         try:
             ctx.load_verify_locations(cafile=str(cert_path))
-            logger.info("Custom CA certificate loaded from: %s", ca_cert_path)
         except ssl.SSLError as e:
             raise ssl.SSLError(
                 f"Failed to load CA certificate from {ca_cert_path}: {e}\n"
@@ -243,3 +219,93 @@ def create_ssl_context(
             ) from e
 
     return ctx
+
+
+def load_client_certificate(
+    client_cert_path: str,
+) -> tuple[str, str, str | None]:
+    """Load client certificate, key, and optional CA certificate for mTLS authentication.
+
+    This function loads the client certificate and private key from a directory
+    containing the mTLS certificate files. The directory should contain:
+    - tls.crt: Client certificate in PEM format (required)
+    - tls.key: Client private key in PEM format (required)
+    - ca.crt: CA certificate in PEM format (optional, common in Kubernetes secrets)
+
+    Args:
+        client_cert_path: Path to the directory containing client certificate files.
+            The directory should contain tls.crt and tls.key files.
+            Optionally, it may also contain ca.crt for server certificate verification.
+
+    Returns:
+        Tuple of (cert_file_path, key_file_path, ca_cert_path) for use with httpx client.
+        - cert_file_path: Path to client certificate file (tls.crt)
+        - key_file_path: Path to client private key file (tls.key)
+        - ca_cert_path: Path to CA certificate file (ca.crt) if found, None otherwise
+
+    Raises:
+        FileNotFoundError: If the certificate directory or required files do not exist.
+        ValueError: If the certificate or key file is invalid.
+
+    Examples:
+        >>> cert_path, key_path, ca_path = load_client_certificate("/etc/ssl/certs/client")
+        >>> # Use with httpx client
+        >>> client = httpx.AsyncClient(cert=(cert_path, key_path))
+        >>> # Use ca_path with create_ssl_context if needed
+        >>> if ca_path:
+        ...     ssl_context = create_ssl_context(disable_verify=False, ca_cert_path=ca_path)
+    """
+    cert_dir = Path(client_cert_path)
+    if not cert_dir.exists():
+        raise FileNotFoundError(
+            f"Client certificate directory not found: {client_cert_path}\n"
+            f"Please ensure the certificate Secret is mounted correctly.\n"
+            f"Check: kubectl get secret <secret-name> -n <namespace>"
+        )
+
+    cert_file = cert_dir / "tls.crt"
+    key_file = cert_dir / "tls.key"
+
+    if not cert_file.exists():
+        raise FileNotFoundError(
+            f"Client certificate file not found: {cert_file}\n"
+            f"Expected file: {cert_file}\n"
+            f"Please ensure the Secret contains tls.crt key."
+        )
+
+    if not key_file.exists():
+        raise FileNotFoundError(
+            f"Client private key file not found: {key_file}\n"
+            f"Expected file: {key_file}\n"
+            f"Please ensure the Secret contains tls.key key."
+        )
+
+    # Validate certificate format (non-blocking)
+    try:
+        validate_certificate(str(cert_file))
+    except Exception as e:
+        logger.warning(
+            "Could not validate client certificate format at %s: %s. Certificate will still be loaded.",
+            cert_file,
+            e,
+        )
+
+    # Validate key file exists and is readable
+    try:
+        with open(key_file, "rb") as f:
+            key_data = f.read()
+        if not key_data:
+            raise ValueError(f"Client private key file is empty: {key_file}")
+    except Exception as e:
+        raise ValueError(
+            f"Failed to read client private key from {key_file}: {e}\n"
+            f"Please verify the key file is in valid PEM format."
+        ) from e
+
+    # Check if ca.crt exists in the same directory (common pattern in Kubernetes secrets)
+    ca_cert_file = cert_dir / "ca.crt"
+    ca_cert_path = None
+    if ca_cert_file.exists():
+        ca_cert_path = str(ca_cert_file)
+
+    return str(cert_file), str(key_file), ca_cert_path
