@@ -13,9 +13,12 @@ from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import McpToolset, SseConnectionParams, StreamableHTTPConnectionParams
+from google.adk.tools.mcp_tool import mcp_session_manager
+from mcp.client.streamable_http import streamablehttp_client
 from pydantic import BaseModel, Field
 
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
+from kagent.adk.models._ssl import create_ssl_context, load_client_certificate
 
 from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
@@ -25,15 +28,180 @@ logger = logging.getLogger(__name__)
 # Proxy host header used for Gateway API routing when using a proxy
 PROXY_HOST_HEADER = "x-kagent-host"
 
+# Flag to track if we've monkey-patched MCPSessionManager
+_MCP_SESSION_MANAGER_PATCHED = False
+
+
+def _patch_mcp_session_manager_for_tls():
+    """Monkey patch MCPSessionManager._create_client to use httpx_client_factory if available.
+
+    This allows us to inject TLS configuration (including client certificates) into
+    the httpx client used by StreamableHTTPConnectionParams.
+    """
+    global _MCP_SESSION_MANAGER_PATCHED
+    if _MCP_SESSION_MANAGER_PATCHED:
+        return
+
+    original_create_client = mcp_session_manager.MCPSessionManager._create_client
+
+    def patched_create_client(self, merged_headers=None):
+        """Patched version that checks for httpx_client_factory in StreamableHTTPConnectionParams."""
+        from datetime import timedelta
+
+        if merged_headers is None:
+            merged_headers = {}
+
+        if isinstance(self._connection_params, StreamableHTTPConnectionParams):
+            # Check if httpx_client_factory is set (for TLS configuration)
+            httpx_client_factory = getattr(self._connection_params, "httpx_client_factory", None)
+            if httpx_client_factory is not None:
+                # Use the custom factory
+                client = streamablehttp_client(
+                    url=self._connection_params.url,
+                    headers=merged_headers,
+                    timeout=timedelta(seconds=self._connection_params.timeout),
+                    sse_read_timeout=timedelta(seconds=self._connection_params.sse_read_timeout),
+                    terminate_on_close=self._connection_params.terminate_on_close,
+                    httpx_client_factory=httpx_client_factory,
+                )
+                return client
+
+        # Fall back to original implementation
+        return original_create_client(self, merged_headers)
+
+    # Replace the method
+    mcp_session_manager.MCPSessionManager._create_client = patched_create_client
+    _MCP_SESSION_MANAGER_PATCHED = True
+
+
+def _apply_mcp_tls_config(
+        connection_params: Union[StreamableHTTPConnectionParams, SseConnectionParams]
+) -> Union[StreamableHTTPConnectionParams, SseConnectionParams]:
+    """Apply TLS configuration (including client certificates) to connection params.
+
+    Since Google ADK's StreamableHTTPConnectionParams and SseConnectionParams don't
+    natively support TLSClientCertPath, we use the httpx_client_factory mechanism
+    for StreamableHTTPConnectionParams to inject TLS configuration.
+
+    For SseConnectionParams, TLS configuration is not supported yet (no factory mechanism).
+
+    Args:
+        connection_params: The connection parameters containing TLS configuration
+
+    Returns:
+        Modified connection_params with TLS configuration applied (if applicable)
+    """
+    # Check if TLS client certificate path is configured
+    tls_client_cert_path = getattr(connection_params, "tls_client_cert_path", None)
+    tls_disable_verify = getattr(connection_params, "insecure_tls_verify", None)
+
+    # If no TLS configuration, return early
+    if not tls_client_cert_path and not tls_disable_verify:
+        return connection_params
+
+    # Only StreamableHTTPConnectionParams supports httpx_client_factory
+    if not isinstance(connection_params, StreamableHTTPConnectionParams):
+        return connection_params
+
+    # Load client certificate if path is provided
+    client_cert = None
+    ca_cert_path = None
+    if tls_client_cert_path:
+        try:
+            cert_file, key_file, ca_cert_path = load_client_certificate(tls_client_cert_path)
+            client_cert = (cert_file, key_file)
+        except Exception as e:
+            logger.error("Failed to load client certificate from %s: %s", tls_client_cert_path, e, exc_info=True)
+            raise
+
+    # Create SSL context
+    ssl_context = create_ssl_context(
+        disable_verify=bool(tls_disable_verify),
+        ca_cert_path=ca_cert_path,  # Use CA cert from client cert directory if available
+        disable_system_cas=False,
+    )
+
+    # Create a custom httpx_client_factory that includes TLS configuration
+    # Note: StreamableHTTPConnectionParams doesn't have httpx_client_factory as a native attribute,
+    # so we use object.__setattr__ to set it
+    # The closure will automatically capture ssl_context and client_cert from the outer scope
+    def create_tls_httpx_client(
+            headers: dict[str, str] | None = None,
+            timeout: httpx.Timeout | None = None,
+            auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        """Create httpx client with TLS configuration including client certificates.
+
+        This function creates a new httpx.AsyncClient with TLS configuration
+        (SSL context and client certificate) while preserving MCP defaults.
+
+        NOTE: This function is called at RUNTIME when MCP requests are made, not at startup.
+        The closure automatically captures ssl_context and client_cert from the outer scope.
+        """
+        # Create a new client with TLS configuration
+        # This preserves MCP defaults (follow_redirects=True, etc.) while adding TLS
+        client_kwargs = {
+            "follow_redirects": True,  # MCP default
+            "verify": ssl_context,
+            "timeout": timeout or httpx.Timeout(30.0),  # MCP default timeout
+        }
+        if client_cert:
+            client_kwargs["cert"] = client_cert
+        if headers:
+            client_kwargs["headers"] = headers
+        if auth:
+            client_kwargs["auth"] = auth
+
+        return httpx.AsyncClient(**client_kwargs)
+
+    # Replace the httpx_client_factory with our TLS-enabled version
+    # Use object.__setattr__ to bypass Pydantic's validation and set the attribute
+    object.__setattr__(connection_params, "httpx_client_factory", create_tls_httpx_client)
+
+    # Ensure MCPSessionManager is patched to use httpx_client_factory
+    _patch_mcp_session_manager_for_tls()
+
+    return connection_params
+
+
+def _extract_and_set_tls_fields(obj: dict, instance: BaseModel) -> None:
+    """Extract TLS fields from JSON and set them on params object.
+    
+    Helper function to avoid code duplication between HttpMcpServerConfig and SseMcpServerConfig.
+    """
+    params = obj.get("params") if isinstance(obj, dict) else None
+    if isinstance(params, dict):
+        tls_client_cert_path = params.get("tls_client_cert_path")
+        insecure_tls_verify = params.get("insecure_tls_verify")
+        if tls_client_cert_path is not None or insecure_tls_verify is not None:
+            instance.params.tls_client_cert_path = tls_client_cert_path
+            instance.params.insecure_tls_verify = insecure_tls_verify
+
 
 class HttpMcpServerConfig(BaseModel):
     params: StreamableHTTPConnectionParams
     tools: list[str] = Field(default_factory=list)
 
+    @classmethod
+    def model_validate(cls, obj, *, strict=None, from_attributes=None, context=None):
+        """Custom validation to preserve TLS fields from JSON that Google ADK ignores."""
+        instance = super().model_validate(obj, strict=strict, from_attributes=from_attributes, context=context)
+        if isinstance(obj, dict):
+            _extract_and_set_tls_fields(obj, instance)
+        return instance
+
 
 class SseMcpServerConfig(BaseModel):
     params: SseConnectionParams
     tools: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def model_validate(cls, obj, *, strict=None, from_attributes=None, context=None):
+        """Custom validation to preserve TLS fields from JSON that Google ADK ignores."""
+        instance = super().model_validate(obj, strict=strict, from_attributes=from_attributes, context=context)
+        if isinstance(obj, dict):
+            _extract_and_set_tls_fields(obj, instance)
+        return instance
 
 
 class RemoteAgentConfig(BaseModel):
@@ -113,6 +281,33 @@ class AgentConfig(BaseModel):
     # This stream option refers to LLM response streaming, not A2A streaming
     stream: bool | None = None
 
+    @classmethod
+    def model_validate(cls, obj, *, strict=None, from_attributes=None, context=None):
+        """Custom validation to extract TLS fields from http_tools and set them on params objects.
+
+        This is needed because Pydantic v2 doesn't call model_validate on nested models,
+        so HttpMcpServerConfig.model_validate is never called. We extract TLS fields from
+        the original JSON and set them on the params objects after validation.
+        """
+        # Call parent validation to create the instance
+        instance = super().model_validate(obj, strict=strict, from_attributes=from_attributes, context=context)
+
+        # After validation, manually set TLS fields on params objects from the original JSON
+        if isinstance(obj, dict) and "http_tools" in obj and instance.http_tools:
+            http_tools_data = obj.get("http_tools", [])
+            for http_tool_data, http_tool_instance in zip(http_tools_data, instance.http_tools):
+                params_data = http_tool_data.get("params") if isinstance(http_tool_data, dict) else None
+                if isinstance(params_data, dict):
+                    tls_client_cert_path = params_data.get("tls_client_cert_path")
+                    insecure_tls_verify = params_data.get("insecure_tls_verify")
+                    if tls_client_cert_path is not None or insecure_tls_verify is not None:
+                        # Set TLS fields on the params object using object.__setattr__ to bypass Pydantic validation
+                        # These fields are not in the Pydantic model, so we need to set them as regular attributes
+                        object.__setattr__(http_tool_instance.params, "tls_client_cert_path", tls_client_cert_path)
+                        object.__setattr__(http_tool_instance.params, "insecure_tls_verify", insecure_tls_verify)
+
+        return instance
+
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
@@ -122,12 +317,13 @@ class AgentConfig(BaseModel):
             header_provider = sts_integration.header_provider
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
-                # If the proxy is configured, the url and headers are set in the json configuration
-                tools.append(
-                    McpToolset(
-                        connection_params=http_tool.params, tool_filter=http_tool.tools, header_provider=header_provider
-                    )
+                # Apply TLS configuration before creating McpToolset
+                # This modifies the connection_params to include TLS settings via httpx_client_factory
+                connection_params = _apply_mcp_tls_config(http_tool.params)
+                mcp_toolset = McpToolset(
+                    connection_params=connection_params, tool_filter=http_tool.tools, header_provider=header_provider
                 )
+                tools.append(mcp_toolset)
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
                 # If the proxy is configured, the url and headers are set in the json configuration
@@ -180,23 +376,15 @@ class AgentConfig(BaseModel):
                     base_url = proxy_base
                     event_hooks = {"request": [make_rewrite_url_to_proxy(proxy_base, target_host)]}
 
-                # Note: httpx doesn't accept None for base_url/event_hooks, so we only pass the parameters if set
-                if base_url and event_hooks:
-                    client = httpx.AsyncClient(
-                        timeout=timeout,
-                        headers=headers,
-                        base_url=base_url,
-                        event_hooks=event_hooks,
-                    )
-                elif headers:
-                    client = httpx.AsyncClient(
-                        timeout=timeout,
-                        headers=headers,
-                    )
-                else:
-                    client = httpx.AsyncClient(
-                        timeout=timeout,
-                    )
+                # Build client kwargs (httpx doesn't accept None for base_url/event_hooks)
+                client_kwargs = {"timeout": timeout}
+                if headers:
+                    client_kwargs["headers"] = headers
+                if base_url:
+                    client_kwargs["base_url"] = base_url
+                if event_hooks:
+                    client_kwargs["event_hooks"] = event_hooks
+                client = httpx.AsyncClient(**client_kwargs)
 
                 remote_a2a_agent = RemoteA2aAgent(
                     name=remote_agent.name,

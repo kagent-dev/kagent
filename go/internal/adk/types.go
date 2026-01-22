@@ -13,6 +13,9 @@ type StreamableHTTPConnectionParams struct {
 	Timeout          *float64          `json:"timeout,omitempty"`
 	SseReadTimeout   *float64          `json:"sse_read_timeout,omitempty"`
 	TerminateOnClose *bool             `json:"terminate_on_close,omitempty"`
+	// TLS/SSL configuration
+	TLSDisableVerify  *bool   `json:"insecure_tls_verify,omitempty"`
+	TLSClientCertPath *string `json:"tls_client_cert_path,omitempty"`
 }
 
 type HttpMcpServerConfig struct {
@@ -25,6 +28,9 @@ type SseConnectionParams struct {
 	Headers        map[string]string `json:"headers"`
 	Timeout        *float64          `json:"timeout,omitempty"`
 	SseReadTimeout *float64          `json:"sse_read_timeout,omitempty"`
+	// TLS/SSL configuration
+	TLSDisableVerify  *bool   `json:"insecure_tls_verify,omitempty"`
+	TLSClientCertPath *string `json:"tls_client_cert_path,omitempty"`
 }
 
 type SseMcpServerConfig struct {

@@ -56,6 +56,7 @@ def static(
 
     with open(os.path.join(filepath, "config.json"), "r") as f:
         config = json.load(f)
+    
     agent_config = AgentConfig.model_validate(config)
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)

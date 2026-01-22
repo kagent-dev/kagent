@@ -32,7 +32,7 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
 
-from ._ssl import create_ssl_context
+from ._ssl import create_ssl_context, load_client_certificate
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -49,7 +49,7 @@ def _convert_role_to_openai(role: Optional[str]) -> str:
 
 
 def _convert_content_to_openai_messages(
-    contents: list[types.Content], system_instruction: Optional[str] = None
+        contents: list[types.Content], system_instruction: Optional[str] = None
 ) -> list[ChatCompletionMessageParam]:
     """Convert google.genai Content list to OpenAI messages format."""
     messages: list[ChatCompletionMessageParam] = []
@@ -306,49 +306,65 @@ class BaseOpenAI(BaseLlm):
     tls_disable_verify: Optional[bool] = None
     tls_ca_cert_path: Optional[str] = None
     tls_disable_system_cas: Optional[bool] = None
+    tls_client_cert_path: Optional[str] = None
 
     @classmethod
     def supported_models(cls) -> list[str]:
         """Returns a list of supported models in regex for LlmRegistry."""
         return [r"gpt-.*", r"o1-.*"]
 
-    def _get_tls_config(self) -> tuple[bool, Optional[str], bool]:
+    def _get_tls_config(self) -> tuple[bool, Optional[str], bool, Optional[str]]:
         """Read TLS configuration from instance fields.
 
         Returns:
-            Tuple of (disable_verify, ca_cert_path, disable_system_cas)
+            Tuple of (disable_verify, ca_cert_path, disable_system_cas, client_cert_path)
         """
         # Read from instance fields only (config-based approach)
         # Environment variables are no longer supported for TLS configuration
         disable_verify = self.tls_disable_verify or False
         ca_cert_path = self.tls_ca_cert_path
         disable_system_cas = self.tls_disable_system_cas or False
+        client_cert_path = self.tls_client_cert_path
 
-        return disable_verify, ca_cert_path, disable_system_cas
+        return disable_verify, ca_cert_path, disable_system_cas, client_cert_path
 
     def _create_http_client(self) -> Optional[httpx.AsyncClient]:
-        """Create HTTP client with custom SSL context using OpenAI SDK defaults.
+        """Create HTTP client with custom SSL context and client certificate using OpenAI SDK defaults.
 
         Uses DefaultAsyncHttpxClient to preserve OpenAI's default settings for
         timeout, connection pooling, and redirect behavior while applying custom
-        SSL configuration.
+        SSL configuration and mTLS client certificates.
 
         Returns:
-            DefaultAsyncHttpxClient with SSL configuration, or None if no TLS config
+            DefaultAsyncHttpxClient with SSL configuration and optional client certificate,
+            or None if no TLS config is present.
         """
-        disable_verify, ca_cert_path, disable_system_cas = self._get_tls_config()
+        disable_verify, ca_cert_path, disable_system_cas, client_cert_path = self._get_tls_config()
 
         # Only create custom http client if TLS configuration is present
-        if disable_verify or ca_cert_path or disable_system_cas:
+        if disable_verify or ca_cert_path or disable_system_cas or client_cert_path:
+            # Load client certificate if provided (for mTLS)
+            client_cert = None
+            ca_cert_from_client_dir = None
+            if client_cert_path:
+                cert_file, key_file, ca_cert_from_client_dir = load_client_certificate(client_cert_path)
+                client_cert = (cert_file, key_file)
+
+            # Use CA cert from client cert directory if no explicit CA cert path is configured
+            # Priority: explicit tls_ca_cert_path > ca.crt from client cert directory
+            if not ca_cert_path and ca_cert_from_client_dir:
+                ca_cert_path = ca_cert_from_client_dir
+
             ssl_context = create_ssl_context(
                 disable_verify=disable_verify,
-                ca_cert_path=ca_cert_path,
+                ca_cert_path=ca_cert_path,  # Now includes CA cert from client cert directory if available
                 disable_system_cas=disable_system_cas,
             )
 
             # ssl_context is either False (verification disabled) or SSLContext
+            # client_cert is either None or (cert_file, key_file) tuple for mTLS
             # Use DefaultAsyncHttpxClient to preserve OpenAI's defaults
-            return DefaultAsyncHttpxClient(verify=ssl_context)
+            return DefaultAsyncHttpxClient(verify=ssl_context, cert=client_cert)
 
         # No TLS configuration, return None to use OpenAI SDK default
         return None
@@ -367,7 +383,7 @@ class BaseOpenAI(BaseLlm):
         )
 
     async def generate_content_async(
-        self, llm_request: LlmRequest, stream: bool = False
+            self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
         """Generate content using OpenAI API."""
 

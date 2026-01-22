@@ -1,10 +1,16 @@
-"""Unit tests for SSL/TLS context creation.
+"""Unit tests for SSL/TLS context creation and client certificate loading.
 
-These tests verify the create_ssl_context() function behavior in isolation:
-- Function logic and return values
-- Configuration options
-- Error handling
-- Logging behavior
+These tests verify the SSL/TLS utility functions behavior in isolation:
+- create_ssl_context() function:
+  - Function logic and return values
+  - Configuration options
+  - Error handling
+  - Logging behavior
+- load_client_certificate() function:
+  - Successful certificate and key loading
+  - Error handling for missing files
+  - Validation of file contents
+  - Logging behavior
 """
 
 import logging
@@ -15,7 +21,7 @@ from unittest import mock
 
 import pytest
 
-from kagent.adk.models._ssl import create_ssl_context
+from kagent.adk.models._ssl import create_ssl_context, load_client_certificate
 
 
 def test_ssl_context_verification_disabled():
@@ -123,3 +129,203 @@ def test_ssl_context_disabled_logs_warning(caplog):
         assert ssl_context is False
         assert "SSL VERIFICATION DISABLED" in caplog.text
         assert "development/testing" in caplog.text.lower()
+
+
+# Tests for load_client_certificate function
+
+
+def test_load_client_certificate_success():
+    """Test successful loading of client certificate and key."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create dummy certificate and key files
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy key content\n-----END PRIVATE KEY-----")
+
+        # Load the certificate
+        cert_path, key_path, ca_path = load_client_certificate(temp_dir)
+
+        # Verify return values
+        assert cert_path == str(cert_file)
+        assert key_path == str(key_file)
+        assert ca_path is None  # No ca.crt in this test
+        assert Path(cert_path).exists()
+        assert Path(key_path).exists()
+
+
+def test_load_client_certificate_directory_not_found():
+    """Test FileNotFoundError when certificate directory does not exist."""
+    with pytest.raises(FileNotFoundError) as exc_info:
+        load_client_certificate("/nonexistent/directory/path")
+
+    error_message = str(exc_info.value)
+    assert "Client certificate directory not found" in error_message
+    assert "kubectl get secret" in error_message
+
+
+def test_load_client_certificate_cert_file_not_found():
+    """Test FileNotFoundError when tls.crt file is missing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        key_file = cert_dir / "tls.key"
+
+        # Create only the key file, not the certificate file
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy key content\n-----END PRIVATE KEY-----")
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_client_certificate(temp_dir)
+
+        error_message = str(exc_info.value)
+        assert "Client certificate file not found" in error_message
+        assert "tls.crt" in error_message
+        assert "Secret contains tls.crt key" in error_message
+
+
+def test_load_client_certificate_key_file_not_found():
+    """Test FileNotFoundError when tls.key file is missing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+
+        # Create only the certificate file, not the key file
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_client_certificate(temp_dir)
+
+        error_message = str(exc_info.value)
+        assert "Client private key file not found" in error_message
+        assert "tls.key" in error_message
+        assert "Secret contains tls.key key" in error_message
+
+
+def test_load_client_certificate_empty_key_file():
+    """Test ValueError when key file is empty."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create certificate file and empty key file
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("")  # Empty key file
+
+        with pytest.raises(ValueError) as exc_info:
+            load_client_certificate(temp_dir)
+
+        error_message = str(exc_info.value)
+        assert "Client private key file is empty" in error_message
+
+
+def test_load_client_certificate_invalid_cert_format_logs_warning(caplog):
+    """Test that invalid certificate format logs warning but still loads."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create invalid certificate (not valid PEM format) but valid key
+        cert_file.write_text("invalid cert content")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy key content\n-----END PRIVATE KEY-----")
+
+        with caplog.at_level(logging.WARNING):
+            cert_path, key_path, ca_path = load_client_certificate(temp_dir)
+            assert ca_path is None  # No ca.crt in this test
+
+        # Should still return paths even with invalid cert format
+        assert cert_path == str(cert_file)
+        assert key_path == str(key_file)
+
+        # Should log a warning about certificate validation
+        assert "Could not validate client certificate format" in caplog.text or "validate" in caplog.text.lower()
+
+
+def test_load_client_certificate_logs_info(caplog):
+    """Test that successful loading logs info messages."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create valid certificate and key files
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy key content\n-----END PRIVATE KEY-----")
+
+        cert_path, key_path, ca_path = load_client_certificate(temp_dir)
+
+        # Verify certificate and key paths are returned correctly
+        assert cert_path == str(cert_file)
+        assert key_path == str(key_file)
+        assert ca_path is None  # No ca.crt in this test
+
+
+def test_load_client_certificate_with_ca_logs_info(caplog):
+    """Test that loading with CA certificate logs appropriate messages."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+        ca_cert_file = cert_dir / "ca.crt"
+
+        # Create valid certificate, key, and CA certificate files
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy key content\n-----END PRIVATE KEY-----")
+        ca_cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy ca cert content\n-----END CERTIFICATE-----")
+
+        cert_path, key_path, ca_path = load_client_certificate(temp_dir)
+
+        # Verify certificate, key, and CA paths are returned correctly
+        assert cert_path == str(cert_file)
+        assert key_path == str(key_file)
+        assert ca_path == str(ca_cert_file)
+
+
+def test_load_client_certificate_with_ca_cert():
+    """Test loading client certificate with optional CA certificate."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+        ca_cert_file = cert_dir / "ca.crt"
+
+        # Create dummy certificate, key, and CA certificate files
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy key content\n-----END PRIVATE KEY-----")
+        ca_cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy ca cert content\n-----END CERTIFICATE-----")
+
+        # Load the certificate
+        cert_path, key_path, ca_path = load_client_certificate(temp_dir)
+
+        # Verify return values
+        assert cert_path == str(cert_file)
+        assert key_path == str(key_file)
+        assert ca_path == str(ca_cert_file)  # ca.crt should be found
+        assert Path(cert_path).exists()
+        assert Path(key_path).exists()
+        assert Path(ca_path).exists()
+
+
+def test_load_client_certificate_key_file_read_error():
+    """Test ValueError when key file cannot be read."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create certificate file
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+
+        # Create key file with restricted permissions (if possible) or mock read error
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy key content\n-----END PRIVATE KEY-----")
+
+        # Mock open to raise an IOError when reading the key file
+        with mock.patch("builtins.open", side_effect=IOError("Permission denied")):
+            with pytest.raises(ValueError) as exc_info:
+                load_client_certificate(temp_dir)
+
+            error_message = str(exc_info.value)
+            assert "Failed to read client private key" in error_message
+            assert "PEM format" in error_message

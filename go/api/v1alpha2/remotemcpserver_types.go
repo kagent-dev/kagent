@@ -52,6 +52,8 @@ type RemoteMCPServerSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	TerminateOnClose *bool `json:"terminateOnClose,omitempty"`
+	// +optional
+	TLS *TLSConfig `json:"tls,omitempty"`
 }
 
 var _ sql.Scanner = (*RemoteMCPServerSpec)(nil)

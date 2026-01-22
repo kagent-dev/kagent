@@ -450,3 +450,362 @@ func TestProxyConfiguration_Service(t *testing.T) {
 	require.NotNil(t, httpTool.Params.Headers)
 	assert.Equal(t, "test-service.test", httpTool.Params.Headers[agenttranslator.ProxyHostHeader])
 }
+
+// TestTLSConfiguration_URLConversion tests that URLs are converted from http to https when TLS is configured
+func TestTLSConfiguration_URLConversion(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	// RemoteMCPServer with TLS configuration and http:// URL
+	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "tls-mcp",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      "http://kyverno-mcp.default:8000/mcp",
+			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			TLS: &v1alpha2.TLSConfig{
+				ClientSecretRef: "client-cert-secret",
+				DisableVerify:  false,
+			},
+		},
+	}
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "Test",
+				ModelConfig:   "default-model",
+				Tools: []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_McpServer,
+						McpServer: &v1alpha2.McpServerTool{
+							TypedLocalReference: v1alpha2.TypedLocalReference{
+								Name: "tls-mcp",
+								Kind: "RemoteMCPServer",
+							},
+							ToolNames: []string{"test-tool"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test",
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, remoteMcpServer, modelConfig, testNamespace).
+		Build()
+
+	translator := agenttranslator.NewAdkApiTranslator(
+		kubeClient,
+		types.NamespacedName{Name: "default-model", Namespace: "test"},
+		nil,
+		"", // No proxy
+	)
+
+	result, err := translator.TranslateAgent(ctx, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Config)
+
+	// Verify URL is converted from http to https when TLS is configured
+	require.Len(t, result.Config.HttpTools, 1)
+	httpTool := result.Config.HttpTools[0]
+	assert.Equal(t, "https://kyverno-mcp.default:8000/mcp", httpTool.Params.Url, "URL should be converted from http to https when TLS is configured")
+	
+	// Verify TLS configuration is populated
+	assert.NotNil(t, httpTool.Params.TLSClientCertPath, "TLS client cert path should be set")
+}
+
+// TestTLSConfiguration_URLConversion_AlreadyHTTPS tests that https:// URLs are not changed
+func TestTLSConfiguration_URLConversion_AlreadyHTTPS(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	// RemoteMCPServer with TLS configuration and already https:// URL
+	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "tls-mcp-https",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      "https://external-mcp.example.com:8443/mcp",
+			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			TLS: &v1alpha2.TLSConfig{
+				ClientSecretRef: "client-cert-secret",
+				DisableVerify:  false,
+			},
+		},
+	}
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "Test",
+				ModelConfig:   "default-model",
+				Tools: []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_McpServer,
+						McpServer: &v1alpha2.McpServerTool{
+							TypedLocalReference: v1alpha2.TypedLocalReference{
+								Name: "tls-mcp-https",
+								Kind: "RemoteMCPServer",
+							},
+							ToolNames: []string{"test-tool"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test",
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, remoteMcpServer, modelConfig, testNamespace).
+		Build()
+
+	translator := agenttranslator.NewAdkApiTranslator(
+		kubeClient,
+		types.NamespacedName{Name: "default-model", Namespace: "test"},
+		nil,
+		"", // No proxy
+	)
+
+	result, err := translator.TranslateAgent(ctx, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Config)
+
+	// Verify https:// URL is not changed
+	require.Len(t, result.Config.HttpTools, 1)
+	httpTool := result.Config.HttpTools[0]
+	assert.Equal(t, "https://external-mcp.example.com:8443/mcp", httpTool.Params.Url, "https:// URL should remain unchanged")
+}
+
+// TestTLSConfiguration_URLConversion_NoTLS tests that URLs remain http:// when no TLS is configured
+func TestTLSConfiguration_URLConversion_NoTLS(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	// RemoteMCPServer without TLS configuration
+	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "no-tls-mcp",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      "http://kyverno-mcp.default:8000/mcp",
+			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			TLS:      nil, // No TLS
+		},
+	}
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "Test",
+				ModelConfig:   "default-model",
+				Tools: []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_McpServer,
+						McpServer: &v1alpha2.McpServerTool{
+							TypedLocalReference: v1alpha2.TypedLocalReference{
+								Name: "no-tls-mcp",
+								Kind: "RemoteMCPServer",
+							},
+							ToolNames: []string{"test-tool"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test",
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, remoteMcpServer, modelConfig, testNamespace).
+		Build()
+
+	translator := agenttranslator.NewAdkApiTranslator(
+		kubeClient,
+		types.NamespacedName{Name: "default-model", Namespace: "test"},
+		nil,
+		"", // No proxy
+	)
+
+	result, err := translator.TranslateAgent(ctx, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Config)
+
+	// Verify http:// URL remains unchanged when no TLS is configured
+	require.Len(t, result.Config.HttpTools, 1)
+	httpTool := result.Config.HttpTools[0]
+	assert.Equal(t, "http://kyverno-mcp.default:8000/mcp", httpTool.Params.Url, "http:// URL should remain unchanged when no TLS is configured")
+}
+
+// TestTLSConfiguration_URLConversion_SSE tests that SSE protocol also converts http to https
+func TestTLSConfiguration_URLConversion_SSE(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	// RemoteMCPServer with TLS configuration and SSE protocol
+	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "tls-mcp-sse",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      "http://kyverno-mcp.default:8000/mcp",
+			Protocol: v1alpha2.RemoteMCPServerProtocolSse,
+			TLS: &v1alpha2.TLSConfig{
+				ClientSecretRef: "client-cert-secret",
+				DisableVerify:  false,
+			},
+		},
+	}
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "Test",
+				ModelConfig:   "default-model",
+				Tools: []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_McpServer,
+						McpServer: &v1alpha2.McpServerTool{
+							TypedLocalReference: v1alpha2.TypedLocalReference{
+								Name: "tls-mcp-sse",
+								Kind: "RemoteMCPServer",
+							},
+							ToolNames: []string{"test-tool"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test",
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, remoteMcpServer, modelConfig, testNamespace).
+		Build()
+
+	translator := agenttranslator.NewAdkApiTranslator(
+		kubeClient,
+		types.NamespacedName{Name: "default-model", Namespace: "test"},
+		nil,
+		"", // No proxy
+	)
+
+	result, err := translator.TranslateAgent(ctx, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Config)
+
+	// Verify URL is converted from http to https for SSE protocol when TLS is configured
+	require.Len(t, result.Config.SseTools, 1)
+	sseTool := result.Config.SseTools[0]
+	assert.Equal(t, "https://kyverno-mcp.default:8000/mcp", sseTool.Params.Url, "URL should be converted from http to https for SSE protocol when TLS is configured")
+	
+	// Verify TLS configuration is populated
+	assert.NotNil(t, sseTool.Params.TLSClientCertPath, "TLS client cert path should be set")
+}
