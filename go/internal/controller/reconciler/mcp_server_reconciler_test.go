@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -172,95 +173,10 @@ func TestReconcileKagentMCPServer_ValidPort(t *testing.T) {
 	servers, err := dbClient.ListToolServers()
 	require.NoError(t, err)
 
-	found := false
-	for _, server := range servers {
-		if server.Name == serverRef {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "MCPServer should be stored in database")
-}
-
-// TestReconcileKagentMCPServer_NotFound tests that ReconcileKagentMCPServer handles
-// deletion properly when the MCPServer is not found.
-// Note: This test is currently skipped as it tests deletion logic which is not the primary
-// focus of the MCPServer validation fixes.
-func TestReconcileKagentMCPServer_NotFound(t *testing.T) {
-	t.Skip("Skipping deletion test - not related to validation fix")
-	ctx := context.Background()
-	scheme := schemev1.Scheme
-	err := v1alpha1.AddToScheme(scheme)
-	require.NoError(t, err)
-
-	// Create fake client with no objects
-	kubeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		Build()
-
-	// Create an in-memory database manager
-	dbManager, err := database.NewManager(&database.Config{
-		DatabaseType: database.DatabaseTypeSqlite,
-		SqliteConfig: &database.SqliteConfig{
-			DatabasePath: "file::memory:?cache=shared",
-		},
+	found := slices.ContainsFunc(servers, func(server database.ToolServer) bool {
+		return server.Name == serverRef
 	})
-	require.NoError(t, err)
-	defer dbManager.Close()
-
-	err = dbManager.Initialize()
-	require.NoError(t, err)
-
-	dbClient := database.NewClient(dbManager)
-
-	// First, create a tool server in the database to simulate previous reconciliation
-	serverRef := "test/test-mcp-server"
-	toolServer := &database.ToolServer{
-		Name:        serverRef,
-		Description: "Test server",
-		GroupKind:   "kagent.dev, Kind=MCPServer",
-	}
-	_, err = dbClient.StoreToolServer(toolServer)
-	require.NoError(t, err)
-
-	// Create reconciler
-	translator := agenttranslator.NewAdkApiTranslator(
-		kubeClient,
-		types.NamespacedName{Namespace: "test", Name: "default-model"},
-		nil,
-		"",
-	)
-	reconciler := NewKagentReconciler(
-		translator,
-		kubeClient,
-		dbClient,
-		types.NamespacedName{Namespace: "test", Name: "default-model"},
-	)
-
-	// Call ReconcileKagentMCPServer with a non-existent MCPServer
-	req := ctrl.Request{
-		NamespacedName: types.NamespacedName{
-			Namespace: "test",
-			Name:      "test-mcp-server",
-		},
-	}
-
-	// Should succeed (no error) and clean up the database
-	err = reconciler.ReconcileKagentMCPServer(ctx, req)
-	require.NoError(t, err)
-
-	// Verify the tool server was deleted from the database
-	servers, err := dbClient.ListToolServers()
-	require.NoError(t, err)
-
-	found := false
-	for _, server := range servers {
-		if server.Name == serverRef {
-			found = true
-			break
-		}
-	}
-	assert.False(t, found, "MCPServer should be deleted from database")
+	assert.True(t, found, "MCPServer should be stored in database")
 }
 
 // TestReconcileKagentMCPServer_ErrorPropagation tests that errors from conversion
@@ -334,8 +250,8 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 			require.NoError(t, err)
 			defer dbManager.Close()
 
-	err = dbManager.Initialize()
-	require.NoError(t, err)
+			err = dbManager.Initialize()
+			require.NoError(t, err)
 
 			dbClient := database.NewClient(dbManager)
 
