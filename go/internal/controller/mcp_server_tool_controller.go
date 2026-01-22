@@ -47,10 +47,16 @@ type MCPServerToolController struct {
 func (r *MCPServerToolController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
+	err := r.Reconciler.ReconcileKagentMCPServer(ctx, req)
+	if err != nil {
+		// Return zero result when there's an error - controller-runtime will handle backoff
+		return ctrl.Result{}, err
+	}
+	// Only return requeue result when there's no error
 	return ctrl.Result{
 		// loop forever because we need to refresh tools server status
 		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileKagentMCPServer(ctx, req)
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

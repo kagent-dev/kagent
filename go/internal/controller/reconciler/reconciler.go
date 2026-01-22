@@ -358,12 +358,14 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 		GroupKind:   schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
 	}
 
-	if remoteSpec, err := agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer); err != nil {
+	remoteSpec, err := agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer)
+	if err != nil {
+		// Log error and return it to trigger requeue with backoff
 		reconcileLog.Error(err, "failed to convert mcp server to remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
-	} else {
-		if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec, mcpServer.Namespace); err != nil {
-			return fmt.Errorf("failed to upsert tool server for remote mcp server %s: %v", utils.GetObjectRef(mcpServer), err)
-		}
+		return fmt.Errorf("failed to convert mcp server %s: %v", utils.GetObjectRef(mcpServer), err)
+	}
+	if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec, mcpServer.Namespace); err != nil {
+		return fmt.Errorf("failed to upsert tool server for remote mcp server %s: %v", utils.GetObjectRef(mcpServer), err)
 	}
 
 	return nil
