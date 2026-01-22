@@ -82,8 +82,8 @@ class KAgentApp:
             session_service = KAgentSessionService(http_client)
 
         def create_runner() -> Runner:
-            # callable should ensure that a new agent instance is created
-            # this agent must not be shared between requests
+            # callable should ensure that a new agent instance with 
+            # fresh mcptoolsets is created
             if isinstance(self.root_agent, Callable):
                 root_agent = self.root_agent()
             else:

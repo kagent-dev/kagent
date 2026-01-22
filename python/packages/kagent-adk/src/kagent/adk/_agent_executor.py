@@ -186,8 +186,9 @@ class A2aAgentExecutor(AgentExecutor):
         finally:
             clear_kagent_span_attributes(context_token)
             # close the runner which cleans up the mcptoolsets 
-            # which is necessary when runners across multiple requests
-            # do not reuse the same mcptoolsets
+            # since the runner is created for each a2a request
+            # and the mcptoolsets are not shared between requests
+            # this is necessary to gracefully handle mcp toolset connections
             await runner.close()
 
     async def _handle_request(
