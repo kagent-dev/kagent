@@ -16,8 +16,9 @@ type StreamableHTTPConnectionParams struct {
 }
 
 type HttpMcpServerConfig struct {
-	Params StreamableHTTPConnectionParams `json:"params"`
-	Tools  []string                       `json:"tools"`
+	Params           StreamableHTTPConnectionParams `json:"params"`
+	Tools            []string                       `json:"tools"`
+	PropagateHeaders []string                       `json:"propagate_headers,omitempty"`
 }
 
 type SseConnectionParams struct {
@@ -28,8 +29,9 @@ type SseConnectionParams struct {
 }
 
 type SseMcpServerConfig struct {
-	Params SseConnectionParams `json:"params"`
-	Tools  []string            `json:"tools"`
+	Params           SseConnectionParams `json:"params"`
+	Tools            []string            `json:"tools"`
+	PropagateHeaders []string            `json:"propagate_headers,omitempty"`
 }
 
 type Model interface {

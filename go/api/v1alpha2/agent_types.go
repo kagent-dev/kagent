@@ -221,6 +221,12 @@ type McpServerTool struct {
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
 	ToolNames []string `json:"toolNames,omitempty"`
+
+	// AllowedHeaders specifies which headers from the A2A request should be
+	// propagated to MCP tool calls. Header names are case-insensitive.
+	// Example: ["x-user-email", "x-tenant-id"]
+	// +optional
+	AllowedHeaders []string `json:"allowedHeaders,omitempty"`
 }
 
 type TypedLocalReference struct {

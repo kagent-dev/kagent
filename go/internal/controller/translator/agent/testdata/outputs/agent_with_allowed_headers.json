@@ -12,9 +12,9 @@
       "text"
     ],
     "description": "",
-    "name": "agent_with_proxy_external",
+    "name": "agent",
     "skills": null,
-    "url": "http://agent-with-proxy-external.test:8080",
+    "url": "http://agent.test:8080",
     "version": ""
   },
   "config": {
@@ -23,14 +23,19 @@
       {
         "params": {
           "headers": {},
-          "url": "https://external-mcp.example.com/mcp"
+          "url": "http://mcp-server.test:8080/mcp"
         },
+        "propagate_headers": [
+          "x-user-email",
+          "x-tenant-id"
+        ],
         "tools": [
-          "test-tool"
+          "tool1",
+          "tool2"
         ]
       }
     ],
-    "instruction": "You are an agent that uses proxies.",
+    "instruction": "You are a helpful assistant.",
     "model": {
       "base_url": "",
       "model": "gpt-4o",
@@ -48,11 +53,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy-external",
+          "app.kubernetes.io/name": "agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy-external"
+          "kagent": "agent"
         },
-        "name": "agent-with-proxy-external",
+        "name": "agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -60,14 +65,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy-external",
+            "name": "agent",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_proxy_external\",\"description\":\"\",\"url\":\"http://agent-with-proxy-external.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"https://external-mcp.example.com/mcp\",\"headers\":{}},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":[{\"params\":{\"url\":\"http://mcp-server.test:8080/mcp\",\"headers\":{}},\"tools\":[\"tool1\",\"tool2\"],\"propagate_headers\":[\"x-user-email\",\"x-tenant-id\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -77,11 +82,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy-external",
+          "app.kubernetes.io/name": "agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy-external"
+          "kagent": "agent"
         },
-        "name": "agent-with-proxy-external",
+        "name": "agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -89,7 +94,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy-external",
+            "name": "agent",
             "uid": ""
           }
         ]
@@ -102,11 +107,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy-external",
+          "app.kubernetes.io/name": "agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy-external"
+          "kagent": "agent"
         },
-        "name": "agent-with-proxy-external",
+        "name": "agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -114,7 +119,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy-external",
+            "name": "agent",
             "uid": ""
           }
         ]
@@ -123,7 +128,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "agent-with-proxy-external"
+            "kagent": "agent"
           }
         },
         "strategy": {
@@ -136,14 +141,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "8178097805977326496"
+              "kagent.dev/config-hash": "3165022394890595257"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "agent-with-proxy-external",
+              "app.kubernetes.io/name": "agent",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "agent-with-proxy-external"
+              "kagent": "agent"
             }
           },
           "spec": {
@@ -232,12 +237,12 @@
                 ]
               }
             ],
-            "serviceAccountName": "agent-with-proxy-external",
+            "serviceAccountName": "agent",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "agent-with-proxy-external"
+                  "secretName": "agent"
                 }
               },
               {
@@ -267,11 +272,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy-external",
+          "app.kubernetes.io/name": "agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy-external"
+          "kagent": "agent"
         },
-        "name": "agent-with-proxy-external",
+        "name": "agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -279,7 +284,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy-external",
+            "name": "agent",
             "uid": ""
           }
         ]
@@ -294,7 +299,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "agent-with-proxy-external"
+          "kagent": "agent"
         },
         "type": "ClusterIP"
       },
