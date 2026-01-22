@@ -81,9 +81,9 @@ class KAgentApp:
             )
             session_service = KAgentSessionService(http_client)
 
-
         def create_runner() -> Runner:
-            # ensure that we get a fresh agent instance if root_agent is a callable
+            # callable should ensure that a new agent instance is created
+            # this agent must not be shared between requests
             if isinstance(self.root_agent, Callable):
                 root_agent = self.root_agent()
             else:
