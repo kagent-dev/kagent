@@ -64,7 +64,7 @@ class KAgentApp:
         """Initialize the KAgent application.
 
         Args:
-            root_agent: Root agent factory function that returns a new agent instance
+            root_agent_factory: Root agent factory function that returns a new agent instance
             agent_card: Agent card configuration for A2A protocol
             kagent_url: URL of the KAgent backend server
             app_name: Application name for identification
