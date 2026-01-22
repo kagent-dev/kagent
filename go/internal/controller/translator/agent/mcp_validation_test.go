@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
@@ -253,6 +254,7 @@ func TestMCPServerValidation_NotFound(t *testing.T) {
 	// TranslateAgent should fail with not found error
 	_, err = translator.TranslateAgent(ctx, agent)
 	require.Error(t, err)
+	assert.True(t, apierrors.IsNotFound(err))
 	assert.Contains(t, err.Error(), "failed to get MCPServer")
 	assert.Contains(t, err.Error(), "non-existent-mcp-server")
 }
