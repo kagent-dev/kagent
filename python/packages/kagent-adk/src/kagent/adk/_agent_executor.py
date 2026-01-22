@@ -185,6 +185,7 @@ class A2aAgentExecutor(AgentExecutor):
                     logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
         finally:
             clear_kagent_span_attributes(context_token)
+            await runner.close()
 
     async def _handle_request(
         self,

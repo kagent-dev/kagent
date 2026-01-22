@@ -82,7 +82,7 @@ class KAgentApp:
             session_service = KAgentSessionService(http_client)
 
 
-        async def create_runner() -> Runner:
+        def create_runner() -> Runner:
             # ensure that we get a fresh agent instance if root_agent is a callable
             if isinstance(self.root_agent, Callable):
                 root_agent = self.root_agent()
