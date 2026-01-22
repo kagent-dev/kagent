@@ -21,7 +21,7 @@ import (
 
 // TestReconcileKagentMCPServer_InvalidPort tests that ReconcileKagentMCPServer returns an error
 // when the MCPServer has an invalid port configuration. This validates the fix for the issue
-// documented in INVESTIGATION.md where conversion errors were only logged but not returned.
+// where conversion errors were only logged but not returned.
 func TestReconcileKagentMCPServer_InvalidPort(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
