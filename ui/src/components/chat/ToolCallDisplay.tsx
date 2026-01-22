@@ -72,18 +72,25 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
   
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
+  const functionCalls: FunctionCall[] = [];
+  
   for (const part of dataParts) {
     if (part.metadata) {
       const partMetadata = part.metadata as ADKMetadata;
       if (partMetadata?.kagent_type === "function_call") {
         const data = part.data as unknown as FunctionCall;
-        return [{
+        functionCalls.push({
           id: data.id,
           name: data.name,
           args: data.args
-        }];
+        });
       }
     }
+  }
+  
+  // If we found function calls in data parts, return them
+  if (functionCalls.length > 0) {
+    return functionCalls;
   }
   
   // Try streaming format (metadata or text content)
@@ -105,6 +112,8 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
+  const toolResults: ProcessedToolResultData[] = [];
+  
   for (const part of dataParts) {
     if (part.metadata) {
       const partMetadata = part.metadata as ADKMetadata;
@@ -113,14 +122,19 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
         // Extract normalized content from the result (supports string/object/array)
         const textContent = normalizeToolResultToText(data);
         
-        return [{
+        toolResults.push({
           call_id: data.id,
           name: data.name,
           content: textContent,
           is_error: data.response?.isError || false
-        }];
+        });
       }
     }
+  }
+  
+  // If we found tool results in data parts, return them
+  if (toolResults.length > 0) {
+    return toolResults;
   }
   
   // Try streaming format (metadata or text content)
