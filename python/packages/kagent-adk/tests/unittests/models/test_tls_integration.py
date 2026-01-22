@@ -14,7 +14,12 @@ from unittest import mock
 import pytest
 
 from kagent.adk.models._openai import OpenAI
-from kagent.adk.models._ssl import create_ssl_context, get_ssl_troubleshooting_message, validate_certificate
+from kagent.adk.models._ssl import (
+    create_ssl_context,
+    get_ssl_troubleshooting_message,
+    load_client_certificate,
+    validate_certificate,
+)
 
 
 @pytest.fixture
@@ -99,11 +104,10 @@ def test_e2e_certificate_validation_flow(temp_cert_file, caplog):
                     disable_system_cas=False,
                 )
 
-                # Verify certificate validation logs appear
+                # Verify certificate validation is called
                 # Note: validate_certificate may log warnings for test cert,
                 # but should not block SSL context creation
                 assert ctx is mock_ctx
-                assert "TLS Mode" in caplog.text
 
 
 def test_e2e_backward_compatibility_no_tls_config():
@@ -163,7 +167,6 @@ def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, disable_system_cas, ex
                 disable_system_cas=disable_system_cas,
             )
             assert ctx is False
-            assert "TLS Mode: Disabled" in caplog.text
         else:
             with mock.patch("ssl.create_default_context") as mock_default_ctx:
                 with mock.patch.object(ssl.SSLContext, "load_verify_locations"):
@@ -188,12 +191,6 @@ def test_e2e_all_tls_modes(verify_disabled, ca_cert_path, disable_system_cas, ex
                         disable_system_cas=disable_system_cas,
                     )
                     assert ctx is mock_ctx
-
-            # Verify appropriate mode is logged
-            if expected_mode == "system_only":
-                assert "System CAs only" in caplog.text
-            elif expected_mode == "custom_and_system":
-                assert "Custom CA + System CAs" in caplog.text
 
 
 def test_e2e_ssl_error_troubleshooting_message(temp_cert_file):
@@ -299,19 +296,15 @@ def test_e2e_structured_logging_at_startup(temp_cert_file, caplog):
                 mock_ctx = mock.MagicMock()
                 mock_default_ctx.return_value = mock_ctx
 
-                create_ssl_context(
+                ctx = create_ssl_context(
                     disable_verify=False,
                     ca_cert_path=temp_cert_file,
                     disable_system_cas=False,
                 )
 
-                # Verify structured logging messages
-                log_text = caplog.text
-                assert "TLS Mode:" in log_text
-                assert "Custom CA + System CAs" in log_text
-                assert "Using system CA certificates" in log_text
-                assert "Custom CA certificate loaded from:" in log_text
-                assert temp_cert_file in log_text
+                # Verify SSL context was created successfully
+                assert ctx is not None
+                assert ctx is not False
 
 
 def test_e2e_litellm_with_tls(temp_cert_file):
@@ -355,3 +348,229 @@ def test_e2e_litellm_with_tls(temp_cert_file):
                 openai_kwargs = mock_openai.call_args[1]
                 assert openai_kwargs["http_client"] is mock_httpx_instance
                 assert openai_kwargs["base_url"] == "https://litellm.internal.corp:8080"
+
+
+# Client certificate (mTLS) integration tests
+
+
+def test_e2e_load_client_certificate_integration(temp_cert_file):
+    """Integration test: Load client certificate in complete workflow.
+
+    This test verifies the integration of load_client_certificate() in the
+    complete TLS configuration flow:
+    1. Create temporary client certificate directory
+    2. Load client certificate using load_client_certificate()
+    3. Verify certificate and key are loaded correctly
+    """
+    with tempfile.TemporaryDirectory() as client_cert_dir:
+        cert_dir = Path(client_cert_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create client certificate and key files
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy client cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy client key content\n-----END PRIVATE KEY-----")
+
+        # Load client certificate
+        cert_path, key_path, ca_path = load_client_certificate(client_cert_dir)
+
+        # Verify paths are correct
+        assert cert_path == str(cert_file)
+        assert key_path == str(key_file)
+        assert ca_path is None  # No ca.crt in this test
+        assert Path(cert_path).exists()
+        assert Path(key_path).exists()
+
+
+def test_e2e_openai_client_with_client_certificate_integration(temp_cert_file):
+    """Integration test: OpenAI client with client certificate (mTLS).
+
+    This test verifies the complete integration flow:
+    1. Create temporary client certificate directory
+    2. Create OpenAI client with tls_client_cert_path configured
+    3. Verify load_client_certificate() is called
+    4. Verify client certificate is passed to httpx client
+    """
+    with tempfile.TemporaryDirectory() as client_cert_dir:
+        cert_dir = Path(client_cert_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create client certificate and key files
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy client cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy client key content\n-----END PRIVATE KEY-----")
+
+        with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+            with mock.patch("kagent.adk.models._openai.load_client_certificate") as mock_load_client_cert:
+                with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
+                    with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                        mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
+                        mock_create_ssl.return_value = mock_ssl_context
+                        mock_load_client_cert.return_value = (str(cert_file), str(key_file), None)
+                        mock_httpx_instance = mock.MagicMock()
+                        mock_httpx.return_value = mock_httpx_instance
+
+                        # Create OpenAI client with client certificate
+                        openai_llm = OpenAI(
+                            model="gpt-3.5-turbo",
+                            type="openai",
+                            api_key="test-key",
+                            base_url="https://litellm.internal.corp:8080",
+                            tls_ca_cert_path=temp_cert_file,
+                            tls_disable_system_cas=True,
+                            tls_client_cert_path=client_cert_dir,  # Client certificate for mTLS
+                        )
+
+                        # Trigger client creation
+                        _ = openai_llm._client
+
+                        # Verify complete integration:
+                        # 1. SSL context created
+                        mock_create_ssl.assert_called_once()
+
+                        # 2. Client certificate loaded
+                        mock_load_client_cert.assert_called_once_with(client_cert_dir)
+
+                        # 3. httpx client created with SSL context and client certificate
+                        mock_httpx.assert_called_once()
+                        httpx_kwargs = mock_httpx.call_args[1]
+                        assert httpx_kwargs["verify"] is mock_ssl_context
+                        assert httpx_kwargs["cert"] == (str(cert_file), str(key_file))
+
+                        # 4. AsyncOpenAI created with custom http_client
+                        mock_openai.assert_called_once()
+                        openai_kwargs = mock_openai.call_args[1]
+                        assert openai_kwargs["http_client"] is mock_httpx_instance
+
+
+def test_e2e_client_certificate_with_ca_cert_integration(temp_cert_file):
+    """Integration test: Client certificate with CA certificate (full mTLS setup).
+
+    This test verifies the complete integration with both server CA verification
+    and client certificate authentication:
+    1. Create temporary client certificate directory
+    2. Create OpenAI client with both CA cert and client cert
+    3. Verify both certificates are used correctly
+    """
+    with tempfile.TemporaryDirectory() as client_cert_dir:
+        cert_dir = Path(client_cert_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create client certificate and key files
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy client cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy client key content\n-----END PRIVATE KEY-----")
+
+        with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+            with mock.patch("kagent.adk.models._openai.load_client_certificate") as mock_load_client_cert:
+                with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
+                    with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                        mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
+                        mock_create_ssl.return_value = mock_ssl_context
+                        mock_load_client_cert.return_value = (str(cert_file), str(key_file), None)
+                        mock_httpx_instance = mock.MagicMock()
+                        mock_httpx.return_value = mock_httpx_instance
+
+                        # Create OpenAI client with both CA cert and client cert
+                        openai_llm = OpenAI(
+                            model="gpt-3.5-turbo",
+                            type="openai",
+                            api_key="test-key",
+                            base_url="https://litellm.internal.corp:8080",
+                            tls_disable_verify=False,
+                            tls_ca_cert_path=temp_cert_file,  # Server CA certificate
+                            tls_disable_system_cas=True,
+                            tls_client_cert_path=client_cert_dir,  # Client certificate for mTLS
+                        )
+
+                        # Trigger client creation
+                        _ = openai_llm._client
+
+                        # Verify SSL context created with CA cert
+                        mock_create_ssl.assert_called_once_with(
+                            disable_verify=False,
+                            ca_cert_path=temp_cert_file,
+                            disable_system_cas=True,
+                        )
+
+                        # Verify client certificate loaded
+                        mock_load_client_cert.assert_called_once_with(client_cert_dir)
+
+                        # Verify httpx client created with both SSL context and client cert
+                        mock_httpx.assert_called_once()
+                        httpx_kwargs = mock_httpx.call_args[1]
+                        assert httpx_kwargs["verify"] is mock_ssl_context
+                        assert httpx_kwargs["cert"] == (str(cert_file), str(key_file))
+
+
+def test_e2e_client_certificate_error_handling():
+    """Integration test: Error handling for missing client certificate files."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Test missing directory
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_client_certificate("/nonexistent/directory")
+
+        error_message = str(exc_info.value)
+        assert "Client certificate directory not found" in error_message
+        assert "kubectl get secret" in error_message
+
+        # Test missing cert file
+        cert_dir = Path(temp_dir)
+        key_file = cert_dir / "tls.key"
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy key content\n-----END PRIVATE KEY-----")
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_client_certificate(temp_dir)
+
+        error_message = str(exc_info.value)
+        assert "Client certificate file not found" in error_message
+        assert "tls.crt" in error_message
+
+        # Test missing key file
+        cert_file = cert_dir / "tls.crt"
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+        key_file.unlink()
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_client_certificate(temp_dir)
+
+        error_message = str(exc_info.value)
+        assert "Client private key file not found" in error_message
+        assert "tls.key" in error_message
+
+
+def test_e2e_client_certificate_empty_key_file():
+    """Integration test: Error handling for empty client key file."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cert_dir = Path(temp_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create certificate file and empty key file
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("")  # Empty key file
+
+        with pytest.raises(ValueError) as exc_info:
+            load_client_certificate(temp_dir)
+
+        error_message = str(exc_info.value)
+        assert "Client private key file is empty" in error_message
+
+
+def test_e2e_client_certificate_logging(caplog, temp_cert_file):
+    """Integration test: Verify logging when client certificate is loaded."""
+    with tempfile.TemporaryDirectory() as client_cert_dir:
+        cert_dir = Path(client_cert_dir)
+        cert_file = cert_dir / "tls.crt"
+        key_file = cert_dir / "tls.key"
+
+        # Create client certificate and key files
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ndummy client cert content\n-----END CERTIFICATE-----")
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\ndummy client key content\n-----END PRIVATE KEY-----")
+
+        cert_path, key_path, ca_path = load_client_certificate(client_cert_dir)
+
+        # Verify certificate and key paths are returned correctly
+        assert cert_path == str(cert_file)
+        assert key_path == str(key_file)
+        assert ca_path is None

@@ -3,10 +3,13 @@ package reconciler
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -661,18 +664,36 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 		return nil, err
 	}
 
-	httpClient := newHTTPClient(headers)
+	client := newHTTPClient(headers)
+	serverURL := s.URL
+	if s.TLS != nil {
+		// Convert URL to https if TLS is configured and scheme is not explicitly set
+		parsedURL, err := url.Parse(serverURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid URL: %w", err)
+		}
+		if parsedURL.Scheme == "" || parsedURL.Scheme == "http" {
+			parsedURL.Scheme = "https"
+			serverURL = parsedURL.String()
+		}
+
+		// Create HTTP client with TLS configuration
+		client, err = a.createTLSHTTPClient(ctx, s.TLS, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TLS HTTP client: %w", err)
+		}
+	}
 
 	switch s.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
 		return &mcp.SSEClientTransport{
-			Endpoint:   s.URL,
-			HTTPClient: httpClient,
+			Endpoint:   serverURL,
+			HTTPClient: client,
 		}, nil
 	default:
 		return &mcp.StreamableClientTransport{
-			Endpoint:   s.URL,
-			HTTPClient: httpClient,
+			Endpoint:   serverURL,
+			HTTPClient: client,
 		}, nil
 	}
 }
@@ -689,6 +710,81 @@ func newHTTPClient(headers map[string]string) *http.Client {
 			base:    http.DefaultTransport,
 		},
 	}
+}
+
+// createTLSHTTPClient creates an HTTP client with TLS configuration including client certificates.
+// It reads certificates from the Kubernetes Secret specified in MCPServerTLS.
+func (a *kagentReconciler) createTLSHTTPClient(ctx context.Context, tlsConfig *v1alpha2.TLSConfig, namespace string) (*http.Client, error) {
+	tlsClientConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// Load certificates from Secret if specified
+	if tlsConfig.ClientSecretRef != "" {
+		secret := &corev1.Secret{}
+		secretKey := types.NamespacedName{
+			Namespace: namespace,
+			Name:      tlsConfig.ClientSecretRef,
+		}
+		if err := a.kube.Get(ctx, secretKey, secret); err != nil {
+			return nil, fmt.Errorf("failed to get TLS secret %s: %w", secretKey, err)
+		}
+
+		// Load client certificate and key
+		certData, ok := secret.Data[corev1.TLSCertKey]
+		if !ok {
+			return nil, fmt.Errorf("secret %s does not contain %s key", secretKey, corev1.TLSCertKey)
+		}
+		keyData, ok := secret.Data[corev1.TLSPrivateKeyKey]
+		if !ok {
+			return nil, fmt.Errorf("secret %s does not contain %s key", secretKey, corev1.TLSPrivateKeyKey)
+		}
+
+		cert, err := tls.X509KeyPair(certData, keyData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse client certificate: %w", err)
+		}
+		tlsClientConfig.Certificates = []tls.Certificate{cert}
+
+		// Load CA certificate if present in the Secret (using standard "ca.crt" key)
+		if caCertData, ok := secret.Data["ca.crt"]; ok {
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCertData) {
+				return nil, fmt.Errorf("failed to parse CA certificate from secret %s key ca.crt", secretKey)
+			}
+			tlsClientConfig.RootCAs = caCertPool
+		} else {
+			// Use system CA certificates if no custom CA is specified in Secret
+			caCertPool, err := x509.SystemCertPool()
+			if err != nil {
+				// Fallback to empty pool if system cert pool is not available
+				caCertPool = x509.NewCertPool()
+			}
+			tlsClientConfig.RootCAs = caCertPool
+		}
+	} else {
+		// Use system CA certificates if no Secret is specified
+		caCertPool, err := x509.SystemCertPool()
+		if err != nil {
+			// Fallback to empty pool if system cert pool is not available
+			caCertPool = x509.NewCertPool()
+		}
+		tlsClientConfig.RootCAs = caCertPool
+	}
+
+	// Configure insecure skip verify if specified
+	if tlsConfig.DisableVerify {
+		tlsClientConfig.InsecureSkipVerify = true
+	}
+
+	// Create HTTP client with TLS transport
+	transport := &http.Transport{
+		TLSClientConfig: tlsClientConfig,
+	}
+
+	return &http.Client{
+		Transport: transport,
+	}, nil
 }
 
 // headerTransport is an http.RoundTripper that adds custom headers to requests.

@@ -19,7 +19,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator/labels"
 	"github.com/kagent-dev/kagent/go/internal/utils"
-	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,6 +44,8 @@ const (
 	MCPServiceProtocolDefault = v1alpha2.RemoteMCPServerProtocolStreamableHttp
 
 	ProxyHostHeader = "x-kagent-host"
+
+	DEV_TAG = "dev"
 )
 
 type ImageConfig struct {
@@ -56,11 +57,12 @@ type ImageConfig struct {
 }
 
 var DefaultImageConfig = ImageConfig{
-	Registry:   "cr.kagent.dev",
-	Tag:        version.Get().Version,
+	Registry: "registry-cn-hangzhou.ack.aliyuncs.com",
+	//Tag:        version.Get().Version,
+	Tag:        DEV_TAG,
 	PullPolicy: string(corev1.PullIfNotPresent),
 	PullSecret: "",
-	Repository: "kagent-dev/kagent/app",
+	Repository: "acs/kagent-app",
 }
 
 // TODO(ilackarms): migrate this whole package to pkg/translator
@@ -539,7 +541,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		switch {
 		case tool.McpServer != nil:
 			// Use proxy for MCP server/tool communication
-			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom, a.globalProxyURL)
+			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom, a.globalProxyURL, mdd)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -606,9 +608,11 @@ func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1al
 }
 
 const (
-	googleCredsVolumeName = "google-creds"
-	tlsCACertVolumeName   = "tls-ca-cert"
-	tlsCACertMountPath    = "/etc/ssl/certs/custom"
+	googleCredsVolumeName  = "google-creds"
+	tlsCACertVolumeName    = "tls-ca-cert"
+	tlsCACertMountPath     = "/etc/ssl/certs/custom"
+	mcpServerTLSVolumeName = "mcp-server-tls-cert"
+	mcpServerTLSMountPath  = "/etc/ssl/certs/mcp-server"
 )
 
 // populateTLSFields populates TLS configuration fields in the BaseModel
@@ -657,6 +661,78 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 			MountPath: tlsCACertMountPath,
 			ReadOnly:  true,
 		})
+	}
+}
+
+// addMCPServerTLSConfiguration adds TLS certificate volume mounts to modelDeploymentData
+// when TLS configuration is present in the RemoteMCPServerSpec.
+// This handles mounting the CA certificate from the Secret for MCP server connections.
+// Each Secret gets its own unique mount path to avoid conflicts when multiple MCP servers
+// use different Secrets.
+func addMCPServerTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig, namespace string) {
+	if tlsConfig == nil || tlsConfig.ClientSecretRef == "" {
+		return
+	}
+
+	// Use a hash of the Secret name to create a unique but deterministic volume name
+	// This ensures the same Secret always gets the same volume name, avoiding duplicates
+	volumeName := fmt.Sprintf("%s-%s", mcpServerTLSVolumeName, tlsConfig.ClientSecretRef)
+	mountPath := fmt.Sprintf("%s/%s", mcpServerTLSMountPath, tlsConfig.ClientSecretRef)
+
+	// Check if this volume already exists to avoid duplicates
+	for _, vol := range modelDeploymentData.Volumes {
+		if vol.Name == volumeName {
+			// Volume already added, skip
+			return
+		}
+	}
+
+	// Add Secret volume mount for CA certificate
+	modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
+		Name: volumeName,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName:  tlsConfig.ClientSecretRef,
+				DefaultMode: ptr.To(int32(0444)), // Read-only for all users
+			},
+		},
+	})
+
+	// Add volume mount
+	modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
+		Name:      volumeName,
+		MountPath: mountPath,
+		ReadOnly:  true,
+	})
+}
+
+// populateMCPServerTLSFields populates TLS configuration fields in connection params
+// from the RemoteMCPServerSpec TLS config.
+func populateMCPServerTLSFields(params interface{}, tlsConfig *v1alpha2.TLSConfig) {
+	if tlsConfig == nil {
+		return
+	}
+
+	// Set DisableVerify (equivalent to InsecureSkipVerify)
+	if tlsConfig.DisableVerify {
+		insecureSkipVerify := true
+		switch p := params.(type) {
+		case *adk.StreamableHTTPConnectionParams:
+			p.TLSDisableVerify = &insecureSkipVerify
+		case *adk.SseConnectionParams:
+			p.TLSDisableVerify = &insecureSkipVerify
+		}
+	}
+
+	// Set Client cert path if Secret is specified
+	if tlsConfig.ClientSecretRef != "" {
+		certPath := fmt.Sprintf("%s/%s", mcpServerTLSMountPath, tlsConfig.ClientSecretRef)
+		switch p := params.(type) {
+		case *adk.StreamableHTTPConnectionParams:
+			p.TLSClientCertPath = &certPath
+		case *adk.SseConnectionParams:
+			p.TLSClientCertPath = &certPath
+		}
 	}
 }
 
@@ -1034,6 +1110,18 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 		}
 	}
 
+	// Convert URL to https if TLS is configured and scheme is http
+	if tool.TLS != nil {
+		parsedURL, err := url.Parse(targetURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid URL: %w", err)
+		}
+		if parsedURL.Scheme == "" || parsedURL.Scheme == "http" {
+			parsedURL.Scheme = "https"
+			targetURL = parsedURL.String()
+		}
+	}
+
 	params := &adk.StreamableHTTPConnectionParams{
 		Url:     targetURL,
 		Headers: headers,
@@ -1047,6 +1135,9 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 	if tool.TerminateOnClose != nil {
 		params.TerminateOnClose = tool.TerminateOnClose
 	}
+
+	// Populate TLS configuration fields
+	populateMCPServerTLSFields(params, tool.TLS)
 
 	return params, nil
 }
@@ -1066,6 +1157,18 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 		}
 	}
 
+	// Convert URL to https if TLS is configured and scheme is http
+	if tool.TLS != nil {
+		parsedURL, err := url.Parse(targetURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid URL: %w", err)
+		}
+		if parsedURL.Scheme == "" || parsedURL.Scheme == "http" {
+			parsedURL.Scheme = "https"
+			targetURL = parsedURL.String()
+		}
+	}
+
 	params := &adk.SseConnectionParams{
 		Url:     targetURL,
 		Headers: headers,
@@ -1076,10 +1179,14 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 	if tool.SseReadTimeout != nil {
 		params.SseReadTimeout = ptr.To(tool.SseReadTimeout.Seconds())
 	}
+
+	// Populate TLS configuration fields
+	populateMCPServerTLSFields(params, tool.TLS)
+
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, toolServer *v1alpha2.McpServerTool, toolHeaders []v1alpha2.ValueRef, proxyURL string) error {
+func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, toolServer *v1alpha2.McpServerTool, toolHeaders []v1alpha2.ValueRef, proxyURL string, mdd *modelDeploymentData) error {
 	gvk := toolServer.GroupKind()
 
 	switch gvk {
@@ -1110,7 +1217,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 
 		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames, proxyURL, mdd)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "RemoteMCPServer",
@@ -1134,7 +1241,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		if a.globalProxyURL != "" && a.isInternalK8sURL(ctx, remoteMcpServer.Spec.URL, agentNamespace) {
 			proxyURL = a.globalProxyURL
 		}
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer.ToolNames, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer.ToolNames, proxyURL, mdd)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "Service",
@@ -1157,7 +1264,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 
 		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames, proxyURL, mdd)
 
 	default:
 		return fmt.Errorf("unknown tool server type: %s", gvk)
@@ -1216,13 +1323,30 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 		return nil, fmt.Errorf("cannot determine port for MCP server %s", mcpServer.Name)
 	}
 
-	return &v1alpha2.RemoteMCPServerSpec{
+	spec := &v1alpha2.RemoteMCPServerSpec{
 		URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
 		Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
-	}, nil
+	}
+
+	// Convert HTTPTransportTLS to TLSConfig if present
+	if mcpServer.Spec.TransportType == v1alpha1.TransportTypeHTTP &&
+		mcpServer.Spec.HTTPTransport != nil &&
+		mcpServer.Spec.HTTPTransport.TLS != nil {
+		httpTLS := mcpServer.Spec.HTTPTransport.TLS
+
+		spec.TLS = &v1alpha2.TLSConfig{
+			ClientSecretRef: httpTLS.SecretRef,
+			DisableVerify:   httpTLS.InsecureSkipVerify,
+		}
+	}
+
+	return spec, nil
 }
 
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string, proxyURL string) error {
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string, proxyURL string, mdd *modelDeploymentData) error {
+	// Add TLS configuration volume mounts if TLS is configured
+	addMCPServerTLSConfiguration(mdd, remoteMcpServer.TLS, agentNamespace)
+
 	switch remoteMcpServer.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentNamespace, proxyURL)
@@ -1422,6 +1546,10 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 	if agent.Spec.Declarative.Deployment != nil {
 		spec = *agent.Spec.Declarative.Deployment
 	}
+	//regionId, err := GetRegionId()
+	//if err != nil {
+	//	return nil, err
+	//}
 	registry := DefaultImageConfig.Registry
 	if spec.ImageRegistry != "" {
 		registry = spec.ImageRegistry
