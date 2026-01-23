@@ -19,7 +19,6 @@ import (
 
 // TestMCPServerValidation_InvalidPort tests that TranslateAgent fails when an Agent
 // references an MCPServer with an invalid (zero) port configuration.
-// This validates the fix for the issue documented in INVESTIGATION.md.
 func TestMCPServerValidation_InvalidPort(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
@@ -96,7 +95,7 @@ func TestMCPServerValidation_InvalidPort(t *testing.T) {
 		"",
 	)
 
-	// TranslateAgent should fail with validation error about invalid port
+	// TranslateAgent should fail with error about invalid port
 	_, err = translator.TranslateAgent(ctx, agent)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot determine port")
@@ -255,8 +254,6 @@ func TestMCPServerValidation_NotFound(t *testing.T) {
 	_, err = translator.TranslateAgent(ctx, agent)
 	require.Error(t, err)
 	assert.True(t, apierrors.IsNotFound(err))
-	assert.Contains(t, err.Error(), "failed to get MCPServer")
-	assert.Contains(t, err.Error(), "non-existent-mcp-server")
 }
 
 // TestMCPServerValidation_NoMCPServerReference tests that TranslateAgent fails
@@ -314,10 +311,10 @@ func TestMCPServerValidation_NoMCPServerReference(t *testing.T) {
 		"",
 	)
 
-	// TranslateAgent should fail with validation error
+	// TranslateAgent should fail with provider or tool server error
 	_, err = translator.TranslateAgent(ctx, agent)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must have an mcpServer reference")
+	assert.Contains(t, err.Error(), "tool must have a provider or tool server")
 }
 
 // TestMCPServerValidation_RemoteMCPServer tests that validation also works for RemoteMCPServer.
@@ -549,6 +546,6 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 	// TranslateAgent should fail because one of the MCPServers is invalid
 	_, err = translator.TranslateAgent(ctx, agent)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot determine port")
 	assert.Contains(t, err.Error(), "invalid-mcp-server")
-	assert.Contains(t, err.Error(), "invalid configuration")
 }

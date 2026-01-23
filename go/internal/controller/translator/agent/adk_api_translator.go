@@ -215,41 +215,6 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 			if err != nil {
 				return err
 			}
-
-		case v1alpha2.ToolProviderType_McpServer:
-			if tool.McpServer == nil {
-				return fmt.Errorf("tool must have an mcpServer reference")
-			}
-
-			// Validate MCPServer exists and can be converted (validates port)
-			gvk := tool.McpServer.GroupKind()
-			switch gvk {
-			case schema.GroupKind{
-				Group: "",
-				Kind:  "",
-			}:
-				fallthrough // default to MCP server
-			case schema.GroupKind{
-				Group: "",
-				Kind:  "MCPServer",
-			}:
-				fallthrough // default to MCP server
-			case schema.GroupKind{
-				Group: "kagent.dev",
-				Kind:  "MCPServer",
-			}:
-				mcpServer := &v1alpha1.MCPServer{}
-				err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: tool.McpServer.Name}, mcpServer)
-				if err != nil {
-					return fmt.Errorf("failed to get MCPServer %s/%s: %w", agent.Namespace, tool.McpServer.Name, err)
-				}
-
-				// Validate that the MCPServer can be converted (this validates the port)
-				_, err = ConvertMCPServerToRemoteMCPServer(mcpServer)
-				if err != nil {
-					return fmt.Errorf("MCPServer %s/%s has invalid configuration: %w", agent.Namespace, tool.McpServer.Name, err)
-				}
-			}
 		}
 	}
 
