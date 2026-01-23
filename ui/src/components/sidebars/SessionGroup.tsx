@@ -1,6 +1,6 @@
 import type { Session } from "@/types";
 import ChatItem from "@/components/sidebars/ChatItem";
-import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub } from "../ui/sidebar";
+import { SidebarGroup, SidebarMenu, SidebarMenuSub } from "../ui/sidebar";
 import { Collapsible } from "@radix-ui/react-collapsible";
 import { ChevronRight } from "lucide-react";
 import { CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";

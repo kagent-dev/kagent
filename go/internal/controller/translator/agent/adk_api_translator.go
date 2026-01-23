@@ -198,10 +198,7 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 			return fmt.Errorf("tool must have an agent reference")
 		}
 
-		agentRef := types.NamespacedName{
-			Namespace: agent.Namespace,
-			Name:      tool.Agent.Name,
-		}
+		agentRef := tool.Agent.NamespacedName(agent.Namespace)
 
 		if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
 			return fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
@@ -535,25 +532,26 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
+		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
 		// Skip tools that are not applicable to the model provider
 		switch {
 		case tool.McpServer != nil:
 			// Use proxy for MCP server/tool communication
-			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom, a.globalProxyURL)
+			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, headers, a.globalProxyURL)
 			if err != nil {
 				return nil, nil, nil, err
 			}
 		case tool.Agent != nil:
-			agentRef := types.NamespacedName{
-				Namespace: agent.Namespace,
-				Name:      tool.Agent.Name,
-			}
+			agentRef := tool.Agent.NamespacedName(agent.Namespace)
 
 			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
 				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
 			}
 
-			// Translate a nested tool
 			toolAgent := &v1alpha2.Agent{}
 			err := a.kube.Get(ctx, agentRef, toolAgent)
 			if err != nil {
@@ -563,10 +561,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			switch toolAgent.Spec.Type {
 			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
 				originalURL := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
-				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
-				if err != nil {
-					return nil, nil, nil, err
-				}
 
 				// If proxy is configured, use proxy URL and set header for Gateway API routing
 				targetURL := originalURL
@@ -1019,16 +1013,18 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	return nil, nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
 }
 
-func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string, proxyURL string) (*adk.StreamableHTTPConnectionParams, error) {
-	headers, err := tool.ResolveHeaders(ctx, a.kube, namespace)
+func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.StreamableHTTPConnectionParams, error) {
+	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
 	}
+	// Agent headers override tool headers
+	maps.Copy(headers, agentHeaders)
 
 	// If proxy is configured, use proxy URL and set header for Gateway API routing
-	targetURL := tool.URL
+	targetURL := server.Spec.URL
 	if proxyURL != "" {
-		targetURL, headers, err = applyProxyURL(tool.URL, proxyURL, headers)
+		targetURL, headers, err = applyProxyURL(targetURL, proxyURL, headers)
 		if err != nil {
 			return nil, err
 		}
@@ -1038,29 +1034,31 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool
 		Url:     targetURL,
 		Headers: headers,
 	}
-	if tool.Timeout != nil {
-		params.Timeout = ptr.To(tool.Timeout.Seconds())
+	if server.Spec.Timeout != nil {
+		params.Timeout = ptr.To(server.Spec.Timeout.Seconds())
 	}
-	if tool.SseReadTimeout != nil {
-		params.SseReadTimeout = ptr.To(tool.SseReadTimeout.Seconds())
+	if server.Spec.SseReadTimeout != nil {
+		params.SseReadTimeout = ptr.To(server.Spec.SseReadTimeout.Seconds())
 	}
-	if tool.TerminateOnClose != nil {
-		params.TerminateOnClose = tool.TerminateOnClose
+	if server.Spec.TerminateOnClose != nil {
+		params.TerminateOnClose = server.Spec.TerminateOnClose
 	}
 
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string, proxyURL string) (*adk.SseConnectionParams, error) {
-	headers, err := tool.ResolveHeaders(ctx, a.kube, namespace)
+func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.SseConnectionParams, error) {
+	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
 	}
+	// Agent headers override tool headers
+	maps.Copy(headers, agentHeaders)
 
 	// If proxy is configured, use proxy URL and set header for Gateway API routing
-	targetURL := tool.URL
+	targetURL := server.Spec.URL
 	if proxyURL != "" {
-		targetURL, headers, err = applyProxyURL(tool.URL, proxyURL, headers)
+		targetURL, headers, err = applyProxyURL(targetURL, proxyURL, headers)
 		if err != nil {
 			return nil, err
 		}
@@ -1070,16 +1068,16 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, tool *v1alp
 		Url:     targetURL,
 		Headers: headers,
 	}
-	if tool.Timeout != nil {
-		params.Timeout = ptr.To(tool.Timeout.Seconds())
+	if server.Spec.Timeout != nil {
+		params.Timeout = ptr.To(server.Spec.Timeout.Seconds())
 	}
-	if tool.SseReadTimeout != nil {
-		params.SseReadTimeout = ptr.To(tool.SseReadTimeout.Seconds())
+	if server.Spec.SseReadTimeout != nil {
+		params.SseReadTimeout = ptr.To(server.Spec.SseReadTimeout.Seconds())
 	}
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, toolServer *v1alpha2.McpServerTool, toolHeaders []v1alpha2.ValueRef, proxyURL string) error {
+func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, toolServer *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) error {
 	gvk := toolServer.GroupKind()
 
 	switch gvk {
@@ -1098,19 +1096,19 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "MCPServer",
 	}:
 		mcpServer := &v1alpha1.MCPServer{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.Name}, mcpServer)
+		mcpServerRef := toolServer.NamespacedName(agentNamespace)
+
+		err := a.kube.Get(ctx, mcpServerRef, mcpServer)
 		if err != nil {
 			return err
 		}
 
-		spec, err := ConvertMCPServerToRemoteMCPServer(mcpServer)
+		remoteMcpServer, err := ConvertMCPServerToRemoteMCPServer(mcpServer)
 		if err != nil {
 			return err
 		}
 
-		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
-
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer.ToolNames, agentHeaders, proxyURL)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "RemoteMCPServer",
@@ -1121,12 +1119,12 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "RemoteMCPServer",
 	}:
 		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.Name}, remoteMcpServer)
+		remoteMcpServerRef := toolServer.NamespacedName(agentNamespace)
+
+		err := a.kube.Get(ctx, remoteMcpServerRef, remoteMcpServer)
 		if err != nil {
 			return err
 		}
-
-		remoteMcpServer.Spec.HeadersFrom = append(remoteMcpServer.Spec.HeadersFrom, toolHeaders...)
 
 		// RemoteMCPServer uses user-supplied URLs, but if the URL points to an internal k8s service,
 		// apply proxy to route through the gateway
@@ -1134,7 +1132,8 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		if a.globalProxyURL != "" && a.isInternalK8sURL(ctx, remoteMcpServer.Spec.URL, agentNamespace) {
 			proxyURL = a.globalProxyURL
 		}
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer.ToolNames, proxyURL)
+
+		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer.ToolNames, agentHeaders, proxyURL)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "Service",
@@ -1145,26 +1144,25 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Kind:  "Service",
 	}:
 		svc := &corev1.Service{}
-		err := a.kube.Get(ctx, types.NamespacedName{Namespace: agentNamespace, Name: toolServer.Name}, svc)
+		svcRef := toolServer.NamespacedName(agentNamespace)
+
+		err := a.kube.Get(ctx, svcRef, svc)
 		if err != nil {
 			return err
 		}
 
-		spec, err := ConvertServiceToRemoteMCPServer(svc)
+		remoteMcpServer, err := ConvertServiceToRemoteMCPServer(svc)
 		if err != nil {
 			return err
 		}
 
-		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
-
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames, proxyURL)
-
+		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer.ToolNames, agentHeaders, proxyURL)
 	default:
 		return fmt.Errorf("unknown tool server type: %s", gvk)
 	}
 }
 
-func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPServerSpec, error) {
+func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPServer, error) {
 	// Check wellknown annotations
 	port := int64(0)
 	protocol := string(MCPServiceProtocolDefault)
@@ -1205,27 +1203,39 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 	if port == 0 {
 		return nil, fmt.Errorf("no port found for service %s with protocol %s", svc.Name, protocol)
 	}
-	return &v1alpha2.RemoteMCPServerSpec{
-		URL:      fmt.Sprintf("http://%s.%s:%d%s", svc.Name, svc.Namespace, port, path),
-		Protocol: v1alpha2.RemoteMCPServerProtocol(protocol),
+	return &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svc.Name,
+			Namespace: svc.Namespace,
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      fmt.Sprintf("http://%s.%s:%d%s", svc.Name, svc.Namespace, port, path),
+			Protocol: v1alpha2.RemoteMCPServerProtocol(protocol),
+		},
 	}, nil
 }
 
-func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2.RemoteMCPServerSpec, error) {
+func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2.RemoteMCPServer, error) {
 	if mcpServer.Spec.Deployment.Port == 0 {
 		return nil, fmt.Errorf("cannot determine port for MCP server %s", mcpServer.Name)
 	}
 
-	return &v1alpha2.RemoteMCPServerSpec{
-		URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
-		Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+	return &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mcpServer.Name,
+			Namespace: mcpServer.Namespace,
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
+			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+		},
 	}, nil
 }
 
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string, proxyURL string) error {
-	switch remoteMcpServer.Protocol {
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServer, toolNames []string, agentHeaders map[string]string, proxyURL string) error {
+	switch remoteMcpServer.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
-		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentNamespace, proxyURL)
+		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
 		if err != nil {
 			return err
 		}
@@ -1234,7 +1244,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			Tools:  toolNames,
 		})
 	default:
-		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentNamespace, proxyURL)
+		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
 		if err != nil {
 			return err
 		}
