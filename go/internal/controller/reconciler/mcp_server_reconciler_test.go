@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 
@@ -92,6 +93,10 @@ func TestReconcileKagentMCPServer_InvalidPort(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to convert mcp server")
 	assert.Contains(t, err.Error(), "test/test-mcp-server")
 	assert.Contains(t, err.Error(), "cannot determine port")
+
+	// Verify the error is a ValidationError
+	var validationErr *agenttranslator.ValidationError
+	assert.True(t, errors.As(err, &validationErr), "Error should be a ValidationError")
 }
 
 // TestReconcileKagentMCPServer_ValidPort tests that ReconcileKagentMCPServer succeeds

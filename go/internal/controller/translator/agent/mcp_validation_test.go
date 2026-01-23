@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -416,6 +417,10 @@ func TestConvertMCPServerToRemoteMCPServer_InvalidPort(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot determine port")
 	assert.Contains(t, err.Error(), "test-mcp-server")
+
+	// Verify the error is a ValidationError
+	var validationErr *agenttranslator.ValidationError
+	assert.True(t, errors.As(err, &validationErr), "Error should be a ValidationError")
 }
 
 // TestConvertMCPServerToRemoteMCPServer_ValidPort tests the conversion function with valid port.
