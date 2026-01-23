@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -57,7 +57,7 @@ func (r *ServiceController) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return labels["kagent.dev/mcp-service"] == "true"
 		})).
-		For(&v1.Service{}).
+		For(&corev1.Service{}).
 		Named("service").
 		Complete(r)
 }

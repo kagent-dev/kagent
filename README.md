@@ -38,24 +38,42 @@
 
 ---
 
-## Get started
+<!-- markdownlint-disable MD033 -->
+<table align="center">
+  <tr>
+    <td>
+      <a href="#getting-started"><b><i>Getting Started</i></b></a>
+    </td>
+    <td>
+      <a href="#technical-details"><b><i>Technical Details</i></b></a>
+    </td>
+    <td>
+      <a href="#get-involved"><b><i>Get Involved</i></b></a>
+    </td>
+    <td>
+      <a href="#reference"><b><i>Reference</i></b></a>
+    </td>
+  </tr>
+</table>
+<!-- markdownlint-disable MD033 -->
+
+---
+
+## Getting started
 
 - [Quick Start](https://kagent.dev/docs/kagent/getting-started/quickstart)
 - [Installation guide](https://kagent.dev/docs/kagent/introduction/installation)
 
+## Technical Details
 
-## Documentation
-
-The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/docs/kagent).
-
-## Core Concepts
+### Core Concepts
 
 - **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent". 
 - **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/kagent/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
 - **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana,  Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
 - **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
 
-## Core Principles
+### Core Principles
 
 - **Kubernetes Native**: Kagent is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 - **Extensible**: Kagent is designed to be extensible, so you can add your own agents and tools.
@@ -64,7 +82,7 @@ The kagent documentation is available at [kagent.dev/docs](https://kagent.dev/do
 - **Declarative**: Kagent is designed to be declarative, so you can define the agents and tools in a YAML file.
 - **Testable**: Kagent is designed to be tested and debugged easily. This is especially important for AI agent applications.
 
-## Architecture
+### Architecture
 
 The kagent framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
@@ -79,19 +97,31 @@ Kagent has 4 core components:
 - **Engine**: The engine runs your agents using [ADK](https://google.github.io/adk-docs/).
 - **CLI**: The CLI is a command-line tool that allows you to manage the agents and tools.
 
-## Roadmap
+## Get Involved
+
+_We welcome contributions! Contributors are expected to [respect the kagent Code of Conduct](https://github.com/kagent-dev/community/blob/main/CODE-OF-CONDUCT.md)_
+
+There are many ways to get involved:
+
+- 🐛 [Report bugs and issues](https://github.com/kagent-dev/kagent/issues/)
+- 💡 [Suggest new features](https://github.com/kagent-dev/kagent/issues/)
+- 📖 [Improve documentation](https://github.com/kagent-dev/website/)
+- 🔧 [Submit pull requests](/CONTRIBUTION.md)
+- ⭐ Star the repository
+- 💬 [Help others in Discord](https://discord.gg/Fu3k65f2k3)
+- 💬 [Join the kagent community meetings](https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20)
+- 🤝 [Share tips in the CNCF #kagent slack channel](https://cloud-native.slack.com/archives/C08ETST0076)
+- 🔒 [Report security concerns](SECURITY.md)
+
+### Roadmap
 
 `kagent` is currently in active development. You can check out the full roadmap in the project Kanban board [here](https://github.com/orgs/kagent-dev/projects/3).
 
-## Local development
+### Local development
 
 For instructions on how to run everything locally, see the [DEVELOPMENT.md](DEVELOPMENT.md) file.
 
-## Contributing
-
-For instructions on how to contribute to the kagent project, see the [CONTRIBUTION.md](CONTRIBUTION.md) file.
-
-## Contributors
+### Contributors
 
 Thanks to all contributors who are helping to make kagent better.
 
@@ -99,7 +129,7 @@ Thanks to all contributors who are helping to make kagent better.
   <img src="https://contrib.rocks/image?repo=kagent-dev/kagent" />
 </a>
 
-## Star History
+### Star History
 
 <a href="https://www.star-history.com/#kagent-dev/kagent&Date">
  <picture>
@@ -108,6 +138,12 @@ Thanks to all contributors who are helping to make kagent better.
    <img alt="Star history of kagent-dev/kagent over time" src="https://api.star-history.com/svg?repos=kagent-dev/kagent&type=Date" />
  </picture>
 </a>
+
+## Reference
+
+### License
+
+This project is licensed under the [Apache 2.0 License.](/LICENSE)
 
 ---
 
@@ -119,4 +155,3 @@ Thanks to all contributors who are helping to make kagent better.
     </picture>
     <p>kagent is a <a href="https://cncf.io">Cloud Native Computing Foundation</a> project.</p>
 </div>
-

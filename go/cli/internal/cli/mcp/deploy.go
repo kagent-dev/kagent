@@ -597,7 +597,7 @@ func applyToCluster(projectDir, yamlContent string, mcpServer *v1alpha1.MCPServe
 		if mcpServer.Spec.Deployment.Port != 0 {
 			port = mcpServer.Spec.Deployment.Port
 		}
-		serverConfig := map[string]interface{}{
+		serverConfig := map[string]any{
 			"type": "streamable-http",
 			"url":  fmt.Sprintf("http://localhost:%d/mcp", port),
 		}

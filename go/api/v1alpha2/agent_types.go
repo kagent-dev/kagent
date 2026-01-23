@@ -53,6 +53,23 @@ type AgentSpec struct {
 
 	// +optional
 	Description string `json:"description,omitempty"`
+
+	// Skills to load into the agent. They will be pulled from the specified container images.
+	// and made available to the agent under the `/skills` folder.
+	// +optional
+	Skills *SkillForAgent `json:"skills,omitempty"`
+}
+
+type SkillForAgent struct {
+	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
+	// Meant for development and testing purposes only.
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+
+	// The list of skill images to fetch.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	Refs []string `json:"refs,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
@@ -69,9 +86,9 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	ModelConfig string `json:"modelConfig,omitempty"`
 	// Whether to stream the response from the model.
-	// If not specified, the default value is true.
+	// If not specified, the default value is false.
 	// +optional
-	Stream *bool `json:"stream,omitempty"`
+	Stream bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
@@ -85,6 +102,13 @@ type DeclarativeAgentSpec struct {
 
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
+
+	// Allow code execution for python code blocks with this agent.
+	// If true, the agent will automatically execute python code blocks in the LLM responses.
+	// Code will be executed in a sandboxed environment.
+	// +optional
+	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
+	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
@@ -112,10 +136,7 @@ type ByoDeploymentSpec struct {
 }
 
 type SharedDeploymentSpec struct {
-	// If not specified, the default value is 1.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
 	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
@@ -133,6 +154,16 @@ type SharedDeploymentSpec struct {
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type

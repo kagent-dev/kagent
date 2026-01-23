@@ -9,6 +9,11 @@ spec:
   description: An Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.
   type: Declarative
   declarative:
+    deployment:
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     systemMessage: |
       # Kubernetes AI Agent System Prompt
 

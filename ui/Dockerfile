@@ -51,7 +51,7 @@ RUN --mount=type=cache,target=/cache/node_modules,rw \
     --mount=type=cache,target=/app/ui/.next/cache,rw \
     export NEXT_TELEMETRY_DEBUG=1 \
     && bun install --frozen-lockfile \
-    && bun run build --no-lint --turbopack \
+    && bun run build --no-lint \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: Runtime

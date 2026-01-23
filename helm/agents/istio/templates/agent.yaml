@@ -257,5 +257,9 @@ spec:
             - "query_documentation for best practices on Istio performance tuning."
             - "Describe the Istio ingress gateway pods in 'istio-system' namespace."
     deployment:
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         {{- toYaml .Values.resources | nindent 8 }}

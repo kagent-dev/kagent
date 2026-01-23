@@ -1,0 +1,56 @@
+operation: translateAgent
+targetObject: agent-with-proxy-service
+namespace: test
+proxyURL: http://proxy.kagent.svc.cluster.local:8080
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: default-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: toolserver
+      namespace: test
+      annotations:
+        kagent.dev/mcp-service-port: "8084"
+        kagent.dev/mcp-service-path: "/mcp"
+        kagent.dev/mcp-service-protocol: "streamable-http"
+    spec:
+      ports:
+      - name: mcp
+        port: 8084
+        targetPort: 8084
+        protocol: TCP
+        appProtocol: mcp
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-proxy-service
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent with proxy configuration and Service as MCP Tool
+        systemMessage: You are an agent that uses proxies.
+        modelConfig: default-model
+        tools:
+          - type: MCPServer
+            mcpServer:
+              name: toolserver
+              kind: Service
+              toolNames:
+                - k8s_get_resources

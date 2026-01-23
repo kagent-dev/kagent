@@ -3,8 +3,8 @@
     {
       "name": "initial_request",
       "match": {
-        "match_type": "exact",
-        "message" : {
+        "match_type": "contains",
+        "message": {
           "content": "List all nodes in the cluster",
           "role": "user"
         }
@@ -23,6 +23,7 @@
               "tool_calls": [
                 {
                   "id": "call_1",
+                  "type": "function",
                   "function": {
                     "name": "k8s_get_resources",
                     "arguments": "{\"resource_type\": \"node\", \"all_namespaces\": true}"
@@ -39,7 +40,7 @@
       "name": "k8s_get_resources_response",
       "match": {
         "match_type": "contains",
-        "message" : {
+        "message": {
           "content": "kagent-control-plane",
           "role": "tool",
           "tool_call_id": "call_1"

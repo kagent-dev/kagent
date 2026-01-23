@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getModelConfig, createModelConfig, updateModelConfig } from "@/app/actions/modelConfigs";
+import { useAgents } from "@/components/AgentsProvider";
 import type {
     CreateModelConfigRequest,
     UpdateModelConfigPayload,
@@ -44,8 +45,6 @@ interface ModelParam {
   key: string;
   value: string;
 }
-
-// Helper function to process parameters before submission
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelParam[]): Record<string, any> => {
@@ -103,6 +102,7 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
 function ModelPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { refreshModels } = useAgents();
 
   const isEditMode = searchParams.get("edit") === "true";
   const modelConfigName = searchParams.get("name");
@@ -177,7 +177,7 @@ function ModelPageContent() {
     const fetchModelData = async () => {
       if (isEditMode && modelConfigName && providers.length > 0 && providerModelsData) {
         try {
-          if (!isLoading) setIsLoading(true);
+          setIsLoading(true);
           const response = await getModelConfig(
             k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName)
           );
@@ -260,7 +260,6 @@ function ModelPageContent() {
     if (selectedProvider) {
       const requiredKeys = selectedProvider.requiredParams || [];
       const optionalKeys = selectedProvider.optionalParams || [];
-
       const currentModelRequiresReset = !isEditMode;
 
       if (currentModelRequiresReset) {
@@ -481,6 +480,7 @@ function ModelPageContent() {
 
       if (!response.error) {
         toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
+        await refreshModels();
         router.push("/models");
       } else {
         throw new Error(response.error || "Failed to save model configuration");
@@ -610,3 +610,8 @@ export default function ModelPage() {
     </React.Suspense>
   );
 }
+
+
+
+
+

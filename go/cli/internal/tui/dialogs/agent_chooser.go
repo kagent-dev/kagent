@@ -59,10 +59,7 @@ func (a *AgentChooser) buildColumns(innerWidth int) []table.Column {
 	// Agent should be ~ 20% of the width
 	agentW := innerWidth * 2 / 10
 	// Namespace should be ~ 5% of the width (with a small minimum)
-	namespaceW := innerWidth * 5 / 100
-	if namespaceW < 6 {
-		namespaceW = 6
-	}
+	namespaceW := max(innerWidth*5/100, 6)
 	descW := innerWidth - agentW - namespaceW
 
 	columns := []table.Column{
@@ -149,10 +146,3 @@ func (a *AgentChooser) View() string {
 
 func (a *AgentChooser) ID() string       { return a.id }
 func (a *AgentChooser) Fullscreen() bool { return true }
-
-func max(x, y int) int {
-	if x > y {
-		return x
-	}
-	return y
-}

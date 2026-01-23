@@ -25,12 +25,12 @@ type ProjectManifest struct {
 
 // ToolConfig represents configuration for an MCP tool
 type ToolConfig struct {
-	Name        string                 `yaml:"name" json:"name"`
-	Description string                 `yaml:"description,omitempty" json:"description,omitempty"`
-	Handler     string                 `yaml:"handler,omitempty" json:"handler,omitempty"`
-	Enabled     bool                   `yaml:"enabled" json:"enabled"`
-	Type        string                 `yaml:"type,omitempty" json:"type,omitempty"`
-	Config      map[string]interface{} `yaml:"config,omitempty" json:"config,omitempty"`
+	Name        string         `yaml:"name" json:"name"`
+	Description string         `yaml:"description,omitempty" json:"description,omitempty"`
+	Handler     string         `yaml:"handler,omitempty" json:"handler,omitempty"`
+	Enabled     bool           `yaml:"enabled" json:"enabled"`
+	Type        string         `yaml:"type,omitempty" json:"type,omitempty"`
+	Config      map[string]any `yaml:"config,omitempty" json:"config,omitempty"`
 }
 
 // SecretsConfig defines the secret management configuration

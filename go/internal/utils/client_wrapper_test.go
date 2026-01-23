@@ -9,7 +9,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,7 +33,7 @@ func TestAddInMemory(t *testing.T) {
 	wrapper := utils.NewKubeClientWrapper(fakeClient)
 
 	t.Run("should add configmap to memory", func(t *testing.T) {
-		configMap := &v1.ConfigMap{
+		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-config",
 				Namespace: "test-namespace",
@@ -47,7 +47,7 @@ func TestAddInMemory(t *testing.T) {
 		require.NoError(t, err)
 
 		// Try to get the object from memory
-		retrievedConfig := &v1.ConfigMap{}
+		retrievedConfig := &corev1.ConfigMap{}
 		err = wrapper.Get(ctx, types.NamespacedName{
 			Name:      "test-config",
 			Namespace: "test-namespace",
@@ -60,7 +60,7 @@ func TestAddInMemory(t *testing.T) {
 	})
 
 	t.Run("should add secret to memory", func(t *testing.T) {
-		secret := &v1.Secret{
+		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-secret",
 				Namespace: "test-namespace",
@@ -74,7 +74,7 @@ func TestAddInMemory(t *testing.T) {
 		require.NoError(t, err)
 
 		// Try to get the object from memory
-		retrievedSecret := &v1.Secret{}
+		retrievedSecret := &corev1.Secret{}
 		err = wrapper.Get(ctx, types.NamespacedName{
 			Name:      "test-secret",
 			Namespace: "test-namespace",
@@ -87,7 +87,7 @@ func TestAddInMemory(t *testing.T) {
 	})
 
 	t.Run("should overwrite existing object in memory", func(t *testing.T) {
-		configMap1 := &v1.ConfigMap{
+		configMap1 := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "overwrite-test",
 				Namespace: "test-namespace",
@@ -97,7 +97,7 @@ func TestAddInMemory(t *testing.T) {
 			},
 		}
 
-		configMap2 := &v1.ConfigMap{
+		configMap2 := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "overwrite-test",
 				Namespace: "test-namespace",
@@ -116,7 +116,7 @@ func TestAddInMemory(t *testing.T) {
 		require.NoError(t, err)
 
 		// Retrieve and verify it's the updated object
-		retrieved := &v1.ConfigMap{}
+		retrieved := &corev1.ConfigMap{}
 		err = wrapper.Get(ctx, types.NamespacedName{
 			Name:      "overwrite-test",
 			Namespace: "test-namespace",
@@ -135,7 +135,7 @@ func TestGet(t *testing.T) {
 		wrapper := utils.NewKubeClientWrapper(fakeClient)
 
 		// Add object to memory
-		configMap := &v1.ConfigMap{
+		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "cached-config",
 				Namespace: "test-namespace",
@@ -148,7 +148,7 @@ func TestGet(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get object (should come from memory)
-		retrieved := &v1.ConfigMap{}
+		retrieved := &corev1.ConfigMap{}
 		err = wrapper.Get(ctx, types.NamespacedName{
 			Name:      "cached-config",
 			Namespace: "test-namespace",
@@ -160,7 +160,7 @@ func TestGet(t *testing.T) {
 
 	t.Run("should get object from underlying client when not in cache", func(t *testing.T) {
 		// Create object in fake client
-		configMap := &v1.ConfigMap{
+		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "k8s-config",
 				Namespace: "test-namespace",
@@ -178,7 +178,7 @@ func TestGet(t *testing.T) {
 		wrapper := utils.NewKubeClientWrapper(fakeClient)
 
 		// Get object (should come from underlying client)
-		retrieved := &v1.ConfigMap{}
+		retrieved := &corev1.ConfigMap{}
 		err := wrapper.Get(ctx, types.NamespacedName{
 			Name:      "k8s-config",
 			Namespace: "test-namespace",
@@ -190,7 +190,7 @@ func TestGet(t *testing.T) {
 
 	t.Run("should prioritize memory cache over underlying client", func(t *testing.T) {
 		// Create object in fake client
-		k8sConfigMap := &v1.ConfigMap{
+		k8sConfigMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "priority-test",
 				Namespace: "test-namespace",
@@ -208,7 +208,7 @@ func TestGet(t *testing.T) {
 		wrapper := utils.NewKubeClientWrapper(fakeClient)
 
 		// Add different object with same key to memory
-		memoryConfigMap := &v1.ConfigMap{
+		memoryConfigMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "priority-test",
 				Namespace: "test-namespace",
@@ -221,7 +221,7 @@ func TestGet(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get object - should come from memory, not kubernetes
-		retrieved := &v1.ConfigMap{}
+		retrieved := &corev1.ConfigMap{}
 		err = wrapper.Get(ctx, types.NamespacedName{
 			Name:      "priority-test",
 			Namespace: "test-namespace",
@@ -235,7 +235,7 @@ func TestGet(t *testing.T) {
 		fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 		wrapper := utils.NewKubeClientWrapper(fakeClient)
 
-		retrieved := &v1.ConfigMap{}
+		retrieved := &corev1.ConfigMap{}
 		err := wrapper.Get(ctx, types.NamespacedName{
 			Name:      "nonexistent",
 			Namespace: "test-namespace",
@@ -255,12 +255,12 @@ func TestConcurrentAccess(t *testing.T) {
 		numRoutines := 10
 
 		// Start multiple goroutines adding objects
-		for i := 0; i < numRoutines; i++ {
+		for i := range numRoutines {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
 
-				configMap := &v1.ConfigMap{
+				configMap := &corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      fmt.Sprintf("concurrent-config-%d", id),
 						Namespace: "test-namespace",
@@ -276,12 +276,12 @@ func TestConcurrentAccess(t *testing.T) {
 		}
 
 		// Start multiple goroutines reading objects
-		for i := 0; i < numRoutines; i++ {
+		for i := range numRoutines {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
 
-				retrieved := &v1.ConfigMap{}
+				retrieved := &corev1.ConfigMap{}
 				err := wrapper.Get(ctx, types.NamespacedName{
 					Name:      fmt.Sprintf("concurrent-config-%d", id),
 					Namespace: "test-namespace",
@@ -297,8 +297,8 @@ func TestConcurrentAccess(t *testing.T) {
 		wg.Wait()
 
 		// Verify all objects are accessible after concurrent operations
-		for i := 0; i < numRoutines; i++ {
-			retrieved := &v1.ConfigMap{}
+		for i := range numRoutines {
+			retrieved := &corev1.ConfigMap{}
 			err := wrapper.Get(ctx, types.NamespacedName{
 				Name:      fmt.Sprintf("concurrent-config-%d", i),
 				Namespace: "test-namespace",
@@ -317,7 +317,7 @@ func TestDifferentObjectTypes(t *testing.T) {
 
 	t.Run("should handle different object types independently", func(t *testing.T) {
 		// Add ConfigMap
-		configMap := &v1.ConfigMap{
+		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "same-name",
 				Namespace: "test-namespace",
@@ -330,7 +330,7 @@ func TestDifferentObjectTypes(t *testing.T) {
 		require.NoError(t, err)
 
 		// Add Secret with same name and namespace
-		secret := &v1.Secret{
+		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "same-name",
 				Namespace: "test-namespace",
@@ -343,7 +343,7 @@ func TestDifferentObjectTypes(t *testing.T) {
 		require.NoError(t, err)
 
 		// Retrieve ConfigMap
-		retrievedConfig := &v1.ConfigMap{}
+		retrievedConfig := &corev1.ConfigMap{}
 		err = wrapper.Get(ctx, types.NamespacedName{
 			Name:      "same-name",
 			Namespace: "test-namespace",
@@ -352,7 +352,7 @@ func TestDifferentObjectTypes(t *testing.T) {
 		assert.Equal(t, "configmap", retrievedConfig.Data["type"])
 
 		// Retrieve Secret
-		retrievedSecret := &v1.Secret{}
+		retrievedSecret := &corev1.Secret{}
 		err = wrapper.Get(ctx, types.NamespacedName{
 			Name:      "same-name",
 			Namespace: "test-namespace",

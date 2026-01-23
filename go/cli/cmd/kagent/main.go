@@ -280,6 +280,7 @@ Examples:
 	// Add flags for build command
 	buildCmd.Flags().StringVar(&buildCfg.Image, "image", "", "Full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)")
 	buildCmd.Flags().BoolVar(&buildCfg.Push, "push", false, "Push the image to the registry")
+	buildCmd.Flags().StringVar(&buildCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
 
 	deployCfg := &cli.DeployCfg{
 		Config: cfg,
@@ -291,26 +292,33 @@ Examples:
 		Long: `Deploy an agent to Kubernetes.
 
 This command will read the kagent.yaml file from the specified project directory,
-create or reference a Kubernetes secret with the API key, and create an Agent CRD.
+load environment variables from a .env file, and create an Agent CRD with necessary secrets.
 
 The command will:
 1. Load the agent configuration from kagent.yaml
-2. Either create a new secret with the provided API key or verify an existing secret
-3. Create an Agent CRD with the appropriate configuration
+2. Load environment variables from a .env file (including the model provider API key)
+3. Create Kubernetes secrets for environment variables and API keys
+4. Create an Agent CRD with the appropriate configuration
 
-API Key Options:
-  --api-key: Convenience option to create a new secret with the provided API key
-  --api-key-secret: Canonical way to reference an existing secret by name
+API Key Requirements:
+  The .env file MUST contain the API key for your model provider:
+  - Anthropic: ANTHROPIC_API_KEY=your-key-here
+  - OpenAI: OPENAI_API_KEY=your-key-here
+  - Gemini: GOOGLE_API_KEY=your-key-here
+
+Environment Variables:
+  --env-file: REQUIRED. Path to a .env file containing environment variables (including API keys).
+              Variables will be stored in a Kubernetes secret and mounted as environment variables.
 
 Dry-Run Mode:
   --dry-run: Output YAML manifests without applying them to the cluster. This is useful
              for previewing changes or for use with GitOps workflows.
 
 Examples:
-  kagent deploy ./my-agent --api-key-secret "my-existing-secret"
-  kagent deploy ./my-agent --api-key "your-api-key-here" --image "myregistry/myagent:v1.0"
-  kagent deploy ./my-agent --api-key-secret "my-secret" --namespace "my-namespace"
-  kagent deploy ./my-agent --api-key "your-api-key" --dry-run > manifests.yaml`,
+  kagent deploy ./my-agent --env-file .env
+  kagent deploy ./my-agent --env-file .env --image "myregistry/myagent:v1.0"
+  kagent deploy ./my-agent --env-file .env --namespace "my-namespace"
+  kagent deploy ./my-agent --env-file .env --dry-run > manifests.yaml`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			deployCfg.ProjectDir = args[0]
@@ -320,15 +328,15 @@ Examples:
 				os.Exit(1)
 			}
 		},
-		Example: `kagent deploy ./my-agent --api-key-secret "my-existing-secret"`,
+		Example: `kagent deploy ./my-agent --env-file .env`,
 	}
 
 	// Add flags for deploy command
 	deployCmd.Flags().StringVarP(&deployCfg.Image, "image", "i", "", "Image to use (defaults to localhost:5001/{agentName}:latest)")
-	deployCmd.Flags().StringVar(&deployCfg.APIKey, "api-key", "", "API key for the model provider (convenience option to create secret)")
-	deployCmd.Flags().StringVar(&deployCfg.APIKeySecret, "api-key-secret", "", "Name of existing secret containing API key")
+	deployCmd.Flags().StringVar(&deployCfg.EnvFile, "env-file", "", "Path to .env file containing environment variables (including API keys)")
 	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "", "Kubernetes namespace to deploy to")
 	deployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Output YAML manifests without applying them to the cluster")
+	deployCmd.Flags().StringVar(&deployCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
 
 	// add-mcp command
 	addMcpCfg := &cli.AddMcpCfg{Config: cfg}
@@ -381,8 +389,21 @@ Examples:
 				runCfg.ProjectDir = "."
 			}
 
+			if runCfg.Build {
+				fmt.Fprintf(os.Stderr, "Building image before running...\n")
+
+				buildCfg := &cli.BuildCfg{
+					Config:     runCfg.Config,
+					ProjectDir: runCfg.ProjectDir,
+				}
+
+				if err := cli.BuildCmd(buildCfg); err != nil {
+					fmt.Fprintf(os.Stderr, "Build failed: %v\n", err)
+					os.Exit(1)
+				}
+			}
 			if err := cli.RunCmd(cmd.Context(), runCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error running agent: %v\n", err)
 				os.Exit(1)
 			}
 		},
@@ -390,6 +411,7 @@ Examples:
 	}
 
 	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
+	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
 
 	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd())
 
@@ -404,7 +426,6 @@ Examples:
 
 		os.Exit(1)
 	}
-
 }
 
 func runInteractive(cmd *cobra.Command, args []string) {

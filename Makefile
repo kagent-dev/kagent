@@ -74,6 +74,31 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 
+
+##@ General
+
+# The help target prints out all targets with their descriptions organized
+# beneath their categories. The categories are represented by '##@' and the
+# target descriptions by '##'. The awk command is responsible for reading the
+# entire set of makefiles included in this invocation, looking for lines of the
+# file as xyz: ## something, and then pretty-format the target and help. Then,
+# if there's a line with ##@ something, that gets pretty-printed as a category.
+# More info on the usage of ANSI control characters for terminal formatting:
+# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
+# More info on the awk command:
+# http://linuxcommand.org/lc3_adv_awk.php
+
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	
+##@ Git
+
+.PHONY: init-git-hooks
+init-git-hooks:  ## Use the tracked version of Git hooks from this repo
+	git config core.hooksPath .githooks
+	echo "Git hooks initialized"
+
 # KMCP 
 KMCP_ENABLED ?= true
 KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
@@ -128,6 +153,7 @@ check-api-key:
 buildx-create:
 	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
 	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
+	docker buildx use $(BUILDX_BUILDER_NAME) || true
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
@@ -142,6 +168,12 @@ push-test-agent: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+	
+.PHONY: push-test-skill
+push-test-skill: buildx-create
+	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/test/e2e/testdata/skills/kebab-maker
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
@@ -311,6 +343,7 @@ helm-install-provider: helm-version check-api-key
 		--set registry=$(DOCKER_REGISTRY) \
 		--set imagePullPolicy=Always \
 		--set tag=$(VERSION) \
+		--set controller.loglevel=debug \
 		--set controller.image.pullPolicy=Always \
 		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
@@ -369,16 +402,16 @@ kagent-ui-port-forward: use-kind-cluster
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster
-	#to test the kagent addons - installing istio, grafana, prometheus, metrics-server
+	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
 	istioctl install --set profile=demo -y
-	kubectl apply -f contrib/addons/grafana.yaml
-	kubectl apply -f contrib/addons/prometheus.yaml
-	kubectl apply -f contrib/addons/metrics-server.yaml
-	#wait for pods to be ready
-	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=grafana 	-n kagent --timeout=60s
-	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
-	#port forward grafana service
-	kubectl port-forward svc/grafana 3000:3000 -n kagent
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/grafana.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/postgres.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/prometheus.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/metrics-server.yaml
+	# wait for pods to be ready
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=grafana    -n kagent --timeout=60s
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=postgres   -n kagent --timeout=60s
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
 
 .PHONY: open-dev-container
 open-dev-container:

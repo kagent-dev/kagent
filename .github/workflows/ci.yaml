@@ -40,6 +40,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Initialize Environment
+        uses: ./.github/actions/initialize-environment
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -56,7 +58,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4.2.0
         with:
-          version: v3.17.0
+          version: v3.18.0
 
       - name: Install Kind
         id: kind
@@ -80,7 +82,7 @@ jobs:
           make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
-          make push-test-agent
+          make push-test-agent push-test-skill
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
@@ -97,7 +99,9 @@ jobs:
           echo "KAGENT_URL: $KAGENT_URL"
           echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
 
-          go test -race -v github.com/kagent-dev/kagent/go/test/e2e
+          # no need to run e2e tests with race, as this will just apply to the test code.
+          # all objects created in e2e tests have a generated name, so they can run in parallel safely.
+          go test -v github.com/kagent-dev/kagent/go/test/e2e -failfast
       - name: fail print info
         if: failure()
         run: |
@@ -139,7 +143,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4.2.0
         with:
-          version: v3.17.0
+          version: v3.18.0
       # Install unittest plugin
       - name: Install unittest plugin
         run: |
@@ -238,9 +242,9 @@ jobs:
           cache: true
           cache-dependency-path: go/go.sum
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.5.0
+          version: v2.7.2
           working-directory: go
 
   python-test:
@@ -261,6 +265,10 @@ jobs:
         working-directory: ./python
         run: |
           uv sync --all-extras
+
+      - name: Generate test certificates
+        working-directory: ./python
+        run: make generate-test-certs
 
       - name: Run tests
         working-directory: ./python
@@ -295,3 +303,34 @@ jobs:
             echo "Ruff formatting issues detected. Please run 'uv run ruff format' locally to fix formatting issues."
             exit 1
           fi
+
+  manifests-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Generate controller manifests
+        run: make controller-manifests
+
+      - name: Check for uncommitted changes
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Controller manifests are out of date!"
+            echo "::error::Please run 'make controller-manifests' and commit the changes."
+            echo ""
+            echo "The following files have differences:"
+            git diff --name-only
+            echo ""
+            echo "Diff details:"
+            git diff
+            exit 1
+          fi
+          echo "✓ Controller manifests are up to date"

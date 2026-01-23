@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 import logging
 import uuid
@@ -21,6 +20,7 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from google.adk.events import Event, EventActions
 from google.adk.runners import Runner
 from google.adk.utils.context_utils import Aclosing
 from opentelemetry import trace
@@ -28,17 +28,21 @@ from pydantic import BaseModel
 from typing_extensions import override
 
 from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
+from kagent.core.tracing._span_processor import (
+    clear_kagent_span_attributes,
+    set_kagent_span_attributes,
+)
 
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
-logger = logging.getLogger("google_adk." + __name__)
+logger = logging.getLogger("kagent_adk." + __name__)
 
 
 class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the A2aAgentExecutor."""
 
-    pass
+    stream: bool = False
 
 
 # This class is a copy of the A2aAgentExecutor class in the ADK sdk,
@@ -105,71 +109,107 @@ class A2aAgentExecutor(AgentExecutor):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
-        # for new task, create a task submitted event
-        if not context.current_task:
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=TaskState.submitted,
-                        message=context.message,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                    ),
-                    context_id=context.context_id,
-                    final=False,
-                )
-            )
+        # Convert the a2a request to ADK run args
+        stream = self._config.stream if self._config is not None else False
+        run_args = convert_a2a_request_to_adk_run_args(context, stream=stream)
 
-        # Handle the request and publish updates to the event queue
-        runner = await self._resolve_runner()
+        # Prepare span attributes.
+        span_attributes = {}
+        if run_args.get("user_id"):
+            span_attributes["kagent.user_id"] = run_args["user_id"]
+        if context.task_id:
+            span_attributes["gen_ai.task.id"] = context.task_id
+        if run_args.get("session_id"):
+            span_attributes["gen_ai.conversation.id"] = run_args["session_id"]
+
+        # Set kagent span attributes for all spans in context.
+        context_token = set_kagent_span_attributes(span_attributes)
         try:
-            await self._handle_request(context, event_queue, runner)
-        except Exception as e:
-            logger.error("Error handling A2A request: %s", e, exc_info=True)
-            # Publish failure event
-            try:
+            # for new task, create a task submitted event
+            if not context.current_task:
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.failed,
+                            state=TaskState.submitted,
+                            message=context.message,
                             timestamp=datetime.now(timezone.utc).isoformat(),
-                            message=Message(
-                                message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=str(e)))],
-                            ),
                         ),
                         context_id=context.context_id,
-                        final=True,
+                        final=False,
                     )
                 )
-            except Exception as enqueue_error:
-                logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
+
+            # Handle the request and publish updates to the event queue
+            runner = await self._resolve_runner()
+            try:
+                await self._handle_request(context, event_queue, runner, run_args)
+            except Exception as e:
+                logger.error("Error handling A2A request: %s", e, exc_info=True)
+
+                # Check if this is a LiteLLM JSON parsing error (common with Ollama models that don't support function calling)
+                error_message = str(e)
+                if (
+                    "JSONDecodeError" in error_message
+                    or "Unterminated string" in error_message
+                    or "APIConnectionError" in error_message
+                ):
+                    # Check if it's related to function calling
+                    if "function_call" in error_message.lower() or "json.loads" in error_message:
+                        error_message = (
+                            "The model does not support function calling properly. "
+                            "This error typically occurs when using Ollama models with tools. "
+                            "Please either:\n"
+                            "1. Remove tools from the agent configuration, or\n"
+                            "2. Use a model that supports function calling (e.g., OpenAI, Anthropic, or Gemini models)."
+                        )
+                # Publish failure event
+                try:
+                    await event_queue.enqueue_event(
+                        TaskStatusUpdateEvent(
+                            task_id=context.task_id,
+                            status=TaskStatus(
+                                state=TaskState.failed,
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                message=Message(
+                                    message_id=str(uuid.uuid4()),
+                                    role=Role.agent,
+                                    parts=[Part(TextPart(text=error_message))],
+                                ),
+                            ),
+                            context_id=context.context_id,
+                            final=True,
+                        )
+                    )
+                except Exception as enqueue_error:
+                    logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
+        finally:
+            clear_kagent_span_attributes(context_token)
 
     async def _handle_request(
         self,
         context: RequestContext,
         event_queue: EventQueue,
         runner: Runner,
+        run_args: dict[str, Any],
     ):
-        # Convert the a2a request to ADK run args
-        run_args = convert_a2a_request_to_adk_run_args(context)
-
-        # set request headers to session state
-        headers = context.call_context.state.get("headers", {})
-        run_args["headers"] = headers
-
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
 
-        current_span = trace.get_current_span()
-        if run_args["user_id"]:
-            current_span.set_attribute("kagent.user_id", run_args["user_id"])
-        if context.task_id:
-            current_span.set_attribute("gen_ai.task.id", context.task_id)
-        if run_args["session_id"]:
-            current_span.set_attribute("gen_ai.converstation.id", run_args["session_id"])
+        # set request headers to session state
+        headers = context.call_context.state.get("headers", {})
+        state_changes = {
+            "headers": headers,
+        }
+
+        actions_with_update = EventActions(state_delta=state_changes)
+        system_event = Event(
+            invocation_id="header_update",
+            author="system",
+            actions=actions_with_update,
+        )
+
+        await runner.session_service.append_event(session, system_event)
 
         # create invocation context
         invocation_context = runner._new_invocation_context(
@@ -202,7 +242,10 @@ class A2aAgentExecutor(AgentExecutor):
                 for a2a_event in convert_event_to_a2a_events(
                     adk_event, invocation_context, context.task_id, context.context_id
                 ):
-                    task_result_aggregator.process_event(a2a_event)
+                    # Only aggregate non-partial events to avoid duplicates from streaming chunks
+                    # Partial events are sent to frontend for display but not accumulated
+                    if not adk_event.partial:
+                        task_result_aggregator.process_event(a2a_event)
                     await event_queue.enqueue_event(a2a_event)
 
         # publish the task result event - this is final
@@ -224,7 +267,7 @@ class A2aAgentExecutor(AgentExecutor):
                     ),
                 )
             )
-            # public the final status update event
+            # publish the final status update event
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
@@ -259,6 +302,7 @@ class A2aAgentExecutor(AgentExecutor):
             user_id=user_id,
             session_id=session_id,
         )
+
         if session is None:
             # Extract session name from the first TextPart (like the UI does)
             session_name = None

@@ -2,7 +2,8 @@ replicas: 1
 
 grafana:
   url: "grafana.kagent:3000/api"
-  apiKey: "-"
+  serviceAccountToken: ""
+  apiKey: "" # Deprecated - use serviceAccountToken instead.
 
 image:
   registry: mcp
@@ -35,6 +36,22 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+
+# Additional Arguments for the mcp server
+args: []
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
 
 # Deployment configuration - used to populate the ConfigMap template.
 # Add custom configuration values here as needed.

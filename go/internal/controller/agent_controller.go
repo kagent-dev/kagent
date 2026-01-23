@@ -70,7 +70,7 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}))
+		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})))
 
 	// Setup owns relationships for resources created by the Agent controller -
 	// for now ownership of agent resources is handled by the ADK translator
@@ -202,7 +202,6 @@ func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl clien
 				agents = append(agents, &agent)
 			}
 		}
-
 	}
 
 	return agents
@@ -242,7 +241,6 @@ func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 	}
 
 	for _, agent := range agentsList.Items {
-		agent := agent
 		appendAgentIfUsesRemoteMCPServer(&agent)
 	}
 
@@ -250,7 +248,6 @@ func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 }
 
 func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
-
 	var agentsList v1alpha2.AgentList
 	if err := cl.List(
 		ctx,
@@ -314,7 +311,6 @@ func (r *AgentController) findAgentsUsingModelConfig(ctx context.Context, cl cli
 		if agent.Spec.Declarative.ModelConfig == obj.Name {
 			agents = append(agents, agent)
 		}
-
 	}
 
 	return agents

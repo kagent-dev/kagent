@@ -1,0 +1,130 @@
+{
+  "openai": [
+    {
+      "name": "calculate_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "What is 2+2?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-calc",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "calculate",
+                    "arguments": "{\"expression\": \"2+2\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "calculate_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "4",
+          "role": "tool",
+          "tool_call_id": "call_abc123"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-calc-result",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "The result of 2+2 is 4"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "name": "weather_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "What is the weather in London?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-weather",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_def456",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"location\": \"London\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "weather_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Rainy, 52°F",
+          "role": "tool",
+          "tool_call_id": "call_def456"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-weather-result",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "The weather in London is Rainy, 52°F"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

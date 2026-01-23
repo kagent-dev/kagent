@@ -14,7 +14,7 @@ spec:
         kind: MCPServer
         name: everything-mcp-server
         toolNames:
-        - add
+        - get-sum
       type: McpServer
   description: This agent adds numbers.
   type: Declarative
