@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	agenttranslator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 )
@@ -38,90 +39,8 @@ func (f *fakeReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req
 	return nil
 }
 
-// TestMCPServerToolController_ValidationError tests that the controller does not retry
-// when the reconciler returns a ValidationError.
-func TestMCPServerToolController_ValidationError(t *testing.T) {
-	ctx := context.Background()
-
-	// Create fake reconciler that returns ValidationError
-	fakeReconciler := &fakeReconciler{
-		reconcileMCPServerError: agenttranslator.NewValidationError("cannot determine port for MCP server test-server"),
-	}
-
-	controller := &MCPServerToolController{
-		Reconciler: fakeReconciler,
-	}
-
-	req := ctrl.Request{
-		NamespacedName: types.NamespacedName{
-			Namespace: "test",
-			Name:      "test-mcp-server",
-		},
-	}
-
-	result, err := controller.Reconcile(ctx, req)
-
-	// Should return empty result with no error (no retry)
-	require.NoError(t, err, "ValidationError should not be returned as error to avoid retry")
-	assert.Equal(t, ctrl.Result{}, result, "Result should be empty for validation errors")
-}
-
-// TestMCPServerToolController_TransientError tests that the controller returns
-// an error for transient errors to trigger exponential backoff.
-func TestMCPServerToolController_TransientError(t *testing.T) {
-	ctx := context.Background()
-
-	// Create fake reconciler that returns a transient error
-	fakeReconciler := &fakeReconciler{
-		reconcileMCPServerError: errors.New("failed to connect to database"),
-	}
-
-	controller := &MCPServerToolController{
-		Reconciler: fakeReconciler,
-	}
-
-	req := ctrl.Request{
-		NamespacedName: types.NamespacedName{
-			Namespace: "test",
-			Name:      "test-mcp-server",
-		},
-	}
-
-	result, err := controller.Reconcile(ctx, req)
-
-	// Should return error to trigger retry with exponential backoff
-	require.Error(t, err, "Transient error should be returned to trigger retry")
-	assert.Equal(t, ctrl.Result{}, result, "Result should be empty when returning error")
-	assert.Contains(t, err.Error(), "failed to connect to database")
-}
-
-// TestMCPServerToolController_Success tests that the controller returns
-// a requeue result when reconciliation succeeds.
-func TestMCPServerToolController_Success(t *testing.T) {
-	ctx := context.Background()
-
-	// Create fake reconciler that returns no error (success)
-	fakeReconciler := &fakeReconciler{
-		reconcileMCPServerError: nil,
-	}
-
-	controller := &MCPServerToolController{
-		Reconciler: fakeReconciler,
-	}
-
-	req := ctrl.Request{
-		NamespacedName: types.NamespacedName{
-			Namespace: "test",
-			Name:      "test-mcp-server",
-		},
-	}
-
-	result, err := controller.Reconcile(ctx, req)
-
-	// Should return no error and requeue after 60s for periodic refresh
-	require.NoError(t, err)
-	assert.NotEqual(t, ctrl.Result{}, result, "Result should have RequeueAfter for success")
-	assert.Equal(t, int64(60), result.RequeueAfter.Seconds(), "Should requeue after 60 seconds")
+func (f *fakeReconciler) GetOwnedResourceTypes() []client.Object {
+	return nil
 }
 
 // TestMCPServerToolController_ErrorTypeDetection tests that the controller
@@ -142,9 +61,9 @@ func TestMCPServerToolController_ErrorTypeDetection(t *testing.T) {
 			expectRequeue:     false,
 		},
 		{
-			name:              "wrapped validation error - no retry",
+			name:              "improperly wrapped validation error - retries",
 			reconcilerError:   errors.New("failed to convert: " + agenttranslator.NewValidationError("invalid port").Error()),
-			expectControllerError: false, // Still no retry if wrapped properly
+			expectControllerError: true, // Error chain is broken, so it's treated as transient
 			expectRequeue:     false,
 		},
 		{

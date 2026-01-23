@@ -439,11 +439,11 @@ func TestConvertMCPServerToRemoteMCPServer_ValidPort(t *testing.T) {
 		},
 	}
 
-	remoteSpec, err := agenttranslator.ConvertMCPServerToRemoteMCPServer(mcpServer)
+	remoteMCP, err := agenttranslator.ConvertMCPServerToRemoteMCPServer(mcpServer)
 	require.NoError(t, err)
-	assert.NotNil(t, remoteSpec)
-	assert.Equal(t, "http://test-mcp-server.test:8080/mcp", remoteSpec.URL)
-	assert.Equal(t, v1alpha2.RemoteMCPServerProtocolStreamableHttp, remoteSpec.Protocol)
+	assert.NotNil(t, remoteMCP)
+	assert.Equal(t, "http://test-mcp-server.test:8080/mcp", remoteMCP.Spec.URL)
+	assert.Equal(t, v1alpha2.RemoteMCPServerProtocolStreamableHttp, remoteMCP.Spec.Protocol)
 }
 
 // TestMCPServerValidation_MultipleTools tests validation with multiple tools including valid and invalid MCPServers.
