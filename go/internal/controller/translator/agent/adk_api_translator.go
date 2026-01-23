@@ -47,6 +47,25 @@ const (
 	ProxyHostHeader = "x-kagent-host"
 )
 
+// ValidationError indicates a configuration error that requires user action to fix.
+// These errors should not trigger exponential backoff retries.
+type ValidationError struct {
+	Err error
+}
+
+func (e *ValidationError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *ValidationError) Unwrap() error {
+	return e.Err
+}
+
+// NewValidationError creates a new ValidationError
+func NewValidationError(format string, args ...interface{}) error {
+	return &ValidationError{Err: fmt.Errorf(format, args...)}
+}
+
 type ImageConfig struct {
 	Registry   string `json:"registry,omitempty"`
 	Tag        string `json:"tag,omitempty"`
@@ -1173,7 +1192,7 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 			var err error
 			port, err = strconv.ParseInt(portStr, 10, 64)
 			if err != nil {
-				return nil, fmt.Errorf("port in annotation %s is not a valid integer: %v", MCPServicePortAnnotation, err)
+				return nil, NewValidationError("port in annotation %s is not a valid integer: %v", MCPServicePortAnnotation, err)
 			}
 		}
 		if protocolStr, ok := svc.Annotations[MCPServiceProtocolAnnotation]; ok {
@@ -1202,7 +1221,7 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 		}
 	}
 	if port == 0 {
-		return nil, fmt.Errorf("no port found for service %s with protocol %s", svc.Name, protocol)
+		return nil, NewValidationError("no port found for service %s with protocol %s", svc.Name, protocol)
 	}
 	return &v1alpha2.RemoteMCPServerSpec{
 		URL:      fmt.Sprintf("http://%s.%s:%d%s", svc.Name, svc.Namespace, port, path),
@@ -1212,7 +1231,7 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 
 func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2.RemoteMCPServerSpec, error) {
 	if mcpServer.Spec.Deployment.Port == 0 {
-		return nil, fmt.Errorf("cannot determine port for MCP server %s", mcpServer.Name)
+		return nil, NewValidationError("cannot determine port for MCP server %s", mcpServer.Name)
 	}
 
 	return &v1alpha2.RemoteMCPServerSpec{

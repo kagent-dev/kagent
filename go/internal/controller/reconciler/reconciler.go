@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler/status"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/internal/database"
@@ -192,12 +193,26 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 		GroupKind:   schema.GroupKind{Group: "", Kind: "Service"}.String(),
 	}
 
-	if remoteService, err := agent_translator.ConvertServiceToRemoteMCPServer(service); err != nil {
-		reconcileLog.Error(err, "failed to convert service to remote mcp service", "service", utils.GetObjectRef(service))
-	} else {
-		if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService, service.Namespace); err != nil {
-			return fmt.Errorf("failed to upsert tool server for mcp service %s: %v", utils.GetObjectRef(service), err)
+	// Convert Service to RemoteMCPServer spec
+	remoteService, err := agent_translator.ConvertServiceToRemoteMCPServer(service)
+	if err != nil {
+		// Check if this is a validation error
+		var validationErr *agent_translator.ValidationError
+		if errors.As(err, &validationErr) {
+			// Validation error - log but don't retry (wait for user to fix annotations/ports)
+			reconcileLog.Error(err, "Service has invalid MCP configuration", "service", utils.GetObjectRef(service))
+			return nil // Don't retry - wait for resource change
 		}
+		// Transient error - log and retry with backoff
+		reconcileLog.Error(err, "failed to convert service to remote mcp service", "service", utils.GetObjectRef(service))
+		return fmt.Errorf("failed to convert service %s: %v", utils.GetObjectRef(service), err)
+	}
+
+	// Upsert tool server and fetch tools
+	if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService, service.Namespace); err != nil {
+		// Transient error (database, network, etc.) - log and retry
+		reconcileLog.Error(err, "failed to upsert tool server for service", "service", utils.GetObjectRef(service))
+		return fmt.Errorf("failed to upsert tool server for mcp service %s: %v", utils.GetObjectRef(service), err)
 	}
 
 	return nil
@@ -358,14 +373,36 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 		GroupKind:   schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
 	}
 
+	// Convert MCPServer to RemoteMCPServer spec
 	remoteSpec, err := agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer)
 	if err != nil {
-		// Log error and return it to trigger requeue with backoff
+		// Check if this is a validation error
+		var validationErr *agent_translator.ValidationError
+		if errors.As(err, &validationErr) {
+			// Validation error - update status but don't retry (wait for user to fix spec)
+			reconcileLog.Error(err, "MCPServer has invalid configuration", "mcpServer", utils.GetObjectRef(mcpServer))
+			if _, statusErr := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, err); statusErr != nil {
+				return statusErr // Only retry if status update fails
+			}
+			return nil // Don't retry - wait for spec change
+		}
+		// Transient error - update status and retry with backoff
 		reconcileLog.Error(err, "failed to convert mcp server to remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+		status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, err)
 		return fmt.Errorf("failed to convert mcp server %s: %v", utils.GetObjectRef(mcpServer), err)
 	}
+
+	// Upsert tool server and fetch tools
 	if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec, mcpServer.Namespace); err != nil {
+		// Transient error (database, network, etc.) - update status and retry
+		reconcileLog.Error(err, "failed to upsert tool server for mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+		status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, err)
 		return fmt.Errorf("failed to upsert tool server for remote mcp server %s: %v", utils.GetObjectRef(mcpServer), err)
+	}
+
+	// Success - update status
+	if _, err := status.ReconcileMCPServerStatus(ctx, a.kube, mcpServer, nil); err != nil {
+		return err
 	}
 
 	return nil
