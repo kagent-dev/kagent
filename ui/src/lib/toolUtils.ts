@@ -89,9 +89,9 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
     }
   });
 
-  // Convert to Tool objects- preserve original kind and apiGroup from the first tool of each server
+  // Convert to Tool objects- preserve original kind, apiGroup, and namespace from the first tool of each server
   const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => {
-    // Find the first tool from this server to get its kind and apiGroup
+    // Find the first tool from this server to get its kind, apiGroup, and namespace
     const originalTool = tools.find(tool => 
       isMcpTool(tool) && tool.mcpServer?.name === serverNameRef
     );
@@ -102,6 +102,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
       type: MCP_SERVER_TYPE,
       mcpServer: {
         name: serverNameRef,
+        namespace: originalMcpServer?.namespace,
         apiGroup: originalMcpServer?.apiGroup || DEFAULT_API_GROUP,
         kind: originalMcpServer?.kind || DEFAULT_MCP_KIND,
         toolNames: Array.from(toolNamesSet)
@@ -147,16 +148,20 @@ export const parseGroupKind = (groupKind: string): { apiGroup: string; kind: str
   return { apiGroup, kind };
 };
 
-export const getToolDisplayName = (tool: Tool): string => {
+export const getToolDisplayName = (tool: Tool, defaultNamespace: string): string => {
   if (isAgentTool(tool) && tool.agent) {
-    try {
-      return tool.agent.name;
-    } catch {
-      return "Agent";
+    const name = tool.agent?.name;
+    if (!name || name.trim() === "") {
+      return "Unknown Agent";
     }
+    return k8sRefUtils.toRef(tool.agent.namespace || defaultNamespace, name);
   } else if (isMcpTool(tool)) {
     const mcpTool = tool as Tool;
-    return mcpTool.mcpServer?.name || "No name";
+    const name = mcpTool.mcpServer?.name;
+    if (!name || name.trim() === "") {
+      return "Unknown Tool";
+    }
+    return k8sRefUtils.toRef(mcpTool.mcpServer?.namespace || defaultNamespace, name);
   }
   return "Unknown Tool";
 };
@@ -210,6 +215,16 @@ export const getToolResponseIdentifier = (tool: ToolsResponse | undefined | null
 export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string): Tool => {
   let { apiGroup, kind } = parseGroupKind(tool.group_kind);
   
+  // Parse namespace and name from serverRef if it's in namespace/name format
+  let name = serverRef;
+  let namespace: string | undefined;
+  
+  if (k8sRefUtils.isValidRef(serverRef)) {
+    const parsed = k8sRefUtils.fromRef(serverRef);
+    name = parsed.name;
+    namespace = parsed.namespace;
+  }
+  
   // Special handling for kagent-querydoc - must have empty apiGroup for Kubernetes Service
   if (serverRef.toLocaleLowerCase().includes(QUERYDOC_SERVER_NAME)) {
     apiGroup = "";
@@ -219,7 +234,8 @@ export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string):
   return {
     type: MCP_SERVER_TYPE,
     mcpServer: {
-      name: serverRef,
+      name,
+      namespace,
       apiGroup,
       kind,
       toolNames: [tool.id]

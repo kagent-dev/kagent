@@ -29,7 +29,7 @@ DOCKER_BUILDER ?= docker buildx
 DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
 
 KIND_CLUSTER_NAME ?= kagent
-KIND_IMAGE_VERSION ?= 1.34.0
+KIND_IMAGE_VERSION ?= 1.35.0
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
@@ -57,9 +57,9 @@ LDFLAGS := "-X github.com/$(DOCKER_REPO)/go/internal/version.Version=$(VERSION) 
             -X github.com/$(DOCKER_REPO)/go/internal/version.BuildDate=$(BUILD_DATE)"
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.8.22
-TOOLS_BUN_VERSION ?= 1.2.22
-TOOLS_NODE_VERSION ?= 22.19.0
+TOOLS_UV_VERSION ?= 0.9.2
+TOOLS_BUN_VERSION ?= 1.3.6
+TOOLS_NODE_VERSION ?= 24.13.0
 TOOLS_PYTHON_VERSION ?= 3.13
 
 # build args

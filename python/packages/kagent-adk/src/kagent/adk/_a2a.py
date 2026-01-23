@@ -53,7 +53,7 @@ kagent_url_override = os.getenv("KAGENT_URL")
 class KAgentApp:
     def __init__(
         self,
-        root_agent: BaseAgent,
+        root_agent_factory: Callable[[], BaseAgent],
         agent_card: AgentCard,
         kagent_url: str,
         app_name: str,
@@ -61,7 +61,18 @@ class KAgentApp:
         plugins: List[BasePlugin] = None,
         stream: bool = False,
     ):
-        self.root_agent = root_agent
+        """Initialize the KAgent application.
+
+        Args:
+            root_agent_factory: Root agent factory function that returns a new agent instance
+            agent_card: Agent card configuration for A2A protocol
+            kagent_url: URL of the KAgent backend server
+            app_name: Application name for identification
+            lifespan: Optional lifespan function
+            plugins: Optional list of plugins
+            stream: Whether to stream the response
+        """
+        self.root_agent_factory = root_agent_factory
         self.kagent_url = kagent_url
         self.app_name = app_name
         self.agent_card = agent_card
@@ -81,9 +92,10 @@ class KAgentApp:
             )
             session_service = KAgentSessionService(http_client)
 
-        adk_app = App(name=self.app_name, root_agent=self.root_agent, plugins=self.plugins)
-
         def create_runner() -> Runner:
+            root_agent = self.root_agent_factory()
+            adk_app = App(name=self.app_name, root_agent=root_agent, plugins=self.plugins)
+
             return Runner(
                 app=adk_app,
                 session_service=session_service,
@@ -138,12 +150,8 @@ class KAgentApp:
             session_id=SESSION_ID,
             user_id=USER_ID,
         )
-        if isinstance(self.root_agent, Callable):
-            agent_factory = self.root_agent
-            root_agent = agent_factory()
-        else:
-            root_agent = self.root_agent
 
+        root_agent = self.root_agent_factory()
         runner = Runner(
             agent=root_agent,
             app_name=self.app_name,

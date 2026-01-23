@@ -1,5 +1,5 @@
 import type { Config } from 'jest';
-import nextJest from 'next/jest';
+import nextJest from 'next/jest.js';
 
 const createJestConfig = nextJest({
   // Provide the path to your Next.js app to load next.config.js and .env files in your test environment
@@ -22,6 +22,10 @@ const config: Config = {
     '!src/**/*.d.ts',
     '!src/**/*.stories.{js,jsx,ts,tsx}',
     '!src/**/*.test.{js,jsx,ts,tsx}',
+  ],
+  // Transform ESM modules that Jest can't handle by default
+  transformIgnorePatterns: [
+    '/node_modules/(?!(uuid|@a2a-js)/)',
   ],
 };
 

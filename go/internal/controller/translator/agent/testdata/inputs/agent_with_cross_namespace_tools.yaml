@@ -1,0 +1,93 @@
+operation: translateAgent
+targetObject: source-agent
+namespace: source-ns
+objects:
+  # Secret for the agent's model config (in source namespace)
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: source-ns
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  # Secret for the RemoteMCPServer headers (in tools namespace)
+  # RemoteMCPServer's headers are resolved in the tool's namespace
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: tool-auth-secret
+      namespace: tools-ns
+    data:
+      auth-token: dG9vbC1zZWNyZXQtdG9rZW4=  # base64 encoded "tool-secret-token"
+  # Model config for the source agent
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: model-config
+      namespace: source-ns
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  # RemoteMCPServer in tools namespace - allows cross-namespace access from all namespaces
+  # Has its own auth headers that reference secrets in its own namespace
+  - apiVersion: kagent.dev/v1alpha2
+    kind: RemoteMCPServer
+    metadata:
+      name: shared-tools
+      namespace: tools-ns
+    spec:
+      description: "Shared tool server accessible from multiple namespaces"
+      url: http://tools.tools-ns.svc:8080/mcp
+      timeout: 30s
+      # Headers are resolved from secrets in the RemoteMCPServer's namespace (tools-ns)
+      headersFrom:
+        - name: Authorization
+          valueFrom:
+            type: Secret
+            name: tool-auth-secret
+            key: auth-token
+      allowedNamespaces:
+        from: All
+  # Agent in tools namespace - allows cross-namespace access from all namespaces
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: tools-agent
+      namespace: tools-ns
+    spec:
+      type: Declarative
+      description: An agent that can be used as a cross-namespace tool
+      declarative:
+        systemMessage: You are an assistant that can be used as a cross-namespace tool.
+        modelConfig: model-config
+      allowedNamespaces:
+        from: All
+  # Agent in source namespace that references the cross-namespace tool
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: source-agent
+      namespace: source-ns
+    spec:
+      type: Declarative
+      description: An agent that uses cross-namespace tools
+      declarative:
+        systemMessage: You are an assistant with access to shared tools.
+        modelConfig: model-config
+        tools:
+          - type: McpServer
+            mcpServer:
+              name: shared-tools
+              namespace: tools-ns
+              kind: RemoteMCPServer
+              apiGroup: kagent.dev
+              toolNames:
+                - list_resources
+                - get_resource
+          - type: Agent
+            agent:
+              name: tools-agent
+              namespace: tools-ns
+

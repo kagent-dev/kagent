@@ -179,4 +179,5 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}
