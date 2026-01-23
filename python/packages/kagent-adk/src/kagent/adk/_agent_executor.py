@@ -185,7 +185,7 @@ class A2aAgentExecutor(AgentExecutor):
                     logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
         finally:
             clear_kagent_span_attributes(context_token)
-            # close the runner which cleans up the mcptoolsets 
+            # close the runner which cleans up the mcptoolsets
             # since the runner is created for each a2a request
             # and the mcptoolsets are not shared between requests
             # this is necessary to gracefully handle mcp toolset connections
