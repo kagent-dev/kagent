@@ -30,120 +30,224 @@
 
 ---
 
-**kagent** is a Kubernetes native framework for building AI agents. Kubernetes is the most popular orchestration platform for running workloads, and **kagent** makes it easy to build, deploy and manage AI agents in Kubernetes. The **kagent** framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
+**kagent** is a Kubernetes-native framework for building, deploying, and managing AI agents at scale. It brings the power of declarative configuration and cloud-native orchestration to AI agent development, making it easy to create production-ready AI agents that integrate seamlessly with your Kubernetes infrastructure.
 
 <div align="center">
-  <img src="img/hero.png" alt="Autogen Framework" width="500">
+  <img src="img/hero.png" alt="kagent Framework" width="500">
 </div>
 
----
+## ✨ Features
 
-<!-- markdownlint-disable MD033 -->
-<table align="center">
-  <tr>
-    <td>
-      <a href="#getting-started"><b><i>Getting Started</i></b></a>
-    </td>
-    <td>
-      <a href="#technical-details"><b><i>Technical Details</i></b></a>
-    </td>
-    <td>
-      <a href="#get-involved"><b><i>Get Involved</i></b></a>
-    </td>
-    <td>
-      <a href="#reference"><b><i>Reference</i></b></a>
-    </td>
-  </tr>
-</table>
-<!-- markdownlint-disable MD033 -->
+- 🚀 **Kubernetes-Native** - Deploy and manage AI agents using familiar Kubernetes resources (CRDs)
+- 🤖 **Multi-LLM Support** - Works with OpenAI, Anthropic, Azure OpenAI, Google Vertex AI, Ollama, and custom models
+- 🛠️ **MCP Tool Integration** - Connect to any Model Context Protocol (MCP) server for extended capabilities
+- 🔌 **Pre-built Tools** - Kubernetes, Istio, Helm, Argo, Prometheus, Grafana, Cilium tooling out-of-the-box
+- 📊 **Full Observability** - OpenTelemetry tracing for monitoring agent behavior and performance
+- 📝 **Declarative Configuration** - Define agents and tools using simple YAML manifests
+- 🎯 **Easy Testing & Debugging** - Built-in support for testing and debugging AI agent workflows
+- 🌐 **Web UI & CLI** - Manage agents through intuitive web interface or command-line tools
 
 ---
 
-## Getting started
+## 📑 Table of Contents
 
-- [Quick Start](https://kagent.dev/docs/kagent/getting-started/quickstart)
-- [Installation guide](https://kagent.dev/docs/kagent/introduction/installation)
+- [Features](#-features)
+- [Quick Start](#-quick-start)
+- [Prerequisites](#-prerequisites)
+- [Installation](#-installation)
+- [Usage Example](#-usage-example)
+- [Technical Details](#-technical-details)
+- [Get Involved](#-get-involved)
+- [Reference](#reference)
 
-## Technical Details
+---
+
+## 🚀 Quick Start
+
+Get started with kagent in minutes:
+
+```bash
+# Install kagent using the installation guide
+kubectl apply -f https://raw.githubusercontent.com/kagent-dev/kagent/main/install.yaml
+
+# Verify installation
+kubectl get agents -A
+```
+
+📖 **Full Quick Start Guide**: [kagent.dev/docs/kagent/getting-started/quickstart](https://kagent.dev/docs/kagent/getting-started/quickstart)
+
+## 📋 Prerequisites
+
+Before installing kagent, ensure you have:
+
+- **Kubernetes cluster** (v1.25 or later)
+- **kubectl** configured to access your cluster
+- **Helm** (v3.0 or later) - for Helm-based installation
+- **LLM API credentials** - for your chosen provider (OpenAI, Anthropic, etc.)
+
+## 📦 Installation
+
+Choose your preferred installation method:
+
+**Using kubectl:**
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kagent-dev/kagent/main/install.yaml
+```
+
+**Using Helm:**
+```bash
+helm repo add kagent https://kagent-dev.github.io/kagent
+helm install kagent kagent/kagent
+```
+
+For detailed installation instructions and configuration options, see the [Installation Guide](https://kagent.dev/docs/kagent/introduction/installation).
+
+## 💡 Usage Example
+
+Here's a simple example of creating an AI agent with kagent:
+
+```yaml
+apiVersion: kagent.dev/v1alpha1
+kind: Agent
+metadata:
+  name: k8s-assistant
+spec:
+  systemPrompt: |
+    You are a helpful Kubernetes assistant. Help users manage their Kubernetes resources.
+  modelConfig:
+    name: gpt-4
+    provider: openai
+  tools:
+    - name: kubernetes-tools
+      type: mcp
+```
+
+Apply the agent:
+```bash
+kubectl apply -f agent.yaml
+```
+
+Interact with your agent via the CLI or UI:
+```bash
+kagent chat k8s-assistant "List all pods in the default namespace"
+```
+
+For more examples and use cases, visit our [documentation](https://kagent.dev/docs).
+
+## 📚 Technical Details
 
 ### Core Concepts
 
-- **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent". 
-- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/kagent/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
-- **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana,  Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
-- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
+- **Agents**: The main building block of kagent. Each agent consists of a system prompt, a set of tools and sub-agents, and an LLM configuration, all represented as a Kubernetes custom resource (`Agent` CRD). Agents can be composed and nested to create complex AI workflows.
+
+- **LLM Providers**: Kagent supports multiple LLM providers through the `ModelConfig` resource:
+  - [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai) - GPT-4, GPT-3.5, and other OpenAI models
+  - [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai) - Enterprise-ready OpenAI models on Azure
+  - [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic) - Claude models
+  - [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai) - Gemini and PaLM models
+  - [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) - Self-hosted open-source models
+  - [Custom Providers](https://kagent.dev/docs/kagent/supported-providers/custom-models) - Any model accessible via AI gateways
+
+- **MCP Tools**: Agents can connect to any [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server to access tools and capabilities. Kagent includes built-in MCP servers for:
+  - **Kubernetes** - Manage pods, deployments, services, and more
+  - **Istio** - Service mesh operations
+  - **Helm** - Package management
+  - **Argo** - GitOps and workflows
+  - **Prometheus & Grafana** - Observability and monitoring
+  - **Cilium** - Network security and observability
+
+  All tools are defined as Kubernetes custom resources (`ToolServer` CRD) and can be shared across multiple agents.
+
+- **Observability**: Built-in [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing) provides visibility into agent execution, tool usage, and LLM interactions. Monitor agent behavior using your existing observability stack.
 
 ### Core Principles
 
-- **Kubernetes Native**: Kagent is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
-- **Extensible**: Kagent is designed to be extensible, so you can add your own agents and tools.
-- **Flexible**: Kagent is designed to be flexible, to suit any AI agent use case.
-- **Observable**: Kagent is designed to be observable, so you can monitor the agents and tools using all common monitoring frameworks.
-- **Declarative**: Kagent is designed to be declarative, so you can define the agents and tools in a YAML file.
-- **Testable**: Kagent is designed to be tested and debugged easily. This is especially important for AI agent applications.
+- **Kubernetes-Native**: Leverages Kubernetes' declarative model, scaling capabilities, and ecosystem. Agents are defined as custom resources and managed like any other Kubernetes workload.
+
+- **Extensible**: Open architecture allows you to add custom agents, tools, and LLM providers. Integrate with existing tools through MCP or build your own extensions.
+
+- **Flexible**: Supports diverse AI agent patterns - from simple chatbots to complex multi-agent systems. Compose agents together to build sophisticated workflows.
+
+- **Observable**: Full integration with cloud-native observability tools. OpenTelemetry tracing, Prometheus metrics, and structured logging provide complete visibility into agent behavior.
+
+- **Declarative**: Infrastructure-as-Code approach using YAML manifests. Version control your agents, enable GitOps workflows, and manage agents programmatically.
+
+- **Testable**: Built-in testing and debugging capabilities. Dry-run agents, inspect execution traces, and validate behavior before production deployment.
 
 ### Architecture
 
-The kagent framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
+Kagent provides a comprehensive platform for AI agent development with four core components:
 
 <div align="center">
-  <img src="img/arch.png" alt="kagent" width="500">
+  <img src="img/arch.png" alt="kagent Architecture" width="500">
 </div>
 
-Kagent has 4 core components:
+**Component Overview:**
 
-- **Controller**: The controller is a Kubernetes controller that watches the kagent custom resources and creates the necessary resources to run the agents.
-- **UI**: The UI is a web UI that allows you to manage the agents and tools.
-- **Engine**: The engine runs your agents using [ADK](https://google.github.io/adk-docs/).
-- **CLI**: The CLI is a command-line tool that allows you to manage the agents and tools.
+- **Controller**: A Kubernetes operator that watches kagent custom resources (Agents, ModelConfigs, ToolServers) and reconciles the desired state. Manages the lifecycle of agents and their dependencies.
 
-## Get Involved
+- **Engine**: The agent runtime powered by [ADK (Agent Development Kit)](https://google.github.io/adk-docs/). Executes agents, handles tool invocations, manages LLM interactions, and coordinates multi-agent workflows.
 
-_We welcome contributions! Contributors are expected to [respect the kagent Code of Conduct](https://github.com/kagent-dev/community/blob/main/CODE-OF-CONDUCT.md)_
+- **UI**: A web-based dashboard for managing agents and monitoring their execution. Visualize agent traces, review tool usage, configure resources, and interact with agents through a chat interface.
 
-There are many ways to get involved:
+- **CLI**: Command-line interface (`kagent`) for agent management, local development, and debugging. Interact with agents, inspect resources, and streamline your development workflow.
 
-- 🐛 [Report bugs and issues](https://github.com/kagent-dev/kagent/issues/)
-- 💡 [Suggest new features](https://github.com/kagent-dev/kagent/issues/)
-- 📖 [Improve documentation](https://github.com/kagent-dev/website/)
-- 🔧 [Submit pull requests](/CONTRIBUTION.md)
-- ⭐ Star the repository
-- 💬 [Help others in Discord](https://discord.gg/Fu3k65f2k3)
-- 💬 [Join the kagent community meetings](https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20)
-- 🤝 [Share tips in the CNCF #kagent slack channel](https://cloud-native.slack.com/archives/C08ETST0076)
-- 🔒 [Report security concerns](SECURITY.md)
+## 🤝 Get Involved
 
-### Roadmap
+We welcome contributions from the community! Contributors are expected to respect the [kagent Code of Conduct](https://github.com/kagent-dev/community/blob/main/CODE-OF-CONDUCT.md).
 
-`kagent` is currently in active development. You can check out the full roadmap in the project Kanban board [here](https://github.com/orgs/kagent-dev/projects/3).
+### Ways to Contribute
 
-### Local development
+- 🐛 **Report Bugs** - [File an issue](https://github.com/kagent-dev/kagent/issues/) if you find a bug
+- 💡 **Request Features** - [Suggest new features](https://github.com/kagent-dev/kagent/issues/) or improvements
+- 📖 **Improve Documentation** - Help make our [docs](https://github.com/kagent-dev/website/) better
+- 🔧 **Submit Pull Requests** - Read our [contribution guide](/CONTRIBUTION.md) and submit PRs
+- ⭐ **Star the Repository** - Show your support by starring the repo
+- 💬 **Join Discord** - [Help others and get help](https://discord.gg/Fu3k65f2k3) in our community
+- 📅 **Attend Community Meetings** - [Join our regular meetings](https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20)
+- 🤝 **Join CNCF Slack** - [Share tips and insights](https://cloud-native.slack.com/archives/C08ETST0076) in #kagent
+- 🔒 **Report Security Issues** - See our [Security Policy](SECURITY.md) for reporting vulnerabilities
 
-For instructions on how to run everything locally, see the [DEVELOPMENT.md](DEVELOPMENT.md) file.
+### 🗺️ Roadmap
 
-### Contributors
+Kagent is under active development. Check out our [project board](https://github.com/orgs/kagent-dev/projects/3) to see what we're working on and what's planned for future releases.
 
-Thanks to all contributors who are helping to make kagent better.
+### 🛠️ Local Development
+
+For instructions on setting up your local development environment and running kagent components locally, see our [Development Guide](DEVELOPMENT.md).
+
+### 👥 Contributors
+
+Thanks to all the amazing people who have contributed to making kagent better! 🎉
 
 <a href="https://github.com/kagent-dev/kagent/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=kagent-dev/kagent" />
 </a>
 
-### Star History
+### ⭐ Star History
 
-<a href="https://www.star-history.com/#kagent-dev/kagent&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kagent-dev/kagent&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=kagent-dev/kagent&type=Date" />
-   <img alt="Star history of kagent-dev/kagent over time" src="https://api.star-history.com/svg?repos=kagent-dev/kagent&type=Date" />
- </picture>
-</a>
+[![Star History Chart](https://api.star-history.com/svg?repos=kagent-dev/kagent&type=Date)](https://www.star-history.com/#kagent-dev/kagent&Date)
 
-## Reference
+## 📖 Reference
+
+### Documentation
+
+- 📚 [Full Documentation](https://kagent.dev/docs)
+- 🚀 [Quick Start Guide](https://kagent.dev/docs/kagent/getting-started/quickstart)
+- 📦 [Installation Guide](https://kagent.dev/docs/kagent/introduction/installation)
+- 🔍 [API Reference](https://kagent.dev/docs/kagent/api-reference)
+- 💡 [Examples](https://github.com/kagent-dev/kagent/tree/main/examples)
+
+### Community & Support
+
+- 💬 [Discord Community](https://discord.gg/Fu3k65f2k3)
+- 🐙 [GitHub Issues](https://github.com/kagent-dev/kagent/issues)
+- 💼 [CNCF Slack #kagent](https://cloud-native.slack.com/archives/C08ETST0076)
+- 🤖 [Ask DeepWiki AI](https://deepwiki.com/kagent-dev/kagent)
 
 ### License
 
-This project is licensed under the [Apache 2.0 License.](/LICENSE)
+This project is licensed under the [Apache 2.0 License](/LICENSE).
 
 ---
 
