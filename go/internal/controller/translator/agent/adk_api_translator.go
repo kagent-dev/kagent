@@ -899,6 +899,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model:   model.Spec.Model,
 				Headers: model.Spec.DefaultHeaders,
 			},
+			Options: model.Spec.Ollama.Options,
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
