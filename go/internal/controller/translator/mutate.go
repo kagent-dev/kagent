@@ -65,7 +65,7 @@ func MutateFuncFor(existing, desired client.Object) controllerutil.MutateFn {
 	}
 }
 
-func mergeWithOverride(dst, src interface{}) error {
+func mergeWithOverride(dst, src any) error {
 	return mergo.Merge(dst, src, mergo.WithOverride)
 }
 
@@ -92,7 +92,10 @@ func mutateDeployment(existing, desired *appsv1.Deployment) error {
 	existing.Spec.MinReadySeconds = desired.Spec.MinReadySeconds
 	existing.Spec.Paused = desired.Spec.Paused
 	existing.Spec.ProgressDeadlineSeconds = desired.Spec.ProgressDeadlineSeconds
-	existing.Spec.Replicas = desired.Spec.Replicas
+	if desired.Spec.Replicas != nil {
+		// only set replicas if explicitly specified, so not to override HPA settings
+		existing.Spec.Replicas = desired.Spec.Replicas
+	}
 	existing.Spec.RevisionHistoryLimit = desired.Spec.RevisionHistoryLimit
 	existing.Spec.Strategy = desired.Spec.Strategy
 

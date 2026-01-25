@@ -1,6 +1,7 @@
 from typing import Any
 
 from a2a.server.agent_execution import RequestContext
+from google.adk.agents.run_config import StreamingMode
 from google.adk.runners import RunConfig
 from google.genai import types as genai_types
 
@@ -18,6 +19,7 @@ def _get_user_id(request: RequestContext) -> str:
 
 def convert_a2a_request_to_adk_run_args(
     request: RequestContext,
+    stream: bool = False,
 ) -> dict[str, Any]:
     if not request.message:
         raise ValueError("Request message cannot be None")
@@ -29,5 +31,5 @@ def convert_a2a_request_to_adk_run_args(
             role="user",
             parts=[convert_a2a_part_to_genai_part(part) for part in request.message.parts],
         ),
-        "run_config": RunConfig(),
+        "run_config": RunConfig(streaming_mode=StreamingMode.SSE if stream else StreamingMode.NONE),
     }

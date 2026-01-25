@@ -6,11 +6,12 @@ import os
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Literal, Optional
 
+import httpx
 from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 from google.genai.types import FunctionCall, FunctionResponse
-from openai import AsyncAzureOpenAI, AsyncOpenAI
+from openai import AsyncAzureOpenAI, AsyncOpenAI, DefaultAsyncHttpxClient
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionAssistantMessageParam,
@@ -30,6 +31,8 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 )
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
+
+from ._ssl import create_ssl_context
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -113,10 +116,20 @@ def _convert_content_to_openai_messages(
                 # Check if we have a response for this tool call
                 if tool_call_id in all_function_responses:
                     func_response = all_function_responses[tool_call_id]
+                    content = ""
+                    if isinstance(func_response.response, str):
+                        content = func_response.response
+                    elif func_response.response and "content" in func_response.response:
+                        content_list = func_response.response["content"]
+                        if len(content_list) > 0:
+                            content = content_list[0]["text"]
+                    elif func_response.response and "result" in func_response.response:
+                        content = func_response.response["result"]
+
                     tool_message = ChatCompletionToolMessageParam(
                         role="tool",
                         tool_call_id=tool_call_id,
-                        content=str(func_response.response.get("result", "")) if func_response.response else "",
+                        content=content,
                     )
                     tool_response_messages.append(tool_message)
                 else:
@@ -289,20 +302,68 @@ class BaseOpenAI(BaseLlm):
     timeout: Optional[int] = None
     top_p: Optional[float] = None
 
+    # TLS/SSL configuration fields
+    tls_disable_verify: Optional[bool] = None
+    tls_ca_cert_path: Optional[str] = None
+    tls_disable_system_cas: Optional[bool] = None
+
     @classmethod
     def supported_models(cls) -> list[str]:
         """Returns a list of supported models in regex for LlmRegistry."""
         return [r"gpt-.*", r"o1-.*"]
 
+    def _get_tls_config(self) -> tuple[bool, Optional[str], bool]:
+        """Read TLS configuration from instance fields.
+
+        Returns:
+            Tuple of (disable_verify, ca_cert_path, disable_system_cas)
+        """
+        # Read from instance fields only (config-based approach)
+        # Environment variables are no longer supported for TLS configuration
+        disable_verify = self.tls_disable_verify or False
+        ca_cert_path = self.tls_ca_cert_path
+        disable_system_cas = self.tls_disable_system_cas or False
+
+        return disable_verify, ca_cert_path, disable_system_cas
+
+    def _create_http_client(self) -> Optional[httpx.AsyncClient]:
+        """Create HTTP client with custom SSL context using OpenAI SDK defaults.
+
+        Uses DefaultAsyncHttpxClient to preserve OpenAI's default settings for
+        timeout, connection pooling, and redirect behavior while applying custom
+        SSL configuration.
+
+        Returns:
+            DefaultAsyncHttpxClient with SSL configuration, or None if no TLS config
+        """
+        disable_verify, ca_cert_path, disable_system_cas = self._get_tls_config()
+
+        # Only create custom http client if TLS configuration is present
+        if disable_verify or ca_cert_path or disable_system_cas:
+            ssl_context = create_ssl_context(
+                disable_verify=disable_verify,
+                ca_cert_path=ca_cert_path,
+                disable_system_cas=disable_system_cas,
+            )
+
+            # ssl_context is either False (verification disabled) or SSLContext
+            # Use DefaultAsyncHttpxClient to preserve OpenAI's defaults
+            return DefaultAsyncHttpxClient(verify=ssl_context)
+
+        # No TLS configuration, return None to use OpenAI SDK default
+        return None
+
     @cached_property
     def _client(self) -> AsyncOpenAI:
-        """Get the OpenAI client."""
+        """Get the OpenAI client with optional custom SSL configuration."""
+        http_client = self._create_http_client()
 
         return AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url or None,
             default_headers=self.default_headers,
             timeout=self.timeout,
+            http_client=http_client,
         )
 
     async def generate_content_async(
@@ -367,14 +428,91 @@ class BaseOpenAI(BaseLlm):
         try:
             if stream:
                 # Handle streaming
+                aggregated_text = ""
+                finish_reason = None
+                usage_metadata = None
+                # Accumulate tool calls - keyed by index since they arrive in chunks
+                tool_calls_acc: dict[int, dict[str, Any]] = {}
+
                 async for chunk in await self._client.chat.completions.create(stream=True, **kwargs):
                     if chunk.choices and chunk.choices[0].delta:
                         delta = chunk.choices[0].delta
+
+                        # Handle text content streaming
                         if delta.content:
+                            aggregated_text += delta.content
                             content = types.Content(role="model", parts=[types.Part.from_text(text=delta.content)])
                             yield LlmResponse(
                                 content=content, partial=True, turn_complete=chunk.choices[0].finish_reason is not None
                             )
+
+                        # Handle tool call chunks - accumulate them
+                        if hasattr(delta, "tool_calls") and delta.tool_calls:
+                            for tool_call_chunk in delta.tool_calls:
+                                idx = tool_call_chunk.index
+                                if idx not in tool_calls_acc:
+                                    tool_calls_acc[idx] = {
+                                        "id": "",
+                                        "name": "",
+                                        "arguments": "",
+                                    }
+                                # Accumulate the chunks
+                                if tool_call_chunk.id:
+                                    tool_calls_acc[idx]["id"] = tool_call_chunk.id
+                                if tool_call_chunk.function:
+                                    if tool_call_chunk.function.name:
+                                        tool_calls_acc[idx]["name"] = tool_call_chunk.function.name
+                                    if tool_call_chunk.function.arguments:
+                                        tool_calls_acc[idx]["arguments"] += tool_call_chunk.function.arguments
+
+                        if chunk.choices[0].finish_reason:
+                            finish_reason = chunk.choices[0].finish_reason
+
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        usage_metadata = types.GenerateContentResponseUsageMetadata(
+                            prompt_token_count=chunk.usage.prompt_tokens,
+                            candidates_token_count=chunk.usage.completion_tokens,
+                            total_token_count=chunk.usage.total_tokens,
+                        )
+
+                # Yield final aggregated response with partial=False
+                final_parts = []
+
+                # Add aggregated text if any
+                if aggregated_text:
+                    final_parts.append(types.Part.from_text(text=aggregated_text))
+
+                # Add accumulated tool calls
+                for idx in sorted(tool_calls_acc.keys()):
+                    tc = tool_calls_acc[idx]
+                    try:
+                        args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+
+                    part = types.Part.from_function_call(name=tc["name"], args=args)
+                    if part.function_call:
+                        part.function_call.id = tc["id"]
+                    final_parts.append(part)
+
+                # Map finish reason
+                final_reason = types.FinishReason.STOP
+                if finish_reason == "length":
+                    final_reason = types.FinishReason.MAX_TOKENS
+                elif finish_reason == "content_filter":
+                    final_reason = types.FinishReason.SAFETY
+                elif finish_reason == "tool_calls":
+                    final_reason = types.FinishReason.STOP  # Tool calls is a normal completion
+
+                # Always yield final response to signal completion and valid metadata
+                final_content = types.Content(role="model", parts=final_parts)
+                yield LlmResponse(
+                    content=final_content,
+                    partial=False,
+                    finish_reason=final_reason,
+                    usage_metadata=usage_metadata,
+                    turn_complete=True,
+                )
             else:
                 # Handle non-streaming
                 response = await self._client.chat.completions.create(stream=False, **kwargs)
@@ -400,7 +538,7 @@ class AzureOpenAI(BaseOpenAI):
 
     @cached_property
     def _client(self) -> AsyncAzureOpenAI:
-        """Get the Azure OpenAI client."""
+        """Get the Azure OpenAI client with optional custom SSL configuration."""
         api_version = self.api_version or os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
         azure_endpoint = self.azure_endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
         api_key = self.api_key or os.environ.get("AZURE_OPENAI_API_KEY")
@@ -415,9 +553,12 @@ class AzureOpenAI(BaseOpenAI):
                 "API key must be provided either via api_key parameter or AZURE_OPENAI_API_KEY environment variable"
             )
 
+        http_client = self._create_http_client()
+
         return AsyncAzureOpenAI(
             api_key=api_key,
             api_version=api_version,
             azure_endpoint=azure_endpoint,
             default_headers=self.default_headers,
+            http_client=http_client,
         )

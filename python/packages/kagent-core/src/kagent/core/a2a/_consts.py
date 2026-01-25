@@ -23,3 +23,13 @@ def get_kagent_metadata_key(key: str) -> str:
     if not key:
         raise ValueError("Metadata key cannot be empty or None")
     return f"{KAGENT_METADATA_KEY_PREFIX}{key}"
+
+
+# Human-in-the-Loop (HITL) Constants
+KAGENT_HITL_INTERRUPT_TYPE_TOOL_APPROVAL = "tool_approval"
+KAGENT_HITL_DECISION_TYPE_KEY = "decision_type"
+KAGENT_HITL_DECISION_TYPE_APPROVE = "approve"
+KAGENT_HITL_DECISION_TYPE_DENY = "deny"
+KAGENT_HITL_DECISION_TYPE_REJECT = "reject"
+KAGENT_HITL_RESUME_KEYWORDS_APPROVE = ["approved", "approve", "proceed", "yes", "continue"]
+KAGENT_HITL_RESUME_KEYWORDS_DENY = ["denied", "deny", "reject", "no", "cancel", "stop"]

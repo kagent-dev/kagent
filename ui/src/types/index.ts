@@ -207,6 +207,7 @@ export interface TypedLocalReference {
   kind?: string;
   apiGroup?: string;
   name: string;
+  namespace?: string;
 }
 
 export interface McpServerTool extends TypedLocalReference {
@@ -214,11 +215,18 @@ export interface McpServerTool extends TypedLocalReference {
 }
 
 export type AgentType = "Declarative" | "BYO";
+
+export interface SkillForAgent {
+  insecureSkipVerify?: boolean;
+  refs?: string[];
+}
+
 export interface AgentSpec {
   type: AgentType;
   declarative?: DeclarativeAgentSpec;
   byo?: BYOAgentSpec;
   description: string;
+  skills?: SkillForAgent;
 }
 
 export interface DeclarativeAgentSpec {

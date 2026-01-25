@@ -52,7 +52,7 @@ func (g *PythonGenerator) Generate(projectDir, agentName, instruction, modelProv
 		ModelName:     modelName,
 		KagentVersion: kagentVersion,
 		// Empty MCP servers on init
-		McpServers:    nil,
+		McpServers: nil,
 	}
 
 	// Use the base generator to create the project

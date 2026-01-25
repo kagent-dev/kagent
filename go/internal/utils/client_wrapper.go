@@ -50,7 +50,6 @@ func (w *kubeClientWrapper) AddInMemory(obj client.Object) error {
 }
 
 func (w *kubeClientWrapper) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-
 	exists, err := w.getInMemory(key, obj)
 	if exists && err == nil {
 		return nil

@@ -18,6 +18,7 @@ import (
 	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -80,6 +81,8 @@ func setupK8sClient(t *testing.T, includeV1Alpha1 bool) client.Client {
 		err = v1alpha1.AddToScheme(scheme)
 		require.NoError(t, err)
 	}
+	err = corev1.AddToScheme(scheme)
+	require.NoError(t, err)
 
 	cli, err := client.New(cfg, client.Options{
 		Scheme: scheme,
@@ -92,50 +95,56 @@ func setupK8sClient(t *testing.T, includeV1Alpha1 bool) client.Client {
 // setupModelConfig creates and returns a model config resource
 func setupModelConfig(t *testing.T, cli client.Client, baseURL string) *v1alpha2.ModelConfig {
 	modelCfg := generateModelCfg(baseURL + "/v1")
-	cli.Create(t.Context(), modelCfg) //nolint:errcheck
+	err := cli.Create(t.Context(), modelCfg)
+	if err != nil {
+		t.Fatalf("failed to create model config: %v", err)
+	}
+	cleanup(t, cli, modelCfg)
 	return modelCfg
 }
 
 // setupMCPServer creates and returns an MCP server resource
-func setupMCPServer(t *testing.T, cli client.Client, mcpServer *v1alpha1.MCPServer) *v1alpha1.MCPServer {
-	if mcpServer == nil {
-		return nil
+func setupMCPServer(t *testing.T, cli client.Client) *v1alpha1.MCPServer {
+	mcpServer := generateMCPServer()
+	err := cli.Create(t.Context(), mcpServer)
+	if err != nil {
+		t.Fatalf("failed to create mcp server: %v", err)
 	}
-	cli.Create(t.Context(), mcpServer) //nolint:errcheck
+	cleanup(t, cli, mcpServer)
 	return mcpServer
 }
 
 // setupAgent creates and returns an agent resource, then waits for it to be ready
-func setupAgent(t *testing.T, cli client.Client, tools []*v1alpha2.Tool) *v1alpha2.Agent {
-	return setupAgentWithOptions(t, cli, tools, AgentOptions{})
+func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool) *v1alpha2.Agent {
+	return setupAgentWithOptions(t, cli, modelConfigName, tools, AgentOptions{})
 }
 
 // AgentOptions provides optional configuration for agent setup
 type AgentOptions struct {
 	Name          string
 	SystemMessage string
-	Stream        *bool
+	Stream        bool
 	Env           []corev1.EnvVar
+	Skills        *v1alpha2.SkillForAgent
+	ExecuteCode   *bool
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
-func setupAgentWithOptions(t *testing.T, cli client.Client, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
-	agent := generateAgent(tools, opts)
-	cli.Create(t.Context(), agent) //nolint:errcheck
-
-	// Wait for agent to be ready
-	agentName := "test-agent"
-	if opts.Name != "" {
-		agentName = opts.Name
+func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
+	agent := generateAgent(modelConfigName, tools, opts)
+	err := cli.Create(t.Context(), agent)
+	if err != nil {
+		t.Fatalf("failed to create agent: %v", err)
 	}
-
+	cleanup(t, cli, agent)
+	// Wait for agent to be ready
 	args := []string{
 		"wait",
 		"--for",
 		"condition=Ready",
 		"--timeout=1m",
 		"agents.kagent.dev",
-		agentName,
+		agent.Name,
 		"-n",
 		"kagent",
 	}
@@ -149,8 +158,8 @@ func setupAgentWithOptions(t *testing.T, cli client.Client, tools []*v1alpha2.To
 }
 
 // setupA2AClient creates an A2A client for the test agent
-func setupA2AClient(t *testing.T) *a2aclient.A2AClient {
-	a2aURL := a2aUrl("kagent", "test-agent")
+func setupA2AClient(t *testing.T, agent *v1alpha2.Agent) *a2aclient.A2AClient {
+	a2aURL := a2aUrl(agent.Namespace, agent.Name)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
 	require.NoError(t, err)
 	return a2aClient
@@ -199,7 +208,12 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		return err != nil
 	}, func() error {
 		var retryErr error
+		// to make sure we actually retry, setup a short timeout contex. this should be fine as LLM is mocked
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		t.Logf("%s trying to send message", time.Now().Format(time.RFC3339))
 		result, retryErr = a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
+		t.Logf("%s finished trying sending message. success = %v", time.Now().Format(time.RFC3339), retryErr == nil)
 		return retryErr
 	})
 	require.NoError(t, err)
@@ -281,8 +295,8 @@ func a2aUrl(namespace, name string) string {
 func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {
 	return &v1alpha2.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-model-config",
-			Namespace: "kagent",
+			GenerateName: "test-model-config-",
+			Namespace:    "kagent",
 		},
 		Spec: v1alpha2.ModelConfigSpec{
 			Model:           "gpt-4.1-mini",
@@ -296,7 +310,7 @@ func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {
 	}
 }
 
-func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
+func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 	name := "test-agent"
 	if opts.Name != "" {
 		name = opts.Name
@@ -309,30 +323,35 @@ func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 
 	agent := &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: "kagent",
+			GenerateName: name + "-", // use different name for each test run
+			Namespace:    "kagent",
 		},
 		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
-				ModelConfig:   "test-model-config",
-				SystemMessage: systemMessage,
-				Tools:         tools,
+				ModelConfig:       modelConfigName,
+				SystemMessage:     systemMessage,
+				Tools:             tools,
+				ExecuteCodeBlocks: opts.ExecuteCode,
+				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						ImagePullPolicy: corev1.PullAlways,
+						Env: []corev1.EnvVar{{
+							Name:  "LOG_LEVEL",
+							Value: "DEBUG",
+						}},
+					},
+				},
 			},
+			Skills: opts.Skills,
 		},
 	}
 
 	// Apply optional configurations
-	if opts.Stream != nil {
-		agent.Spec.Declarative.Stream = opts.Stream
-	}
+	agent.Spec.Declarative.Stream = opts.Stream
 
 	if len(opts.Env) > 0 {
-		agent.Spec.Declarative.Deployment = &v1alpha2.DeclarativeDeploymentSpec{
-			SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
-				Env: opts.Env,
-			},
-		}
+		agent.Spec.Declarative.Deployment.Env = append(agent.Spec.Declarative.Deployment.Env, opts.Env...)
 	}
 
 	return agent
@@ -341,14 +360,14 @@ func generateAgent(tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 func generateMCPServer() *v1alpha1.MCPServer {
 	return &v1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "everything-mcp-server",
-			Namespace: "kagent",
+			GenerateName: "everything-mcp-server-",
+			Namespace:    "kagent",
 		},
 		Spec: v1alpha1.MCPServerSpec{
 			Deployment: v1alpha1.MCPServerDeployment{
 				Port: 3000,
 				Cmd:  "npx",
-				Args: []string{"-y", "@modelcontextprotocol/server-everything"},
+				Args: []string{"-y", "@modelcontextprotocol/server-everything@2026.1.14"},
 			},
 			TransportType: v1alpha1.TransportTypeStdio,
 		},
@@ -373,7 +392,6 @@ func buildK8sURL(baseURL string) string {
 	}
 
 	return fmt.Sprintf("http://%s:%s", localHost, port)
-
 }
 
 func TestE2EInvokeInlineAgent(t *testing.T) {
@@ -401,7 +419,48 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	agent := setupAgent(t, cli, tools)
+	agent := setupAgent(t, cli, modelCfg.Name, tools)
+
+	// Setup A2A client
+	a2aClient := setupA2AClient(t, agent)
+
+	// Run tests
+	t.Run("sync_invocation", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
+	})
+}
+
+func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Define tools
+	tools := []*v1alpha2.Tool{
+		{
+			Type: v1alpha2.ToolProviderType_McpServer,
+			McpServer: &v1alpha2.McpServerTool{
+				TypedLocalReference: v1alpha2.TypedLocalReference{
+					ApiGroup: "kagent.dev",
+					Kind:     "RemoteMCPServer",
+					Name:     "kagent-tool-server",
+				},
+				ToolNames: []string{"k8s_get_resources"},
+			},
+		},
+	}
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	// Enable streaming explicitly
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
 
 	defer func() {
 		cli.Delete(t.Context(), agent)    //nolint:errcheck
@@ -409,13 +468,9 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 	}()
 
 	// Setup A2A client
-	a2aClient := setupA2AClient(t)
+	a2aClient := setupA2AClient(t, agent)
 
-	// Run tests
-	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
-	})
-
+	// Run streaming test
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
 	})
@@ -452,7 +507,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 
 	// Setup Kubernetes client (include v1alpha1 for MCPServer)
 	cli := setupK8sClient(t, true)
-
+	mcpServer := setupMCPServer(t, cli)
 	// Define tools
 	tools := []*v1alpha2.Tool{
 		{
@@ -461,27 +516,20 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 				TypedLocalReference: v1alpha2.TypedLocalReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "MCPServer",
-					Name:     "everything-mcp-server",
+					Name:     mcpServer.Name,
 				},
-				ToolNames: []string{"add"},
+				ToolNames: []string{"get-sum"},
 			},
 		},
 	}
 
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	mcpServer := setupMCPServer(t, cli, generateMCPServer())
-	agent := setupAgent(t, cli, tools)
 
-	// Cleanup
-	defer func() {
-		cli.Delete(t.Context(), agent)     //nolint:errcheck
-		cli.Delete(t.Context(), mcpServer) //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg)  //nolint:errcheck
-	}()
+	agent := setupAgent(t, cli, modelCfg.Name, tools)
 
 	// Setup A2A client
-	a2aClient := setupA2AClient(t)
+	a2aClient := setupA2AClient(t, agent)
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
@@ -493,8 +541,45 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 	})
 }
 
-// This function generates a CrewAI agent that uses a mock LLM server
-// Assumes that the image is built and pushed to registry, the agent can be found in python/samples/crewai/poem_flow
+// This function generates an OpenAI BYO agent that uses a mock LLM server
+// Assumes that the image is built and pushed to registry
+func generateOpenAIAgent(baseURL string) *v1alpha2.Agent {
+	return &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "basic-openai-test-agent",
+			Namespace: "kagent",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Description: "A basic OpenAI agent with calculator and weather tools",
+			Type:        v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "localhost:5001/basic-openai:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						Env: []corev1.EnvVar{
+							{
+								Name: "OPENAI_API_KEY",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "kagent-openai",
+										},
+										Key: "OPENAI_API_KEY",
+									},
+								},
+							},
+							{
+								Name:  "OPENAI_API_BASE",
+								Value: baseURL + "/v1",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 	return &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
@@ -531,6 +616,59 @@ func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 			},
 		},
 	}
+}
+
+func TestE2EInvokeOpenAIAgent(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_openai_agent.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := generateOpenAIAgent(baseURL)
+
+	// Create the agent on the cluster
+	err := cli.Create(t.Context(), agent)
+	require.NoError(t, err)
+
+	// Wait for agent to be ready
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=1m",
+		"agents.kagent.dev",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	defer func() {
+		cli.Delete(t.Context(), agent)    //nolint:errcheck
+		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
+	}()
+
+	// Setup A2A client - use the agent's actual name
+	a2aURL := a2aUrl("kagent", "basic-openai-test-agent")
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	require.NoError(t, err)
+
+	useArtifacts := true
+	t.Run("sync_invocation_calculator", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "What is 2+2?", "4", &useArtifacts)
+	})
+
+	t.Run("streaming_invocation_weather", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "What is the weather in London?", "Rainy, 52°F")
+	})
 }
 
 func TestE2EInvokeCrewAIAgent(t *testing.T) {
@@ -572,10 +710,6 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
 
-	defer func() {
-		cli.Delete(t.Context(), agent) //nolint:errcheck
-	}()
-
 	// Wait for the agent to become Ready
 	args := []string{
 		"wait",
@@ -615,13 +749,15 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 	})
+
+	cli.Delete(t.Context(), agent) //nolint:errcheck
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {
 	// Setup mock STS server
 	agentName := "test-sts"
 	agentServiceAccount := fmt.Sprintf("system:serviceaccount:kagent:%s", agentName)
-	stsServer := e2emocks.NewMockSTSServer(agentServiceAccount)
+	stsServer := e2emocks.NewMockSTSServer(agentServiceAccount, 0)
 	defer stsServer.Close()
 
 	// convert STS server URL to be accessible from within Kubernetes pods
@@ -635,6 +771,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	// Setup Kubernetes client (include v1alpha1 for MCPServer)
 	cli := setupK8sClient(t, true)
 
+	mcpServer := setupMCPServer(t, cli)
 	// Define tools with MCP server
 	tools := []*v1alpha2.Tool{
 		{
@@ -643,19 +780,17 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 				TypedLocalReference: v1alpha2.TypedLocalReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "MCPServer",
-					Name:     "everything-mcp-server",
+					Name:     mcpServer.Name,
 				},
-				ToolNames: []string{"add"},
+				ToolNames: []string{"get-sum"},
 			},
 		},
 	}
 
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	mcpServerResource := setupMCPServer(t, cli, generateMCPServer())
-	agent := setupAgentWithOptions(t, cli, tools, AgentOptions{
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{
 		Name:          "test-sts-agent",
 		SystemMessage: "You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.",
-		Stream:        &[]bool{true}[0],
 		Env: []corev1.EnvVar{
 			{
 				Name:  "STS_WELL_KNOWN_URI",
@@ -663,12 +798,6 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 			},
 		},
 	})
-
-	defer func() {
-		cli.Delete(t.Context(), agent)             //nolint:errcheck
-		cli.Delete(t.Context(), mcpServerResource) //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg)          //nolint:errcheck
-	}()
 
 	// access token for test user with the may act claim allowing system:serviceaccount:kagent:test-sts to
 	// perform operations on behalf of the test user
@@ -686,7 +815,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		},
 	}
 
-	a2aURL := a2aUrl("kagent", "test-sts-agent")
+	a2aURL := a2aUrl(agent.Namespace, agent.Name)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL,
 		a2aclient.WithTimeout(60*time.Second),
 		a2aclient.WithHTTPClient(httpClient))
@@ -697,11 +826,200 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 
 		// verify our mock STS server received the token exchange request
 		stsRequests := stsServer.GetRequests()
-		require.Len(t, stsRequests, 2, "Expected 2 STS token exchange requests")
+		require.Len(t, stsRequests, 1, "Expected 1 STS token exchange request")
 
 		// ensure the subject token is the same as the one we sent
 		// which contains the may act claim
 		stsRequest := stsRequests[0]
 		require.Equal(t, subjectToken, stsRequest.SubjectToken)
 	})
+}
+
+func TestE2EInvokeSkillInAgent(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_skill.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+		Skills: &v1alpha2.SkillForAgent{
+			InsecureSkipVerify: true,
+			Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
+		},
+	})
+
+	// Setup A2A client
+	a2aClient := setupA2AClient(t, agent)
+
+	// Run tests
+	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
+}
+
+func TestE2EIAgentRunsCode(t *testing.T) {
+	t.Skip("see issue.. TODO add issue here")
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/run_code.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+		ExecuteCode: ptr.To(true),
+	})
+
+	// Setup A2A client
+	a2aClient := setupA2AClient(t, agent)
+
+	// Run tests
+	runSyncTest(t, a2aClient, "write some code", "hello, world!", nil)
+}
+
+func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
+	t.Cleanup(func() {
+		for _, o := range obj {
+			if t.Failed() {
+				// get logs of agent
+				if agent, ok := o.(*v1alpha2.Agent); ok {
+					printAgentInfo(t, cli, agent)
+				}
+			}
+			if os.Getenv("SKIP_CLEANUP") != "" && t.Failed() {
+				t.Logf("Skipping cleanup for %T %s", o, o.GetName())
+			} else {
+				t.Logf("Deleting %T %s", o, o.GetName())
+				cli.Delete(context.Background(), o) //nolint:errcheck
+			}
+		}
+	})
+}
+
+func printAgentInfo(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	// get the latest agent info
+	err := cli.Get(context.Background(), client.ObjectKey{
+		Namespace: agent.Namespace,
+		Name:      agent.Name,
+	}, agent)
+	if err != nil {
+		t.Logf("failed to get agent %s: %v", agent.Name, err)
+		return
+	}
+	printAgent(t, cli, agent)
+	printLogs(t, cli, agent)
+	printDeployment(t, cli, agent)
+	printService(t, cli, agent)
+}
+
+func printAgent(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	// describe deployment and service
+	kubectlLogsArgs := []string{
+		"get",
+		"agent",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+		"-o",
+		"yaml",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
+	cmdOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("failed to describe for agent %s using kubectl: %v", agent.Name, err)
+	} else {
+		t.Logf("description for agent %s using kubectl:\n%s", agent.Name, string(cmdOutput))
+	}
+}
+
+func printLogs(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	podList := &corev1.PodList{}
+	err := cli.List(ctx, podList, client.InNamespace(agent.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/name":       agent.Name,
+		"app.kubernetes.io/managed-by": "kagent",
+	})
+	if err != nil {
+		t.Logf("failed to list pods for agent %s: %v", agent.Name, err)
+		return
+	}
+
+	for _, pod := range podList.Items {
+		kubectlArgs := []string{
+			"logs",
+			pod.Name,
+			"-n",
+			agent.Namespace,
+		}
+		cmd := exec.CommandContext(ctx, "kubectl", kubectlArgs...)
+		cmdOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("failed to get logs for pod %s using kubectl: %v", pod.Name, err)
+		} else {
+			t.Logf("logs for pod %s using kubectl:\n%s", pod.Name, string(cmdOutput))
+		}
+
+		// also describe the pod
+		kubectlArgs = []string{
+			"describe",
+			"pod",
+			pod.Name,
+			"-n",
+			agent.Namespace,
+		}
+		cmd = exec.CommandContext(ctx, "kubectl", kubectlArgs...)
+		cmdOutput, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("failed to describe pod %s using kubectl: %v", pod.Name, err)
+		} else {
+			t.Logf("description for pod %s using kubectl:\n%s", pod.Name, string(cmdOutput))
+		}
+	}
+}
+
+func printDeployment(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	// describe deployment and service
+	kubectlLogsArgs := []string{
+		"describe",
+		"deployment",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
+	cmdOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("failed to describe for deployment %s using kubectl: %v", agent.Name, err)
+	} else {
+		t.Logf("description for deployment %s using kubectl:\n%s", agent.Name, string(cmdOutput))
+	}
+}
+
+func printService(t *testing.T, cli client.Client, agent *v1alpha2.Agent) {
+	// describe deployment and service
+	kubectlLogsArgs := []string{
+		"describe",
+		"service",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", kubectlLogsArgs...)
+	cmdOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("failed to get logs for service %s using kubectl: %v", agent.Name, err)
+	} else {
+		t.Logf("description for service %s using kubectl:\n%s", agent.Name, string(cmdOutput))
+	}
 }

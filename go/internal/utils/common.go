@@ -33,6 +33,15 @@ func GetResourceNamespace() string {
 	return "kagent"
 }
 
+// GetControllerName returns the name for the kagent controller,
+// using the KAGENT_CONTROLLER_NAME environment variable or defaulting to "kagent-controller".
+func GetControllerName() string {
+	if val := os.Getenv("KAGENT_CONTROLLER_NAME"); val != "" {
+		return val
+	}
+	return "kagent-controller"
+}
+
 // ResourceRefString formats namespace and name as a string reference in "namespace/name" format.
 func ResourceRefString(namespace, name string) string {
 	return fmt.Sprintf("%s/%s", namespace, name)
@@ -108,9 +117,7 @@ func ParseRefString(ref string, parentNamespace string) (types.NamespacedName, e
 	}
 
 	// ref is in namespace/name format
-	slashIndex := strings.Index(ref, "/")
-	namespace := ref[:slashIndex]
-	name := ref[slashIndex+1:]
+	namespace, name, _ := strings.Cut(ref, "/")
 
 	if namespace == "" && name == "" {
 		return types.NamespacedName{}, fmt.Errorf("namespace and name cannot be empty")

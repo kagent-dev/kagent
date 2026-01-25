@@ -40,6 +40,11 @@ type BaseModel struct {
 	Type    string            `json:"type"`
 	Model   string            `json:"model"`
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// TLS/SSL configuration (applies to all model types)
+	TLSDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
+	TLSCACertPath       *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs *bool   `json:"tls_disable_system_cas,omitempty"`
 }
 
 type OpenAI struct {
@@ -64,6 +69,7 @@ const (
 	ModelTypeGeminiAnthropic = "gemini_anthropic"
 	ModelTypeOllama          = "ollama"
 	ModelTypeGemini          = "gemini"
+	ModelTypeBedrock         = "bedrock"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -91,7 +97,7 @@ func (a *AzureOpenAI) GetType() string {
 }
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeAzureOpenAI,
 		"model":   a.Model,
 		"headers": a.Headers,
@@ -104,7 +110,7 @@ type Anthropic struct {
 }
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":     ModelTypeAnthropic,
 		"model":    a.Model,
 		"base_url": a.BaseUrl,
@@ -121,7 +127,7 @@ type GeminiVertexAI struct {
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeGeminiVertexAI,
 		"model":   g.Model,
 		"headers": g.Headers,
@@ -137,7 +143,7 @@ type GeminiAnthropic struct {
 }
 
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeGeminiAnthropic,
 		"model":   g.Model,
 		"headers": g.Headers,
@@ -153,7 +159,7 @@ type Ollama struct {
 }
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeOllama,
 		"model":   o.Model,
 		"headers": o.Headers,
@@ -169,7 +175,7 @@ type Gemini struct {
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
+	return json.Marshal(map[string]any{
 		"type":    ModelTypeGemini,
 		"model":   g.Model,
 		"headers": g.Headers,
@@ -178,6 +184,28 @@ func (g *Gemini) MarshalJSON() ([]byte, error) {
 
 func (g *Gemini) GetType() string {
 	return ModelTypeGemini
+}
+
+type Bedrock struct {
+	BaseModel
+	// Region is the AWS region where the model is available
+	Region string `json:"region,omitempty"`
+}
+
+func (b *Bedrock) MarshalJSON() ([]byte, error) {
+	data := map[string]any{
+		"type":    ModelTypeBedrock,
+		"model":   b.Model,
+		"headers": b.Headers,
+	}
+	if b.Region != "" {
+		data["region"] = b.Region
+	}
+	return json.Marshal(data)
+}
+
+func (b *Bedrock) GetType() string {
+	return ModelTypeBedrock
 }
 
 func ParseModel(bytes []byte) (Model, error) {
@@ -228,6 +256,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &ollama, nil
+	case ModelTypeBedrock:
+		var bedrock Bedrock
+		if err := json.Unmarshal(bytes, &bedrock); err != nil {
+			return nil, err
+		}
+		return &bedrock, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -239,6 +273,7 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
+// See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model        Model                 `json:"model"`
 	Description  string                `json:"description"`
@@ -246,6 +281,8 @@ type AgentConfig struct {
 	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
 	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
 	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+	ExecuteCode  bool                  `json:"execute_code,omitempty"`
+	Stream       bool                  `json:"stream"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
@@ -275,7 +312,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 
 var _ sql.Scanner = &AgentConfig{}
 
-func (a *AgentConfig) Scan(value interface{}) error {
+func (a *AgentConfig) Scan(value any) error {
 	return json.Unmarshal(value.([]byte), a)
 }
 

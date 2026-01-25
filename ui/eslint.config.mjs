@@ -1,20 +1,14 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
-
-const eslintConfig = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
   {
     files: ["**/*.ts", "**/*.tsx"],
     rules: {
-      "@typescript-eslint/no-unused-vars": ["warn", { "varsIgnorePattern": "_" }]
+      "@typescript-eslint/no-unused-vars": ["warn", { varsIgnorePattern: "^_", argsIgnorePattern: "^_" }],
     },
   },
   {
@@ -25,19 +19,14 @@ const eslintConfig = [
       "react-hooks/rules-of-hooks": "off",
       "react-hooks/exhaustive-deps": "off",
       "no-console": "off",
-      "jest/no-disabled-tests": "off",
-      "jest/no-focused-tests": "off",
-      "jest/no-identical-title": "off",
-      "jest/prefer-to-have-length": "off",
-      "jest/expect-outside": "off",
-      "jest/no-conditional-expect": "off",
-      "jest/no-done-callback": "off",
-      "jest/no-standalone-expect": "off",
-      "jest/valid-expect": "off",
-      "jest/valid-expect-in-promise": "off",
-      "jest/valid-title": "off",
     },
   },
-];
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
 
 export default eslintConfig;

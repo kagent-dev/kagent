@@ -12,7 +12,7 @@ const (
 	DefaultModelProvider   = v1alpha2.ModelProviderOpenAI
 	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
 
-	//Provider specific env variables
+	// Provider specific env variables
 	OPENAI_API_KEY      = "OPENAI_API_KEY"
 	ANTHROPIC_API_KEY   = "ANTHROPIC_API_KEY"
 	AZUREOPENAI_API_KEY = "AZUREOPENAI_API_KEY"
@@ -28,7 +28,6 @@ const (
 func GetModelProvider() v1alpha2.ModelProvider {
 	modelProvider := os.Getenv(KAGENT_DEFAULT_MODEL_PROVIDER)
 	if modelProvider == "" {
-
 		return DefaultModelProvider
 	}
 	switch modelProvider {

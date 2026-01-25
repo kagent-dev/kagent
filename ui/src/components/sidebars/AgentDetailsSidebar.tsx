@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { getAgents } from "@/app/actions/agents";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 
 interface AgentDetailsSidebarProps {
   selectedAgentName: string;
@@ -158,6 +160,8 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
       );
     }
 
+    const agentNamespace = currentAgent.agent.metadata.namespace || "";
+
     return (
       <SidebarMenu>
         {tools.flatMap((tool) => {
@@ -167,17 +171,19 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             const mcpProvider = tool.mcpServer.name || "mcp_server";
             const mcpProviderParts = mcpProvider.split(".");
             const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
+            const serverDisplayName = `${tool.mcpServer.namespace || agentNamespace}/${tool.mcpServer.name || ""}`;
 
             return tool.mcpServer.toolNames.map((mcpToolName) => {
               const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
               const description = toolDescriptions[subToolIdentifier] || "Description loading or unavailable";
               const isExpanded = expandedTools[subToolIdentifier] || false;
+              const displayName = `${mcpToolName} (${serverDisplayName})`;
 
               return (
                 <RenderToolCollapsibleItem
                   key={subToolIdentifier}
                   itemKey={subToolIdentifier}
-                  displayName={mcpToolName}
+                  displayName={displayName}
                   providerTooltip={mcpProviderNameTooltip}
                   description={description}
                   isExpanded={isExpanded}
@@ -188,7 +194,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
           } else {
             const toolIdentifier = baseToolIdentifier;
             const provider = isAgentTool(tool) ? (tool.agent?.name || "unknown") : (tool.mcpServer?.name || "unknown");
-            const displayName = getToolDisplayName(tool);
+            const displayName = getToolDisplayName(tool, agentNamespace);
             const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
             const isExpanded = expandedTools[toolIdentifier] || false;
 
@@ -212,6 +218,9 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
     );
   };
 
+    // Check if agent is BYO type
+  const isDeclarativeAgent = selectedTeam?.agent.spec.type === "Declarative";
+  
   return (
     <>
       <Sidebar side={"right"} collapsible="offcanvas">
@@ -237,10 +246,44 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>
-            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-              <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
-              {selectedTeam && renderAgentTools(selectedTeam.tools)}
-            </SidebarGroup>
+            {isDeclarativeAgent &&(
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
+                {selectedTeam && renderAgentTools(selectedTeam.tools)}
+              </SidebarGroup>
+            )}
+
+            {isDeclarativeAgent && selectedTeam?.agent.spec?.skills?.refs && selectedTeam.agent.spec.skills.refs.length > 0 && (
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <div className="flex items-center justify-between px-2 mb-2">
+                  <SidebarGroupLabel className="mb-0">Skills</SidebarGroupLabel>
+                  <Badge variant="secondary" className="h-5">
+                    {selectedTeam.agent.spec.skills.refs.length}
+                  </Badge>
+                </div>
+                <SidebarMenu>
+                  <TooltipProvider>
+                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => (
+                      <SidebarMenuItem key={index}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <SidebarMenuButton className="w-full">
+                              <div className="flex items-center justify-between w-full">
+                                <span className="truncate max-w-[200px] text-sm">{skillRef}</span>
+                              </div>
+                            </SidebarMenuButton>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">
+                            <p className="max-w-xs break-all">{skillRef}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </SidebarMenuItem>
+                    ))}
+                  </TooltipProvider>
+                </SidebarMenu>
+              </SidebarGroup>
+            )}
+
           </ScrollArea>
         </SidebarContent>
       </Sidebar>

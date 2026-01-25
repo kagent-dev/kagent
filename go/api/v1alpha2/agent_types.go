@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"trpc.group/trpc-go/trpc-a2a-go/server"
@@ -53,6 +54,31 @@ type AgentSpec struct {
 
 	// +optional
 	Description string `json:"description,omitempty"`
+
+	// Skills to load into the agent. They will be pulled from the specified container images.
+	// and made available to the agent under the `/skills` folder.
+	// +optional
+	Skills *SkillForAgent `json:"skills,omitempty"`
+
+	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
+	// This follows the Gateway API pattern for cross-namespace route attachments.
+	// If not specified, only Agents in the same namespace can reference this Agent as a tool.
+	// This field only applies when this Agent is used as a tool by another Agent.
+	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+}
+
+type SkillForAgent struct {
+	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
+	// Meant for development and testing purposes only.
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+
+	// The list of skill images to fetch.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	Refs []string `json:"refs,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
@@ -69,9 +95,9 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	ModelConfig string `json:"modelConfig,omitempty"`
 	// Whether to stream the response from the model.
-	// If not specified, the default value is true.
+	// If not specified, the default value is false.
 	// +optional
-	Stream *bool `json:"stream,omitempty"`
+	Stream bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
@@ -85,6 +111,13 @@ type DeclarativeAgentSpec struct {
 
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
+
+	// Allow code execution for python code blocks with this agent.
+	// If true, the agent will automatically execute python code blocks in the LLM responses.
+	// Code will be executed in a sandboxed environment.
+	// +optional
+	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
+	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
@@ -112,10 +145,7 @@ type ByoDeploymentSpec struct {
 }
 
 type SharedDeploymentSpec struct {
-	// If not specified, the default value is 1.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
 	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
@@ -133,6 +163,16 @@ type SharedDeploymentSpec struct {
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type
@@ -182,7 +222,6 @@ func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespa
 
 type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
-	// Can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
 	// +optional
 	TypedLocalReference `json:",inline"`
 
@@ -198,12 +237,26 @@ type TypedLocalReference struct {
 	// +optional
 	ApiGroup string `json:"apiGroup"`
 	Name     string `json:"name"`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 }
 
 func (t *TypedLocalReference) GroupKind() schema.GroupKind {
 	return schema.GroupKind{
 		Group: t.ApiGroup,
 		Kind:  t.Kind,
+	}
+}
+
+func (t *TypedLocalReference) NamespacedName(defaultNamespace string) types.NamespacedName {
+	namespace := t.Namespace
+	if namespace == "" {
+		namespace = defaultNamespace
+	}
+
+	return types.NamespacedName{
+		Namespace: namespace,
+		Name:      t.Name,
 	}
 }
 

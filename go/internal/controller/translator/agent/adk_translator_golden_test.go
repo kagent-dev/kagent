@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,10 +28,11 @@ import (
 
 // TestInput represents the structure of input test files
 type TestInput struct {
-	Objects      []map[string]interface{} `yaml:"objects"`
-	Operation    string                   `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
-	TargetObject string                   `yaml:"targetObject"` // name of the object to translate
-	Namespace    string                   `yaml:"namespace"`
+	Objects      []map[string]any `yaml:"objects"`
+	Operation    string           `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
+	TargetObject string           `yaml:"targetObject"` // name of the object to translate
+	Namespace    string           `yaml:"namespace"`
+	ProxyURL     string           `yaml:"proxyURL,omitempty"` // Optional proxy URL for internally-built k8s URLs
 }
 
 // TestGoldenAdkTranslator runs golden tests for the ADK API translator
@@ -74,18 +79,52 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 	scheme := schemev1.Scheme
 	err = v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
+	err = v1alpha1.AddToScheme(scheme)
+	require.NoError(t, err)
 
 	// Convert map objects to unstructured and then to typed objects
 	clientBuilder := fake.NewClientBuilder().WithScheme(scheme)
+
+	// Track namespaces we've seen to add them to the fake client
+	namespacesSeen := make(map[string]bool)
 
 	for _, objMap := range testInput.Objects {
 		// Convert map to unstructured
 		unstrObj := &unstructured.Unstructured{Object: objMap}
 
+		// Track namespace from object metadata
+		if metadata, ok := objMap["metadata"].(map[string]any); ok {
+			if ns, ok := metadata["namespace"].(string); ok && ns != "" {
+				namespacesSeen[ns] = true
+			}
+		}
+
+		// Extract namespace from URLs in RemoteMCPServer specs
+		// This is needed because isInternalK8sURL checks if the namespace exists
+		if kind, ok := objMap["kind"].(string); ok && kind == "RemoteMCPServer" {
+			if spec, ok := objMap["spec"].(map[string]any); ok {
+				if urlStr, ok := spec["url"].(string); ok {
+					if ns := extractNamespaceFromURL(urlStr); ns != "" {
+						namespacesSeen[ns] = true
+					}
+				}
+			}
+		}
+
 		// Convert to typed object
 		typedObj, err := convertUnstructuredToTyped(unstrObj, scheme)
 		require.NoError(t, err)
 		clientBuilder = clientBuilder.WithObjects(typedObj)
+	}
+
+	// Add namespaces to fake client so namespace existence checks work
+	for nsName := range namespacesSeen {
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: nsName,
+			},
+		}
+		clientBuilder = clientBuilder.WithObjects(ns)
 	}
 
 	kubeClient := clientBuilder.Build()
@@ -99,7 +138,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 	// Try to find the first ModelConfig in the objects to use as default
 	for _, objMap := range testInput.Objects {
 		if kind, ok := objMap["kind"].(string); ok && kind == "ModelConfig" {
-			if metadata, ok := objMap["metadata"].(map[string]interface{}); ok {
+			if metadata, ok := objMap["metadata"].(map[string]any); ok {
 				if name, ok := metadata["name"].(string); ok {
 					defaultModel.Name = name
 					break
@@ -109,7 +148,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 	}
 
 	// Execute the specified operation
-	var result interface{}
+	var result any
 	switch testInput.Operation {
 	case "translateAgent":
 		agent := &v1alpha2.Agent{}
@@ -119,7 +158,9 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 		}, agent)
 		require.NoError(t, err)
 
-		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil).TranslateAgent(ctx, agent)
+		// Use proxy URL from test input if provided
+		proxyURL := testInput.ProxyURL
+		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, proxyURL).TranslateAgent(ctx, agent)
 		require.NoError(t, err)
 
 	default:
@@ -177,7 +218,7 @@ func convertUnstructuredToTyped(unstrObj *unstructured.Unstructured, scheme *run
 }
 
 func normalizeJSON(t *testing.T, jsonData []byte) []byte {
-	var obj interface{}
+	var obj any
 	err := json.Unmarshal(jsonData, &obj)
 	require.NoError(t, err)
 
@@ -190,10 +231,10 @@ func normalizeJSON(t *testing.T, jsonData []byte) []byte {
 	return result
 }
 
-func removeNonDeterministicFields(obj interface{}) interface{} {
+func removeNonDeterministicFields(obj any) any {
 	switch v := obj.(type) {
-	case map[string]interface{}:
-		result := make(map[string]interface{})
+	case map[string]any:
+		result := make(map[string]any)
 		for key, value := range v {
 			// Remove fields that are non-deterministic or generated
 			switch key {
@@ -205,8 +246,8 @@ func removeNonDeterministicFields(obj interface{}) interface{} {
 			}
 		}
 		return result
-	case []interface{}:
-		var result []interface{}
+	case []any:
+		var result []any
 		for _, item := range v {
 			result = append(result, removeNonDeterministicFields(item))
 		}
@@ -214,4 +255,28 @@ func removeNonDeterministicFields(obj interface{}) interface{} {
 	default:
 		return v
 	}
+}
+
+// extractNamespaceFromURL extracts the namespace from a Kubernetes service URL.
+// For example, "http://service.namespace:port/path" returns "namespace".
+// Returns empty string if the URL is not a valid Kubernetes service URL.
+func extractNamespaceFromURL(urlStr string) string {
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+
+	// Split hostname by dots: service.namespace or service.namespace.svc.cluster.local
+	hostname := parsed.Hostname()
+	parts := strings.Split(hostname, ".")
+
+	// Valid patterns:
+	// - service.namespace (2 parts)
+	// - service.namespace.svc (3 parts)
+	// - service.namespace.svc.cluster.local (5 parts)
+	if len(parts) >= 2 {
+		return parts[1] // namespace is always the second part
+	}
+
+	return ""
 }

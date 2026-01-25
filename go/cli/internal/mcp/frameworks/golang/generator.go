@@ -27,7 +27,6 @@ func NewGenerator() *Generator {
 
 // GenerateProject generates a new Go project.
 func (g *Generator) GenerateProject(config mcp.ProjectConfig) error {
-
 	if config.Verbose {
 		fmt.Println("Generating Golang MCP project...")
 	}

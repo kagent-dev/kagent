@@ -207,3 +207,7 @@ go/bin/
 /contrib/memory/doc2vec/bun.lock
 
 .cursor/
+
+## Test certificates
+python/packages/kagent-adk/tests/fixtures/certs/*.pem
+python/packages/kagent-adk/tests/fixtures/certs/*.srl

@@ -19,6 +19,7 @@ import (
 type RunCfg struct {
 	ProjectDir string
 	Config     *config.Config
+	Build      bool
 }
 
 // RunCmd starts docker-compose in the background and launches a chat session with the local agent
@@ -43,6 +44,11 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 	manifest, err := LoadManifest(cfg.ProjectDir)
 	if err != nil {
 		return fmt.Errorf("failed to load kagent.yaml: %v", err)
+	}
+
+	// Validate API key before starting docker-compose
+	if err := ValidateAPIKey(manifest.ModelProvider); err != nil {
+		return fmt.Errorf("API key validation failed: %v", err)
 	}
 
 	verbose := IsVerbose(cfg.Config)

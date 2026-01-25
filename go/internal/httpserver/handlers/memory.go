@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,7 +49,7 @@ func (h *MemoryHandler) HandleListMemories(w ErrorResponseWriter, r *http.Reques
 		memoryRef := common.GetObjectRef(&memory)
 		log.V(1).Info("Processing Memory", "memoryRef", memoryRef)
 
-		memoryParams := make(map[string]interface{})
+		memoryParams := make(map[string]any)
 		if memory.Spec.Pinecone != nil {
 			FlattenStructToMap(memory.Spec.Pinecone, memoryParams)
 		}
@@ -112,7 +112,7 @@ func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Reques
 		log.Info("Memory already exists")
 		w.RespondWithError(errors.NewConflictError("Memory already exists", nil))
 		return
-	} else if !k8serrors.IsNotFound(err) {
+	} else if !apierrors.IsNotFound(err) {
 		log.Error(err, "Failed to check if Memory exists")
 		w.RespondWithError(errors.NewInternalServerError("Failed to check if Memory exists", err))
 		return
@@ -200,7 +200,7 @@ func (h *MemoryHandler) HandleDeleteMemory(w ErrorResponseWriter, r *http.Reques
 		existingMemory,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("Memory not found")
 			w.RespondWithError(errors.NewNotFoundError("Memory not found", nil))
 			return
@@ -261,7 +261,7 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 		memory,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("Memory not found")
 			w.RespondWithError(errors.NewNotFoundError("Memory not found", nil))
 			return
@@ -271,7 +271,7 @@ func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 		return
 	}
 
-	memoryParams := make(map[string]interface{})
+	memoryParams := make(map[string]any)
 	if memory.Spec.Pinecone != nil {
 		FlattenStructToMap(memory.Spec.Pinecone, memoryParams)
 	}

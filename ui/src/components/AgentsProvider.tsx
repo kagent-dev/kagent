@@ -18,6 +18,7 @@ interface ValidationErrors {
   model?: string;
   knowledgeSources?: string;
   tools?: string;
+  skills?: string;
 }
 
 export interface AgentFormData {
@@ -30,6 +31,9 @@ export interface AgentFormData {
   modelName?: string;
   tools: Tool[];
   stream?: boolean;
+  // Skills
+  skillRefs?: string[];
+  // BYO fields
   byoImage?: string;
   byoCmd?: string;
   byoArgs?: string[];
@@ -51,6 +55,7 @@ interface AgentsContextType {
   error: string;
   tools: ToolsResponse[];
   refreshAgents: () => Promise<void>;
+  refreshModels: () => Promise<void>;
   createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   updateAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   getAgent: (name: string, namespace: string) => Promise<AgentResponse | null>;
@@ -260,6 +265,8 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     error,
     tools,
     refreshAgents,
+    refreshAgents: fetchAgents,
+    refreshModels: fetchModels,
     createNewAgent,
     updateAgent,
     getAgent,

@@ -119,6 +119,30 @@ func (k *KubectlExecutor) Apply(yamls ...[]byte) error {
 	return nil
 }
 
+// RolloutRestart restarts a Kubernetes deployment by triggering a rollout restart.
+// This causes the deployment to recreate all pods with the latest configuration.
+func (k *KubectlExecutor) RolloutRestart(name string) error {
+	namespace := k.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	args := []string{
+		"rollout", "restart", "deployment", name,
+		"-n", namespace,
+	}
+
+	if k.Verbose {
+		fmt.Printf("Restarting deployment '%s' in namespace '%s'...\n", name, namespace)
+	}
+
+	if err := k.Run(args...); err != nil {
+		return fmt.Errorf("failed to restart deployment: %w", err)
+	}
+
+	return nil
+}
+
 // WaitForDeployment waits for a Kubernetes deployment to be ready.
 // It uses kubectl rollout status to monitor the deployment progress.
 func (k *KubectlExecutor) WaitForDeployment(name string, timeout time.Duration) error {

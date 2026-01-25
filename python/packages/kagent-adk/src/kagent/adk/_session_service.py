@@ -108,13 +108,18 @@ class KAgentSessionService(BaseSessionService):
                 events.append(Event.model_validate_json(event_data["data"]))
 
             # Convert to ADK Session format
-            return Session(
+            session = Session(
                 id=session_data["id"],
                 user_id=session_data["user_id"],
                 events=events,
                 app_name=app_name,
-                state={},  # TODO: restore State
+                state={},
             )
+
+            for event in events:
+                await super().append_event(session, event)
+
+            return session
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 return None

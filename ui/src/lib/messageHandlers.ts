@@ -1,6 +1,6 @@
 import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
-import { convertToUserFriendlyName, messageUtils, isAgentToolName } from "@/lib/utils";
+import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
 import { TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
@@ -107,7 +107,7 @@ export interface ProcessedToolResultData {
 
 // Normalize various tool response result shapes into plain text
 export function normalizeToolResultToText(toolData: ToolResponseData): string {
-  const result = toolData.response?.result;
+  const result = toolData.response?.result || toolData.response;
 
   if (typeof result === "string") {
     return result;

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -64,7 +64,7 @@ func createOrUpdateSecretWithOwnerReference(
 		Namespace: owner.GetNamespace(),
 	}, existingSecret)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return createSecretWithOwnerReference(ctx, kubeClient, data, owner)
 		}
 		return fmt.Errorf("failed to get existing secret: %w", err)

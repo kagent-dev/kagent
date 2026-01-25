@@ -1,0 +1,390 @@
+# ModelConfig TLS Configuration Examples
+#
+# This file demonstrates various TLS configuration scenarios for ModelConfig resources
+# to enable agents to connect to LLM providers with custom certificates.
+#
+# See docs/user-guide/modelconfig-tls.md for complete documentation.
+
+---
+# Example 1: Internal LiteLLM with Custom CA Certificate (Recommended)
+#
+# Use Case: LiteLLM gateway running at https://litellm.internal.corp:8080 with
+# self-signed certificate. This configuration trusts both system CAs (for public
+# services) and your custom CA (for internal services).
+#
+# This is the recommended configuration for most use cases.
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-ca-cert
+  namespace: kagent
+type: Opaque
+stringData:
+  # CA certificate in PEM format
+  # Replace with your actual CA certificate
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDXTCCAkWgAwIBAgIJAKL0UG+mRkmgMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV
+    BAYTAlVTMQswCQYDVQQIDAJDQTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsG
+    A1UECgwETXlPcmcxDzANBgNVBAsMBlByaXZhdGUxDDAKBgNVBAMMA0NBMDAeFw0y
+    NTAxMDEwMDAwMDBaFw0yNjAxMDEwMDAwMDBaMEUxCzAJBgNVBAYTAlVTMQswCQYD
+    VQQIDAJDQTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwETXlPcmcx
+    DzANBgNVBAsMBlByaXZhdGUxDDAKBgNVBAMMA0NBMDCCASIwDQYJKoZIhvcNAQEB
+    BQADggEPADCCAQoCggEBAMkN...
+    (your certificate content here)
+    ...
+    -----END CERTIFICATE-----
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-api-key
+  namespace: kagent
+type: Opaque
+stringData:
+  key: sk-litellm-1234567890abcdef  # Replace with your actual API key
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: litellm-internal
+  namespace: kagent
+spec:
+  # Provider must be set to OpenAI since LiteLLM presents an OpenAI-compatible API
+  provider: OpenAI
+  model: gpt-4
+
+  # API key for authentication
+  apiKeySecretRef: litellm-api-key
+  apiKeySecretKey: key
+
+  # OpenAI configuration with custom base URL pointing to LiteLLM
+  openAI:
+    baseUrl: https://litellm.internal.corp:8080
+
+  # TLS configuration for custom certificate
+  tls:
+    # Reference to Secret containing CA certificate
+    caCertSecretRef: litellm-ca-cert
+    caCertSecretKey: ca.crt
+
+    # Trust both system CAs and custom CA (recommended, default behavior)
+    # When false (default), system CAs are used for verification (safe behavior)
+    # This allows connecting to both public services and internal services
+    disableSystemCAs: false
+
+    # Verification is enabled (secure)
+    disableVerify: false
+
+---
+# Example 2: Multiple CA Certificates (Certificate Bundle)
+#
+# Use Case: Your certificate chain includes both root and intermediate CAs,
+# or you need to trust multiple certificate authorities.
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: corporate-ca-bundle
+  namespace: kagent
+type: Opaque
+stringData:
+  # Certificate bundle with multiple CA certificates
+  # Certificates should be concatenated in PEM format
+  # Order: intermediate CA(s) first, then root CA
+  ca-bundle.crt: |
+    -----BEGIN CERTIFICATE-----
+    (Intermediate CA certificate)
+    -----END CERTIFICATE-----
+    -----BEGIN CERTIFICATE-----
+    (Root CA certificate)
+    -----END CERTIFICATE-----
+    -----BEGIN CERTIFICATE-----
+    (Optional: additional CA certificates)
+    -----END CERTIFICATE-----
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: corporate-llm
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: gpt-4-corporate
+  apiKeySecretRef: corporate-api-key
+  apiKeySecretKey: key
+  openAI:
+    baseUrl: https://ai-platform.corp.internal:443
+  tls:
+    caCertSecretRef: corporate-ca-bundle
+    caCertSecretKey: ca-bundle.crt  # Reference the bundle key
+    disableSystemCAs: false  # Use system CAs (default, safe behavior)
+    disableVerify: false
+
+---
+# Example 3: Custom CA Only (No System CAs)
+#
+# Use Case: Strict security policy where only corporate/internal CAs should be trusted.
+# Public CA certificates are not trusted, improving security posture but limiting
+# connectivity to only internal services.
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: strict-ca-cert
+  namespace: kagent
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    (Corporate CA certificate only)
+    -----END CERTIFICATE-----
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: strict-internal-llm
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: gpt-4
+  apiKeySecretRef: internal-api-key
+  apiKeySecretKey: key
+  openAI:
+    baseUrl: https://secure-llm.corp.internal:443
+  tls:
+    caCertSecretRef: strict-ca-cert
+    caCertSecretKey: ca.crt
+
+    # Only trust custom CA, not system CAs
+    # When true, system CAs are disabled (only custom CA is trusted)
+    # This prevents connections to public services
+    disableSystemCAs: true
+
+    disableVerify: false
+
+---
+# Example 4: Verification Disabled (Development/Testing Only)
+#
+# ⚠️  WARNING: This configuration disables ALL SSL verification.
+# Use ONLY in development or testing environments. NEVER in production.
+#
+# Use Case: Local development where you want to quickly test without
+# managing certificates, or testing against a server with invalid certificates.
+
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: litellm-dev
+  namespace: kagent-dev
+spec:
+  provider: OpenAI
+  model: gpt-4
+  apiKeySecretRef: dev-api-key
+  apiKeySecretKey: key
+  openAI:
+    baseUrl: https://localhost:8080
+  tls:
+    # Disable all SSL verification (insecure!)
+    disableVerify: true
+
+    # When disableVerify is true, other TLS fields are ignored
+    # No Secret is required in this mode
+
+# When this configuration is used, agents will log prominent warnings:
+#
+# ============================================================
+# ⚠️  SSL VERIFICATION DISABLED ⚠️
+# ============================================================
+# SSL certificate verification is disabled.
+# This should ONLY be used in development/testing.
+# Production deployments MUST use proper certificates.
+# ============================================================
+
+---
+# Example 5: Azure OpenAI with Custom Certificate
+#
+# Use Case: Azure OpenAI service accessed through internal proxy with custom certificate
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-proxy-ca
+  namespace: kagent
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    (Proxy CA certificate)
+    -----END CERTIFICATE-----
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-api-key
+  namespace: kagent
+type: Opaque
+stringData:
+  key: your-azure-api-key-here
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: azure-through-proxy
+  namespace: kagent
+spec:
+  provider: AzureOpenAI
+  model: gpt-4
+  apiKeySecretRef: azure-api-key
+  apiKeySecretKey: key
+  azureOpenAI:
+    endpoint: https://your-resource.openai.azure.com/  # Through internal proxy
+    deploymentId: gpt-4-deployment
+    apiVersion: "2024-02-15-preview"
+  tls:
+    caCertSecretRef: azure-proxy-ca
+    caCertSecretKey: ca.crt
+    disableSystemCAs: false  # Use system CAs (default, safe behavior)
+    disableVerify: false
+
+---
+# Example 6: Default Configuration (No TLS)
+#
+# Use Case: Connecting to public LLM providers (OpenAI, Anthropic, etc.) with
+# standard publicly-trusted certificates. This is the default behavior.
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openai-api-key
+  namespace: kagent
+type: Opaque
+stringData:
+  key: sk-openai-1234567890abcdef
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: openai-public
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: gpt-4
+  apiKeySecretRef: openai-api-key
+  apiKeySecretKey: key
+
+  # No openAI.baseUrl specified - uses default https://api.openai.com
+  # No tls configuration - uses system CAs with verification enabled
+  # This is the simplest and most common configuration
+
+---
+# Example 7: Agent Using ModelConfig with TLS
+#
+# Complete example showing how to create an Agent that uses a ModelConfig
+# with TLS configuration.
+
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: internal-assistant
+  namespace: kagent
+spec:
+  # Framework selection (ADK, LangGraph, or CrewAI)
+  framework: ADK
+
+  # Reference to ModelConfig with TLS configuration
+  modelConfigName: litellm-internal
+
+  # Agent card for A2A protocol
+  card:
+    name: internal-assistant
+    description: AI assistant using internal LiteLLM gateway
+
+  # Optional: Agent configuration
+  config:
+    systemMessage: "You are a helpful AI assistant."
+    temperature: 0.7
+
+---
+# Example 8: RBAC Configuration for Secret Access
+#
+# Agents need read access to Secrets containing CA certificates.
+# This example shows how to grant appropriate permissions.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-tls-secret-reader
+  namespace: kagent
+rules:
+  # Grant read access to specific Secrets only
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames:
+      - litellm-ca-cert
+      - corporate-ca-bundle
+      - strict-ca-cert
+      # Add other certificate Secrets as needed
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-tls-secret-reader-binding
+  namespace: kagent
+subjects:
+  # Bind to default ServiceAccount (or specify custom ServiceAccount)
+  - kind: ServiceAccount
+    name: default
+    namespace: kagent
+roleRef:
+  kind: Role
+  name: agent-tls-secret-reader
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Notes and Best Practices
+#
+# 1. Certificate Format:
+#    - Must be in PEM format (text-based, base64-encoded)
+#    - Starts with -----BEGIN CERTIFICATE-----
+#    - Ends with -----END CERTIFICATE-----
+#    - No extra whitespace or characters
+#
+# 2. Secret Management:
+#    - Store Secrets in the same namespace as ModelConfig
+#    - Use descriptive names (e.g., "litellm-ca-cert" not "secret1")
+#    - Rotate certificates before expiration
+#    - Never commit Secrets to Git (use sealed secrets or external secret management)
+#
+# 3. Security:
+#    - Always enable verification (disableVerify: false) in production
+#    - Use RBAC to limit Secret access to specific service accounts
+#    - Use namespace isolation for different environments
+#    - Monitor certificate expiry dates
+#
+# 4. Testing:
+#    - Test connectivity after configuration changes
+#    - Check agent logs for TLS warnings or errors
+#    - Verify certificate chain with openssl commands
+#    - Use verification disabled mode only for development/testing
+#
+# 5. Certificate Updates:
+#    - Update Secret with new certificate
+#    - Restart agent pods to pick up changes: kubectl rollout restart deployment/agent-<name>
+#    - Secrets are mounted as volumes and not automatically reloaded
+#
+# 6. Troubleshooting:
+#    - See https://kagent.dev/docs for detailed debugging steps
+#    - Check agent logs: kubectl logs deployment/agent-<name>
+#    - Verify Secret is mounted: kubectl exec deployment/agent-<name> -- ls /etc/ssl/certs/custom/
+#    - Test certificate: kubectl exec deployment/agent-<name> -- openssl x509 -in /etc/ssl/certs/custom/ca.crt -text -noout
