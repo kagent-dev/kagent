@@ -241,7 +241,9 @@ class AgentConfig(BaseModel):
         elif self.model.type == "gemini_anthropic":
             model = ClaudeLLM(model=self.model.model)
         elif self.model.type == "ollama":
-            model = LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers, **(self.model.options or {}))
+            model = LiteLlm(
+                model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers, **(self.model.options or {})
+            )
         elif self.model.type == "azure_openai":
             model = OpenAIAzure(
                 model=self.model.model,
