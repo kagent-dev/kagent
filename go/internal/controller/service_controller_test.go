@@ -49,33 +49,33 @@ func TestServiceController_ErrorTypeDetection(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name              string
-		reconcilerError   error
+		name                  string
+		reconcilerError       error
 		expectControllerError bool
 	}{
 		{
-			name:              "no ports - validation error",
-			reconcilerError:   agenttranslator.NewValidationError("no port found"),
+			name:                  "no ports - validation error",
+			reconcilerError:       agenttranslator.NewValidationError("no port found"),
 			expectControllerError: false,
 		},
 		{
-			name:              "invalid port annotation - validation error",
-			reconcilerError:   agenttranslator.NewValidationError("port is not a valid integer"),
+			name:                  "invalid port annotation - validation error",
+			reconcilerError:       agenttranslator.NewValidationError("port is not a valid integer"),
 			expectControllerError: false,
 		},
 		{
-			name:              "network error - transient",
-			reconcilerError:   errors.New("connection timeout"),
+			name:                  "network error - transient",
+			reconcilerError:       errors.New("connection timeout"),
 			expectControllerError: true,
 		},
 		{
-			name:              "database error - transient",
-			reconcilerError:   errors.New("database unavailable"),
+			name:                  "database error - transient",
+			reconcilerError:       errors.New("database unavailable"),
 			expectControllerError: true,
 		},
 		{
-			name:              "success - no error",
-			reconcilerError:   nil,
+			name:                  "success - no error",
+			reconcilerError:       nil,
 			expectControllerError: false,
 		},
 	}

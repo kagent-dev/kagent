@@ -49,34 +49,34 @@ func TestMCPServerToolController_ErrorTypeDetection(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name              string
-		reconcilerError   error
+		name                  string
+		reconcilerError       error
 		expectControllerError bool
-		expectRequeue     bool
+		expectRequeue         bool
 	}{
 		{
-			name:              "validation error - no retry",
-			reconcilerError:   agenttranslator.NewValidationError("invalid port"),
+			name:                  "validation error - no retry",
+			reconcilerError:       agenttranslator.NewValidationError("invalid port"),
 			expectControllerError: false, // Controller converts to no error
-			expectRequeue:     false,
+			expectRequeue:         false,
 		},
 		{
-			name:              "improperly wrapped validation error - retries",
-			reconcilerError:   errors.New("failed to convert: " + agenttranslator.NewValidationError("invalid port").Error()),
+			name:                  "improperly wrapped validation error - retries",
+			reconcilerError:       errors.New("failed to convert: " + agenttranslator.NewValidationError("invalid port").Error()),
 			expectControllerError: true, // Error chain is broken, so it's treated as transient
-			expectRequeue:     false,
+			expectRequeue:         false,
 		},
 		{
-			name:              "transient error - retry with backoff",
-			reconcilerError:   errors.New("database connection failed"),
+			name:                  "transient error - retry with backoff",
+			reconcilerError:       errors.New("database connection failed"),
 			expectControllerError: true,
-			expectRequeue:     false, // No requeue when error returned
+			expectRequeue:         false, // No requeue when error returned
 		},
 		{
-			name:              "success - periodic refresh",
-			reconcilerError:   nil,
+			name:                  "success - periodic refresh",
+			reconcilerError:       nil,
 			expectControllerError: false,
-			expectRequeue:     true, // Requeue after 60s
+			expectRequeue:         true, // Requeue after 60s
 		},
 	}
 

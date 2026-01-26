@@ -62,7 +62,7 @@ func (e *ValidationError) Unwrap() error {
 }
 
 // NewValidationError creates a new ValidationError
-func NewValidationError(format string, args ...interface{}) error {
+func NewValidationError(format string, args ...any) error {
 	return &ValidationError{Err: fmt.Errorf(format, args...)}
 }
 
@@ -215,7 +215,7 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 				return fmt.Errorf("tool must have an agent reference")
 			}
 
-		agentRef := tool.Agent.NamespacedName(agent.Namespace)
+			agentRef := tool.Agent.NamespacedName(agent.Namespace)
 
 			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
 				return fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
