@@ -171,6 +171,9 @@ providers:
     model: "llama3.2"
     config:
       host: host.docker.internal:11434
+      options:
+        num_ctx: "64000"
+
   anthropic:
     provider: Anthropic
     model: "claude-3-5-haiku-20241022"

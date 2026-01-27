@@ -890,9 +890,13 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		if model.Spec.Ollama == nil {
 			return nil, nil, nil, fmt.Errorf("ollama model config is required")
 		}
+		host := model.Spec.Ollama.Host
+		if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+			host = "http://" + host
+		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "OLLAMA_API_BASE",
-			Value: model.Spec.Ollama.Host,
+			Value: host,
 		})
 		ollama := &adk.Ollama{
 			BaseModel: adk.BaseModel{
