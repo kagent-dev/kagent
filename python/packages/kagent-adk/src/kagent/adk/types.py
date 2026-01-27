@@ -26,6 +26,60 @@ logger = logging.getLogger(__name__)
 PROXY_HOST_HEADER = "x-kagent-host"
 
 
+def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
+    """Convert Ollama options from string values to their correct types.
+
+    Uses type annotations from the official Ollama Python SDK Options class
+    to determine the correct type for each option.
+
+    Since the options come from YAML/JSON config as strings, we need to convert them
+    to the types expected by the Ollama API.
+    """
+    if not options:
+        return {}
+
+    # Import Ollama SDK Options class for type introspection
+    from typing import get_args, get_origin
+
+    from ollama import Options as OllamaOptions
+
+    # Get type hints from the Ollama SDK Options class
+    type_hints = OllamaOptions.model_fields
+
+    converted: dict[str, Any] = {}
+    for key, value in options.items():
+        if key in type_hints:
+            field_info = type_hints[key]
+            # Get the annotation and unwrap Optional[T] -> T
+            annotation = field_info.annotation
+            origin = get_origin(annotation)
+            if origin is Union:
+                # Optional[T] is Union[T, None], get the non-None type
+                args = [arg for arg in get_args(annotation) if arg is not type(None)]
+                if args:
+                    target_type = args[0]
+                else:
+                    target_type = str
+            else:
+                target_type = annotation
+
+            # Convert based on the target type
+            if target_type is int:
+                converted[key] = int(value)
+            elif target_type is float:
+                converted[key] = float(value)
+            elif target_type is bool:
+                converted[key] = value.lower() == "true"
+            else:
+                # Keep as string for other types (e.g., Sequence[str])
+                converted[key] = value
+        else:
+            # Unknown option - keep as string
+            converted[key] = value
+
+    return converted
+
+
 class HttpMcpServerConfig(BaseModel):
     params: StreamableHTTPConnectionParams
     tools: list[str] = Field(default_factory=list)
@@ -88,6 +142,7 @@ class GeminiAnthropic(BaseLLM):
 
 
 class Ollama(BaseLLM):
+    options: dict[str, str] | None = None
     type: Literal["ollama"]
 
 
@@ -240,7 +295,9 @@ class AgentConfig(BaseModel):
         elif self.model.type == "gemini_anthropic":
             model = ClaudeLLM(model=self.model.model)
         elif self.model.type == "ollama":
-            model = LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers)
+            # Convert string options to correct types (int, float, bool) for Ollama API
+            ollama_options = _convert_ollama_options(self.model.options)
+            model = LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers, **ollama_options)
         elif self.model.type == "azure_openai":
             model = OpenAIAzure(
                 model=self.model.model,

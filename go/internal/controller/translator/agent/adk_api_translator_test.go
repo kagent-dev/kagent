@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/adk"
 	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -350,4 +351,75 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func Test_AdkApiTranslator_OllamaOptions(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	namespace := "test-ns"
+	modelName := "ollama-model"
+	agentName := "test-agent"
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+		},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      modelName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "llama2",
+			Provider: v1alpha2.ModelProviderOllama,
+			Ollama: &v1alpha2.OllamaConfig{
+				Host: "http://ollama:11434",
+				Options: map[string]string{
+					"num_ctx":     "4096",
+					"temperature": "0.7",
+				},
+			},
+		},
+	}
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      agentName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type:        v1alpha2.AgentType_Declarative,
+			Description: "Test Agent",
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "System message",
+				ModelConfig:   modelName,
+			},
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ns, modelConfig, agent).
+		Build()
+
+	defaultModel := types.NamespacedName{
+		Namespace: namespace,
+		Name:      modelName,
+	}
+
+	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+
+	outputs, err := trans.TranslateAgent(context.Background(), agent)
+	require.NoError(t, err)
+	require.NotNil(t, outputs)
+	require.NotNil(t, outputs.Config)
+
+	ollamaModel, ok := outputs.Config.Model.(*adk.Ollama)
+	require.True(t, ok, "Expected model to be of type Ollama")
+
+	assert.Equal(t, "4096", ollamaModel.Options["num_ctx"])
+	assert.Equal(t, "0.7", ollamaModel.Options["temperature"])
 }

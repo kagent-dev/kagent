@@ -112,6 +112,8 @@ jobs:
         uv build --package kagent-langgraph
         uv version $VERSION --package kagent-crewai
         uv build --package kagent-crewai
+        uv version $VERSION --package kagent-skills
+        uv build --package kagent-skills
         uv publish --token ${{ secrets.PYPI_TOKEN }}
       
   release:

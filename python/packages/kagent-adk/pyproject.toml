@@ -35,6 +35,7 @@ dependencies = [
   "urllib3>=2.6.3",  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: unbounded decompression DoS
   "filelock>=3.20.3",  # CVE-2025-68146, CVE-2026-22701: TOCTOU symlink race condition
   "boto3>=1.28.57",
+  "ollama >=0.3.6",  # Ollama SDK
 ]
 
 [tool.uv.sources]
