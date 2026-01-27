@@ -297,9 +297,7 @@ class AgentConfig(BaseModel):
         elif self.model.type == "ollama":
             # Convert string options to correct types (int, float, bool) for Ollama API
             ollama_options = _convert_ollama_options(self.model.options)
-            model = LiteLlm(
-                model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers, **ollama_options
-            )
+            model = LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers, **ollama_options)
         elif self.model.type == "azure_openai":
             model = OpenAIAzure(
                 model=self.model.model,
