@@ -52,31 +52,37 @@ func TestServiceController_ErrorTypeDetection(t *testing.T) {
 		name                  string
 		reconcilerError       error
 		expectControllerError bool
+		expectRequeue         bool
 	}{
 		{
 			name:                  "no ports - validation error",
 			reconcilerError:       agenttranslator.NewValidationError("no port found"),
 			expectControllerError: false,
+			expectRequeue:         false,
 		},
 		{
 			name:                  "invalid port annotation - validation error",
 			reconcilerError:       agenttranslator.NewValidationError("port is not a valid integer"),
 			expectControllerError: false,
+			expectRequeue:         false,
 		},
 		{
 			name:                  "network error - transient",
 			reconcilerError:       errors.New("connection timeout"),
 			expectControllerError: true,
+			expectRequeue:         false,
 		},
 		{
 			name:                  "database error - transient",
 			reconcilerError:       errors.New("database unavailable"),
 			expectControllerError: true,
+			expectRequeue:         false,
 		},
 		{
-			name:                  "success - no error",
+			name:                  "success - periodic refresh",
 			reconcilerError:       nil,
 			expectControllerError: false,
+			expectRequeue:         true, // Services now requeue after 60s like MCPServers
 		},
 	}
 
@@ -105,8 +111,12 @@ func TestServiceController_ErrorTypeDetection(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			// Services always return empty result
-			assert.Equal(t, ctrl.Result{}, result)
+			if tc.expectRequeue {
+				assert.NotEqual(t, ctrl.Result{}, result, "Should have requeue result")
+				assert.Equal(t, float64(60), result.RequeueAfter.Seconds(), "Should requeue after 60 seconds")
+			} else {
+				assert.Equal(t, ctrl.Result{}, result, "Should have empty result")
+			}
 		})
 	}
 }

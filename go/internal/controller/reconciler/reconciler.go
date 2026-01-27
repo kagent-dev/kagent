@@ -164,7 +164,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
 		agent.Status.ObservedGeneration = agent.Generation
 		if err := a.kube.Status().Update(ctx, agent); err != nil {
-			return fmt.Errorf("failed to update agent status: %v", err)
+			return fmt.Errorf("failed to update agent status: %w", err)
 		}
 	}
 
@@ -189,7 +189,7 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 			}
 			return nil
 		}
-		return fmt.Errorf("failed to get service %s: %v", req.Name, err)
+		return fmt.Errorf("failed to get service %s: %w", req.Name, err)
 	}
 
 	dbService := &database.ToolServer{
@@ -227,7 +227,7 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 			return nil
 		}
 
-		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
+		return fmt.Errorf("failed to get model %s: %w", req.Name, err)
 	}
 
 	var err error
@@ -337,7 +337,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation || secretHashChanged {
 		modelConfig.Status.ObservedGeneration = modelConfig.Generation
 		if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
-			return fmt.Errorf("failed to update model config status: %v", err)
+			return fmt.Errorf("failed to update model config status: %w", err)
 		}
 	}
 	return nil
@@ -361,7 +361,7 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 			}
 			return nil
 		}
-		return fmt.Errorf("failed to get mcp server %s: %v", req.Name, err)
+		return fmt.Errorf("failed to get mcp server %s: %w", req.Name, err)
 	}
 
 	dbServer := &database.ToolServer{
@@ -413,7 +413,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 			return nil
 		}
 
-		return fmt.Errorf("failed to get remote mcp server %s: %v", serverRef, err)
+		return fmt.Errorf("failed to get remote mcp server %s: %w", serverRef, err)
 	}
 
 	dbServer := &database.ToolServer{
@@ -441,7 +441,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		tools,
 		err,
 	); err != nil {
-		return fmt.Errorf("failed to reconcile remote mcp server status %s: %v", req.NamespacedName, err)
+		return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
 	}
 
 	return nil
@@ -485,7 +485,7 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	server.Status.DiscoveredTools = discoveredTools
 
 	if err := a.kube.Status().Update(ctx, server); err != nil {
-		return fmt.Errorf("failed to update remote mcp server status: %v", err)
+		return fmt.Errorf("failed to update remote mcp server status: %w", err)
 	}
 
 	return nil
@@ -619,7 +619,7 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 
 	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
 	if err != nil {
-		return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
+		return fmt.Errorf("failed to translate agent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
 	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, agent.UID, agent.Namespace, a.adkTranslator.GetOwnedResourceTypes())
@@ -628,11 +628,11 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 	}
 
 	if err := a.reconcileDesiredObjects(ctx, agent, agentOutputs.Manifest, ownedObjects); err != nil {
-		return fmt.Errorf("failed to reconcile owned objects: %v", err)
+		return fmt.Errorf("failed to reconcile owned objects: %w", err)
 	}
 
 	if err := a.upsertAgent(ctx, agent, agentOutputs); err != nil {
-		return fmt.Errorf("failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
+		return fmt.Errorf("failed to upsert agent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
 	return nil
@@ -767,7 +767,7 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	}
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {
-		return fmt.Errorf("failed to store agent %s: %v", id, err)
+		return fmt.Errorf("failed to store agent %s: %w", id, err)
 	}
 
 	return nil
@@ -775,22 +775,22 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 
 func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServer) ([]*v1alpha2.MCPTool, error) {
 	if _, err := a.dbClient.StoreToolServer(toolServer); err != nil {
-		return nil, fmt.Errorf("failed to store toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
 	}
 
 	tsp, err := a.createMcpTransport(ctx, remoteMcpServer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to create client for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	tools, err := a.listTools(ctx, tsp, toolServer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	// Refresh tools in database - uses transaction for atomicity
 	if err := a.dbClient.RefreshToolsForServer(toolServer.Name, toolServer.GroupKind, tools...); err != nil {
-		return nil, fmt.Errorf("failed to refresh tools for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to refresh tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	return tools, nil
@@ -865,13 +865,13 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, too
 
 	session, err := client.Connect(ctx, tsp, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect client for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to connect client for toolServer %s: %w", toolServer.Name, err)
 	}
 	defer session.Close()
 
 	result, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tools for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to list tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	tools := make([]*v1alpha2.MCPTool, 0, len(result.Tools))
@@ -896,7 +896,7 @@ func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef 
 	for _, tool := range allTools {
 		mcpTool, err := convertTool(&tool)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert tool: %v", err)
+			return nil, fmt.Errorf("failed to convert tool: %w", err)
 		}
 		discoveredTools = append(discoveredTools, mcpTool)
 	}
