@@ -128,6 +128,7 @@ function ModelPageContent() {
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -259,7 +260,14 @@ function ModelPageContent() {
   useEffect(() => {
     if (selectedProvider) {
       const requiredKeys = selectedProvider.requiredParams || [];
-      const optionalKeys = selectedProvider.optionalParams || [];
+      let optionalKeys = [...(selectedProvider.optionalParams || [])];
+
+      // Add baseUrl to optional params for providers that support it
+      const providersWithBaseUrl = ['OpenAI', 'Anthropic', 'Gemini'];
+      if (providersWithBaseUrl.includes(selectedProvider.type) && !optionalKeys.includes('baseUrl')) {
+        optionalKeys = ['baseUrl', ...optionalKeys];
+      }
+
       const currentModelRequiresReset = !isEditMode;
 
       if (currentModelRequiresReset) {
@@ -314,6 +322,16 @@ function ModelPageContent() {
       }
     }
   }, [isApiKeyNeeded, errors.apiKey]);
+
+  // Auto-select OpenAI provider on page load (create mode only)
+  useEffect(() => {
+    if (!isEditMode && providers.length > 0 && !selectedProvider) {
+      const openAIProvider = providers.find(p => p.type === 'OpenAI');
+      if (openAIProvider) {
+        setSelectedProvider(openAIProvider);
+      }
+    }
+  }, [isEditMode, providers, selectedProvider]);
 
   const validateForm = () => {
     const newErrors: ValidationErrors = { requiredParams: {} };
@@ -381,6 +399,25 @@ function ModelPageContent() {
     setOptionalParams(newParams);
     if (errors.optionalParams) {
       setErrors(prev => ({ ...prev, optionalParams: undefined }));
+    }
+  };
+
+  const handleFetchModels = async () => {
+    setIsFetchingModels(true);
+    try {
+      const response = await getModels();
+
+      if (response.error || !response.data) {
+        throw new Error(response.error || "Failed to fetch models");
+      }
+
+      setProviderModelsData(response.data);
+      toast.success("Models refreshed successfully");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to fetch models";
+      toast.error(errorMessage);
+    } finally {
+      setIsFetchingModels(false);
     }
   };
 
@@ -545,6 +582,8 @@ function ModelPageContent() {
             isEditMode={isEditMode}
             modelTag={modelTag}
             onModelTagChange={setModelTag}
+            onFetchModels={handleFetchModels}
+            isFetchingModels={isFetchingModels}
           />
 
           <AuthSection
@@ -610,8 +649,3 @@ export default function ModelPage() {
     </React.Suspense>
   );
 }
-
-
-
-
-
