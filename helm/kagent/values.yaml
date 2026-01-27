@@ -387,13 +387,13 @@ otel:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""
         timeout: 15
         insecure: true
   logging:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""
         timeout: 15
         insecure: true
