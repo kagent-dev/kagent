@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -57,7 +58,7 @@ func (r *ServiceController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
