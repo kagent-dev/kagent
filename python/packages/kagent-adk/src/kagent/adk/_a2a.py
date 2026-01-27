@@ -19,11 +19,14 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from kagent.core.a2a import (
+    KAgentCallContextBuilder,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
     get_a2a_max_content_length,
+    set_request_headers,
 )
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -45,6 +48,23 @@ def thread_dump(request: Request) -> PlainTextResponse:
     faulthandler.dump_traceback(file=buf)
     buf.seek(0)
     return PlainTextResponse(buf.read())
+
+
+class HeaderCaptureMiddleware(BaseHTTPMiddleware):
+    """Middleware to capture HTTP request headers into a context variable.
+
+    This middleware captures the incoming HTTP headers and stores them in a
+    context variable so they can be accessed by the request context builder
+    and propagated to the agent session state for use by plugins.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        headers = dict(request.headers)
+        set_request_headers(headers)
+        logger.debug(f"Captured {len(headers)} HTTP headers for request")
+
+        response = await call_next(request)
+        return response
 
 
 kagent_url_override = os.getenv("KAGENT_URL")
@@ -123,6 +143,7 @@ class KAgentApp:
             agent_card=self.agent_card,
             http_handler=request_handler,
             max_content_length=max_content_length,
+            context_builder=KAgentCallContextBuilder(),
         )
 
         faulthandler.enable()
@@ -133,6 +154,7 @@ class KAgentApp:
             lifespan_manager.add(token_service.lifespan())
 
         app = FastAPI(lifespan=lifespan_manager)
+        app.add_middleware(HeaderCaptureMiddleware)
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)

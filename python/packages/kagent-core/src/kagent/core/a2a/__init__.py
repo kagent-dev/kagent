@@ -15,6 +15,7 @@ from ._consts import (
     KAGENT_HITL_RESUME_KEYWORDS_DENY,
     get_kagent_metadata_key,
 )
+from ._context import clear_request_headers, get_request_headers, set_request_headers
 from ._hitl import (
     DecisionType,
     ToolApprovalRequest,
@@ -24,12 +25,13 @@ from ._hitl import (
     handle_tool_approval_interrupt,
     is_input_required_task,
 )
-from ._requests import KAgentRequestContextBuilder
+from ._requests import KAgentCallContextBuilder, KAgentRequestContextBuilder
 from ._task_result_aggregator import TaskResultAggregator
 from ._task_store import KAgentTaskStore
 
 __all__ = [
     "get_a2a_max_content_length",
+    "KAgentCallContextBuilder",
     "KAgentRequestContextBuilder",
     "KAgentTaskStore",
     "get_kagent_metadata_key",
@@ -40,6 +42,10 @@ __all__ = [
     "A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT",
     "A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE",
     "TaskResultAggregator",
+    # Request context utilities
+    "get_request_headers",
+    "set_request_headers",
+    "clear_request_headers",
     # HITL constants
     "KAGENT_HITL_INTERRUPT_TYPE_TOOL_APPROVAL",
     "KAGENT_HITL_DECISION_TYPE_KEY",

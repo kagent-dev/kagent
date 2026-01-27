@@ -2,9 +2,13 @@ import logging
 
 from a2a.auth.user import User
 from a2a.server.agent_execution import RequestContext, SimpleRequestContextBuilder
+from a2a.server.apps import CallContextBuilder
 from a2a.server.context import ServerCallContext
 from a2a.server.tasks import TaskStore
 from a2a.types import MessageSendParams, Task
+from starlette.requests import Request
+
+from ._context import get_request_headers
 
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
@@ -23,6 +27,19 @@ class KAgentUser(User):
     @property
     def user_name(self) -> str:
         return self.user_id
+
+
+class KAgentCallContextBuilder(CallContextBuilder):
+    """Builds ServerCallContext with captured HTTP headers from middleware.
+
+    This bridges the HeaderCaptureMiddleware (which stores headers in a ContextVar)
+    with the A2A framework's ServerCallContext.state, allowing headers like
+    Authorization to be propagated through the request pipeline.
+    """
+
+    def build(self, request: Request) -> ServerCallContext:
+        headers = get_request_headers()
+        return ServerCallContext(state={"headers": headers})
 
 
 class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
