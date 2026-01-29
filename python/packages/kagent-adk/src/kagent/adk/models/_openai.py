@@ -434,7 +434,11 @@ class BaseOpenAI(BaseLlm):
                 # Accumulate tool calls - keyed by index since they arrive in chunks
                 tool_calls_acc: dict[int, dict[str, Any]] = {}
 
-                async for chunk in await self._client.chat.completions.create(stream=True, **kwargs):
+                # Request usage metadata in streaming mode (OpenAI API feature since Nov 2023)
+                # Without this option, chunk.usage is always None in streaming responses
+                async for chunk in await self._client.chat.completions.create(
+                    stream=True, stream_options={"include_usage": True}, **kwargs
+                ):
                     if chunk.choices and chunk.choices[0].delta:
                         delta = chunk.choices[0].delta
 
