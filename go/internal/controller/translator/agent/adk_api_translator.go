@@ -314,14 +314,16 @@ func (a *adkApiTranslator) buildManifest(
 		},
 	})
 
-	// Service Account
-	outputs.Manifest = append(outputs.Manifest, &corev1.ServiceAccount{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "ServiceAccount",
-		},
-		ObjectMeta: objMeta(),
-	})
+	// Only create service account if using the default name
+	if *dep.ServiceAccountName == agent.Name {
+		outputs.Manifest = append(outputs.Manifest, &corev1.ServiceAccount{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ServiceAccount",
+			},
+			ObjectMeta: objMeta(),
+		})
+	}
 
 	// Base env for both types
 	sharedEnv := make([]corev1.EnvVar, 0, 8)
@@ -465,7 +467,7 @@ func (a *adkApiTranslator) buildManifest(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(), Annotations: podTemplateAnnotations},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: agent.Name,
+					ServiceAccountName: *dep.ServiceAccountName,
 					ImagePullSecrets:   dep.ImagePullSecrets,
 					SecurityContext:    dep.PodSecurityContext,
 					InitContainers:     initContainers,
@@ -1409,6 +1411,7 @@ type resolvedDeployment struct {
 	NodeSelector       map[string]string
 	SecurityContext    *corev1.SecurityContext
 	PodSecurityContext *corev1.PodSecurityContext
+	ServiceAccountName *string
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -1449,6 +1452,8 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		"--filepath",
 		"/config",
 	}
+
+	serviceAccountName := ptr.To(agent.Name)
 
 	// Start with spec deployment spec
 	spec := v1alpha2.DeclarativeDeploymentSpec{}
@@ -1493,6 +1498,12 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		NodeSelector:       maps.Clone(spec.NodeSelector),
 		SecurityContext:    spec.SecurityContext,
 		PodSecurityContext: spec.PodSecurityContext,
+		ServiceAccountName: spec.ServiceAccountName,
+	}
+
+	// If not specified, use the agent name as the service account name
+	if dep.ServiceAccountName == nil {
+		dep.ServiceAccountName = serviceAccountName
 	}
 
 	return dep, nil
@@ -1563,6 +1574,11 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 		NodeSelector:       maps.Clone(spec.NodeSelector),
 		SecurityContext:    spec.SecurityContext,
 		PodSecurityContext: spec.PodSecurityContext,
+		ServiceAccountName: spec.ServiceAccountName,
+	}
+
+	if dep.ServiceAccountName == nil {
+		dep.ServiceAccountName = ptr.To(agent.Name)
 	}
 
 	return dep, nil

@@ -10,10 +10,12 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/adk"
 	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -422,4 +424,110 @@ func Test_AdkApiTranslator_OllamaOptions(t *testing.T) {
 
 	assert.Equal(t, "4096", ollamaModel.Options["num_ctx"])
 	assert.Equal(t, "0.7", ollamaModel.Options["temperature"])
+}
+
+func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	tests := []struct {
+		name                   string
+		agent                  *v1alpha2.Agent
+		expectedServiceAccount string
+	}{
+		{
+			name: "Default Service Account (Agent Name)",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "default-agent",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Default Agent",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "System message",
+						ModelConfig:   "test-model",
+					},
+				},
+			},
+			expectedServiceAccount: "default-agent",
+		},
+		{
+			name: "Custom Service Account in Declarative Agent",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "custom-sa-agent",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Custom SA Agent",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "System message",
+						ModelConfig:   "test-model",
+						Deployment: &v1alpha2.DeclarativeDeploymentSpec{
+							SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+								ServiceAccountName: ptr.To("custom-sa"),
+							},
+						},
+					},
+				},
+			},
+			expectedServiceAccount: "custom-sa",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			modelConfig := &v1alpha2.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-model",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:    "gpt-4",
+					Provider: v1alpha2.ModelProviderOpenAI,
+				},
+			}
+
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(modelConfig, tt.agent).
+				Build()
+
+			defaultModel := types.NamespacedName{
+				Namespace: "default",
+				Name:      "test-model",
+			}
+
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+
+			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+
+			// Find Deployment and ServiceAccount in Manifest
+			var deployment *appsv1.Deployment
+			var serviceAccount *corev1.ServiceAccount
+			for _, obj := range outputs.Manifest {
+				if d, ok := obj.(*appsv1.Deployment); ok {
+					deployment = d
+				}
+				if sa, ok := obj.(*corev1.ServiceAccount); ok {
+					serviceAccount = sa
+				}
+			}
+
+			require.NotNil(t, deployment, "Deployment should be created")
+			assert.Equal(t, tt.expectedServiceAccount, deployment.Spec.Template.Spec.ServiceAccountName)
+
+			// If the custom SA name matches agent name, it should be created. Otherwise, it should be skipped.
+			if tt.expectedServiceAccount == tt.agent.Name {
+				assert.NotNil(t, serviceAccount, "ServiceAccount should be created when using default name")
+			} else {
+				assert.Nil(t, serviceAccount, "ServiceAccount should NOT be created when using custom override")
+			}
+		})
+	}
 }
