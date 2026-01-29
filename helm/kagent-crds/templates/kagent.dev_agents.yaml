@@ -4091,6 +4091,8 @@ spec:
                                 type: string
                             type: object
                         type: object
+                      serviceAccountName:
+                        type: string
                       tolerations:
                         items:
                           description: |-
@@ -7783,6 +7785,8 @@ spec:
                                 type: string
                             type: object
                         type: object
+                      serviceAccountName:
+                        type: string
                       tolerations:
                         items:
                           description: |-
