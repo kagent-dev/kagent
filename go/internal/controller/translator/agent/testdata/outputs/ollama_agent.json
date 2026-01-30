@@ -26,6 +26,11 @@
         "User-Agent": "kagent/1.0"
       },
       "model": "llama3.2:latest",
+      "options": {
+        "num_ctx": "2048",
+        "temperature": "0.8",
+        "top_p": "0.9"
+      },
       "type": "ollama"
     },
     "remote_agents": null,
@@ -59,7 +64,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"model\":\"llama3.2:latest\",\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "config.json": "{\"model\":{\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"model\":\"llama3.2:latest\",\"options\":{\"num_ctx\":\"2048\",\"temperature\":\"0.8\",\"top_p\":\"0.9\"},\"type\":\"ollama\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -128,7 +133,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "15455346152631326813"
+              "kagent.dev/config-hash": "12564635130117656960"
             },
             "labels": {
               "app": "kagent",

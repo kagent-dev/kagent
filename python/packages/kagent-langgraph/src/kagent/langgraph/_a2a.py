@@ -15,7 +15,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
 from kagent.core import KAgentConfig, configure_tracing
-from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
+from kagent.core.a2a import (
+    KAgentRequestContextBuilder,
+    KAgentTaskStore,
+    get_a2a_max_content_length,
+)
 from langgraph.graph.state import CompiledStateGraph
 
 from ._executor import LangGraphAgentExecutor, LangGraphAgentExecutorConfig
@@ -78,7 +82,6 @@ class KAgentApp:
         Returns:
             Configured FastAPI application ready for deployment
         """
-
         # Create HTTP client for KAgent API
         http_client = httpx.AsyncClient(base_url=self.config.url)
 
@@ -103,9 +106,11 @@ class KAgentApp:
         )
 
         # Create A2A application
+        max_content_length = get_a2a_max_content_length()
         a2a_app = A2AStarletteApplication(
             agent_card=self.agent_card,
             http_handler=request_handler,
+            max_content_length=max_content_length,
         )
 
         # Enable fault handler for debugging

@@ -158,6 +158,7 @@ func (g *GeminiAnthropic) GetType() string {
 
 type Ollama struct {
 	BaseModel
+	Options map[string]string `json:"options,omitempty"`
 }
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
@@ -165,6 +166,7 @@ func (o *Ollama) MarshalJSON() ([]byte, error) {
 		"type":    ModelTypeOllama,
 		"model":   o.Model,
 		"headers": o.Headers,
+		"options": o.Options,
 	})
 }
 

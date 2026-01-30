@@ -53,6 +53,78 @@ spec:
           spec:
             description: RemoteMCPServerSpec defines the desired state of RemoteMCPServer.
             properties:
+              allowedNamespaces:
+                description: |-
+                  AllowedNamespaces defines which namespaces are allowed to reference this RemoteMCPServer.
+                  This follows the Gateway API pattern for cross-namespace route attachments.
+                  If not specified, only Agents in the same namespace can reference this RemoteMCPServer.
+                  See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+                properties:
+                  from:
+                    default: Same
+                    description: |-
+                      From indicates where references to this resource can originate.
+                      Possible values are:
+                      * All: References from all namespaces are allowed.
+                      * Same: Only references from the same namespace are allowed (default).
+                      * Selector: References from namespaces matching the selector are allowed.
+                    enum:
+                    - All
+                    - Same
+                    - Selector
+                    type: string
+                  selector:
+                    description: |-
+                      Selector is a label selector for namespaces that are allowed to reference this resource.
+                      Only used when From is set to "Selector".
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+                x-kubernetes-validations:
+                - message: selector must be specified when from is Selector
+                  rule: '!(self.from == ''Selector'' && !has(self.selector))'
               description:
                 type: string
               headersFrom:

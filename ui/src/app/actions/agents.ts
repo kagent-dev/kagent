@@ -19,6 +19,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     : agentFormData.modelName;
 
   const type = agentFormData.type || "Declarative";
+  const agentNamespace = agentFormData.namespace || "";
 
   const convertTools = (tools: Tool[]) =>
     tools.map((tool) => {
@@ -27,10 +28,19 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         if (!mcpServer) {
           throw new Error("MCP server not found");
         }
-        // Ensure TypedLocalReference fields are only the name (no namespace)
+        
         let name = mcpServer.name;
+        let namespace: string | undefined = mcpServer.namespace;
+        
         if (k8sRefUtils.isValidRef(mcpServer.name)) {
-          name = k8sRefUtils.fromRef(mcpServer.name).name;
+          const parsed = k8sRefUtils.fromRef(mcpServer.name);
+          name = parsed.name;
+          // Ignore namespace on the name ref if one is set - using namespace/name format is legacy behavior
+        }
+        
+        // If no namespace is set, default to the agent's namespace
+        if (!namespace) {
+          namespace = agentNamespace;
         }
 
         let kind = mcpServer.kind;
@@ -44,6 +54,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           type: "McpServer",
           mcpServer: {
             name,
+            namespace,
             kind,
             apiGroup: mcpServer.apiGroup,
             toolNames: mcpServer.toolNames,
@@ -52,15 +63,32 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       }
 
       if (tool.type === "Agent") {
-        const agentObj = tool.agent as { ref?: string; name?: string; kind?: string; apiGroup?: string };
-        const refOrName = agentObj.ref || agentObj.name || "";
-        const nameOnly = k8sRefUtils.isValidRef(refOrName) ? k8sRefUtils.fromRef(refOrName).name : refOrName;
+        const agent = tool.agent;
+        if (!agent) {
+          throw new Error("Agent not found");
+        }
+
+        let name = agent.name;
+        let namespace: string | undefined = agent.namespace;
+        
+        if (k8sRefUtils.isValidRef(name)) {
+          const parsed = k8sRefUtils.fromRef(name);
+          name = parsed.name;
+          // Ignore namespace on the name ref if one is set - using namespace/name format is legacy behavior
+        }
+        
+        // If no namespace is set, default to the agent's namespace
+        if (!namespace) {
+          namespace = agentNamespace;
+        }
+        
         return {
           type: "Agent",
           agent: {
-            name: nameOnly,
-            kind: agentObj.kind || "Agent",
-            apiGroup: agentObj.apiGroup || "kagent.dev",
+            name,
+            namespace,
+            kind: agent.kind || "Agent",
+            apiGroup: agent.apiGroup || "kagent.dev",
           },
         } as Tool;
       }

@@ -107,7 +107,7 @@ export interface ProcessedToolResultData {
 
 // Normalize various tool response result shapes into plain text
 export function normalizeToolResultToText(toolData: ToolResponseData): string {
-  const result = toolData.response?.result;
+  const result = toolData.response?.result || toolData.response;
 
   if (typeof result === "string") {
     return result;
