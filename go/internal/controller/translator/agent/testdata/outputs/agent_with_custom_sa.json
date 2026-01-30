@@ -1,0 +1,267 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "agent_with_custom_sa",
+    "skills": null,
+    "url": "http://agent-with-custom-sa.test:8080",
+    "version": ""
+  },
+  "config": {
+    "description": "",
+    "http_tools": null,
+    "instruction": "You are a helpful assistant.",
+    "model": {
+      "base_url": "",
+      "model": "gpt-4",
+      "type": "openai"
+    },
+    "remote_agents": null,
+    "sse_tools": null,
+    "stream": false
+  },
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-custom-sa",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-custom-sa"
+        },
+        "name": "agent-with-custom-sa",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-custom-sa",
+            "uid": ""
+          }
+        ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"name\":\"agent_with_custom_sa\",\"description\":\"\",\"url\":\"http://agent-with-custom-sa.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-custom-sa",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-custom-sa"
+        },
+        "name": "agent-with-custom-sa",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-custom-sa",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "agent-with-custom-sa"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "5959296142796405196"
+            },
+            "labels": {
+              "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "agent-with-custom-sa",
+              "app.kubernetes.io/part-of": "kagent",
+              "kagent": "agent-with-custom-sa"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "args": [
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "spec.serviceAccountName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "384Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "custom-sa",
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "agent-with-custom-sa"
+                }
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-custom-sa",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-custom-sa"
+        },
+        "name": "agent-with-custom-sa",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-custom-sa",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "agent-with-custom-sa"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
+}

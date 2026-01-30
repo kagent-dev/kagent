@@ -144,6 +144,7 @@ type ByoDeploymentSpec struct {
 	SharedDeploymentSpec `json:",inline"`
 }
 
+// +kubebuilder:validation:XValidation:message="serviceAccountName and serviceAccountConfig are mutually exclusive",rule="!(has(self.serviceAccountName) && has(self.serviceAccountConfig))"
 type SharedDeploymentSpec struct {
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
@@ -173,8 +174,15 @@ type SharedDeploymentSpec struct {
 	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 	// +optional
 	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	// ServiceAccountName specifies the name of an existing ServiceAccount to use.
+	// If this field is set, the Agent controller will not create a ServiceAccount for the agent.
+	// This field is mutually exclusive with ServiceAccountConfig.
 	// +optional
 	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
+	// ServiceAccountConfig configures the ServiceAccount created by the Agent controller.
+	// This field can only be used when ServiceAccountName is not set.
+	// If ServiceAccountName is not set, a default ServiceAccount (named after the agent)
+	// is created, and this config will be applied to it.
 	// +optional
 	ServiceAccountConfig *ServiceAccountConfig `json:"serviceAccountConfig,omitempty"`
 }
