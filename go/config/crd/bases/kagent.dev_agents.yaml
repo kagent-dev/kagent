@@ -4092,6 +4092,11 @@ spec:
                             type: object
                         type: object
                       serviceAccountConfig:
+                        description: |-
+                          ServiceAccountConfig configures the ServiceAccount created by the Agent controller.
+                          This field can only be used when ServiceAccountName is not set.
+                          If ServiceAccountName is not set, a default ServiceAccount (named after the agent)
+                          is created, and this config will be applied to it.
                         properties:
                           annotations:
                             additionalProperties:
@@ -4103,6 +4108,10 @@ spec:
                             type: object
                         type: object
                       serviceAccountName:
+                        description: |-
+                          ServiceAccountName specifies the name of an existing ServiceAccount to use.
+                          If this field is set, the Agent controller will not create a ServiceAccount for the agent.
+                          This field is mutually exclusive with ServiceAccountConfig.
                         type: string
                       tolerations:
                         items:
@@ -6125,6 +6134,10 @@ spec:
                           type: object
                         type: array
                     type: object
+                    x-kubernetes-validations:
+                    - message: serviceAccountName and serviceAccountConfig are mutually
+                        exclusive
+                      rule: '!(has(self.serviceAccountName) && has(self.serviceAccountConfig))'
                 type: object
               declarative:
                 properties:
@@ -7797,6 +7810,11 @@ spec:
                             type: object
                         type: object
                       serviceAccountConfig:
+                        description: |-
+                          ServiceAccountConfig configures the ServiceAccount created by the Agent controller.
+                          This field can only be used when ServiceAccountName is not set.
+                          If ServiceAccountName is not set, a default ServiceAccount (named after the agent)
+                          is created, and this config will be applied to it.
                         properties:
                           annotations:
                             additionalProperties:
@@ -7808,6 +7826,10 @@ spec:
                             type: object
                         type: object
                       serviceAccountName:
+                        description: |-
+                          ServiceAccountName specifies the name of an existing ServiceAccount to use.
+                          If this field is set, the Agent controller will not create a ServiceAccount for the agent.
+                          This field is mutually exclusive with ServiceAccountConfig.
                         type: string
                       tolerations:
                         items:
@@ -9830,6 +9852,10 @@ spec:
                           type: object
                         type: array
                     type: object
+                    x-kubernetes-validations:
+                    - message: serviceAccountName and serviceAccountConfig are mutually
+                        exclusive
+                      rule: '!(has(self.serviceAccountName) && has(self.serviceAccountConfig))'
                   executeCodeBlocks:
                     description: |-
                       Allow code execution for python code blocks with this agent.
