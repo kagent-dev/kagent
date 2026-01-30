@@ -1110,7 +1110,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 
 		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames, proxyURL, toolServer.AllowedHeaders)
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer, proxyURL)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "RemoteMCPServer",
@@ -1134,7 +1134,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		if a.globalProxyURL != "" && a.isInternalK8sURL(ctx, remoteMcpServer.Spec.URL, agentNamespace) {
 			proxyURL = a.globalProxyURL
 		}
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer.ToolNames, proxyURL, toolServer.AllowedHeaders)
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, &remoteMcpServer.Spec, toolServer, proxyURL)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "Service",
@@ -1157,7 +1157,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 
 		spec.HeadersFrom = append(spec.HeadersFrom, toolHeaders...)
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer.ToolNames, proxyURL, toolServer.AllowedHeaders)
+		return a.translateRemoteMCPServerTarget(ctx, agent, agentNamespace, spec, toolServer, proxyURL)
 
 	default:
 		return fmt.Errorf("unknown tool server type: %s", gvk)
@@ -1222,7 +1222,7 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 	}, nil
 }
 
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string, proxyURL string, allowedHeaders []string) error {
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolServer *v1alpha2.McpServerTool, proxyURL string) error {
 	switch remoteMcpServer.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentNamespace, proxyURL)
@@ -1230,9 +1230,9 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			return err
 		}
 		agent.SseTools = append(agent.SseTools, adk.SseMcpServerConfig{
-			Params:           *tool,
-			Tools:            toolNames,
-			PropagateHeaders: allowedHeaders,
+			Params:         *tool,
+			Tools:          toolServer.ToolNames,
+			AllowedHeaders: toolServer.AllowedHeaders,
 		})
 	default:
 		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentNamespace, proxyURL)
@@ -1240,9 +1240,9 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			return err
 		}
 		agent.HttpTools = append(agent.HttpTools, adk.HttpMcpServerConfig{
-			Params:           *tool,
-			Tools:            toolNames,
-			PropagateHeaders: allowedHeaders,
+			Params:         *tool,
+			Tools:          toolServer.ToolNames,
+			AllowedHeaders: toolServer.AllowedHeaders,
 		})
 	}
 	return nil

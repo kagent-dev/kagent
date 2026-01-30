@@ -162,35 +162,35 @@ class TestCreateHeaderProvider:
         assert headers == {}
 
 
-class TestMcpServerConfigPropagateHeaders:
-    """Tests for propagate_headers field in MCP server configs."""
+class TestMcpServerConfigAllowedHeaders:
+    """Tests for allowed_headers field in MCP server configs."""
 
-    def test_http_mcp_config_has_propagate_headers(self):
-        """Test that HttpMcpServerConfig has propagate_headers field."""
+    def test_http_mcp_config_has_allowed_headers(self):
+        """Test that HttpMcpServerConfig has allowed_headers field."""
         config = HttpMcpServerConfig(
             params=StreamableHTTPConnectionParams(url="http://localhost:8080"),
-            propagate_headers=["x-user-email", "x-tenant-id"],
+            allowed_headers=["x-user-email", "x-tenant-id"],
         )
-        assert config.propagate_headers == ["x-user-email", "x-tenant-id"]
+        assert config.allowed_headers == ["x-user-email", "x-tenant-id"]
 
-    def test_http_mcp_config_propagate_headers_default_none(self):
-        """Test that propagate_headers defaults to None."""
+    def test_http_mcp_config_allowed_headers_default_none(self):
+        """Test that allowed_headers defaults to None."""
         config = HttpMcpServerConfig(
             params=StreamableHTTPConnectionParams(url="http://localhost:8080"),
         )
-        assert config.propagate_headers is None
+        assert config.allowed_headers is None
 
-    def test_sse_mcp_config_has_propagate_headers(self):
-        """Test that SseMcpServerConfig has propagate_headers field."""
+    def test_sse_mcp_config_has_allowed_headers(self):
+        """Test that SseMcpServerConfig has allowed_headers field."""
         config = SseMcpServerConfig(
             params=SseConnectionParams(url="http://localhost:8080"),
-            propagate_headers=["x-user-email"],
+            allowed_headers=["x-user-email"],
         )
-        assert config.propagate_headers == ["x-user-email"]
+        assert config.allowed_headers == ["x-user-email"]
 
-    def test_sse_mcp_config_propagate_headers_default_none(self):
-        """Test that propagate_headers defaults to None."""
+    def test_sse_mcp_config_allowed_headers_default_none(self):
+        """Test that allowed_headers defaults to None."""
         config = SseMcpServerConfig(
             params=SseConnectionParams(url="http://localhost:8080"),
         )
-        assert config.propagate_headers is None
+        assert config.allowed_headers is None

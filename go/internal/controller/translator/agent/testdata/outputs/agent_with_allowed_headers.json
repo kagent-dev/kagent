@@ -21,14 +21,14 @@
     "description": "",
     "http_tools": [
       {
+        "allowed_headers": [
+          "x-user-email",
+          "x-tenant-id"
+        ],
         "params": {
           "headers": {},
           "url": "http://mcp-server.test:8080/mcp"
         },
-        "propagate_headers": [
-          "x-user-email",
-          "x-tenant-id"
-        ],
         "tools": [
           "tool1",
           "tool2"
@@ -72,7 +72,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":[{\"params\":{\"url\":\"http://mcp-server.test:8080/mcp\",\"headers\":{}},\"tools\":[\"tool1\",\"tool2\"],\"propagate_headers\":[\"x-user-email\",\"x-tenant-id\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":[{\"params\":{\"url\":\"http://mcp-server.test:8080/mcp\",\"headers\":{}},\"tools\":[\"tool1\",\"tool2\"],\"allowed_headers\":[\"x-user-email\",\"x-tenant-id\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -141,7 +141,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "3165022394890595257"
+              "kagent.dev/config-hash": "10932872605308481917"
             },
             "labels": {
               "app": "kagent",
