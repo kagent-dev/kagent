@@ -16,9 +16,9 @@ type StreamableHTTPConnectionParams struct {
 }
 
 type HttpMcpServerConfig struct {
-	Params          StreamableHTTPConnectionParams `json:"params"`
-	Tools           []string                       `json:"tools"`
-	AllowedHeaders  []string                       `json:"allowed_headers,omitempty"`
+	Params         StreamableHTTPConnectionParams `json:"params"`
+	Tools          []string                       `json:"tools"`
+	AllowedHeaders []string                       `json:"allowed_headers,omitempty"`
 }
 
 type SseConnectionParams struct {
