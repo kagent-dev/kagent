@@ -37,7 +37,6 @@ type TestInput struct {
 
 // TestGoldenAdkTranslator runs golden tests for the ADK API translator
 func TestGoldenAdkTranslator(t *testing.T) {
-
 	// Skip if running in CI without update flag
 	updateGolden := os.Getenv("UPDATE_GOLDEN") == "true"
 
