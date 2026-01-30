@@ -476,6 +476,36 @@ func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 			},
 			expectedServiceAccount: "custom-sa",
 		},
+		{
+			name: "Default Service Account with Labels and Annotations",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "configured-sa-agent",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Agent with configured SA",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "System message",
+						ModelConfig:   "test-model",
+						Deployment: &v1alpha2.DeclarativeDeploymentSpec{
+							SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+								ServiceAccountConfig: &v1alpha2.ServiceAccountConfig{
+									Labels: map[string]string{
+										"custom-label": "value",
+									},
+									Annotations: map[string]string{
+										"custom-annotation": "value",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedServiceAccount: "configured-sa-agent",
+		},
 	}
 
 	for _, tt := range tests {
@@ -525,6 +555,28 @@ func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 			// If the custom SA name matches agent name, it should be created. Otherwise, it should be skipped.
 			if tt.expectedServiceAccount == tt.agent.Name {
 				assert.NotNil(t, serviceAccount, "ServiceAccount should be created when using default name")
+
+				// Verify Config if present
+				var saConfig *v1alpha2.ServiceAccountConfig
+				switch tt.agent.Spec.Type {
+				case v1alpha2.AgentType_Declarative:
+					if tt.agent.Spec.Declarative.Deployment != nil {
+						saConfig = tt.agent.Spec.Declarative.Deployment.ServiceAccountConfig
+					}
+				case v1alpha2.AgentType_BYO:
+					if tt.agent.Spec.BYO.Deployment != nil {
+						saConfig = tt.agent.Spec.BYO.Deployment.ServiceAccountConfig
+					}
+				}
+
+				if saConfig != nil && serviceAccount != nil {
+					for k, v := range saConfig.Labels {
+						assert.Equal(t, v, serviceAccount.Labels[k], "Label %s mismatch", k)
+					}
+					for k, v := range saConfig.Annotations {
+						assert.Equal(t, v, serviceAccount.Annotations[k], "Annotation %s mismatch", k)
+					}
+				}
 			} else {
 				assert.Nil(t, serviceAccount, "ServiceAccount should NOT be created when using custom override")
 			}

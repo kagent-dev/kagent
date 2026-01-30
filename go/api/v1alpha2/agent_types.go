@@ -175,6 +175,15 @@ type SharedDeploymentSpec struct {
 	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
 	// +optional
 	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
+	// +optional
+	ServiceAccountConfig *ServiceAccountConfig `json:"serviceAccountConfig,omitempty"`
+}
+
+type ServiceAccountConfig struct {
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type

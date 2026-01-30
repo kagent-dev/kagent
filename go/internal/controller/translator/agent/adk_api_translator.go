@@ -314,15 +314,30 @@ func (a *adkApiTranslator) buildManifest(
 		},
 	})
 
-	// Only create service account if using the default name
+	// Service Account - only created if using the default name
 	if *dep.ServiceAccountName == agent.Name {
-		outputs.Manifest = append(outputs.Manifest, &corev1.ServiceAccount{
+		sa := &corev1.ServiceAccount{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "v1",
 				Kind:       "ServiceAccount",
 			},
 			ObjectMeta: objMeta(),
-		})
+		}
+		if dep.ServiceAccountConfig != nil {
+			if dep.ServiceAccountConfig.Labels != nil {
+				if sa.Labels == nil {
+					sa.Labels = make(map[string]string)
+				}
+				maps.Copy(sa.Labels, dep.ServiceAccountConfig.Labels)
+			}
+			if dep.ServiceAccountConfig.Annotations != nil {
+				if sa.Annotations == nil {
+					sa.Annotations = make(map[string]string)
+				}
+				maps.Copy(sa.Annotations, dep.ServiceAccountConfig.Annotations)
+			}
+		}
+		outputs.Manifest = append(outputs.Manifest, sa)
 	}
 
 	// Base env for both types
@@ -1412,6 +1427,7 @@ type resolvedDeployment struct {
 	SecurityContext    *corev1.SecurityContext
 	PodSecurityContext *corev1.PodSecurityContext
 	ServiceAccountName *string
+	ServiceAccountConfig *v1alpha2.ServiceAccountConfig
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -1499,6 +1515,7 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		SecurityContext:    spec.SecurityContext,
 		PodSecurityContext: spec.PodSecurityContext,
 		ServiceAccountName: spec.ServiceAccountName,
+		ServiceAccountConfig: spec.ServiceAccountConfig,
 	}
 
 	// If not specified, use the agent name as the service account name
@@ -1573,8 +1590,9 @@ func (a *adkApiTranslator) resolveByoDeployment(agent *v1alpha2.Agent) (*resolve
 		Affinity:           spec.Affinity,
 		NodeSelector:       maps.Clone(spec.NodeSelector),
 		SecurityContext:    spec.SecurityContext,
-		PodSecurityContext: spec.PodSecurityContext,
-		ServiceAccountName: spec.ServiceAccountName,
+		PodSecurityContext:   spec.PodSecurityContext,
+		ServiceAccountName:   spec.ServiceAccountName,
+		ServiceAccountConfig: spec.ServiceAccountConfig,
 	}
 
 	if dep.ServiceAccountName == nil {

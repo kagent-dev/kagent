@@ -4091,6 +4091,17 @@ spec:
                                 type: string
                             type: object
                         type: object
+                      serviceAccountConfig:
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
                       serviceAccountName:
                         type: string
                       tolerations:
@@ -7783,6 +7794,17 @@ spec:
                                   May also be set in PodSecurityContext. If set in both SecurityContext and
                                   PodSecurityContext, the value specified in SecurityContext takes precedence.
                                 type: string
+                            type: object
+                        type: object
+                      serviceAccountConfig:
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
                             type: object
                         type: object
                       serviceAccountName:
