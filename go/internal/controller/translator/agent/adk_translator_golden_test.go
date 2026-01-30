@@ -37,9 +37,6 @@ type TestInput struct {
 
 // TestGoldenAdkTranslator runs golden tests for the ADK API translator
 func TestGoldenAdkTranslator(t *testing.T) {
-	// Set OTEL env var for deterministic output since collectOtelEnvFromProcess()
-	// reads from os.Environ() and we need consistent golden file comparisons
-	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "delta")
 
 	// Skip if running in CI without update flag
 	updateGolden := os.Getenv("UPDATE_GOLDEN") == "true"
