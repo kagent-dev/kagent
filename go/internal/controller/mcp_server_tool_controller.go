@@ -18,10 +18,12 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/internal/controller/predicates"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,10 +49,22 @@ type MCPServerToolController struct {
 func (r *MCPServerToolController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
+	err := r.Reconciler.ReconcileKagentMCPServer(ctx, req)
+	if err != nil {
+		// Check if this is a validation error that requires user action
+		var validationErr *agent_translator.ValidationError
+		if errors.As(err, &validationErr) {
+			// Validation error - don't retry until MCPServer spec is updated
+			// Return empty result with no error to avoid exponential backoff
+			return ctrl.Result{}, nil
+		}
+		// Transient error - return error to trigger exponential backoff retry
+		return ctrl.Result{}, err
+	}
+	// Success - requeue after 60s to refresh tool server status
 	return ctrl.Result{
-		// loop forever because we need to refresh tools server status
 		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileKagentMCPServer(ctx, req)
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

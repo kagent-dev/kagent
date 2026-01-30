@@ -43,10 +43,15 @@ type RemoteMCPServerController struct {
 func (r *RemoteMCPServerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
+	err := r.Reconciler.ReconcileKagentRemoteMCPServer(ctx, req)
+	if err != nil {
+		// Return zero result when there's an error - controller-runtime will handle backoff
+		return ctrl.Result{}, err
+	}
+	// Success - requeue after 60s to refresh tool server status
 	return ctrl.Result{
-		// loop forever because we need to refresh tools server status
 		RequeueAfter: 60 * time.Second,
-	}, r.Reconciler.ReconcileKagentRemoteMCPServer(ctx, req)
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

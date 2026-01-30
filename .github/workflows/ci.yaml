@@ -166,12 +166,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: ui/package-lock.json
 
       - name: Install dependencies
         working-directory: ./ui
+        env:
+          CYPRESS_INSTALL_BINARY: 0  # Skip Cypress binary - not needed for lint/unit tests
         run: npm ci
 
       - name: Run lint
@@ -244,7 +246,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.7.2
+          version: v2.8.0
           working-directory: go
 
   python-test:
