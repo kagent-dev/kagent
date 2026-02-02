@@ -19,7 +19,7 @@ dependencies = [
   "uvicorn>=0.34.0",
   "openai>=1.72.0",
   "mcp>=1.25.0",
-  "protobuf>=6",
+  "protobuf>=6.33.5",  # CVE-2026-0994: Denial of Service due to recursion depth bypass
   "anthropic[vertex]>=0.49.0",
   "fastapi>=0.115.1",
   "litellm>=1.74.3",
@@ -34,6 +34,7 @@ dependencies = [
   # Security: pin minimum versions for CVE fixes in transitive dependencies
   "urllib3>=2.6.3",  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: unbounded decompression DoS
   "filelock>=3.20.3",  # CVE-2025-68146, CVE-2026-22701: TOCTOU symlink race condition
+  "python-multipart>=0.0.22",  # CVE-2026-24486: Arbitrary file write via path traversal
   "boto3>=1.28.57",
   "ollama >=0.3.6",  # Ollama SDK
 ]

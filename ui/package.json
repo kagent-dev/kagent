@@ -56,7 +56,7 @@
     "braces": ">=3.0.3",
     "micromatch": ">=4.0.8",
     "diff": ">=8.0.3",
-    "tar": ">=7.5.3"
+    "tar": ">=7.5.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
