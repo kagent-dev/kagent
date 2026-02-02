@@ -86,7 +86,7 @@ class KAgentApp:
         )
 
         if self.tracing:
-            configure_tracing(app)
+            configure_tracing(self.config.name, self.config.namespace, app)
             # Setup crewAI instrumentor separately as core configure does not include it
             tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
             if tracing_enabled:

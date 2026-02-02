@@ -43,11 +43,11 @@ def _instrument_google_generativeai():
         pass
 
 
-def configure(fastapi_app: FastAPI | None = None):
+def configure(name: str, namespace: str, fastapi_app: FastAPI | None = None):
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
 
-    resource = Resource({"service.name": "kagent"})
+    resource = Resource({"service.name": name, "service.namespace": namespace})
 
     # Configure tracing if enabled
     if tracing_enabled:

@@ -82,7 +82,7 @@ def static(
     )
 
     server = kagent_app.build()
-    configure_tracing(server)
+    configure_tracing(app_cfg.name, app_cfg.namespace, server)
 
     uvicorn.run(
         server,
@@ -197,7 +197,7 @@ def run(
     else:
         server = kagent_app.build()
 
-    configure_tracing(server)
+    configure_tracing(app_cfg.name, app_cfg.namespace, server)
 
     uvicorn.run(
         server,
