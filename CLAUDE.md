@@ -636,7 +636,7 @@ make create-kind-cluster
 | Deploy kagent | `make helm-install` |
 | Build all | `make build` |
 | Run all tests | `make test` |
-| Run E2E tests | `make test-e2e` |
+| Run E2E tests | `make -C go e2e` |
 | Lint code | `make lint` |
 | Generate CRD code | `make -C go generate` |
 | Run controller locally | `make -C go run` |
