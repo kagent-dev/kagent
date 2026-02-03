@@ -93,7 +93,7 @@ kagent/
 - [Makefile](Makefile) - Root build orchestration
 - [DEVELOPMENT.md](DEVELOPMENT.md) - Development setup guide
 - [go/api/v1alpha2/agent_types.go](go/api/v1alpha2/agent_types.go) - Agent CRD definition
-- [go/internal/controller/reconciler/kagent_reconciler.go](go/internal/controller/reconciler/kagent_reconciler.go) - Shared reconciler pattern
+- [go/internal/controller/reconciler/reconciler.go](go/internal/controller/reconciler/reconciler.go) - Shared reconciler pattern
 - [python/packages/kagent-adk/](python/packages/kagent-adk/) - Python ADK implementation
 - [helm/kagent/values.yaml](helm/kagent/values.yaml) - Default configuration
 
