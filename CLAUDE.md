@@ -461,7 +461,7 @@ return ctrl.Result{}, nil
 - KMCP repository for K8s-native tools (Prometheus, Helm, etc.)
 - Each MCP server is independently deployable
 
-**MCP protocol implementation:** [go/internal/httpserver/mcp_handler.go](go/internal/httpserver/mcp_handler.go)
+**MCP protocol implementation:** MCP-related HTTP handlers live under [go/internal/httpserver/handlers/](go/internal/httpserver/handlers/).
 
 **Tool discovery:**
 - Tools are fetched from MCP servers at runtime
