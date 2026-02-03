@@ -1,3 +1,7 @@
+### Makefile local overrides (e.g. proxy)
+config.mk
+buildx/config.mk
+
 ### dotenv template
 python/.env
 
