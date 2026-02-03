@@ -274,7 +274,7 @@ jobs:
 
       - name: Run tests
         working-directory: ./python
-        run: uv run pytest ./packages/**/tests/
+        run: make test
 
   python-lint:
     runs-on: ubuntu-latest

@@ -104,14 +104,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: test
 test:
-	CGO_ENABLED=0 go mod tidy -v
-	CGO_ENABLED=0 go test -race ./cli/...
-#	CGO_ENABLED=0 go test ./controller/...
+	UPDATE_GOLDEN=$(UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
 
 .PHONY: e2e
 e2e:
-	#UPDATE_GOLDEN=true go test -race -skip 'TestE2E.*' -v ./...
-	go test -race -skip 'TestE2E.*' -v ./...
+	go test -v github.com/kagent-dev/kagent/go/test/e2e -failfast
 
 .PHONY: install
 install: manifests
