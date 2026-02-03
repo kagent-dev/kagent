@@ -20,10 +20,34 @@ KUBECONFIG_PERM ?= $(shell \
   fi)
 
 
+# Optional config overrides
+-include config.mk
+# Buildx proxy config: copy buildx/config.mk.example to buildx/config.mk and set
+# HTTP_PROXY/HTTPS_PROXY so the buildx builder can load base image metadata.
+-include buildx/config.mk
+
+# Proxy for Docker buildx (BuildKit). Set in buildx/config.mk or env so the builder
+# can load base image metadata (e.g. gcr.io/distroless/static).
+HTTP_PROXY  ?=
+HTTPS_PROXY ?=
+NO_PROXY    ?=
+
 # Docker buildx configuration
 BUILDKIT_VERSION = v0.23.0
 BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
+
+# Driver options for buildx (proxy env is passed into the BuildKit container)
+BUILDX_DRIVER_OPTS = --driver-opt network=host
+ifneq ($(HTTP_PROXY),)
+BUILDX_DRIVER_OPTS += --driver-opt env.HTTP_PROXY=$(HTTP_PROXY)
+endif
+ifneq ($(HTTPS_PROXY),)
+BUILDX_DRIVER_OPTS += --driver-opt env.HTTPS_PROXY=$(HTTPS_PROXY)
+endif
+ifneq ($(NO_PROXY),)
+BUILDX_DRIVER_OPTS += --driver-opt env.NO_PROXY=$(NO_PROXY)
+endif
 
 DOCKER_BUILDER ?= docker buildx
 DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
@@ -149,10 +173,14 @@ check-api-key:
 		echo "Warning: Unknown model provider '$(KAGENT_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
 	fi
 
+.PHONY: buildx-rm
+buildx-rm: ## Remove the buildx builder (e.g. to recreate with proxy: make buildx-rm buildx-create build-controller)
+	docker buildx rm $(BUILDX_BUILDER_NAME) -f || true
+
 .PHONY: buildx-create
 buildx-create:
 	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
-	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
+	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use $(BUILDX_DRIVER_OPTS) || true
 	docker buildx use $(BUILDX_BUILDER_NAME) || true
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
