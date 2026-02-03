@@ -167,6 +167,8 @@ github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnr
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
 github.com/kagent-dev/kmcp v0.2.2 h1:uvbKmo9IT6OT9RBNXYwGX0PWyxBLfAW1F9yWd5/wxaI=
 github.com/kagent-dev/kmcp v0.2.2/go.mod h1:g7wS/3m2wonRo/1DMwVoHxnilr/urPgV2hwV1DwkwrQ=
+github.com/kagent-dev/kmcp v0.2.5 h1:Em5A2vROJuR5JpMe5luSMe2vQJTwxX93AMXJm6Lg/E0=
+github.com/kagent-dev/kmcp v0.2.5/go.mod h1:g7wS/3m2wonRo/1DMwVoHxnilr/urPgV2hwV1DwkwrQ=
 github.com/kagent-dev/mockllm v0.0.3 h1:hk6Oa/vxHoBrGqRig4GCzox8EqRQYXM4c3oFPP/k9Tg=
 github.com/kagent-dev/mockllm v0.0.3/go.mod h1:tDLemRsTZa1NdHaDbg3sgFk9cT1QWvMPlBtLVD6I2mA=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
