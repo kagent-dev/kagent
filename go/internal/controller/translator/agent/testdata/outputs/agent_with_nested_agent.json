@@ -175,11 +175,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "parent-agent"
                   },
                   {
                     "name": "KAGENT_URL",

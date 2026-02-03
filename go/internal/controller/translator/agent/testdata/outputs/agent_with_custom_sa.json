@@ -142,11 +142,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "agent-with-custom-sa"
                   },
                   {
                     "name": "KAGENT_URL",

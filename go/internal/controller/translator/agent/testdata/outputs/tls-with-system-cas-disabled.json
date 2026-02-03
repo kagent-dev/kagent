@@ -172,11 +172,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "tls-agent-with-system-cas-disabled"
                   },
                   {
                     "name": "KAGENT_URL",

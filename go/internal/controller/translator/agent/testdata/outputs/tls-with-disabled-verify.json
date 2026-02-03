@@ -171,11 +171,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "tls-agent-with-disabled-verify"
                   },
                   {
                     "name": "KAGENT_URL",

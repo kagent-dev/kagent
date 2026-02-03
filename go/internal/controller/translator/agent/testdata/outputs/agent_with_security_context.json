@@ -174,11 +174,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "agent-with-security-context"
                   },
                   {
                     "name": "KAGENT_URL",

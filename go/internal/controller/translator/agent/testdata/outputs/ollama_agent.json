@@ -169,11 +169,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "ollama-agent"
                   },
                   {
                     "name": "KAGENT_URL",
