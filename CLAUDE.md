@@ -355,7 +355,7 @@ MCPServerController
 - No application-level locking needed
 - Controllers translate CRs to K8s manifests via translators
 
-**Implementation reference:** [go/internal/controller/reconciler/kagent_reconciler.go](go/internal/controller/reconciler/kagent_reconciler.go)
+**Implementation reference:** [go/internal/controller/reconciler/reconciler.go](go/internal/controller/reconciler/reconciler.go)
 
 **When NOT to use:**
 - Simple controllers without database persistence
