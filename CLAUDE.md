@@ -138,7 +138,7 @@ make -C ui build          # Next.js UI
 
 # Run tests
 make -C go test           # Go unit tests
-make -C go test-e2e           # Go unit tests
+make -C go test-e2e           # Go E2E tests
 make -C python test       # Python tests
 
 # Code quality
