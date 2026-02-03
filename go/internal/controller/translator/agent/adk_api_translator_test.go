@@ -580,6 +580,19 @@ func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 			} else {
 				assert.Nil(t, serviceAccount, "ServiceAccount should NOT be created when using custom override")
 			}
+
+			// Verify KAGENT_NAME env var
+			var kagentNameEnv string
+			for _, env := range deployment.Spec.Template.Spec.Containers[0].Env {
+				if env.Name == "KAGENT_NAME" {
+					if env.Value != "" {
+						kagentNameEnv = env.Value
+					} else if env.ValueFrom != nil && env.ValueFrom.FieldRef != nil {
+						kagentNameEnv = "Ref:" + env.ValueFrom.FieldRef.FieldPath
+					}
+				}
+			}
+			assert.Equal(t, tt.agent.Name, kagentNameEnv, "KAGENT_NAME env var should be the agent name")
 		})
 	}
 }
