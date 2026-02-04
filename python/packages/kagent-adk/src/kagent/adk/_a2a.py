@@ -28,8 +28,10 @@ from kagent.core.a2a import (
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
+from ._memory_service import KagentMemoryService
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
+from .types import AgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,7 @@ class KAgentApp:
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
         stream: bool = False,
+        agent_config: Optional[AgentConfig] = None,
     ):
         """Initialize the KAgent application.
 
@@ -71,6 +74,7 @@ class KAgentApp:
             lifespan: Optional lifespan function
             plugins: Optional list of plugins
             stream: Whether to stream the response
+            agent_config: Optional agent configuration
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_url = kagent_url
@@ -79,10 +83,14 @@ class KAgentApp:
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
         self.stream = stream
+        self.agent_config = agent_config
 
     def build(self, local=False) -> FastAPI:
         session_service = InMemorySessionService()
         token_service = None
+        memory_service = None
+        http_client = None
+
         if not local:
             token_service = KAgentTokenService(self.app_name)
             http_client = httpx.AsyncClient(
@@ -92,14 +100,72 @@ class KAgentApp:
             )
             session_service = KAgentSessionService(http_client)
 
+            if self.agent_config and self.agent_config.memory_enabled:
+                # Get embedding config from agent config
+                embedding_config = None
+                if hasattr(self.agent_config, "embedding") and self.agent_config.embedding:
+                    # Convert to dict if it's a pydantic model
+                    if hasattr(self.agent_config.embedding, "model_dump"):
+                        embedding_config = self.agent_config.embedding.model_dump()
+                    elif isinstance(self.agent_config.embedding, dict):
+                        embedding_config = self.agent_config.embedding
+
+                memory_service = KagentMemoryService(
+                    agent_name=self.app_name,
+                    http_client=http_client,
+                    memory_enabled=True,
+                    embedding_config=embedding_config,
+                )
+
         def create_runner() -> Runner:
             root_agent = self.root_agent_factory()
+
+            if memory_service and self.agent_config and self.agent_config.memory_enabled:
+                try:
+                    # Import ADK memory tools
+                    from google.adk.tools import load_memory
+                    from google.adk.tools.preload_memory_tool import PreloadMemoryTool
+
+                    # Ensure tools list exists
+                    if not hasattr(root_agent, "tools") or root_agent.tools is None:
+                        root_agent.tools = []
+
+                    # Add PreloadMemoryTool and load_memory tool
+                    root_agent.tools.append(PreloadMemoryTool())
+                    root_agent.tools.append(load_memory)
+
+                    # Define auto-save callback
+                    async def auto_save_session_to_memory_callback(callback_context):
+                        try:
+                            logger.info(
+                                "Auto-saving session %s to memory", callback_context._invocation_context.session.id
+                            )
+
+                            # Pass the agent's model directly for summarization
+                            await callback_context._invocation_context.memory_service.add_session_to_memory(
+                                callback_context._invocation_context.session,
+                                model=root_agent.model if hasattr(root_agent, "model") else None,
+                            )
+                        except Exception as e:
+                            logger.error("Failed to auto-save session to memory: %s", e)
+
+                    # Append to after agent callback list
+                    if not hasattr(root_agent, "after_agent_callback") or root_agent.after_agent_callback is None:
+                        root_agent.after_agent_callback = []
+                    root_agent.after_agent_callback.append(auto_save_session_to_memory_callback)
+
+                except ImportError as e:
+                    logger.warning("Failed to import memory tools (google-adk update may be needed): %s", e)
+                except Exception as e:
+                    logger.error("Failed to inject memory configuration: %s", e)
+
             adk_app = App(name=self.app_name, root_agent=root_agent, plugins=self.plugins)
 
             return Runner(
                 app=adk_app,
                 session_service=session_service,
                 artifact_service=InMemoryArtifactService(),
+                memory_service=memory_service,
             )
 
         agent_executor = A2aAgentExecutor(

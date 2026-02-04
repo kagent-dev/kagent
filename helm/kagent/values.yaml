@@ -7,7 +7,6 @@
 tag: ""
 registry: "cr.kagent.dev"
 
-
 imagePullSecrets: []
 imagePullPolicy: IfNotPresent
 
@@ -55,6 +54,7 @@ database:
   sqlite:
     databaseName: kagent.db
   postgres:
+    vectorEnabled: true
     url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
 
 # ==============================================================================

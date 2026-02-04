@@ -29,6 +29,7 @@ type InMemoryFakeClient struct {
 	checkpointWrites  map[string][]*database.LangGraphCheckpointWrite // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	crewaiMemory      map[string][]*database.CrewAIAgentMemory        // key: user_id:thread_id:agent_id
 	crewaiFlowStates  map[string]*database.CrewAIFlowState            // key: user_id:thread_id
+	memories          map[string]*database.Memory                     // key: user_id:thread_id:agent_id
 	nextFeedbackID    int
 }
 
@@ -48,6 +49,7 @@ func NewClient() database.Client {
 		checkpointWrites:  make(map[string][]*database.LangGraphCheckpointWrite),
 		crewaiMemory:      make(map[string][]*database.CrewAIAgentMemory),
 		crewaiFlowStates:  make(map[string]*database.CrewAIFlowState),
+		memories:          make(map[string]*database.Memory),
 		nextFeedbackID:    1,
 	}
 }
@@ -878,4 +880,16 @@ func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID string) (*datab
 	state := c.crewaiFlowStates[key]
 
 	return state, nil
+}
+
+// StoreAgentMemory stores agent memory (stub for testing)
+func (c *InMemoryFakeClient) StoreAgentMemory(memory *database.Memory) error {
+	// Stub implementation for testing
+	return nil
+}
+
+// SearchAgentMemory searches agent memory (stub for testing)
+func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID, embedding string, limit int) ([]database.AgentMemorySearchResult, error) {
+	// Stub implementation for testing - returns empty results
+	return []database.AgentMemorySearchResult{}, nil
 }

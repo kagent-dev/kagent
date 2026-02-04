@@ -199,11 +199,8 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)
 
 	// Memories
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleListMemories)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleCreateMemory)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathMemories+"/sessions", adaptHandler(s.handlers.Memory.AddSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories+"/search", adaptHandler(s.handlers.Memory.Search)).Methods(http.MethodPost)
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)

@@ -202,6 +202,24 @@ type CrewAIFlowState struct {
 	StateData string `gorm:"type:text;not null" json:"state_data"`
 }
 
+// Memory represents a memory/session embedding with TTL support
+// Alternatively: https://github.com/pgvector/pgvector-go/blob/master/gorm_test.go
+type Memory struct {
+	ID        string     `gorm:"primaryKey;default:gen_random_uuid()" json:"id"`
+	AgentName string     `gorm:"index" json:"agent_name"`
+	UserID    string     `gorm:"index" json:"user_id"`
+	Content   string     `gorm:"type:text" json:"content"`
+	// Use vector(768) for Vertex AI / common models.
+	// Add HNSW index for fast approximate nearest neighbor search.
+	// We use "hnsw(embedding vector_cosine_ops)" strategy.
+	// This matches the Vector wrapper type in the Pgvector go library
+	Embedding []float32  `gorm:"type:vector(768)" json:"embedding"`
+	Metadata  string     `gorm:"type:text" json:"metadata"`
+	CreatedAt time.Time  `gorm:"autoCreateTime" json:"created_at"`
+	ExpiresAt *time.Time `gorm:"index" json:"expires_at,omitempty"` // TTL: auto-delete after this time
+}
+
+
 // TableName methods to match Python table names
 func (Agent) TableName() string                    { return "agent" }
 func (Event) TableName() string                    { return "event" }
@@ -215,3 +233,5 @@ func (LangGraphCheckpoint) TableName() string      { return "lg_checkpoint" }
 func (LangGraphCheckpointWrite) TableName() string { return "lg_checkpoint_write" }
 func (CrewAIAgentMemory) TableName() string        { return "crewai_agent_memory" }
 func (CrewAIFlowState) TableName() string          { return "crewai_flow_state" }
+func (Memory) TableName() string                   { return "memory" }
+

@@ -1,0 +1,348 @@
+"""Kagent Memory Service implementation conforming to ADK BaseMemoryService interface."""
+
+import json
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import httpx
+from google.adk.memory import BaseMemoryService
+from google.adk.memory.base_memory_service import SearchMemoryResponse
+from google.adk.memory.memory_entry import MemoryEntry
+from google.adk.sessions import Session
+from google.genai import types
+from litellm import aembedding
+
+logger = logging.getLogger(__name__)
+
+
+class KagentMemoryService(BaseMemoryService):
+    """Memory service that stores and retrieves memories via Kagent backend.
+
+    This service:
+    1. Extracts text content from Session events
+    2. Generates embeddings using LiteLLM
+    3. Stores/searches via Kagent API backed by pgvector
+    """
+
+    def __init__(
+        self,
+        agent_name: str,
+        http_client: httpx.AsyncClient,
+        memory_enabled: bool = False,
+        embedding_config: Optional[Dict[str, Any]] = None,
+    ):
+        """Initialize KagentMemoryService.
+
+        Args:
+            agent_name: Name of the agent (used as namespace in storage)
+            http_client: Async HTTP client configured with base_url for Kagent API
+            memory_enabled: Whether memory operations are enabled
+            embedding_config: Configuration for embedding model (type, model, etc.)
+        """
+        self.agent_name = agent_name
+        self.client = http_client
+        self.memory_enabled = memory_enabled
+        self.embedding_config = embedding_config or {}
+
+    async def add_session_to_memory(self, session: Session, model: Optional[Any] = None) -> None:
+        """Add a session's content to long-term memory.
+
+        Extracts text from session events, summarizes it using LLM, generates
+        an embedding, and stores it in the Kagent backend with TTL support.
+
+        Args:
+            session: The session to add to memory
+            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use for summarization.
+        """
+        if not self.memory_enabled:
+            return
+
+        # Extract content from session events
+        raw_content = self._extract_session_content(session)
+        if not raw_content:
+            logger.debug("No content to add to memory from session %s", session.id)
+            return
+
+        logger.info("Adding session %s to memory for user %s", session.id, session.user_id)
+
+        # Summarize content before embedding
+        # Returns a list of strings (individual facts/memories)
+        contents = await self._summarize_session_content_async(raw_content, model=model)
+
+        # Iterate over each extracted content item
+        for content_item in contents:
+            if not content_item:
+                continue
+
+            # Generate embedding for the content item
+            vector = await self._generate_embedding_async(content_item)
+            if not vector:
+                logger.warning("Failed to generate embedding for session %s content item", session.id)
+                continue
+
+            # Build metadata
+            metadata = {
+                "session_id": session.id,
+                "app_name": session.app_name,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+            # Send to Kagent API
+            payload = {
+                "agent_name": self.agent_name,
+                "user_id": session.user_id,
+                "content": content_item,
+                "vector": vector,
+                "metadata": metadata,
+                # ttl_seconds: omitted = 30 day default
+            }
+
+            try:
+                response = await self.client.post("/api/memories/sessions", json=payload)
+                response.raise_for_status()
+                memory_id = response.json().get("id")
+                logger.info("Successfully saved session %s memory item (id=%s)", session.id, memory_id)
+            except Exception as e:
+                logger.error("Error saving session %s memory item: %s", session.id, e)
+
+    async def search_memory(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        query: str,
+    ) -> SearchMemoryResponse:
+        """Search memory for relevant content.
+
+        Args:
+            app_name: The application name (used for filtering)
+            user_id: The user ID to search within
+            query: The search query text
+
+        Returns:
+            SearchMemoryResponse containing matching MemoryEntry objects
+        """
+        if not self.memory_enabled:
+            return SearchMemoryResponse(memories=[])
+
+        # Generate embedding for the query
+        vector = await self._generate_embedding_async(query)
+        if not vector:
+            logger.warning("Failed to generate embedding for search query")
+            return SearchMemoryResponse(memories=[])
+
+        payload = {
+            "agent_name": self.agent_name,
+            "user_id": user_id,
+            "vector": vector,
+            "limit": 5,
+            "min_score": 0.7,  # Only return reasonably similar results
+        }
+
+        try:
+            response = await self.client.post("/api/memories/search", json=payload)
+            response.raise_for_status()
+            results = response.json()
+
+            # Convert to MemoryEntry objects
+            memories = []
+            for item in results:
+                # Build Content from stored text
+                content = types.Content(
+                    role="user",  # Historical content
+                    parts=[types.Part(text=item.get("content", ""))],
+                )
+
+                memory_entry = MemoryEntry(
+                    id=item.get("id"),
+                    content=content,
+                    timestamp=item.get("created_at"),
+                    custom_metadata=json.loads(item.get("metadata", "{}"))
+                    if isinstance(item.get("metadata"), str)
+                    else item.get("metadata", {}),
+                )
+                memories.append(memory_entry)
+
+            return SearchMemoryResponse(memories=memories)
+
+        except Exception as e:
+            logger.error("Error searching memory: %s", e)
+            return SearchMemoryResponse(memories=[])
+
+    def _extract_session_content(self, session: Session) -> str:
+        """Extract text content from session events.
+
+        Combines all user and agent messages into a single searchable text.
+
+        Args:
+            session: The session to extract content from
+
+        Returns:
+            Combined text content from the session
+        """
+        parts = []
+
+        for event in session.events or []:
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        role = event.author or "unknown"
+                        parts.append(f"{role}: {part.text}")
+
+        return "\n".join(parts)
+
+    async def _generate_embedding_async(self, text: str) -> List[float]:
+        """Generate embedding vector for text using LiteLLM.
+
+        Args:
+            text: The text to embed
+
+        Returns:
+            List of floats representing the embedding vector, or empty list on failure
+        """
+        if not self.embedding_config:
+            logger.warning("No embedding configuration found")
+            return []
+
+        model_name = self.embedding_config.get("model")
+        provider = self.embedding_config.get("type")
+
+        if not model_name:
+            logger.warning("No embedding model specified in config")
+            return []
+
+        # Build LiteLLM model identifier
+        litellm_model = model_name
+        if provider and provider != "openai" and "/" not in model_name:
+            if provider == "azure_openai":
+                litellm_model = f"azure/{model_name}"
+            elif provider == "ollama":
+                litellm_model = f"ollama/{model_name}"
+            elif provider == "vertex_ai":
+                litellm_model = f"vertex_ai/{model_name}"
+
+        try:
+            # hardcode this to 768 for now!
+            # aembedding SHOULD truncate dimensions if it cannot be specified as argument
+            # https://huggingface.co/blog/matryoshka
+            # Most Matryoshka Representation Learning embedding models produce embeddings that still have meaning when truncated to specific sizes
+            response = await aembedding(model=litellm_model, input=[text], dimensions=768)
+            embedding = response.data[0]["embedding"]
+
+            # I don't think litellm truncates? It says it will just work for certain latest models from openAI
+            # But there's nothign we can do other than direct truncation
+            # https://arxiv.org/html/2508.17744v1
+            if len(embedding) > 768:
+                embedding = embedding[:768]
+            return embedding
+
+        except Exception as e:
+            logger.error("Error generating embedding with model %s: %s", litellm_model, e)
+            return []
+
+    async def _summarize_session_content_async(
+        self,
+        content: str,
+        model: Optional[Any] = None,
+    ) -> List[str]:
+        """Summarize session content using an LLM before embedding.
+
+        This extracts key facts, decisions, and user preferences from the conversation
+        to create a more semantic-search-friendly representation.
+
+        Args:
+            content: The raw session content to summarize
+            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use.
+                   If not provided, summarization is skipped.
+
+        Returns:
+            List of summarized content strings, or list containing original content if summarization fails/skipped
+        """
+        if model is None:
+            logger.debug("No model provided for summarization, using original content")
+            return [content]
+
+        # NOTE: In the future, we may allow configuring a separate, potentially cheaper
+        # model specifically for summarization tasks to optimize costs.
+
+        prompt = """Extract and summarize the key information from this conversation that would be useful for the agent to remember in future interactions.
+
+Focus on:
+- User preferences, decisions, and explicit requests
+- Important facts mentioned (names, dates, project names, etc.)
+- Action items or commitments made
+- Contextual information that provides background
+
+You MUST output a JSON list of strings, where each string is a distinct fact or memory.
+Example: ["User prefers dark mode", "Project name is Orion", "Meeting scheduled for Friday"]
+
+Do not include any preamble or markdown formatting like ```json.
+Output ONLY the JSON list.
+
+Conversation:
+{content}
+
+Summary (JSON List):"""
+
+        try:
+            from google.adk.models.llm_request import LlmRequest
+            from google.genai.types import Content, Part
+
+            # Build LLM request using ADK types
+            llm_request = LlmRequest(
+                contents=[
+                    Content(
+                        role="user",
+                        parts=[Part(text=prompt.format(content=content))],
+                    )
+                ],
+            )
+
+            # Call the model directly
+            llm_response = await model.generate_content_async(llm_request)
+
+            # Extract text from response
+            if llm_response.content and llm_response.content.parts:
+                summary_text = "".join(
+                    part.text for part in llm_response.content.parts if hasattr(part, "text") and part.text
+                ).strip()
+
+                if summary_text:
+                    # Clean up potential markdown formatting if model ignores instruction
+                    if summary_text.startswith("```json"):
+                        summary_text = summary_text[7:]
+                    if summary_text.startswith("```"):
+                        summary_text = summary_text[3:]
+                    if summary_text.endswith("```"):
+                        summary_text = summary_text[:-3]
+                    summary_text = summary_text.strip()
+
+                    try:
+                        extracted_list = json.loads(summary_text)
+                        if isinstance(extracted_list, list) and all(isinstance(item, str) for item in extracted_list):
+                            logger.debug("Summarized session content into %d items", len(extracted_list))
+                            return extracted_list
+                        else:
+                            logger.warning(
+                                "LLM returned valid JSON but not a list of strings. Falling back to full text."
+                            )
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Failed to parse LLM output as JSON. Falling back to full text. Output: %s", summary_text
+                        )
+                        # Fallback to the text returned by LLM if it's not JSON but has content,
+                        # OR maybe just return the original content?
+                        # The requirement says "if the LLM outputs a invalid structeud output, save the entire chunk"
+                        # This implies we might want to save the original raw content, or the summary text itself?
+                        # "save the entire chunk" usually refers to the input or the raw_content.
+                        # Let's stick to returning the raw content (fallback) or maybe the failed summary if it's just text.
+                        # But simpler to fallback to original content if structured extraction fails.
+                        pass
+
+            logger.warning("Empty summary or invalid format returned, using original content")
+            return [content]
+
+        except Exception as e:
+            logger.warning("Failed to summarize session content: %s. Using original.", e)
+            return [content]

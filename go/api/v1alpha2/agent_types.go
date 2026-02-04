@@ -118,6 +118,21 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
+
+	// Memory configuration for the agent.
+	// +optional
+	Memory *MemorySpec `json:"memory,omitempty"`
+}
+
+type MemorySpec struct {
+	// Enabled determines whether memory is enabled for the agent.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// The name of the model config to use for embeddings.
+	// If not specified, it defaults to the agent's main ModelConfig.
+	// +optional
+	ModelConfig string `json:"modelConfig,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {

@@ -64,6 +64,15 @@ type Client interface {
 	ResetCrewAIMemory(userID, threadID string) error
 	StoreCrewAIFlowState(state *CrewAIFlowState) error
 	GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error)
+	
+	// AgentMemory methods
+	StoreAgentMemory(memory *Memory) error
+	SearchAgentMemory(agentName, userID, embedding string, limit int) ([]AgentMemorySearchResult, error)
+}
+
+type AgentMemorySearchResult struct {
+	Memory
+	Score float64
 }
 
 type LangGraphCheckpointTuple struct {
@@ -639,4 +648,29 @@ func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowSta
 	}
 
 	return &state, nil
+}
+
+// AgentMemory methods
+
+func (c *clientImpl) StoreAgentMemory(memory *Memory) error {
+	return save(c.db, memory)
+}
+
+func (c *clientImpl) SearchAgentMemory(agentName, userID, embedding string, limit int) ([]AgentMemorySearchResult, error) {
+	var results []AgentMemorySearchResult
+	
+	// 1 - (embedding <=> query) gives cosine similarity
+	query := `
+		SELECT *, 1 - (embedding <=> ?) as score
+		FROM memory
+		WHERE agent_name = ? AND user_id = ?
+		ORDER BY embedding <=> ? ASC
+		LIMIT ?
+	`
+	
+	if err := c.db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("failed to search agent memory: %w", err)
+	}
+	
+	return results, nil
 }
