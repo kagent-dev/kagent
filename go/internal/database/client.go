@@ -65,7 +65,7 @@ type Client interface {
 	ResetCrewAIMemory(userID, threadID string) error
 	StoreCrewAIFlowState(state *CrewAIFlowState) error
 	GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error)
-	
+
 	// SearchAgentMemory methods
 	StoreAgentMemory(memory *Memory) error
 	SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error)
@@ -661,7 +661,7 @@ func (c *clientImpl) StoreAgentMemory(memory *Memory) error {
 
 func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
 	var results []AgentMemorySearchResult
-	
+
 	// (embedding <=> query) gives cosine similarity
 	// ORDER BY embedding <=> ? ASC will use a KNN Index Scan if available (we use HNSW index)
 	// pgvector.Vector implements sql.Scanner and driver.Valuer, so it can be passed directly to GORM
@@ -672,7 +672,7 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 		ORDER BY embedding <=> ? ASC
 		LIMIT ?
 	`
-	
+
 	if err := c.db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
 	}
@@ -693,9 +693,9 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 
 	// Print results, the content and the associated score
 	for _, result := range results {
-		fmt.Printf("Memory: %v, Score: %v\n", result.Memory.Content, result.Score)
+		fmt.Printf("Memory: %v, Score: %v\n", result.Content, result.Score)
 	}
-	
+
 	return results, nil
 }
 
@@ -704,11 +704,11 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 func (c *clientImpl) PruneExpiredMemories() error {
 	return c.db.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
-		
+
 		// 1. Extend TTL for popular memories (AccessCount >= 10)
 		if err := tx.Model(&Memory{}).
 			Where("expires_at < ? AND access_count >= ?", now, 10).
-			Updates(map[string]interface{}{
+			Updates(map[string]any{
 				"expires_at":   now.Add(15 * 24 * time.Hour),
 				"access_count": 0, // Reset count to ensure it's still relevant next time
 			}).Error; err != nil {
@@ -720,7 +720,7 @@ func (c *clientImpl) PruneExpiredMemories() error {
 			Delete(&Memory{}).Error; err != nil {
 			return fmt.Errorf("failed to delete expired memories: %w", err)
 		}
-		
+
 		return nil
 	})
 }

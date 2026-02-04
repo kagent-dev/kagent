@@ -906,4 +906,3 @@ func (c *InMemoryFakeClient) PruneExpiredMemories() error {
 	// Stub implementation for testing
 	return nil
 }
-

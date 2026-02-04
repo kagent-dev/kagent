@@ -92,7 +92,7 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory: %v", err))
 		return
 	}
-	
+
 	log.Printf("Successfully added memory ID %s for user %s agent %s", memory.ID, req.UserID, req.AgentName)
 
 	RespondWithJSON(w, http.StatusCreated, map[string]string{"id": memory.ID})
@@ -114,7 +114,7 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 	if req.Limit <= 0 {
 		req.Limit = 5
 	}
-	
+
 	// Format vector using pgvector.NewVector
 	vector := pgvector.NewVector(req.Vector)
 

@@ -586,17 +586,17 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
 		}
-		
+
 		cfg.Embedding = embeddingCfg
-		
+
 		// Merge EnvVars from embedding config (e.g. API Keys)
 		mdd.EnvVars = append(mdd.EnvVars, embMdd.EnvVars...)
 		mdd.Volumes = append(mdd.Volumes, embMdd.Volumes...)
 		mdd.VolumeMounts = append(mdd.VolumeMounts, embMdd.VolumeMounts...)
-		
+
 		// Merge secret hash
 		if len(embHash) > 0 {
-			secretHashBytes = append(secretHashBytes, embHash...) 
+			secretHashBytes = append(secretHashBytes, embHash...)
 		}
 	}
 
@@ -1086,7 +1086,6 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
 }
-
 
 func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.StreamableHTTPConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)

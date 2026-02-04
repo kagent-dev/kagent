@@ -88,7 +88,7 @@ func NewManager(config *Config) (*Manager, error) {
 // Initialize sets up the database tables
 func (m *Manager) Initialize() error {
 	// Create extensions if using Postgres and Vector is enabled
-	if m.db.Dialector.Name() == "postgres" && m.config.PostgresConfig.VectorEnabled {
+	if m.db.Name() == "postgres" && m.config.PostgresConfig.VectorEnabled {
 		if err := m.db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error; err != nil {
 			return fmt.Errorf("failed to create vector extension: %w", err)
 		}
@@ -113,7 +113,7 @@ func (m *Manager) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
-	
+
 	if m.config.DatabaseType == DatabaseTypePostgres && m.config.PostgresConfig.VectorEnabled {
 		if err := m.db.AutoMigrate(&Memory{}); err != nil {
 			return fmt.Errorf("failed to migrate memory table: %w", err)
@@ -135,7 +135,7 @@ func (m *Manager) Initialize() error {
 	// 	// Schedule hourly cleanup of expired memories
 	// 	// This will fail silently if pg_cron is not available or user lacks permissions
 	// 	_ = m.db.Exec(`
-	// 		SELECT cron.unschedule('cleanup_expired_memories') 
+	// 		SELECT cron.unschedule('cleanup_expired_memories')
 	// 		WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'cleanup_expired_memories')
 	// 	`)
 	// 	_ = m.db.Exec(`

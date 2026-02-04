@@ -205,17 +205,16 @@ type CrewAIFlowState struct {
 
 // Memory represents a memory/session embedding with TTL support
 type Memory struct {
-	ID        string     `gorm:"primaryKey;default:gen_random_uuid()" json:"id"`
-	AgentName string     `gorm:"index" json:"agent_name"`
-	UserID    string     `gorm:"index" json:"user_id"`
-	Content   string     `gorm:"type:text" json:"content"`
-	Embedding pgvector.Vector `gorm:"type:vector(768)" json:"embedding"`
-	Metadata  string     `gorm:"type:text" json:"metadata"`
-	CreatedAt time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	ExpiresAt *time.Time `gorm:"index" json:"expires_at,omitempty"` // TTL: auto-delete after this time
-	AccessCount int        `gorm:"default:0" json:"access_count"` // Track usage for more robust db cleanup
+	ID          string          `gorm:"primaryKey;default:gen_random_uuid()" json:"id"`
+	AgentName   string          `gorm:"index" json:"agent_name"`
+	UserID      string          `gorm:"index" json:"user_id"`
+	Content     string          `gorm:"type:text" json:"content"`
+	Embedding   pgvector.Vector `gorm:"type:vector(768)" json:"embedding"`
+	Metadata    string          `gorm:"type:text" json:"metadata"`
+	CreatedAt   time.Time       `gorm:"autoCreateTime" json:"created_at"`
+	ExpiresAt   *time.Time      `gorm:"index" json:"expires_at,omitempty"` // TTL: auto-delete after this time
+	AccessCount int             `gorm:"default:0" json:"access_count"`     // Track usage for more robust db cleanup
 }
-
 
 // TableName methods to match Python table names
 func (Agent) TableName() string                    { return "agent" }
@@ -231,4 +230,3 @@ func (LangGraphCheckpointWrite) TableName() string { return "lg_checkpoint_write
 func (CrewAIAgentMemory) TableName() string        { return "crewai_agentp_memory" }
 func (CrewAIFlowState) TableName() string          { return "crewai_flow_state" }
 func (Memory) TableName() string                   { return "memory" }
-
