@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -738,7 +739,22 @@ func (c *clientImpl) PruneExpiredMemories() error {
 }
 
 func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {
-	return delete[Memory](c.db,
+	normalizedName := strings.ReplaceAll(agentName, "-", "_")
+	
+	// Delete both original name and normalized name
+	// Sometimes frontend has naming inconsistencies with backend
+	err := delete[Memory](c.db,
 		Clause{Key: "agent_name", Value: agentName},
 		Clause{Key: "user_id", Value: userID})
+	if err != nil {
+		return err
+	}
+
+	if normalizedName != agentName {
+		return delete[Memory](c.db,
+			Clause{Key: "agent_name", Value: normalizedName},
+			Clause{Key: "user_id", Value: userID})
+	}
+	
+	return nil
 }

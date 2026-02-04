@@ -29,7 +29,7 @@ type AddSessionMemoryRequest struct {
 	UserID    string          `json:"user_id"`
 	Content   string          `json:"content"`
 	Vector    []float32       `json:"vector"`
-	Metadata  json.RawMessage `json:"metadata"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
 }
 
 // SearchSessionMemoryRequest represents the request body for searching memory sessions
@@ -78,12 +78,18 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 	// Default TTL: 15 days
 	expiresAt := time.Now().Add(15 * 24 * time.Hour)
 
+	// Ensure metadata is valid JSON
+	metadata := req.Metadata
+	if len(metadata) == 0 {
+		metadata = json.RawMessage("{}")
+	}
+
 	memory := &database.Memory{
 		AgentName: req.AgentName,
 		UserID:    req.UserID,
 		Content:   req.Content,
 		Embedding: pgvector.NewVector(req.Vector),
-		Metadata:  string(req.Metadata),
+		Metadata:  string(metadata),
 		ExpiresAt: &expiresAt,
 	}
 
@@ -125,12 +131,18 @@ func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) 
 			return
 		}
 
+		// Ensure metadata is valid JSON
+		metadata := item.Metadata
+		if len(metadata) == 0 {
+			metadata = json.RawMessage("{}")
+		}
+
 		memories = append(memories, &database.Memory{
 			AgentName: item.AgentName,
 			UserID:    item.UserID,
 			Content:   item.Content,
 			Embedding: pgvector.NewVector(item.Vector),
-			Metadata:  string(item.Metadata),
+			Metadata:  string(metadata),
 			ExpiresAt: &expiresAt,
 		})
 	}
@@ -179,11 +191,17 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// Handle empty or invalid metadata
+		metadata := json.RawMessage(res.Metadata)
+		if len(metadata) == 0 {
+			metadata = json.RawMessage("{}")
+		}
+
 		response = append(response, SearchSessionMemoryResponse{
 			ID:        res.ID,
 			Content:   res.Content,
 			Score:     res.Score,
-			Metadata:  json.RawMessage(res.Metadata),
+			Metadata:  metadata,
 			CreatedAt: res.CreatedAt,
 		})
 	}

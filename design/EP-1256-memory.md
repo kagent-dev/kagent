@@ -1,4 +1,14 @@
-# Memory Store for Agents
+# EP-[1256]: [Supporting Long-term Memory for Agents]
+
+- Issue: [#1256](https://github.com/kagent-dev/kagent/issues/1256)
+
+## Background
+
+A well-designed memory system consists of two parts:
+
+1. A **memory store** that allows for efficient generation, storage, and retrieval of memories. This ranges from a simple keyword search to complex knowledge-graph and semantic hybrid searches.
+
+2. A **memory usage** workflow in the agent / agent runtime so that the agent can effectively use the memory. This is done primarily via interfaces exposed by ADK for now, but there are rooms for improvement.
 
 ## Motivation
 
@@ -18,7 +28,7 @@ Agents require long-term memory to remember and learn from past interactions.
 
 2. Graph based memory
 
-## Implementation Plan
+## Implementation
 
 The memory implementation spans across the Postgres database, Go Controller, and Python ADK:
 
@@ -71,11 +81,13 @@ Memory is saved in two ways:
 
 ### Retrieving Memory
 
-- **Search**: When the agent calls `LoadMemoryTool(query="...")` or `search_memory` is invoked:
+- **Search**: When the agent calls `LoadMemoryTool(query="...")`:
   1. The query string is embedded into a vector.
   2. The database performs a vector similarity search (Cosine Similarity).
   3. Results are filtered by a `min_score` (currently ~0.3) to ensure relevance.
 - **Popularity Tracking**: When a memory is successfully returned in a search, its `access_count` is incremented in the background. This signals that the memory is "useful".
+
+NOTE: We disabled the `PrefetchMemoryTool` because it is making a memory search for every single LLM call, which is expensive and slows down the response time, and it does not really aid performance. This is a potential area of improvement (and nontrivial to find out) -- when do we provide LLM with the memory?
 
 ### Pruning and Deletion
 
@@ -104,6 +116,6 @@ The user can also choose to delete all memories for a specific agent from the UI
 
 ## Future Improvements
 
-1. **Hybrid search and reranking**: This is a common new pattern in LLM applications that would be helpful for memory retrieval. It would allow for both dense vector similarity and sparse keyword matching, potentially leading to better retrieval performance. These results will then be reranked using a cross-encoder model that takes in all the results as well as the original query to provide higher quality retrieval.
+1. **Hybrid search and reranking**: This is a common new pattern in LLM applications that would be helpful for memory retrieval. It would allow for both dense vector similarity and sparse keyword matching, potentially leading to better retrieval performance. These results will then be reranked using a cross-encoder model that takes in all the results as well as the original query to provide higher quality retrieval. [Here is an example from Qdrant](https://qdrant.tech/documentation/fastembed/fastembed-rerankers/)
 
-2. **Consolidation Step**: Most production memory store have an extraction and consolidation process when saving memory. We have a basic extraction step but lacks a consolidation step. This usually involves retrieving some relevant entries, potentially updating them, and then saving them back to the database (or create new entries if no related entires exist).
+2. **Consolidation Step**: Most production memory store have an extraction and consolidation process when saving memory. We have a basic extraction step but lacks a consolidation step. This usually involves retrieving some relevant entries, potentially updating them, and then saving them back to the database (or create new entries if no related entires exist). Note that this likely involves making memory saving a background process because this takes quite some time, we need to extract from session, fetch similar from Go backend, then in Python memory interface call LLM again to consolidate, and write back the operations (ADD or UDPATE) to the Go backend (then to vector store). [Here is an example from Vertex AI](https://docs.cloud.google.com/agent-builder/agent-engine/memory-bank/generate-memories)

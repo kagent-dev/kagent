@@ -413,7 +413,8 @@ class AgentConfig(BaseModel):
             from kagent.adk.tools.memory_tools import LoadMemoryTool, SaveMemoryTool
 
             # Add memory tools
-            agent.tools.append(PreloadMemoryTool())
+            # UNCOMMENT THIS LINE IF YOU WANT TO USE PRELOAD MEMORY TOOL
+            # agent.tools.append(PreloadMemoryTool())
             agent.tools.append(LoadMemoryTool())
             agent.tools.append(SaveMemoryTool())
 
