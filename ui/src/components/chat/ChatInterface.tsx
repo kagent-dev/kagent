@@ -457,7 +457,10 @@ export default function ChatInterface({
         <div className="flex items-center justify-between mb-4">
           <StatusDisplay chatStatus={chatStatus} />
           <div className="flex items-center gap-2">
-            <ClearMemoryButton agentName={selectedAgentName} />
+            <ClearMemoryButton
+              agentName={selectedAgentName}
+              namespace={selectedNamespace}
+            />
             <TokenStatsDisplay stats={tokenStats} />
           </div>
         </div>

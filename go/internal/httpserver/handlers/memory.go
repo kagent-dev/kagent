@@ -98,6 +98,53 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 	RespondWithJSON(w, http.StatusCreated, map[string]string{"id": memory.ID})
 }
 
+// AddSessionMemoryBatchRequest represents the request body for adding multiple memory sessions
+type AddSessionMemoryBatchRequest struct {
+	Items []AddSessionMemoryRequest `json:"items"`
+}
+
+// AddSessionBatch handles POST /api/memories/sessions/batch
+func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) {
+	var req AddSessionMemoryBatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if len(req.Items) == 0 {
+		RespondWithError(w, http.StatusBadRequest, "Empty batch")
+		return
+	}
+
+	var memories []*database.Memory
+	expiresAt := time.Now().Add(15 * 24 * time.Hour)
+
+	for _, item := range req.Items {
+		if item.AgentName == "" || item.UserID == "" || len(item.Vector) == 0 {
+			RespondWithError(w, http.StatusBadRequest, "Missing required fields in batch item")
+			return
+		}
+
+		memories = append(memories, &database.Memory{
+			AgentName: item.AgentName,
+			UserID:    item.UserID,
+			Content:   item.Content,
+			Embedding: pgvector.NewVector(item.Vector),
+			Metadata:  string(item.Metadata),
+			ExpiresAt: &expiresAt,
+		})
+	}
+
+	if err := h.DatabaseService.StoreAgentMemories(memories); err != nil {
+		log.Printf("Failed to store agent memory batch: %v", err)
+		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory batch: %v", err))
+		return
+	}
+
+	log.Printf("Successfully added %d memory items", len(memories))
+	RespondWithJSON(w, http.StatusCreated, map[string]int{"count": len(memories)})
+}
+
 // Search handles POST /api/memories/search
 func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 	var req SearchSessionMemoryRequest

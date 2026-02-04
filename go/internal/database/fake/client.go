@@ -889,6 +889,12 @@ func (c *InMemoryFakeClient) StoreAgentMemory(memory *database.Memory) error {
 	return nil
 }
 
+// StoreAgentMemories stores agent memories (stub for testing)
+func (c *InMemoryFakeClient) StoreAgentMemories(memories []*database.Memory) error {
+	// Stub implementation for testing
+	return nil
+}
+
 // SearchAgentMemory searches agent memory (stub for testing)
 func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]database.AgentMemorySearchResult, error) {
 	// Stub implementation for testing - returns empty results

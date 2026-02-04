@@ -2,8 +2,7 @@
 
 import json
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 import numpy as np
@@ -72,43 +71,51 @@ class KagentMemoryService(BaseMemoryService):
         # Returns a list of strings (individual facts/memories)
         contents = await self._summarize_session_content_async(raw_content, model=model)
 
-        # Iterate over each extracted content item
-        for i, content_item in enumerate(contents):
-            if not content_item:
-                continue
+        # Filter out empty content items
+        valid_contents = [c for c in contents if c]
+        if not valid_contents:
+            return
 
-            # Generate embedding for the content item
-            logger.info("Generating embedding for content item %d/%d", i + 1, len(contents))
-            vector = await self._generate_embedding_async(content_item)
+        logger.info("Generating embeddings for %d content items", len(valid_contents))
+
+        # Batch generate embeddings
+        vectors = await self._generate_embedding_async(valid_contents)
+        if not vectors:
+            logger.warning("Failed to generate embeddings for session %s", session.id)
+            return
+
+        if isinstance(vectors[0], float):
+            # This shouldn't happen with our new logic if list passed, but safe guard
+            vectors = [vectors]
+
+        # Prepare batch items
+        batch_items = []
+
+        # Iterate over synced content and vectors
+        for content_item, vector in zip(valid_contents, vectors, strict=True):
             if not vector:
-                logger.warning("Failed to generate embedding for session %s content item", session.id)
                 continue
 
-            # Build metadata
-            metadata = {
-                "session_id": session.id,
-                "app_name": session.app_name,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
+            batch_items.append(
+                {
+                    "agent_name": self.agent_name,
+                    "user_id": session.user_id,
+                    "content": content_item,
+                    "vector": vector,
+                }
+            )
 
-            # Send to Kagent API
-            payload = {
-                "agent_name": self.agent_name,
-                "user_id": session.user_id,
-                "content": content_item,
-                "vector": vector,
-                "metadata": metadata,
-                # ttl_seconds: omitted = 30 day default
-            }
-            logger.info("Sending memory item to Kagent API for user %s", session.user_id)
+        if not batch_items:
+            return
 
-            try:
-                response = await self.client.post("/api/memories/sessions", json=payload)
-                response.raise_for_status()
-                memory_id = response.json().get("id")
-                logger.info("Successfully saved session %s memory item (id=%s)", session.id, memory_id)
-            except Exception as e:
-                logger.error("Error saving session %s memory item: %s", session.id, e)
+        logger.info("Sending %d memory items to Kagent API (batch) for user %s", len(batch_items), session.user_id)
+
+        try:
+            response = await self.client.post("/api/memories/sessions/batch", json={"items": batch_items})
+            response.raise_for_status()
+            logger.info("Successfully saved %d memory items via batch API", len(batch_items))
+        except Exception as e:
+            logger.error("Error saving session %s memory items: %s", session.id, e)
 
     async def add_memory(
         self,
@@ -140,21 +147,12 @@ class KagentMemoryService(BaseMemoryService):
             logger.warning("Failed to generate embedding for memory content")
             return
 
-        # Build metadata
-        final_metadata = {
-            "app_name": app_name,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-        if metadata:
-            final_metadata.update(metadata)
-
         # Send to Kagent API
         payload = {
             "agent_name": self.agent_name,
             "user_id": user_id,
             "content": content,
             "vector": vector,
-            "metadata": final_metadata,
         }
 
         logger.info("Sending add_memory payload: %s", json.dumps(payload, default=str))
@@ -219,14 +217,7 @@ class KagentMemoryService(BaseMemoryService):
                     parts=[types.Part(text=item.get("content", ""))],
                 )
 
-                memory_entry = MemoryEntry(
-                    id=item.get("id"),
-                    content=content,
-                    timestamp=item.get("created_at"),
-                    custom_metadata=json.loads(item.get("metadata", "{}"))
-                    if isinstance(item.get("metadata"), str)
-                    else item.get("metadata", {}),
-                )
+                memory_entry = MemoryEntry(id=item.get("id"), content=content)
                 memories.append(memory_entry)
 
             return SearchMemoryResponse(memories=memories)
@@ -239,6 +230,7 @@ class KagentMemoryService(BaseMemoryService):
         """Extract text content from session events.
 
         Combines all user and agent messages into a single searchable text.
+        Filters out tool calls to reduce noise, but keeps tool outputs.
 
         Args:
             session: The session to extract content from
@@ -251,9 +243,41 @@ class KagentMemoryService(BaseMemoryService):
         for event in session.events or []:
             if event.content and event.content.parts:
                 for part in event.content.parts:
+                    # Skip tool calls and executable code requests
+                    if hasattr(part, "function_call") and part.function_call:
+                        continue
+                    if hasattr(part, "executable_code") and part.executable_code:
+                        continue
+
+                    role = event.author or "unknown"
+                    text_content = None
+
+                    # Prefer existing text if available
                     if hasattr(part, "text") and part.text:
-                        role = event.author or "unknown"
-                        parts.append(f"{role}: {part.text}")
+                        text_content = part.text
+
+                    # Fallback: Extract content from tool responses if text is missing
+                    elif hasattr(part, "function_response") and part.function_response:
+                        try:
+                            # Attempt to serialize the response payload
+                            response_data = getattr(part.function_response, "response", None)
+                            if response_data:
+                                text_content = json.dumps(response_data, default=str)
+                        except Exception:
+                            # If serialization fails, ignore this part
+                            pass
+
+                    elif hasattr(part, "code_execution_result") and part.code_execution_result:
+                        try:
+                            # Typically has 'output' field
+                            output = getattr(part.code_execution_result, "output", None)
+                            if output:
+                                text_content = output
+                        except Exception:
+                            pass
+
+                    if text_content:
+                        parts.append(f"{role}: {text_content}")
 
         return "\n".join(parts)
 
@@ -268,14 +292,18 @@ class KagentMemoryService(BaseMemoryService):
             norm = np.linalg.norm(x, 2, axis=1, keepdims=True)
             return np.where(norm == 0, x, x / norm)
 
-    async def _generate_embedding_async(self, text: str) -> List[float]:
-        """Generate embedding vector for text using LiteLLM.
+    async def _generate_embedding_async(
+        self, input_data: Union[str, List[str]]
+    ) -> Union[List[float], List[List[float]]]:
+        """Generate embedding vector(s) using LiteLLM.
 
         Args:
-            text: The text to embed
+            input_data: Single string or list of strings to embed.
 
         Returns:
-            List of floats representing the embedding vector, or empty list on failure
+            Single vector (List[float]) if input is string,
+            or List of vectors (List[List[float]]) if input is list.
+            Returns empty list on failure.
         """
         if not self.embedding_config:
             logger.warning("No embedding configuration found")
@@ -299,19 +327,29 @@ class KagentMemoryService(BaseMemoryService):
                 litellm_model = f"vertex_ai/{model_name}"
 
         try:
+            is_batch = isinstance(input_data, list)
+            texts = input_data if is_batch else [input_data]
+
             # Most Matryoshka Representation Learning embedding models produce embeddings that still have meaning when truncated to specific sizes
             # https://huggingface.co/blog/matryoshka
-            response = await aembedding(model=litellm_model, input=[text], dimensions=768)
-            embedding = response.data[0]["embedding"]
+            response = await aembedding(model=litellm_model, input=texts, dimensions=768)
 
-            # LiteLLM does not truncate embeddings by default if the model doesn't support it
-            # However, truncating embeddings is still valid (for most models, see OpenAI's docs and this research https://arxiv.org/html/2508.17744v1)
-            if len(embedding) > 768:
-                embedding = embedding[:768]
-                # if we change dimension manually, we need to re-normalize the embeddings
-                embedding = self._normalize_l2(embedding)
+            embeddings = []
+            for item in response.data:
+                embedding = item["embedding"]
 
-            return embedding
+                # LiteLLM does not truncate embeddings by default if the model doesn't support it
+                # However, truncating embeddings is still valid (for most models, see OpenAI's docs and this research https://arxiv.org/html/2508.17744v1)
+                if len(embedding) > 768:
+                    embedding = embedding[:768]
+                    # if we change dimension manually, we need to re-normalize the embeddings
+                    embedding = self._normalize_l2(embedding)
+
+                embeddings.append(embedding)
+
+            if is_batch:
+                return embeddings
+            return embeddings[0] if embeddings else []
 
         except Exception as e:
             logger.error("Error generating embedding with model %s: %s", litellm_model, e)
@@ -341,7 +379,6 @@ class KagentMemoryService(BaseMemoryService):
 
         # NOTE: In the future, we may allow configuring a separate, potentially cheaper
         # model specifically for summarization tasks to optimize costs.
-
         prompt = """Extract and summarize the key information from this conversation that would be useful for the agent to remember in future interactions.
 
 Focus on:

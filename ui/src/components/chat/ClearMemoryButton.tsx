@@ -25,17 +25,22 @@ import {
 
 interface ClearMemoryButtonProps {
   agentName: string;
+  namespace?: string;
 }
 
 export default function ClearMemoryButton({
   agentName,
+  namespace,
 }: ClearMemoryButtonProps) {
   const [open, setOpen] = useState(false);
 
   const handleClear = async () => {
-    const { error } = await clearAgentMemory(agentName);
+    const { error } = await clearAgentMemory(agentName, namespace);
     if (error) {
-      toast.error("Failed to clear memory");
+      toast.error(
+        (error as unknown as { message: string }).message ||
+          "Failed to clear memory",
+      );
     } else {
       toast.success("Memory cleared successfully");
     }

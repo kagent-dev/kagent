@@ -2,10 +2,11 @@
 
 import { fetchApi } from "./utils";
 
-export async function clearAgentMemory(agentName: string) {
+export async function clearAgentMemory(agentName: string, namespace?: string) {
   try {
-    const data = await fetchApi<any>(
-      `/api/memories?agent_name=${encodeURIComponent(agentName)}`,
+    const fullName = namespace ? `${namespace}__NS__${agentName}` : agentName;
+    const data = await fetchApi<unknown>(
+      `/api/memories?agent_name=${encodeURIComponent(fullName)}`,
       { method: "DELETE" },
     );
     return { data, error: null };

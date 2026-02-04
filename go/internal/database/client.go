@@ -68,6 +68,7 @@ type Client interface {
 
 	// SearchAgentMemory methods
 	StoreAgentMemory(memory *Memory) error
+	StoreAgentMemories(memories []*Memory) error
 	SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error)
 	DeleteAgentMemory(agentName, userID string) error
 	PruneExpiredMemories() error
@@ -657,6 +658,17 @@ func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowSta
 
 func (c *clientImpl) StoreAgentMemory(memory *Memory) error {
 	return save(c.db, memory)
+}
+
+func (c *clientImpl) StoreAgentMemories(memories []*Memory) error {
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		for _, memory := range memories {
+			if err := save(tx, memory); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
