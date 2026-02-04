@@ -87,14 +87,11 @@ func NewManager(config *Config) (*Manager, error) {
 
 // Initialize sets up the database tables
 func (m *Manager) Initialize() error {
-	// Create extensions if using Postgres
 	// Create extensions if using Postgres and Vector is enabled
 	if m.db.Dialector.Name() == "postgres" && m.config.PostgresConfig.VectorEnabled {
 		if err := m.db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error; err != nil {
 			return fmt.Errorf("failed to create vector extension: %w", err)
 		}
-		// Try to create vectorscale if possible
-		// _ = m.db.Exec("CREATE EXTENSION IF NOT EXISTS vectorscale")
 	}
 
 	// AutoMigrate all models
@@ -116,14 +113,7 @@ func (m *Manager) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
-
-	// Only migrate Memory if vector is enabled (or if using sqlite where we simulate it/ignore it?)
-	// Actually, for SQLite we probably don't have vector support anyway, but let's stick to the flag.
-	// We only skip Memory table if we are on Postgres AND VectorEnabled is false.
-	// If we are on SQLite, we might still want Memory table but without vector column?
-	// The Memory struct has `type:vector(768)`. Gorm might fail on SQLite if we try to migrate that.
-	// Let's assume Memory is only supported if Vector is enabled for now.
-
+	
 	if m.config.DatabaseType == DatabaseTypePostgres && m.config.PostgresConfig.VectorEnabled {
 		if err := m.db.AutoMigrate(&Memory{}); err != nil {
 			return fmt.Errorf("failed to migrate memory table: %w", err)
@@ -131,7 +121,6 @@ func (m *Manager) Initialize() error {
 
 		// Manually create the HNSW index with the correct operator class
 		// GORM doesn't support adding "op class" in struct tags easily for Postgres vectors
-		// idx_memory_embedding_hnsw
 		indexQuery := `CREATE INDEX IF NOT EXISTS idx_memory_embedding_hnsw ON memory USING hnsw (embedding vector_cosine_ops)`
 		if err := m.db.Exec(indexQuery).Error; err != nil {
 			return fmt.Errorf("failed to create hnsw index: %w", err)

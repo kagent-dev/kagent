@@ -9,6 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -889,7 +890,20 @@ func (c *InMemoryFakeClient) StoreAgentMemory(memory *database.Memory) error {
 }
 
 // SearchAgentMemory searches agent memory (stub for testing)
-func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID, embedding string, limit int) ([]database.AgentMemorySearchResult, error) {
+func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]database.AgentMemorySearchResult, error) {
 	// Stub implementation for testing - returns empty results
 	return []database.AgentMemorySearchResult{}, nil
 }
+
+// DeleteAgentMemory deletes agent memory (stub for testing)
+func (c *InMemoryFakeClient) DeleteAgentMemory(agentName, userID string) error {
+	// Stub implementation for testing
+	return nil
+}
+
+// PruneExpiredMemories prunes expired memories (stub for testing)
+func (c *InMemoryFakeClient) PruneExpiredMemories() error {
+	// Stub implementation for testing
+	return nil
+}
+

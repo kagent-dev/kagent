@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -65,9 +66,11 @@ type Client interface {
 	StoreCrewAIFlowState(state *CrewAIFlowState) error
 	GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error)
 	
-	// AgentMemory methods
+	// SearchAgentMemory methods
 	StoreAgentMemory(memory *Memory) error
-	SearchAgentMemory(agentName, userID, embedding string, limit int) ([]AgentMemorySearchResult, error)
+	SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error)
+	DeleteAgentMemory(agentName, userID string) error
+	PruneExpiredMemories() error
 }
 
 type AgentMemorySearchResult struct {
@@ -656,10 +659,12 @@ func (c *clientImpl) StoreAgentMemory(memory *Memory) error {
 	return save(c.db, memory)
 }
 
-func (c *clientImpl) SearchAgentMemory(agentName, userID, embedding string, limit int) ([]AgentMemorySearchResult, error) {
+func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
 	var results []AgentMemorySearchResult
 	
-	// 1 - (embedding <=> query) gives cosine similarity
+	// (embedding <=> query) gives cosine similarity
+	// ORDER BY embedding <=> ? ASC will use a KNN Index Scan if available (we use HNSW index)
+	// pgvector.Vector implements sql.Scanner and driver.Valuer, so it can be passed directly to GORM
 	query := `
 		SELECT *, 1 - (embedding <=> ?) as score
 		FROM memory
@@ -671,6 +676,57 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID, embedding string, limi
 	if err := c.db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
 	}
+
+	// Increment access count for found memories asynchronously
+	go func(memories []AgentMemorySearchResult) {
+		ids := make([]string, len(memories))
+		for i, m := range memories {
+			ids[i] = m.ID
+		}
+		if len(ids) > 0 {
+			if err := c.db.Model(&Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
+				// Just log error, don't fail the request
+				fmt.Printf("failed to increment access count: %v\n", err)
+			}
+		}
+	}(results)
+
+	// Print results, the content and the associated score
+	for _, result := range results {
+		fmt.Printf("Memory: %v, Score: %v\n", result.Memory.Content, result.Score)
+	}
 	
 	return results, nil
+}
+
+// PruneExpiredMemories deletes expired memories if they haven't been accessed enough,
+// otherwise extends their TTL.
+func (c *clientImpl) PruneExpiredMemories() error {
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+		
+		// 1. Extend TTL for popular memories (AccessCount >= 10)
+		if err := tx.Model(&Memory{}).
+			Where("expires_at < ? AND access_count >= ?", now, 10).
+			Updates(map[string]interface{}{
+				"expires_at":   now.Add(15 * 24 * time.Hour),
+				"access_count": 0, // Reset count to ensure it's still relevant next time
+			}).Error; err != nil {
+			return fmt.Errorf("failed to extend TTL for popular memories: %w", err)
+		}
+
+		// 2. Delete unpopular expired memories (AccessCount < 10)
+		if err := tx.Where("expires_at < ? AND access_count < ?", now, 10).
+			Delete(&Memory{}).Error; err != nil {
+			return fmt.Errorf("failed to delete expired memories: %w", err)
+		}
+		
+		return nil
+	})
+}
+
+func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {
+	return delete[Memory](c.db,
+		Clause{Key: "agent_name", Value: agentName},
+		Clause{Key: "user_id", Value: userID})
 }

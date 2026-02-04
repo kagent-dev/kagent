@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/pgvector/pgvector-go"
 )
 
 // MemoryHandler handles Memory requests
@@ -48,29 +52,48 @@ type SearchSessionMemoryResponse struct {
 
 // AddSession handles POST /api/memories/sessions
 func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
+	// Read body for debugging
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		RespondWithError(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	// Restore body for decoding
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	log.Printf("Received AddSession request: %s", string(bodyBytes))
+
 	var req AddSessionMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
+	log.Printf("Decoded AddSession request: %+v", req)
+
 	if req.AgentName == "" || req.UserID == "" || len(req.Vector) == 0 {
 		RespondWithError(w, http.StatusBadRequest, "Missing required fields (agent_name, user_id, vector)")
 		return
 	}
 
+	// Default TTL: 15 days
+	expiresAt := time.Now().Add(15 * 24 * time.Hour)
+
 	memory := &database.Memory{
 		AgentName: req.AgentName,
 		UserID:    req.UserID,
 		Content:   req.Content,
-		Embedding: req.Vector,
+		Embedding: pgvector.NewVector(req.Vector),
 		Metadata:  string(req.Metadata),
+		ExpiresAt: &expiresAt,
 	}
 
 	if err := h.DatabaseService.StoreAgentMemory(memory); err != nil {
+		log.Printf("Failed to store agent memory: %v", err)
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory: %v", err))
 		return
 	}
+	
+	log.Printf("Successfully added memory ID %s for user %s agent %s", memory.ID, req.UserID, req.AgentName)
 
 	RespondWithJSON(w, http.StatusCreated, map[string]string{"id": memory.ID})
 }
@@ -91,16 +114,12 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 	if req.Limit <= 0 {
 		req.Limit = 5
 	}
+	
+	// Format vector using pgvector.NewVector
+	vector := pgvector.NewVector(req.Vector)
 
-	// Format vector string: "[0.1, 0.2, ...]"
-	vectorBytes, err := json.Marshal(req.Vector)
-	if err != nil {
-		RespondWithError(w, http.StatusInternalServerError, "Failed to process vector")
-		return
-	}
-	vectorStr := string(vectorBytes)
-
-	results, err := h.DatabaseService.SearchAgentMemory(req.AgentName, req.UserID, vectorStr, req.Limit)
+	// Update DB client call to pass pgvector.Vector
+	results, err := h.DatabaseService.SearchAgentMemory(req.AgentName, req.UserID, vector, req.Limit)
 	if err != nil {
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("search failed: %v", err))
 		return
@@ -123,4 +142,23 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 	}
 
 	RespondWithJSON(w, http.StatusOK, response)
+}
+
+// Delete handles DELETE /api/memories
+func (h *MemoryHandler) Delete(w ErrorResponseWriter, r *http.Request) {
+	agentName := r.URL.Query().Get("agent_name")
+	userID := r.URL.Query().Get("user_id")
+
+	if agentName == "" || userID == "" {
+		RespondWithError(w, http.StatusBadRequest, "Missing required query parameters (agent_name, user_id)")
+		return
+	}
+
+	if err := h.DatabaseService.DeleteAgentMemory(agentName, userID); err != nil {
+		log.Printf("Failed to delete agent memory: %v", err)
+		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete memory: %v", err))
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

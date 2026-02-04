@@ -6,9 +6,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
+import numpy as np
 from google.adk.memory import BaseMemoryService
 from google.adk.memory.base_memory_service import SearchMemoryResponse
 from google.adk.memory.memory_entry import MemoryEntry
+from google.adk.models import BaseLlm
 from google.adk.sessions import Session
 from google.genai import types
 from litellm import aembedding
@@ -71,11 +73,12 @@ class KagentMemoryService(BaseMemoryService):
         contents = await self._summarize_session_content_async(raw_content, model=model)
 
         # Iterate over each extracted content item
-        for content_item in contents:
+        for i, content_item in enumerate(contents):
             if not content_item:
                 continue
 
             # Generate embedding for the content item
+            logger.info("Generating embedding for content item %d/%d", i + 1, len(contents))
             vector = await self._generate_embedding_async(content_item)
             if not vector:
                 logger.warning("Failed to generate embedding for session %s content item", session.id)
@@ -97,6 +100,7 @@ class KagentMemoryService(BaseMemoryService):
                 "metadata": metadata,
                 # ttl_seconds: omitted = 30 day default
             }
+            logger.info("Sending memory item to Kagent API for user %s", session.user_id)
 
             try:
                 response = await self.client.post("/api/memories/sessions", json=payload)
@@ -105,6 +109,67 @@ class KagentMemoryService(BaseMemoryService):
                 logger.info("Successfully saved session %s memory item (id=%s)", session.id, memory_id)
             except Exception as e:
                 logger.error("Error saving session %s memory item: %s", session.id, e)
+
+    async def add_memory(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Add a specific text content to memory.
+
+        Args:
+            app_name: The application name
+            user_id: The user ID
+            content: The text content to save
+            metadata: Optional additional metadata
+        """
+        if not self.memory_enabled:
+            return
+
+        if not content:
+            return
+
+        logger.info("Adding specific content to memory for user %s", user_id)
+
+        # Generate embedding
+        vector = await self._generate_embedding_async(content)
+        if not vector:
+            logger.warning("Failed to generate embedding for memory content")
+            return
+
+        # Build metadata
+        final_metadata = {
+            "app_name": app_name,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        if metadata:
+            final_metadata.update(metadata)
+
+        # Send to Kagent API
+        payload = {
+            "agent_name": self.agent_name,
+            "user_id": user_id,
+            "content": content,
+            "vector": vector,
+            "metadata": final_metadata,
+        }
+
+        logger.info("Sending add_memory payload: %s", json.dumps(payload, default=str))
+
+        try:
+            response = await self.client.post("/api/memories/sessions", json=payload)
+            logger.info("Kagent API response status: %s", response.status_code)
+            if response.status_code >= 400:
+                logger.error("Kagent API error response: %s", response.text)
+
+            response.raise_for_status()
+            memory_id = response.json().get("id")
+            logger.info("Successfully saved memory item (id=%s)", memory_id)
+        except Exception as e:
+            logger.error("Error saving memory item: %s", e)
 
     async def search_memory(
         self,
@@ -137,7 +202,7 @@ class KagentMemoryService(BaseMemoryService):
             "user_id": user_id,
             "vector": vector,
             "limit": 5,
-            "min_score": 0.7,  # Only return reasonably similar results
+            "min_score": 0.3,
         }
 
         try:
@@ -192,6 +257,17 @@ class KagentMemoryService(BaseMemoryService):
 
         return "\n".join(parts)
 
+    def _normalize_l2(x):
+        x = np.array(x)
+        if x.ndim == 1:
+            norm = np.linalg.norm(x)
+            if norm == 0:
+                return x
+            return x / norm
+        else:
+            norm = np.linalg.norm(x, 2, axis=1, keepdims=True)
+            return np.where(norm == 0, x, x / norm)
+
     async def _generate_embedding_async(self, text: str) -> List[float]:
         """Generate embedding vector for text using LiteLLM.
 
@@ -223,18 +299,18 @@ class KagentMemoryService(BaseMemoryService):
                 litellm_model = f"vertex_ai/{model_name}"
 
         try:
-            # hardcode this to 768 for now!
-            # aembedding SHOULD truncate dimensions if it cannot be specified as argument
-            # https://huggingface.co/blog/matryoshka
             # Most Matryoshka Representation Learning embedding models produce embeddings that still have meaning when truncated to specific sizes
+            # https://huggingface.co/blog/matryoshka
             response = await aembedding(model=litellm_model, input=[text], dimensions=768)
             embedding = response.data[0]["embedding"]
 
-            # I don't think litellm truncates? It says it will just work for certain latest models from openAI
-            # But there's nothign we can do other than direct truncation
-            # https://arxiv.org/html/2508.17744v1
+            # LiteLLM does not truncate embeddings by default if the model doesn't support it
+            # However, truncating embeddings is still valid (for most models, see OpenAI's docs and this research https://arxiv.org/html/2508.17744v1)
             if len(embedding) > 768:
                 embedding = embedding[:768]
+                # if we change dimension manually, we need to re-normalize the embeddings
+                embedding = self._normalize_l2(embedding)
+
             return embedding
 
         except Exception as e:
@@ -244,7 +320,7 @@ class KagentMemoryService(BaseMemoryService):
     async def _summarize_session_content_async(
         self,
         content: str,
-        model: Optional[Any] = None,
+        model: Optional[BaseLlm] = None,
     ) -> List[str]:
         """Summarize session content using an LLM before embedding.
 
@@ -300,45 +376,43 @@ Summary (JSON List):"""
             )
 
             # Call the model directly
-            llm_response = await model.generate_content_async(llm_request)
+            logger.info("Summarizing session content using model %s", model.model)
+            response_generator = model.generate_content_async(llm_request, stream=False)
 
-            # Extract text from response
-            if llm_response.content and llm_response.content.parts:
-                summary_text = "".join(
-                    part.text for part in llm_response.content.parts if hasattr(part, "text") and part.text
-                ).strip()
+            # Consume the async generator (streaming response)
+            summary_text = ""
+            async for chunk in response_generator:
+                if chunk.content and chunk.content.parts:
+                    summary_text += "".join(
+                        part.text for part in chunk.content.parts if hasattr(part, "text") and part.text
+                    )
 
-                if summary_text:
-                    # Clean up potential markdown formatting if model ignores instruction
-                    if summary_text.startswith("```json"):
-                        summary_text = summary_text[7:]
-                    if summary_text.startswith("```"):
-                        summary_text = summary_text[3:]
-                    if summary_text.endswith("```"):
-                        summary_text = summary_text[:-3]
-                    summary_text = summary_text.strip()
+            summary_text = summary_text.strip()
+            logger.info("Summarization complete. Response length: %d", len(summary_text))
+            logger.info("Content: %s", summary_text)
 
-                    try:
-                        extracted_list = json.loads(summary_text)
-                        if isinstance(extracted_list, list) and all(isinstance(item, str) for item in extracted_list):
-                            logger.debug("Summarized session content into %d items", len(extracted_list))
-                            return extracted_list
-                        else:
-                            logger.warning(
-                                "LLM returned valid JSON but not a list of strings. Falling back to full text."
-                            )
-                    except json.JSONDecodeError:
-                        logger.warning(
-                            "Failed to parse LLM output as JSON. Falling back to full text. Output: %s", summary_text
-                        )
-                        # Fallback to the text returned by LLM if it's not JSON but has content,
-                        # OR maybe just return the original content?
-                        # The requirement says "if the LLM outputs a invalid structeud output, save the entire chunk"
-                        # This implies we might want to save the original raw content, or the summary text itself?
-                        # "save the entire chunk" usually refers to the input or the raw_content.
-                        # Let's stick to returning the raw content (fallback) or maybe the failed summary if it's just text.
-                        # But simpler to fallback to original content if structured extraction fails.
-                        pass
+            if summary_text:
+                # Clean up potential markdown formatting if model ignores instruction
+                if summary_text.startswith("```json"):
+                    summary_text = summary_text[7:]
+                if summary_text.startswith("```"):
+                    summary_text = summary_text[3:]
+                if summary_text.endswith("```"):
+                    summary_text = summary_text[:-3]
+                summary_text = summary_text.strip()
+
+                try:
+                    extracted_list = json.loads(summary_text)
+                    if isinstance(extracted_list, list) and all(isinstance(item, str) for item in extracted_list):
+                        logger.debug("Summarized session content into %d items", len(extracted_list))
+                        return extracted_list
+                    else:
+                        logger.warning("LLM returned valid JSON but not a list of strings. Falling back to full text.")
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Failed to parse LLM output as JSON. Falling back to full text. Output: %s", summary_text
+                    )
+                    pass
 
             logger.warning("Empty summary or invalid format returned, using original content")
             return [content]

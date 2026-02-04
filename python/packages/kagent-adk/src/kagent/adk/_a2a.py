@@ -19,7 +19,6 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
@@ -119,45 +118,6 @@ class KAgentApp:
 
         def create_runner() -> Runner:
             root_agent = self.root_agent_factory()
-
-            if memory_service and self.agent_config and self.agent_config.memory_enabled:
-                try:
-                    # Import ADK memory tools
-                    from google.adk.tools import load_memory
-                    from google.adk.tools.preload_memory_tool import PreloadMemoryTool
-
-                    # Ensure tools list exists
-                    if not hasattr(root_agent, "tools") or root_agent.tools is None:
-                        root_agent.tools = []
-
-                    # Add PreloadMemoryTool and load_memory tool
-                    root_agent.tools.append(PreloadMemoryTool())
-                    root_agent.tools.append(load_memory)
-
-                    # Define auto-save callback
-                    async def auto_save_session_to_memory_callback(callback_context):
-                        try:
-                            logger.info(
-                                "Auto-saving session %s to memory", callback_context._invocation_context.session.id
-                            )
-
-                            # Pass the agent's model directly for summarization
-                            await callback_context._invocation_context.memory_service.add_session_to_memory(
-                                callback_context._invocation_context.session,
-                                model=root_agent.model if hasattr(root_agent, "model") else None,
-                            )
-                        except Exception as e:
-                            logger.error("Failed to auto-save session to memory: %s", e)
-
-                    # Append to after agent callback list
-                    if not hasattr(root_agent, "after_agent_callback") or root_agent.after_agent_callback is None:
-                        root_agent.after_agent_callback = []
-                    root_agent.after_agent_callback.append(auto_save_session_to_memory_callback)
-
-                except ImportError as e:
-                    logger.warning("Failed to import memory tools (google-adk update may be needed): %s", e)
-                except Exception as e:
-                    logger.error("Failed to inject memory configuration: %s", e)
 
             adk_app = App(name=self.app_name, root_agent=root_agent, plugins=self.plugins)
 
