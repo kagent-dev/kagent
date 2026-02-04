@@ -194,6 +194,7 @@ Optional tooling:
 - **kgateway**: Gateway and Kubernetes Gateway API integration
 - **Grafana**: Observability and monitoring integration
 - **Istio**: Integration with Istio Service Mesh APIs
+- **Linkerd**: Integration with Linkerd Service Mesh APIs
 - **Argo**: Integration with Argo Rollouts
 - **Cilium**: Integration through specialized agents for eBPF-based networking
 
