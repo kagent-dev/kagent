@@ -1482,6 +1482,10 @@ func (a *adkApiTranslator) resolveInlineDeployment(agent *v1alpha2.Agent, mdd *m
 		registry = spec.ImageRegistry
 	}
 	repository := DefaultImageConfig.Repository
+	if spec.Image != "" {
+		repository = spec.Image
+	}
+
 	image := fmt.Sprintf("%s/%s:%s", registry, repository, DefaultImageConfig.Tag)
 
 	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
