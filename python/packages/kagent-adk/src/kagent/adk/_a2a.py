@@ -6,7 +6,6 @@ from typing import Any, Callable, List, Optional
 
 import httpx
 from a2a.server.apps import A2AFastAPIApplication
-from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
@@ -28,6 +27,7 @@ from kagent.core.a2a import (
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
+from ._safe_request_handler import SafeRequestHandler
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
 
@@ -112,7 +112,7 @@ class KAgentApp:
             task_store = KAgentTaskStore(http_client)
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandler(
+        request_handler = SafeRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
             request_context_builder=request_context_builder,
