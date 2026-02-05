@@ -1,13 +1,19 @@
 package models
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 // OpenAIConfig holds OpenAI configuration
@@ -35,16 +41,10 @@ type AzureOpenAIConfig struct {
 
 // OpenAIModel implements model.LLM (see openai_adk.go) for OpenAI/Azure OpenAI.
 type OpenAIModel struct {
-	Config      *OpenAIConfig
-	Client      *openai.Client
-	AzureClient *openai.Client // For Azure OpenAI
-	IsAzure     bool
-	Logger      logr.Logger
-}
-
-// NewOpenAIModel creates a new OpenAI model instance
-func NewOpenAIModel(config *OpenAIConfig) (*OpenAIModel, error) {
-	return NewOpenAIModelWithLogger(config, logr.Logger{})
+	Config  *OpenAIConfig
+	Client  openai.Client
+	IsAzure bool
+	Logger  logr.Logger
 }
 
 // NewOpenAIModelWithLogger creates a new OpenAI model instance with a logger
@@ -74,35 +74,32 @@ func NewOpenAICompatibleModelWithLogger(baseURL, modelName string, headers map[s
 	return newOpenAIModelFromConfig(config, apiKey, logger)
 }
 
+// TODO: consider support for Azure OpenAI, when used from NewOpenAICompatibleModelWithLogger,
+// Anthropic and Gemini might use Azure OpenAI, so we need to support it.
 func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.Logger) (*OpenAIModel, error) {
-	clientConfig := openai.DefaultConfig(apiKey)
+	opts := []option.RequestOption{
+		option.WithAPIKey(apiKey),
+	}
 	if config.BaseUrl != "" {
-		clientConfig.BaseURL = config.BaseUrl
+		opts = append(opts, option.WithBaseURL(config.BaseUrl))
 	}
-
-	// Set timeout if specified, otherwise use default
+	timeout := DefaultExecutionTimeout
 	if config.Timeout != nil {
-		clientConfig.HTTPClient.Timeout = time.Duration(*config.Timeout) * time.Second
-	} else {
-		clientConfig.HTTPClient.Timeout = DefaultExecutionTimeout
+		timeout = time.Duration(*config.Timeout) * time.Second
 	}
-
-	// Set default headers if provided (matching Python: default_headers=self.default_headers)
+	httpClient := &http.Client{Timeout: timeout}
 	if len(config.Headers) > 0 {
-		originalTransport := clientConfig.HTTPClient.Transport
-		if originalTransport == nil {
-			originalTransport = http.DefaultTransport
-		}
-		clientConfig.HTTPClient.Transport = &headerTransport{
-			base:    originalTransport,
+		httpClient.Transport = &headerTransport{
+			base:    http.DefaultTransport,
 			headers: config.Headers,
 		}
 		if logger.GetSink() != nil {
 			logger.Info("Setting default headers for OpenAI client", "headersCount", len(config.Headers), "headers", config.Headers)
 		}
 	}
+	opts = append(opts, option.WithHTTPClient(httpClient))
 
-	client := openai.NewClientWithConfig(clientConfig)
+	client := openai.NewClient(opts...)
 	if logger.GetSink() != nil {
 		logger.Info("Initialized OpenAI model", "model", config.Model, "baseUrl", config.BaseUrl)
 	}
@@ -114,7 +111,8 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 	}, nil
 }
 
-// NewAzureOpenAIModelWithLogger creates a new Azure OpenAI model instance with a logger
+// NewAzureOpenAIModelWithLogger creates a new Azure OpenAI model instance with a logger.
+// Uses Azure-style base URL, Api-Key header, and path rewriting so we do not depend on the azure package.
 func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger) (*OpenAIModel, error) {
 	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
 	azureEndpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
@@ -129,30 +127,28 @@ func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger
 		return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
 	}
 
-	clientConfig := openai.DefaultAzureConfig(apiKey, azureEndpoint)
-	clientConfig.APIVersion = apiVersion
-	clientConfig.AzureModelMapperFunc = func(model string) string {
-		if config.Model != "" {
-			return config.Model
-		}
-		return model
+	baseURL := strings.TrimSuffix(azureEndpoint, "/") + "/"
+	opts := []option.RequestOption{
+		option.WithBaseURL(baseURL),
+		option.WithQueryAdd("api-version", apiVersion),
+		option.WithHeader("Api-Key", apiKey),
+		option.WithMiddleware(azurePathRewriteMiddleware()),
 	}
+	timeout := DefaultExecutionTimeout
 	if config.Timeout != nil {
-		clientConfig.HTTPClient.Timeout = time.Duration(*config.Timeout) * time.Second
-	} else {
-		clientConfig.HTTPClient.Timeout = DefaultExecutionTimeout
+		timeout = time.Duration(*config.Timeout) * time.Second
 	}
+	opts = append(opts, option.WithRequestTimeout(timeout))
+	httpClient := &http.Client{Timeout: timeout}
 	if len(config.Headers) > 0 {
-		originalTransport := clientConfig.HTTPClient.Transport
-		if originalTransport == nil {
-			originalTransport = http.DefaultTransport
-		}
-		clientConfig.HTTPClient.Transport = &headerTransport{
-			base:    originalTransport,
+		httpClient.Transport = &headerTransport{
+			base:    http.DefaultTransport,
 			headers: config.Headers,
 		}
 	}
-	client := openai.NewClientWithConfig(clientConfig)
+	opts = append(opts, option.WithHTTPClient(httpClient))
+
+	client := openai.NewClient(opts...)
 	if logger.GetSink() != nil {
 		logger.Info("Initialized Azure OpenAI model", "model", config.Model, "endpoint", azureEndpoint, "apiVersion", apiVersion)
 	}
@@ -162,6 +158,48 @@ func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger
 		IsAzure: true,
 		Logger:  logger,
 	}, nil
+}
+
+// azurePathRewriteMiddleware rewrites .../chat/completions to .../openai/deployments/{model}/chat/completions
+// by reading the request body for the model field (Azure deployment name).
+// Preserves the path prefix (e.g. /api/v1/proxy/) so proxies with a base path still work.
+func azurePathRewriteMiddleware() option.Middleware {
+	return func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		pathSuffix := strings.TrimPrefix(r.URL.Path, "/")
+		var suffix string
+		switch {
+		case strings.HasSuffix(pathSuffix, "chat/completions"):
+			suffix = "chat/completions"
+		case strings.HasSuffix(pathSuffix, "completions"):
+			suffix = "completions"
+		case strings.HasSuffix(pathSuffix, "embeddings"):
+			suffix = "embeddings"
+		default:
+			return next(r)
+		}
+		if r.Body == nil {
+			return next(r)
+		}
+		var buf bytes.Buffer
+		if _, err := buf.ReadFrom(r.Body); err != nil {
+			return nil, err
+		}
+		r.Body = io.NopCloser(&buf)
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(bytes.NewReader(buf.Bytes())).Decode(&payload); err != nil || payload.Model == "" {
+			r.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
+			return next(r)
+		}
+		deployment := url.PathEscape(payload.Model)
+		// Keep base path (e.g. /api/v1/proxy), replace suffix with Azure-style path
+		basePath := strings.TrimSuffix(r.URL.Path, suffix)
+		basePath = strings.TrimRight(basePath, "/")
+		r.URL.Path = basePath + "/openai/deployments/" + deployment + "/" + suffix
+		r.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
+		return next(r)
+	}
 }
 
 // headerTransport wraps an http.RoundTripper and adds custom headers to all requests
