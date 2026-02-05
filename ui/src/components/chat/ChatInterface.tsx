@@ -2,8 +2,15 @@
 
 import type React from "react";
 import { useState, useRef, useEffect } from "react";
-import { ArrowBigUp, X, Loader2 } from "lucide-react";
+import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
@@ -51,6 +58,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
+
+  const {
+    isListening,
+    isSupported: isVoiceSupported,
+    startListening,
+    stopListening,
+    error: voiceError,
+  } = useSpeechRecognition({
+    onResult(transcriptText) {
+      setCurrentInputMessage(transcriptText);
+    },
+    onError(msg) {
+      toast.error(msg);
+    },
+  });
 
   const { handleMessageEvent } = createMessageHandlers({
     setMessages: setStreamingMessages,
@@ -134,6 +156,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     e.preventDefault();
     if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
       return;
+    }
+
+    // Stop voice recording if active before sending
+    if (isListening) {
+      stopListening();
     }
 
     const userMessageText = currentInputMessage;
@@ -410,6 +437,36 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           />
 
           <div className="flex items-center justify-end gap-2 mt-4">
+            {isVoiceSupported && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant={isListening ? "destructive" : "default"}
+                      size="icon"
+                      onClick={isListening ? stopListening : startListening}
+                      disabled={chatStatus !== "ready"}
+                      className={isListening ? "animate-pulse" : ""}
+                      aria-label={isListening ? "Stop listening" : "Voice input"}
+                    >
+                      {isListening ? (
+                        <Square className="h-4 w-4" aria-hidden />
+                      ) : (
+                        <Mic className="h-4 w-4" aria-hidden />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {voiceError
+                      ? voiceError
+                      : isListening
+                        ? "Stop listening"
+                        : "Voice input — click and speak"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
               Send
               <ArrowBigUp className="h-4 w-4 ml-2" />
