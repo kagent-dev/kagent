@@ -60,7 +60,7 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 	}
 	// Restore body for decoding
 	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-	log.Printf("Received AddSession request: %s", string(bodyBytes))
+	// log.Printf("Received AddSession request: %s", string(bodyBytes))
 
 	var req AddSessionMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -68,7 +68,7 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Decoded AddSession request: %+v", req)
+	// log.Printf("Decoded AddSession request: %+v", req)
 
 	if req.AgentName == "" || req.UserID == "" || len(req.Vector) == 0 {
 		RespondWithError(w, http.StatusBadRequest, "Missing required fields (agent_name, user_id, vector)")

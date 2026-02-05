@@ -52,6 +52,7 @@ nodeSelector: {}
 database:
   type: sqlite
   sqlite:
+    vectorEnabled: true
     databaseName: kagent.db
   postgres:
     vectorEnabled: true

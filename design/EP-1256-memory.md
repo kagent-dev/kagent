@@ -32,7 +32,9 @@ Agents require long-term memory to remember and learn from past interactions.
 
 The memory implementation spans across the Postgres database, Go Controller, and Python ADK:
 
-### 1. Database (PostgreSQL + pgvector)
+### 1. Database
+
+#### PostgreSQL + pgvector
 
 - **Table**: `memory` table stores the actual memory entries.
 - **Columns**:
@@ -43,15 +45,29 @@ The memory implementation spans across the Postgres database, Go Controller, and
   - `expires_at` (Timestamp): Defines when the memory is eligible for pruning (TTL).
 - **Indexing**: Uses HNSW (Hierarchical Navigable Small World) index (`idx_memory_embedding_hnsw`) with `vector_cosine_ops` for efficient approximate nearest neighbor search.
 
+Note that this does not use `pgvectorscale` which is more performant than the original `pgvector`, but is bundled with `timescaledb` which has some setup overhead and possible compatibility issues. If needed we can switch over to the [timescaledb container image](https://www.tigerdata.com/docs/self-hosted/latest/install/installation-docker) instead which has the vector scale extension built-in.
+
+#### SQLite / Turso (Local Development)
+
+- **Driver**: Uses `turso-go` which embeds libSQL with native vector support. This does not require CGO but it requires the container to have some C/C++ runtime libraries.
+- **Schema**:
+  - `embedding` (F32_BLOB): 768-dimensional float32 blob `F32_BLOB(768)`.
+- **Query Syntax**:
+  - Uses `vector_distance_cos(embedding, vector32(?))` for similarity search.
+  - Requires specific handling of vector params (passed as JSON string literals) due to driver limitations.
+  - Note that this does not use the same query syntax as Postgres.
+- **Indexing**:
+  - Uses brute-force scan for small datasets (highly efficient for <10k vectors).
+  - Supports `libsql_vector_idx` for ANN search at larger scales (though currently using direct scan for simplicity) -- there are some issues when trying to use this
+
+[Turso's AI and Embedding documentation can be found here](https://docs.turso.tech/features/ai-and-embeddings)
+
 ### 2. Kagent Controller (Go)
 
-- **API Handlers**:
-  - POST `/api/memories/sessions`: Adds memories (with default 15-day TTL).
-  - POST `/api/memories/search`: Performs cosine similarity search.
-  - DELETE `/api/memories`: Clears memories for an agent/user.
-- **Logic**:
-  - Handles asynchronous incrementing of `access_count` upon successful retrieval.
-  - `PruneExpiredMemories` implements the retention policy logic.
+- POST `/api/memories/sessions`: Adds memories (with default 15-day TTL).
+- POST `/api/memories/sessions/batch`: Adds memories in batch (with default 15-day TTL).
+- POST `/api/memories/search`: Performs cosine similarity search.
+- DELETE `/api/memories`: Clears memories for an agent/user.
 
 ### 3. Python ADK
 
@@ -108,7 +124,7 @@ The user can also choose to delete all memories for a specific agent from the UI
 
 3. **No Hybrid Search**: We rely solely on dense vector retrieval. There is no sparse (keyword/BM25) search, which can lead to poor performance on exact match queries (e.g., searching for a specific error code or ID).
 
-4. **Scaling & Performance**: The performance of `pgvector` with HNSW indices at large scale (millions of vectors) with this specific configuration has not been extensively benchmarked against dedicated vector databases (e.g., Milvus, Qdrant).
+4. **Scaling & Performance**: The performance of `pgvector` with HNSW indices at large scale (millions of vectors) with this specific configuration has not been extensively benchmarked against dedicated vector databases (e.g., Milvus, Qdrant). We might want to consider using `pgvectorscale` if we hit performance issues or use a dedicated vector database.
 
 5. **Agent Overhead**: Memory tools consume token budget. The auto-save summarization step uses additional LLM calls, which increases cost and latency.
 

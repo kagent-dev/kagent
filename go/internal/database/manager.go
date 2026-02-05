@@ -1,12 +1,15 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"sync"
 
-	"github.com/glebarez/sqlite"
+	_ "github.com/tursodatabase/turso-go" // Register "turso" driver
+
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -26,7 +29,8 @@ const (
 )
 
 type SqliteConfig struct {
-	DatabasePath string
+	DatabasePath  string
+	VectorEnabled bool
 }
 
 type PostgresConfig struct {
@@ -65,10 +69,27 @@ func NewManager(config *Config) (*Manager, error) {
 
 	switch config.DatabaseType {
 	case DatabaseTypeSqlite:
-		db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
-			Logger:         logger.Default.LogMode(logLevel),
-			TranslateError: true,
-		})
+		if config.SqliteConfig.VectorEnabled {
+			// Use Turso driver (libSQL with native vector support)
+			// Note: Turso/libSQL handles WAL mode and concurrency internally
+			sqlDB, sqlErr := sql.Open("turso", config.SqliteConfig.DatabasePath)
+			if sqlErr != nil {
+				return nil, fmt.Errorf("failed to open turso connection: %w", sqlErr)
+			}
+			// Limit connections to avoid SQLite locking issues
+			sqlDB.SetMaxOpenConns(1)
+
+			db, err = gorm.Open(sqlite.Dialector{Conn: sqlDB}, &gorm.Config{
+				Logger:         logger.Default.LogMode(logLevel),
+				TranslateError: true,
+			})
+		} else {
+			// Use standard sqlite driver (no vector support)
+			db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
+				Logger:         logger.Default.LogMode(logLevel),
+				TranslateError: true,
+			})
+		}
 	case DatabaseTypePostgres:
 		db, err = gorm.Open(postgres.Open(config.PostgresConfig.URL), &gorm.Config{
 			Logger:         logger.Default.LogMode(logLevel),
@@ -114,6 +135,7 @@ func (m *Manager) Initialize() error {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 
+	// DatabaseTypePostgres check for Memory table
 	if m.config.DatabaseType == DatabaseTypePostgres && m.config.PostgresConfig.VectorEnabled {
 		if err := m.db.AutoMigrate(&Memory{}); err != nil {
 			return fmt.Errorf("failed to migrate memory table: %w", err)
@@ -127,25 +149,31 @@ func (m *Manager) Initialize() error {
 		}
 	}
 
-	// Setup pg_cron for memory TTL cleanup (optional - will silently fail if pg_cron not available)
-	// if m.db.Dialector.Name() == "postgres" {
-	// 	// Try to enable pg_cron extension (requires superuser, may fail)
-	// 	_ = m.db.Exec("CREATE EXTENSION IF NOT EXISTS pg_cron")
-
-	// 	// Schedule hourly cleanup of expired memories
-	// 	// This will fail silently if pg_cron is not available or user lacks permissions
-	// 	_ = m.db.Exec(`
-	// 		SELECT cron.unschedule('cleanup_expired_memories')
-	// 		WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'cleanup_expired_memories')
-	// 	`)
-	// 	_ = m.db.Exec(`
-	// 		SELECT cron.schedule(
-	// 			'cleanup_expired_memories',
-	// 			'0 * * * *',
-	// 			$$DELETE FROM memory WHERE expires_at IS NOT NULL AND expires_at < NOW()$$
-	// 		)
-	// 	`)
-	// }
+	// DatabaseTypeSqlite check for Memory table
+	// libSQL uses F32_BLOB(N) for vector columns, not vector(N) like pgvector
+	// AutoMigrate doesn't work because GORM tries to use the pgvector type from struct tags
+	if m.config.DatabaseType == DatabaseTypeSqlite && m.config.SqliteConfig.VectorEnabled {
+		createMemoryTableSQL := `
+			CREATE TABLE IF NOT EXISTS memory (
+				id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+				agent_name TEXT,
+				user_id TEXT,
+				content TEXT,
+				embedding F32_BLOB(768),
+				metadata TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				expires_at DATETIME,
+				access_count INTEGER DEFAULT 0
+			)
+		`
+		if err := m.db.Exec(createMemoryTableSQL).Error; err != nil {
+			return fmt.Errorf("failed to create memory table: %w", err)
+		}
+		// Create indexes
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_agent_name ON memory(agent_name)`)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_user_id ON memory(user_id)`)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_expires_at ON memory(expires_at)`)
+	}
 
 	return nil
 }

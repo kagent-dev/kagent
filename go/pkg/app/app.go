@@ -346,11 +346,12 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	// Initialize database
 	dbManager, err := database.NewManager(&database.Config{
 		DatabaseType: database.DatabaseType(cfg.Database.Type),
-		SqliteConfig: &database.SqliteConfig{
-			DatabasePath: cfg.Database.Path,
-		},
 		PostgresConfig: &database.PostgresConfig{
 			URL:           cfg.Database.Url,
+			VectorEnabled: cfg.Database.VectorEnabled,
+		},
+		SqliteConfig: &database.SqliteConfig{
+			DatabasePath:  cfg.Database.Path,
 			VectorEnabled: cfg.Database.VectorEnabled,
 		},
 	})

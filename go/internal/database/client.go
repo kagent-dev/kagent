@@ -675,19 +675,41 @@ func (c *clientImpl) StoreAgentMemories(memories []*Memory) error {
 func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
 	var results []AgentMemorySearchResult
 
-	// (embedding <=> query) gives cosine similarity
-	// ORDER BY embedding <=> ? ASC will use a KNN Index Scan if available (we use HNSW index)
-	// pgvector.Vector implements sql.Scanner and driver.Valuer, so it can be passed directly to GORM
-	query := `
-		SELECT *, 1 - (embedding <=> ?) as score
-		FROM memory
-		WHERE agent_name = ? AND user_id = ?
-		ORDER BY embedding <=> ? ASC
-		LIMIT ?
-	`
+	if c.db.Name() == "sqlite" {
+		// libSQL/Turso syntax: vector_distance_cos(embedding, vector32('JSON_ARRAY'))
+		// We must use fmt.Sprintf to inline the JSON array because vector32() requires a string literal
+		// and parameter binding with ? fails with "unexpected token" errors
+		embeddingJSON, err := json.Marshal(embedding.Slice())
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize embedding: %w", err)
+		}
 
-	if err := c.db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to search agent memory: %w", err)
+		// Safe formatting because we control the JSON string generation from float slice
+		query := fmt.Sprintf(`
+			SELECT id, agent_name, user_id, content, metadata, created_at, expires_at, access_count,
+			       1 - vector_distance_cos(embedding, vector32('%s')) as score
+			FROM memory
+			WHERE agent_name = ? AND user_id = ?
+			ORDER BY vector_distance_cos(embedding, vector32('%s')) ASC
+			LIMIT ?
+		`, string(embeddingJSON), string(embeddingJSON))
+
+		if err := c.db.Raw(query, agentName, userID, limit).Scan(&results).Error; err != nil {
+			return nil, fmt.Errorf("failed to search agent memory (sqlite): %w", err)
+		}
+	} else {
+		// Postgres pgvector syntax: uses <=> operator for cosine distance
+		// pgvector.Vector implements sql.Scanner and driver.Valuer
+		query := `
+			SELECT *, 1 - (embedding <=> ?) as score
+			FROM memory
+			WHERE agent_name = ? AND user_id = ?
+			ORDER BY embedding <=> ? ASC
+			LIMIT ?
+		`
+		if err := c.db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
+			return nil, fmt.Errorf("failed to search agent memory (postgres): %w", err)
+		}
 	}
 
 	// Increment access count for found memories asynchronously
@@ -740,7 +762,7 @@ func (c *clientImpl) PruneExpiredMemories() error {
 
 func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {
 	normalizedName := strings.ReplaceAll(agentName, "-", "_")
-	
+
 	// Delete both original name and normalized name
 	// Sometimes frontend has naming inconsistencies with backend
 	err := delete[Memory](c.db,
@@ -755,6 +777,6 @@ func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {
 			Clause{Key: "agent_name", Value: normalizedName},
 			Clause{Key: "user_id", Value: userID})
 	}
-	
+
 	return nil
 }

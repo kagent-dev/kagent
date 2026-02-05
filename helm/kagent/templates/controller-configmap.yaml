@@ -32,6 +32,7 @@ data:
   {{- end }}
   {{- if eq .Values.database.type "sqlite" }}
   SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
+  DATABASE_VECTOR_ENABLED: {{ .Values.database.sqlite.vectorEnabled | default true | quote }}
   {{- else if and (eq .Values.database.type "postgres") (not (eq .Values.database.postgres.url "")) }}
   POSTGRES_DATABASE_URL: {{ .Values.database.postgres.url | quote }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | default true | quote }}
