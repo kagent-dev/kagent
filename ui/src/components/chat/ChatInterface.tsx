@@ -158,6 +158,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       return;
     }
 
+    // Stop voice recording if active before sending
+    if (isListening) {
+      stopListening();
+    }
+
     const userMessageText = currentInputMessage;
     setCurrentInputMessage("");
     setChatStatus("thinking");
