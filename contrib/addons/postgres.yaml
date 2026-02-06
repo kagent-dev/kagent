@@ -37,27 +37,27 @@ spec:
         app.kubernetes.io/name: postgres
     spec:
       containers:
-      - name: postgres
-        image: postgres:18-alpine
-        ports:
-        - containerPort: 5432
-        envFrom:
-        - configMapRef:
-            name: postgres
-        volumeMounts:
-        - name: postgres-storage
-          mountPath: /var/lib/postgresql
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+        - name: postgres
+          image: pgvector/pgvector:pg18-trixie
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: postgres
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
       volumes:
-      - name: postgres-storage
-        persistentVolumeClaim:
-          claimName: postgres
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres
 ---
 apiVersion: v1
 kind: Service
@@ -68,7 +68,6 @@ spec:
   selector:
     app.kubernetes.io/name: postgres
   ports:
-  - port: 5432
-    targetPort: 5432
+    - port: 5432
+      targetPort: 5432
   type: ClusterIP
-

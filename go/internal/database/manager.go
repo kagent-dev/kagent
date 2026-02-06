@@ -5,8 +5,11 @@ import (
 	"os"
 	"sync"
 
-	"github.com/glebarez/sqlite"
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	_ "github.com/mattn/go-sqlite3"
+
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -14,6 +17,7 @@ import (
 // Manager handles database connection and initialization
 type Manager struct {
 	db       *gorm.DB
+	config   *Config
 	initLock sync.Mutex
 }
 
@@ -25,11 +29,13 @@ const (
 )
 
 type SqliteConfig struct {
-	DatabasePath string
+	DatabasePath  string
+	VectorEnabled bool
 }
 
 type PostgresConfig struct {
-	URL string
+	URL           string
+	VectorEnabled bool
 }
 
 type Config struct {
@@ -63,10 +69,32 @@ func NewManager(config *Config) (*Manager, error) {
 
 	switch config.DatabaseType {
 	case DatabaseTypeSqlite:
-		db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
-			Logger:         logger.Default.LogMode(logLevel),
-			TranslateError: true,
-		})
+		if config.SqliteConfig.VectorEnabled {
+			// Enable sqlite-vec extension for all CGO sqlite3 connections
+			sqlite_vec.Auto()
+
+			// Use CGO sqlite3 driver with vector support
+			// Format: file:path?mode=rwc&_journal_mode=WAL&_busy_timeout=5000
+			dsn := fmt.Sprintf("file:%s?mode=rwc&_journal_mode=WAL&_busy_timeout=5000", config.SqliteConfig.DatabasePath)
+			db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
+				Logger:         logger.Default.LogMode(logLevel),
+				TranslateError: true,
+			})
+		} else {
+			db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
+				Logger:         logger.Default.LogMode(logLevel),
+				TranslateError: true,
+			})
+
+		}
+		// limit max connection to avoid database is closed
+		if db != nil {
+			sqlDB, _ := db.DB()
+			if sqlDB != nil {
+				sqlDB.SetMaxOpenConns(1)
+			}
+		}
+
 	case DatabaseTypePostgres:
 		db, err = gorm.Open(postgres.Open(config.PostgresConfig.URL), &gorm.Config{
 			Logger:         logger.Default.LogMode(logLevel),
@@ -80,15 +108,17 @@ func NewManager(config *Config) (*Manager, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	return &Manager{db: db}, nil
+	return &Manager{db: db, config: config}, nil
 }
 
 // Initialize sets up the database tables
 func (m *Manager) Initialize() error {
-	if !m.initLock.TryLock() {
-		return fmt.Errorf("database initialization already in progress")
+	// Create extensions if using Postgres and Vector is enabled
+	if m.db.Name() == "postgres" && m.config.PostgresConfig.VectorEnabled {
+		if err := m.db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error; err != nil {
+			return fmt.Errorf("failed to create vector extension: %w", err)
+		}
 	}
-	defer m.initLock.Unlock()
 
 	// AutoMigrate all models
 	err := m.db.AutoMigrate(
@@ -108,6 +138,58 @@ func (m *Manager) Initialize() error {
 
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
+	}
+
+	// DatabaseTypePostgres check for Memory table
+	if m.config.DatabaseType == DatabaseTypePostgres && m.config.PostgresConfig.VectorEnabled {
+		if err := m.db.AutoMigrate(&Memory{}); err != nil {
+			return fmt.Errorf("failed to migrate memory table: %w", err)
+		}
+
+		// Manually create the HNSW index with the correct operator class
+		// GORM doesn't support adding "op class" in struct tags easily for Postgres vectors
+		indexQuery := `CREATE INDEX IF NOT EXISTS idx_memory_embedding_hnsw ON memory USING hnsw (embedding vector_cosine_ops)`
+		if err := m.db.Exec(indexQuery).Error; err != nil {
+			return fmt.Errorf("failed to create hnsw index: %w", err)
+		}
+	}
+
+	// DatabaseTypeSqlite check for Memory table
+	// sqlite-vec uses virtual tables with vec0 and float[N] type
+	// We create a regular table for metadata and a virtual table for vectors
+	if m.config.DatabaseType == DatabaseTypeSqlite && m.config.SqliteConfig.VectorEnabled {
+		// Create the main memory table without embedding column
+		createMemoryTableSQL := `
+			CREATE TABLE IF NOT EXISTS memory (
+				id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+				agent_name TEXT,
+				user_id TEXT,
+				content TEXT,
+				metadata TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				expires_at DATETIME,
+				access_count INTEGER DEFAULT 0
+			)
+		`
+		if err := m.db.Exec(createMemoryTableSQL).Error; err != nil {
+			return fmt.Errorf("failed to create memory table: %w", err)
+		}
+
+		// Create the virtual table for vector embeddings (linked by rowid)
+		// sqlite-vec uses vec0 virtual table type with float[N] column type
+		createVecTableSQL := `
+			CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(
+				embedding float[768]
+			)
+		`
+		if err := m.db.Exec(createVecTableSQL).Error; err != nil {
+			return fmt.Errorf("failed to create memory_vec virtual table: %w", err)
+		}
+
+		// Create indexes on the main table
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_agent_name ON memory(agent_name)`)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_user_id ON memory(user_id)`)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_expires_at ON memory(expires_at)`)
 	}
 
 	return nil
