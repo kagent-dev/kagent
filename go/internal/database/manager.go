@@ -4,12 +4,13 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
-	_ "github.com/tursodatabase/turso-go" // Register "turso" driver
+	"github.com/glebarez/sqlite"
+	_ "turso.tech/database/tursogo"
 
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -84,8 +85,14 @@ func NewManager(config *Config) (*Manager, error) {
 				TranslateError: true,
 			})
 		} else {
-			// Use standard sqlite driver (no vector support)
-			db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
+			// Use Go sqlite driver (no vector support)
+			dsn := config.SqliteConfig.DatabasePath
+			if strings.Contains(dsn, "?") {
+				dsn += "&_loc=auto"
+			} else {
+				dsn += "?_loc=auto"
+			}
+			db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
 				Logger:         logger.Default.LogMode(logLevel),
 				TranslateError: true,
 			})
