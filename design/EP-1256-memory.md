@@ -47,20 +47,23 @@ The memory implementation spans across the Postgres database, Go Controller, and
 
 Note that this does not use `pgvectorscale` which is more performant than the original `pgvector`, but is bundled with `timescaledb` which has some setup overhead and possible compatibility issues. If needed we can switch over to the [timescaledb container image](https://www.tigerdata.com/docs/self-hosted/latest/install/installation-docker) instead which has the vector scale extension built-in.
 
-#### SQLite / Turso (Local Development)
+#### SQLite Vector Extension
 
-- **Driver**: Uses `turso-go` which embeds libSQL with native vector support. This does not require CGO but it requires the container to have some C/C++ runtime libraries.
+- **Implementation**: Uses `sqlite-vec` extension via `sqlite-vec-go-bindings` with the CGO-based `mattn/go-sqlite3` driver.
+- **Trade-off Decision**: We chose this over `turso-go` (embedded libSQL) because:
+  - `sqlite-vec` uses standard SQLite vector search syntax (though currently evolving).
+  - It allows us to use the mature `mattn/go-sqlite3` driver ecosystem.
+  - While it requires CGO (`CGO_ENABLED=1`) and C build tools in the Docker image, it avoids the dependency on the beta status and cleaner but less flexible embedded libSQL binary approach.
 - **Schema**:
-  - `embedding` (F32_BLOB): 768-dimensional float32 blob `F32_BLOB(768)`.
-- **Query Syntax**:
-  - Uses `vector_distance_cos(embedding, vector32(?))` for similarity search.
-  - Requires specific handling of vector params (passed as JSON string literals) due to driver limitations.
-  - Note that this does not use the same query syntax as Postgres.
-- **Indexing**:
-  - Uses brute-force scan for small datasets (highly efficient for <10k vectors).
-  - Supports `libsql_vector_idx` for ANN search at larger scales (though currently using direct scan for simplicity) -- there are some issues when trying to use this
+  - Uses a virtual table `memory_vec` (`vec0`) for storing vectors (`float[768]`).
+  - Metadata is stored in a standard `memory` table, linked by `rowid`.
+- **Querying**:
+  - Uses `vec_distance_cosine(embedding, ?)` for cosine similarity searches.
+  - Requires `CGO_ENABLED=1` and `libsqlite3-dev` in the build environment.
 
 [Turso's AI and Embedding documentation can be found here](https://docs.turso.tech/features/ai-and-embeddings)
+[This is the SQLite vec extension codebase](https://github.com/asg017/sqlite-vec)
+[And the docs for its Go driver (CGO-based)](https://alexgarcia.xyz/sqlite-vec/go.html)
 
 ### 2. Kagent Controller (Go)
 

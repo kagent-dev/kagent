@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
@@ -658,6 +659,44 @@ func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowSta
 // AgentMemory methods
 
 func (c *clientImpl) StoreAgentMemory(memory *Memory) error {
+	if c.db.Name() == "sqlite" {
+		// For SQLite with sqlite-vec, we need to insert into two tables:
+		// 1. memory table for metadata
+		// 2. memory_vec virtual table for the embedding
+		return c.db.Transaction(func(tx *gorm.DB) error {
+			// Insert into memory table (without embedding)
+			memorySQL := `
+				INSERT INTO memory (id, agent_name, user_id, content, metadata, created_at, expires_at, access_count)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`
+			if err := tx.Exec(memorySQL,
+				memory.ID, memory.AgentName, memory.UserID, memory.Content,
+				memory.Metadata, memory.CreatedAt, memory.ExpiresAt, memory.AccessCount,
+			).Error; err != nil {
+				return fmt.Errorf("failed to insert memory metadata: %w", err)
+			}
+
+			// Get the rowid of the inserted row (last_insert_rowid())
+			var rowid int64
+			if err := tx.Raw("SELECT last_insert_rowid()").Scan(&rowid).Error; err != nil {
+				return fmt.Errorf("failed to get rowid: %w", err)
+			}
+
+			// Insert embedding into memory_vec with matching rowid
+			if memory.Embedding.Slice() != nil && len(memory.Embedding.Slice()) > 0 {
+				embeddingBytes, err := sqlite_vec.SerializeFloat32(memory.Embedding.Slice())
+				if err != nil {
+					return fmt.Errorf("failed to serialize embedding: %w", err)
+				}
+				vecSQL := `INSERT INTO memory_vec (rowid, embedding) VALUES (?, ?)`
+				if err := tx.Exec(vecSQL, rowid, embeddingBytes).Error; err != nil {
+					return fmt.Errorf("failed to insert memory embedding: %w", err)
+				}
+			}
+			return nil
+		})
+	}
+	// Postgres: use standard GORM save which handles pgvector
 	return save(c.db, memory)
 }
 
@@ -676,25 +715,26 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 	var results []AgentMemorySearchResult
 
 	if c.db.Name() == "sqlite" {
-		// libSQL/Turso syntax: vector_distance_cos(embedding, vector32('JSON_ARRAY'))
-		// We must use fmt.Sprintf to inline the JSON array because vector32() requires a string literal
-		// and parameter binding with ? fails with "unexpected token" errors
-		embeddingJSON, err := json.Marshal(embedding.Slice())
+		// sqlite-vec: use vec_distance_cosine function for cosine similarity
+		// We need to serialize the embedding to binary format using SerializeFloat32
+		embeddingBytes, err := sqlite_vec.SerializeFloat32(embedding.Slice())
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize embedding: %w", err)
 		}
 
-		// Safe formatting because we control the JSON string generation from float slice
-		query := fmt.Sprintf(`
-			SELECT id, agent_name, user_id, content, metadata, created_at, expires_at, access_count,
-			       1 - vector_distance_cos(embedding, vector32('%s')) as score
-			FROM memory
-			WHERE agent_name = ? AND user_id = ?
-			ORDER BY vector_distance_cos(embedding, vector32('%s')) ASC
+		// Join memory table with memory_vec virtual table
+		// Use vec_distance_cosine for cosine distance (0 = identical, 2 = opposite)
+		// Convert to similarity score: 1.0 - distance
+		query := `
+			SELECT m.id, m.agent_name, m.user_id, m.content, m.metadata, m.created_at, m.expires_at, m.access_count,
+			       (1.0 - vec_distance_cosine(v.embedding, ?)) as score
+			FROM memory m
+			INNER JOIN memory_vec v ON m.rowid = v.rowid
+			WHERE m.agent_name = ? AND m.user_id = ?
+			ORDER BY vec_distance_cosine(v.embedding, ?) ASC
 			LIMIT ?
-		`, string(embeddingJSON), string(embeddingJSON))
-
-		if err := c.db.Raw(query, agentName, userID, limit).Scan(&results).Error; err != nil {
+		`
+		if err := c.db.Raw(query, embeddingBytes, agentName, userID, embeddingBytes, limit).Scan(&results).Error; err != nil {
 			return nil, fmt.Errorf("failed to search agent memory (sqlite): %w", err)
 		}
 	} else {

@@ -1,16 +1,15 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 
-	"github.com/glebarez/sqlite"
-	_ "turso.tech/database/tursogo"
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	_ "github.com/mattn/go-sqlite3"
 
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -71,32 +70,31 @@ func NewManager(config *Config) (*Manager, error) {
 	switch config.DatabaseType {
 	case DatabaseTypeSqlite:
 		if config.SqliteConfig.VectorEnabled {
-			// Use Turso driver (libSQL with native vector support)
-			// Note: Turso/libSQL handles WAL mode and concurrency internally
-			sqlDB, sqlErr := sql.Open("turso", config.SqliteConfig.DatabasePath)
-			if sqlErr != nil {
-				return nil, fmt.Errorf("failed to open turso connection: %w", sqlErr)
-			}
-			// Limit connections to avoid SQLite locking issues
-			sqlDB.SetMaxOpenConns(1)
+			// Enable sqlite-vec extension for all CGO sqlite3 connections
+			sqlite_vec.Auto()
 
-			db, err = gorm.Open(sqlite.Dialector{Conn: sqlDB}, &gorm.Config{
-				Logger:         logger.Default.LogMode(logLevel),
-				TranslateError: true,
-			})
-		} else {
-			// Use Go sqlite driver (no vector support)
-			dsn := config.SqliteConfig.DatabasePath
-			if strings.Contains(dsn, "?") {
-				dsn += "&_loc=auto"
-			} else {
-				dsn += "?_loc=auto"
-			}
+			// Use CGO sqlite3 driver with vector support
+			// Format: file:path?mode=rwc&_journal_mode=WAL&_busy_timeout=5000
+			dsn := fmt.Sprintf("file:%s?mode=rwc&_journal_mode=WAL&_busy_timeout=5000", config.SqliteConfig.DatabasePath)
 			db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
 				Logger:         logger.Default.LogMode(logLevel),
 				TranslateError: true,
 			})
+		} else {
+			db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
+				Logger:         logger.Default.LogMode(logLevel),
+				TranslateError: true,
+			})
+
 		}
+		// limit max connection to avoid database is closed
+		if db != nil {
+			sqlDB, _ := db.DB()
+			if sqlDB != nil {
+				sqlDB.SetMaxOpenConns(1)
+			}
+		}
+
 	case DatabaseTypePostgres:
 		db, err = gorm.Open(postgres.Open(config.PostgresConfig.URL), &gorm.Config{
 			Logger:         logger.Default.LogMode(logLevel),
@@ -157,16 +155,16 @@ func (m *Manager) Initialize() error {
 	}
 
 	// DatabaseTypeSqlite check for Memory table
-	// libSQL uses F32_BLOB(N) for vector columns, not vector(N) like pgvector
-	// AutoMigrate doesn't work because GORM tries to use the pgvector type from struct tags
+	// sqlite-vec uses virtual tables with vec0 and float[N] type
+	// We create a regular table for metadata and a virtual table for vectors
 	if m.config.DatabaseType == DatabaseTypeSqlite && m.config.SqliteConfig.VectorEnabled {
+		// Create the main memory table without embedding column
 		createMemoryTableSQL := `
 			CREATE TABLE IF NOT EXISTS memory (
 				id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
 				agent_name TEXT,
 				user_id TEXT,
 				content TEXT,
-				embedding F32_BLOB(768),
 				metadata TEXT,
 				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 				expires_at DATETIME,
@@ -176,7 +174,19 @@ func (m *Manager) Initialize() error {
 		if err := m.db.Exec(createMemoryTableSQL).Error; err != nil {
 			return fmt.Errorf("failed to create memory table: %w", err)
 		}
-		// Create indexes
+
+		// Create the virtual table for vector embeddings (linked by rowid)
+		// sqlite-vec uses vec0 virtual table type with float[N] column type
+		createVecTableSQL := `
+			CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(
+				embedding float[768]
+			)
+		`
+		if err := m.db.Exec(createVecTableSQL).Error; err != nil {
+			return fmt.Errorf("failed to create memory_vec virtual table: %w", err)
+		}
+
+		// Create indexes on the main table
 		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_agent_name ON memory(agent_name)`)
 		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_user_id ON memory(user_id)`)
 		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_expires_at ON memory(expires_at)`)

@@ -1,13 +1,18 @@
 ### STAGE 1: base image
 ARG BASE_IMAGE_REGISTRY=docker.io
 ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS builder
+# Use golang image which includes gcc for CGO builds (required for sqlite-vec)
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
 ARG TARGETARCH
 ARG TARGETPLATFORM
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
 
 WORKDIR /workspace
+
+# Install C development headers for SQLite (required for sqlite-vec CGO build)
+RUN apt-get update && apt-get install -y libsqlite3-dev && rm -rf /var/lib/apt/lists/*
+
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
@@ -31,11 +36,11 @@ ARG LDFLAGS
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     --mount=type=cache,target=/root/.cache/go-build,rw        \
     echo "Building on $BUILDPLATFORM -> linux/$TARGETARCH" && \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o manager cmd/controller/main.go
+    CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o manager cmd/controller/main.go
 
 ### STAGE 2: final image
 # Use distroless/cc-debian12 which includes C/C++ runtime libraries
-# This is required for turso-go's purego library loading
+# Required for CGO-compiled sqlite-vec extension
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/cc-debian12:nonroot
 ARG TARGETPLATFORM

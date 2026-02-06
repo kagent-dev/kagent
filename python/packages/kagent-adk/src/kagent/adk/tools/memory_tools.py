@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
@@ -84,7 +84,7 @@ class LoadMemoryTool(BaseTool):
                 properties={
                     "query": types.Schema(
                         type=types.Type.STRING,
-                        description="The query to search memory for.",
+                        description="The query to search memory for. Use a sentence or phrase instead of a single word.",
                     ),
                 },
                 required=["query"],
