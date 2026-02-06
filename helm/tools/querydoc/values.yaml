@@ -20,6 +20,8 @@ tolerations: []
 
 nodeSelector: {}
 
+affinity: {}
+
 service:
   type: ClusterIP
   port: 8080
