@@ -90,6 +90,7 @@ def static(
         port=port,
         workers=workers,
         reload=reload,
+        log_level=os.getenv("UVICORN_LOG_LEVEL", "info"),
     )
 
 
@@ -204,6 +205,7 @@ def run(
         host=host,
         port=port,
         workers=workers,
+        log_level=os.getenv("UVICORN_LOG_LEVEL", "info"),
     )
 
 
