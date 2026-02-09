@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/controller/provider"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/internal/database"
@@ -45,6 +46,7 @@ type KagentReconciler interface {
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentProvider(ctx context.Context, req ctrl.Request) (ctrl.Result, error)
 	GetOwnedResourceTypes() []client.Object
 }
 
@@ -909,4 +911,195 @@ func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {
 		Name:        tool.ID,
 		Description: tool.Description,
 	}, nil
+}
+
+// ReconcileKagentProvider reconciles a Provider object
+func (a *kagentReconciler) ReconcileKagentProvider(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	p := &v1alpha2.Provider{}
+	if err := a.kube.Get(ctx, req.NamespacedName, p); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil // Deleted, cleanup done by OwnerReferences
+		}
+		return ctrl.Result{}, fmt.Errorf("failed to get provider %s: %w", req.NamespacedName, err)
+	}
+
+	// Validate and resolve secret
+	secret, secretHash, secretErr := a.validateProviderSecret(ctx, p)
+
+	// Discover models if needed
+	var models []string
+	var discoveryErr error
+	if a.shouldDiscoverModels(p) {
+		models, discoveryErr = a.discoverProviderModels(ctx, p, secret)
+	} else {
+		// Keep existing cached models
+		models = p.Status.DiscoveredModels
+	}
+
+	// Update status with results
+	return a.updateProviderStatus(ctx, p, secretErr, discoveryErr, models, secretHash)
+}
+
+// validateProviderSecret fetches the Secret and computes its hash
+func (a *kagentReconciler) validateProviderSecret(ctx context.Context, p *v1alpha2.Provider) (*corev1.Secret, string, error) {
+	if p.Spec.SecretRef.Name == "" {
+		return nil, "", fmt.Errorf("provider %s has no secret reference", p.Name)
+	}
+
+	secret := &corev1.Secret{}
+	namespacedName := types.NamespacedName{
+		Namespace: p.Namespace,
+		Name:      p.Spec.SecretRef.Name,
+	}
+
+	if err := a.kube.Get(ctx, namespacedName, secret); err != nil {
+		return nil, "", fmt.Errorf("failed to get secret %s: %w", p.Spec.SecretRef.Name, err)
+	}
+
+	// Check that the specified key exists
+	key := p.Spec.SecretRef.Key
+	if key == "" {
+		return nil, "", fmt.Errorf("provider %s has no secret key specified", p.Name)
+	}
+
+	if _, ok := secret.Data[key]; !ok {
+		return nil, "", fmt.Errorf("secret %s missing key %s", p.Spec.SecretRef.Name, key)
+	}
+
+	// Compute secret hash for change detection
+	secretHash := computeProviderSecretHash(secret, key)
+
+	return secret, secretHash, nil
+}
+
+// computeProviderSecretHash computes a hash of the secret data for change detection
+func computeProviderSecretHash(secret *corev1.Secret, key string) string {
+	hash := sha256.New()
+	hash.Write([]byte(secret.Namespace))
+	hash.Write([]byte(secret.Name))
+	hash.Write([]byte(key))
+	if data, ok := secret.Data[key]; ok {
+		hash.Write(data)
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// shouldDiscoverModels checks if model discovery is needed
+func (a *kagentReconciler) shouldDiscoverModels(p *v1alpha2.Provider) bool {
+	// 1. Force refresh via annotation (UI "Fetch Models" button)
+	if p.Annotations != nil && p.Annotations[v1alpha2.ProviderAnnotationForceDiscovery] == "true" {
+		return true
+	}
+
+	// 2. Initial discovery when Provider is first created
+	if p.Status.LastDiscoveryTime == nil {
+		return true
+	}
+
+	// No periodic discovery - only on-demand
+	return false
+}
+
+// discoverProviderModels calls the model discoverer to fetch models
+func (a *kagentReconciler) discoverProviderModels(ctx context.Context, p *v1alpha2.Provider, secret *corev1.Secret) ([]string, error) {
+	if secret == nil {
+		return nil, fmt.Errorf("cannot discover models: secret not available")
+	}
+
+	// Get API key from secret
+	apiKey, ok := secret.Data[p.Spec.SecretRef.Key]
+	if !ok || len(apiKey) == 0 {
+		return nil, fmt.Errorf("secret %s has empty value for key %s", p.Spec.SecretRef.Name, p.Spec.SecretRef.Key)
+	}
+
+	// Use the provider package's ModelDiscoverer
+	discoverer := provider.NewModelDiscoverer()
+	return discoverer.DiscoverModels(ctx, p.Spec.Type, p.Spec.Endpoint, string(apiKey))
+}
+
+// updateProviderStatus updates the Provider status based on reconciliation results
+func (a *kagentReconciler) updateProviderStatus(
+	ctx context.Context,
+	p *v1alpha2.Provider,
+	secretErr, discoveryErr error,
+	models []string,
+	secretHash string,
+) (ctrl.Result, error) {
+	// Update SecretResolved condition
+	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.ProviderConditionTypeSecretResolved,
+		Status:             conditionStatus(secretErr == nil),
+		Reason:             conditionReason(secretErr, "SecretResolved", "SecretNotFound"),
+		Message:            conditionMessage(secretErr, "Secret resolved successfully"),
+		ObservedGeneration: p.Generation,
+	})
+
+	// Update ModelsDiscovered condition
+	modelsDiscovered := discoveryErr == nil && len(models) > 0
+	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.ProviderConditionTypeModelsDiscovered,
+		Status:             conditionStatus(modelsDiscovered),
+		Reason:             conditionReason(discoveryErr, "ModelsDiscovered", "DiscoveryFailed"),
+		Message:            fmt.Sprintf("Discovered %d models", len(models)),
+		ObservedGeneration: p.Generation,
+	})
+
+	// Update Ready condition (overall health)
+	ready := secretErr == nil && modelsDiscovered
+	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.ProviderConditionTypeReady,
+		Status:             conditionStatus(ready),
+		Reason:             conditionReason(nil, "Ready", "NotReady"),
+		Message:            conditionMessage(nil, "Provider is ready"),
+		ObservedGeneration: p.Generation,
+	})
+
+	// Update status fields
+	p.Status.ObservedGeneration = p.Generation
+	p.Status.DiscoveredModels = models
+	p.Status.ModelCount = len(models)
+	p.Status.SecretHash = secretHash
+
+	if discoveryErr == nil && len(models) > 0 {
+		now := metav1.Now()
+		p.Status.LastDiscoveryTime = &now
+	}
+
+	// Clear force-discovery annotation if set
+	if p.Annotations != nil && p.Annotations[v1alpha2.ProviderAnnotationForceDiscovery] == "true" {
+		delete(p.Annotations, v1alpha2.ProviderAnnotationForceDiscovery)
+		if err := a.kube.Update(ctx, p); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to clear force-discovery annotation: %w", err)
+		}
+	}
+
+	// Update status subresource
+	if err := a.kube.Status().Update(ctx, p); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update provider status: %w", err)
+	}
+
+	// No periodic requeue - discovery only on-demand
+	return ctrl.Result{}, nil
+}
+
+// Helper functions for condition status
+func conditionStatus(isTrue bool) metav1.ConditionStatus {
+	if isTrue {
+		return metav1.ConditionTrue
+	}
+	return metav1.ConditionFalse
+}
+
+func conditionReason(err error, successReason, failureReason string) string {
+	if err == nil {
+		return successReason
+	}
+	return failureReason
+}
+
+func conditionMessage(err error, successMessage string) string {
+	if err != nil {
+		return err.Error()
+	}
+	return successMessage
 }

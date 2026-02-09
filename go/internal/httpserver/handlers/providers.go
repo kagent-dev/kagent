@@ -6,6 +6,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/controller/provider"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -13,11 +14,15 @@ import (
 // ProviderHandler handles provider requests
 type ProviderHandler struct {
 	*Base
+	providerManager *provider.Manager
 }
 
 // NewProviderHandler creates a new ProviderHandler
-func NewProviderHandler(base *Base) *ProviderHandler {
-	return &ProviderHandler{Base: base}
+func NewProviderHandler(base *Base, providerManager *provider.Manager) *ProviderHandler {
+	return &ProviderHandler{
+		Base:            base,
+		providerManager: providerManager,
+	}
 }
 
 // Helper function to get JSON keys specifically marked as required
@@ -133,5 +138,77 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 	}
 
 	data := api.NewResponse(providersResponse, "Successfully listed supported model providers", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleListConfiguredProviders returns the list of providers configured via Provider CRDs.
+// GET /api/providers/configured
+func (h *ProviderHandler) HandleListConfiguredProviders(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("provider-handler").WithValues("operation", "list-configured-providers")
+
+	log.Info("Listing configured providers")
+
+	if h.providerManager == nil {
+		log.Info("Provider manager not initialized")
+		data := api.NewResponse([]provider.ProviderResponse{}, "Provider discovery not enabled", false)
+		RespondWithJSON(w, http.StatusOK, data)
+		return
+	}
+
+	providers := h.providerManager.GetProviders()
+
+	// Transform to API response format (hide sensitive data like secretRef)
+	response := make([]provider.ProviderResponse, len(providers))
+	for i, p := range providers {
+		response[i] = provider.ProviderResponse{
+			Name:     p.Name,
+			Type:     string(p.Type),
+			Endpoint: p.Endpoint,
+		}
+	}
+
+	log.Info("Successfully listed configured providers", "count", len(response))
+	data := api.NewResponse(response, "Successfully listed configured providers", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleGetProviderModels discovers and returns available models for a specific provider.
+// GET /api/providers/configured/{name}/models?refresh=true
+func (h *ProviderHandler) HandleGetProviderModels(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("provider-handler").WithValues("operation", "get-provider-models")
+
+	providerName, err := GetPathParam(r, "name")
+	if err != nil {
+		log.Info("Missing provider name parameter")
+		RespondWithError(w, http.StatusBadRequest, "Provider name is required")
+		return
+	}
+
+	log = log.WithValues("provider", providerName)
+	log.Info("Getting models for provider")
+
+	if h.providerManager == nil {
+		log.Info("Provider manager not initialized")
+		RespondWithError(w, http.StatusServiceUnavailable, "Provider discovery not enabled")
+		return
+	}
+
+	// Check for refresh query parameter
+	forceRefresh := r.URL.Query().Get("refresh") == "true"
+
+	models, err := h.providerManager.GetModels(r.Context(), providerName, forceRefresh)
+	if err != nil {
+		log.Error(err, "Failed to get models for provider")
+		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response := provider.ModelsResponse{
+		Provider: providerName,
+		Models:   models,
+	}
+
+	log.Info("Successfully retrieved models for provider", "count", len(models))
+	data := api.NewResponse(response, "Successfully retrieved models", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
