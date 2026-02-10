@@ -35,6 +35,7 @@ data:
   {{- else if and (eq .Values.database.type "postgres") (not (eq .Values.database.postgres.url "")) }}
   POSTGRES_DATABASE_URL: {{ .Values.database.postgres.url | quote }}
   {{- end }}
+  DEFAULT_MCP_SERVER_TIMEOUT: {{ .Values.controller.defaultMCPServerTimeout | quote }}
   STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}

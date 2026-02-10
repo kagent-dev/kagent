@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/adk"
@@ -95,20 +96,36 @@ type AdkApiTranslator interface {
 
 type TranslatorPlugin = translator.TranslatorPlugin
 
-func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string) AdkApiTranslator {
+// DefaultMCPServerTimeout is the default timeout for MCP server connections
+// when no explicit timeout is configured on the RemoteMCPServer resource.
+//
+// MCP servers deployed via the MCPServer CRD use a sidecar gateway that
+// spawns a new stdio process (e.g. via uvx/npx) for each session. Process
+// startup typically takes 2-8 seconds depending on package cache state,
+// which exceeds the default 5-second timeout used by some ADK clients
+// (e.g. Python ADK StreamableHTTPConnectionParams). A 30-second default
+// provides sufficient headroom for cold starts while remaining responsive.
+const DefaultMCPServerTimeout = 30 * time.Second
+
+func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, defaultMCPServerTimeout time.Duration) AdkApiTranslator {
+	if defaultMCPServerTimeout <= 0 {
+		defaultMCPServerTimeout = DefaultMCPServerTimeout
+	}
 	return &adkApiTranslator{
-		kube:               kube,
-		defaultModelConfig: defaultModelConfig,
-		plugins:            plugins,
-		globalProxyURL:     globalProxyURL,
+		kube:                   kube,
+		defaultModelConfig:     defaultModelConfig,
+		plugins:                plugins,
+		globalProxyURL:         globalProxyURL,
+		defaultMCPServerTimeout: defaultMCPServerTimeout,
 	}
 }
 
 type adkApiTranslator struct {
-	kube               client.Client
-	defaultModelConfig types.NamespacedName
-	plugins            []TranslatorPlugin
-	globalProxyURL     string
+	kube                   client.Client
+	defaultModelConfig     types.NamespacedName
+	plugins                []TranslatorPlugin
+	globalProxyURL         string
+	defaultMCPServerTimeout time.Duration
 }
 
 const MAX_DEPTH = 10
@@ -1074,12 +1091,16 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, serv
 	}
 	if server.Spec.Timeout != nil {
 		params.Timeout = ptr.To(server.Spec.Timeout.Seconds())
+	} else {
+		params.Timeout = ptr.To(a.defaultMCPServerTimeout.Seconds())
 	}
 	if server.Spec.SseReadTimeout != nil {
 		params.SseReadTimeout = ptr.To(server.Spec.SseReadTimeout.Seconds())
 	}
 	if server.Spec.TerminateOnClose != nil {
 		params.TerminateOnClose = server.Spec.TerminateOnClose
+	} else {
+		params.TerminateOnClose = ptr.To(true)
 	}
 
 	return params, nil
@@ -1108,6 +1129,8 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1a
 	}
 	if server.Spec.Timeout != nil {
 		params.Timeout = ptr.To(server.Spec.Timeout.Seconds())
+	} else {
+		params.Timeout = ptr.To(a.defaultMCPServerTimeout.Seconds())
 	}
 	if server.Spec.SseReadTimeout != nil {
 		params.SseReadTimeout = ptr.To(server.Spec.SseReadTimeout.Seconds())

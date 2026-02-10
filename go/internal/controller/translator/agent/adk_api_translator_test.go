@@ -175,7 +175,7 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 				Name:      "test-model",
 			}
 
-			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", 0)
 
 			_, err := trans.TranslateAgent(context.Background(), tt.sourceAgent)
 
@@ -338,7 +338,7 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 				Name:      "test-model",
 			}
 
-			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", 0)
 
 			_, err := trans.TranslateAgent(context.Background(), tt.agent)
 
@@ -412,7 +412,7 @@ func Test_AdkApiTranslator_OllamaOptions(t *testing.T) {
 		Name:      modelName,
 	}
 
-	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", 0)
 
 	outputs, err := trans.TranslateAgent(context.Background(), agent)
 	require.NoError(t, err)
@@ -531,7 +531,7 @@ func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 				Name:      "test-model",
 			}
 
-			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", 0)
 
 			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
 			require.NoError(t, err)

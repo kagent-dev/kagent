@@ -99,6 +99,7 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				types.NamespacedName{Namespace: "test", Name: "default-model"},
 				nil,
 				"",
+				0,
 			)
 			reconciler := NewKagentReconciler(
 				translator,

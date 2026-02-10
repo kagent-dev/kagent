@@ -94,6 +94,7 @@ func TestMCPServerValidation_InvalidPort(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		0,
 	)
 
 	// TranslateAgent should fail with error about invalid port
@@ -179,6 +180,7 @@ func TestMCPServerValidation_ValidPort(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		0,
 	)
 
 	// TranslateAgent should succeed
@@ -249,6 +251,7 @@ func TestMCPServerValidation_NotFound(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		0,
 	)
 
 	// TranslateAgent should fail with not found error
@@ -310,6 +313,7 @@ func TestMCPServerValidation_NoMCPServerReference(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		0,
 	)
 
 	// TranslateAgent should fail with provider or tool server error
@@ -388,6 +392,7 @@ func TestMCPServerValidation_RemoteMCPServer(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		0,
 	)
 
 	// TranslateAgent should succeed - RemoteMCPServer doesn't have port validation
@@ -546,6 +551,7 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		0,
 	)
 
 	// TranslateAgent should fail because one of the MCPServers is invalid

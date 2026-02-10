@@ -113,15 +113,16 @@ type Config struct {
 	Proxy struct {
 		URL string
 	}
-	LeaderElection     bool
-	ProbeAddr          string
-	SecureMetrics      bool
-	EnableHTTP2        bool
-	DefaultModelConfig types.NamespacedName
-	HttpServerAddr     string
-	WatchNamespaces    string
-	A2ABaseUrl         string
-	Database           struct {
+	LeaderElection         bool
+	ProbeAddr              string
+	SecureMetrics          bool
+	EnableHTTP2            bool
+	DefaultModelConfig     types.NamespacedName
+	DefaultMCPServerTimeout time.Duration
+	HttpServerAddr         string
+	WatchNamespaces        string
+	A2ABaseUrl             string
+	Database               struct {
 		Type string
 		Path string
 		Url  string
@@ -163,6 +164,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
 
 	commandLine.StringVar(&cfg.Proxy.URL, "proxy-url", "", "Proxy URL for internally-built k8s URLs (e.g., http://proxy.kagent.svc.cluster.local:8080)")
+
+	commandLine.DurationVar(&cfg.DefaultMCPServerTimeout, "default-mcp-server-timeout", agent_translator.DefaultMCPServerTimeout, "Default timeout for MCP server connections when not explicitly configured on the RemoteMCPServer resource.")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
@@ -379,6 +382,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,
 		cfg.Proxy.URL,
+		cfg.DefaultMCPServerTimeout,
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
@@ -504,7 +508,8 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		DbClient:          dbClient,
 		Authorizer:        extensionCfg.Authorizer,
 		Authenticator:     extensionCfg.Authenticator,
-		ProxyURL:          cfg.Proxy.URL,
+		ProxyURL:                cfg.Proxy.URL,
+		DefaultMCPServerTimeout: cfg.DefaultMCPServerTimeout,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

@@ -72,6 +72,10 @@ controller:
     repository: kagent-dev/kagent/app
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+  # -- Default timeout for MCP server connections when not explicitly
+  # configured on the RemoteMCPServer resource. Parsed as a Go duration string.
+  # @default -- "30s"
+  defaultMCPServerTimeout: "30s"
   streaming: # Streaming buffer size for A2A communication
     maxBufSize: 1Mi # 1024 * 1024
     initialBufSize: 4Ki # 4 * 1024

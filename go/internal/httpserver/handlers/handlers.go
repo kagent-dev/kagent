@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -34,16 +36,18 @@ type Base struct {
 	DatabaseService    database.Client
 	Authorizer         auth.Authorizer // Interface for authorization checks
 	ProxyURL           string
+	DefaultMCPServerTimeout time.Duration
 }
 
 // NewHandlers creates a new Handlers instance with all handler components
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, defaultMCPServerTimeout time.Duration) *Handlers {
 	base := &Base{
-		KubeClient:         kubeClient,
-		DefaultModelConfig: defaultModelConfig,
-		DatabaseService:    dbService,
-		Authorizer:         authorizer,
-		ProxyURL:           proxyURL,
+		KubeClient:              kubeClient,
+		DefaultModelConfig:      defaultModelConfig,
+		DatabaseService:         dbService,
+		Authorizer:              authorizer,
+		ProxyURL:                proxyURL,
+		DefaultMCPServerTimeout: defaultMCPServerTimeout,
 	}
 
 	return &Handlers{

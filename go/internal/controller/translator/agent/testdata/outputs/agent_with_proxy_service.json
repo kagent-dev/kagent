@@ -25,6 +25,8 @@
           "headers": {
             "x-kagent-host": "toolserver.test"
           },
+          "terminate_on_close": true,
+          "timeout": 30,
           "url": "http://proxy.kagent.svc.cluster.local:8080/mcp"
         },
         "tools": [
@@ -69,7 +71,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_proxy_service\",\"description\":\"\",\"url\":\"http://agent-with-proxy-service.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"toolserver.test\"}},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"toolserver.test\"},\"timeout\":30,\"terminate_on_close\":true},\"tools\":[\"k8s_get_resources\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -138,7 +140,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "7719728343587482633"
+              "kagent.dev/config-hash": "15927293682275398747"
             },
             "labels": {
               "app": "kagent",

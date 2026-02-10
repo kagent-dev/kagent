@@ -116,6 +116,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
 			"http://proxy.kagent.svc.cluster.local:8080",
+			0,
 		)
 
 		result, err := translator.TranslateAgent(ctx, agent)
@@ -145,6 +146,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
 			"", // No proxy
+			0,
 		)
 
 		result, err := translator.TranslateAgent(ctx, agent)
@@ -246,6 +248,7 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		0,
 	)
 
 	result, err := translator.TranslateAgent(ctx, agent)
@@ -338,6 +341,7 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		0,
 	)
 
 	result, err := translator.TranslateAgent(ctx, agent)
@@ -435,6 +439,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		0,
 	)
 
 	result, err := translator.TranslateAgent(ctx, agent)
