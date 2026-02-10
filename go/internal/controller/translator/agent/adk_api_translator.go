@@ -112,19 +112,19 @@ func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.Namespaced
 		defaultMCPServerTimeout = DefaultMCPServerTimeout
 	}
 	return &adkApiTranslator{
-		kube:                   kube,
-		defaultModelConfig:     defaultModelConfig,
-		plugins:                plugins,
-		globalProxyURL:         globalProxyURL,
+		kube:                    kube,
+		defaultModelConfig:      defaultModelConfig,
+		plugins:                 plugins,
+		globalProxyURL:          globalProxyURL,
 		defaultMCPServerTimeout: defaultMCPServerTimeout,
 	}
 }
 
 type adkApiTranslator struct {
-	kube                   client.Client
-	defaultModelConfig     types.NamespacedName
-	plugins                []TranslatorPlugin
-	globalProxyURL         string
+	kube                    client.Client
+	defaultModelConfig      types.NamespacedName
+	plugins                 []TranslatorPlugin
+	globalProxyURL          string
 	defaultMCPServerTimeout time.Duration
 }
 

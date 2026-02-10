@@ -31,11 +31,11 @@ type Handlers struct {
 
 // Base holds common dependencies for all handlers
 type Base struct {
-	KubeClient         client.Client
-	DefaultModelConfig types.NamespacedName
-	DatabaseService    database.Client
-	Authorizer         auth.Authorizer // Interface for authorization checks
-	ProxyURL           string
+	KubeClient              client.Client
+	DefaultModelConfig      types.NamespacedName
+	DatabaseService         database.Client
+	Authorizer              auth.Authorizer // Interface for authorization checks
+	ProxyURL                string
 	DefaultMCPServerTimeout time.Duration
 }
 

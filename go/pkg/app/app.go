@@ -113,16 +113,16 @@ type Config struct {
 	Proxy struct {
 		URL string
 	}
-	LeaderElection         bool
-	ProbeAddr              string
-	SecureMetrics          bool
-	EnableHTTP2            bool
-	DefaultModelConfig     types.NamespacedName
+	LeaderElection          bool
+	ProbeAddr               string
+	SecureMetrics           bool
+	EnableHTTP2             bool
+	DefaultModelConfig      types.NamespacedName
 	DefaultMCPServerTimeout time.Duration
-	HttpServerAddr         string
-	WatchNamespaces        string
-	A2ABaseUrl             string
-	Database               struct {
+	HttpServerAddr          string
+	WatchNamespaces         string
+	A2ABaseUrl              string
+	Database                struct {
 		Type string
 		Path string
 		Url  string
@@ -499,15 +499,15 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:            router,
-		BindAddr:          cfg.HttpServerAddr,
-		KubeClient:        mgr.GetClient(),
-		A2AHandler:        a2aHandler,
-		MCPHandler:        mcpHandler,
-		WatchedNamespaces: watchNamespacesList,
-		DbClient:          dbClient,
-		Authorizer:        extensionCfg.Authorizer,
-		Authenticator:     extensionCfg.Authenticator,
+		Router:                  router,
+		BindAddr:                cfg.HttpServerAddr,
+		KubeClient:              mgr.GetClient(),
+		A2AHandler:              a2aHandler,
+		MCPHandler:              mcpHandler,
+		WatchedNamespaces:       watchNamespacesList,
+		DbClient:                dbClient,
+		Authorizer:              extensionCfg.Authorizer,
+		Authenticator:           extensionCfg.Authenticator,
 		ProxyURL:                cfg.Proxy.URL,
 		DefaultMCPServerTimeout: cfg.DefaultMCPServerTimeout,
 	})
